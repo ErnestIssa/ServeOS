@@ -10,7 +10,6 @@
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["node"],
     "baseUrl": ".",
     "paths": {
       "@serveos/types": ["packages/types/src/index.ts"],
