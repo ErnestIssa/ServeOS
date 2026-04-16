@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
+    "allowJs": false,
+    "checkJs": false,
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@serveos/types": ["packages/types/src/index.ts"],
+      "@serveos/utils": ["packages/utils/src/index.ts"],
+      "@serveos/ui": ["packages/ui/src/index.ts"]
+    }
+  },
+  "include": ["apps", "services", "core", "packages", "infra", "docs"]
+}
+
