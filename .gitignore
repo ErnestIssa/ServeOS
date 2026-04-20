@@ -23,3 +23,10 @@ pnpm-debug.log*
 Thumbs.db
 .vscode/
 
+# vitals
+vitals.md
+
+# cursor
+.cursor/
+
+.env.example

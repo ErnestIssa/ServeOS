@@ -1,0 +1,164 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  STAFF
+  CUSTOMER
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String?  @unique
+  phone     String?  @unique
+  password  String
+  role      Role
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships   Membership[]
+  customerOrders Order[] @relation("CustomerOrders")
+}
+
+model Restaurant {
+  id           String   @id @default(cuid())
+  name         String
+  openingHours String?  // later: structured JSON
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  memberships    Membership[]
+  menuCategories MenuCategory[]
+  orders         Order[]
+}
+
+model Membership {
+  id           String     @id @default(cuid())
+  userId       String
+  restaurantId String
+  role         Role
+  createdAt    DateTime   @default(now())
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, restaurantId])
+  @@index([restaurantId])
+}
+
+model MenuCategory {
+  id           String   @id @default(cuid())
+  restaurantId String
+  name         String
+  sortOrder    Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  items      MenuItem[]
+
+  @@index([restaurantId])
+}
+
+model MenuItem {
+  id          String   @id @default(cuid())
+  categoryId  String
+  name        String
+  description String?
+  priceCents  Int
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  category       MenuCategory    @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  modifierGroups ModifierGroup[]
+  orderLineItems OrderLineItem[]
+
+  @@index([categoryId])
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PREPARING
+  READY
+  COMPLETED
+  CANCELLED
+}
+
+model Order {
+  id             String      @id @default(cuid())
+  restaurantId   String
+  customerUserId String?
+  status         OrderStatus @default(PENDING)
+  subtotalCents  Int
+  taxCents       Int         @default(0)
+  totalCents     Int
+  note           String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  customer   User?      @relation("CustomerOrders", fields: [customerUserId], references: [id], onDelete: SetNull)
+  lines      OrderLineItem[]
+
+  @@index([restaurantId, createdAt])
+  @@index([customerUserId])
+}
+
+model OrderLineItem {
+  id                 String   @id @default(cuid())
+  orderId            String
+  menuItemId         String
+  nameSnapshot       String
+  quantity           Int
+  unitPriceCents     Int
+  selectedModifiers Json?
+  lineTotalCents     Int
+  createdAt          DateTime @default(now())
+
+  order    Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItem MenuItem @relation(fields: [menuItemId], references: [id])
+
+  @@index([orderId])
+}
+
+model ModifierGroup {
+  id         String   @id @default(cuid())
+  menuItemId String
+  name       String
+  minSelect  Int      @default(0)
+  maxSelect  Int      @default(1)
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  menuItem MenuItem         @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  options  ModifierOption[]
+
+  @@index([menuItemId])
+}
+
+model ModifierOption {
+  id              String   @id @default(cuid())
+  modifierGroupId String
+  name            String
+  priceDeltaCents Int      @default(0)
+  sortOrder       Int      @default(0)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  group ModifierGroup @relation(fields: [modifierGroupId], references: [id], onDelete: Cascade)
+
+  @@index([modifierGroupId])
+}
+

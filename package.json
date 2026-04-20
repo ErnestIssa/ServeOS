@@ -8,7 +8,16 @@
     "core/*",
     "packages/*"
   ],
+  "overrides": {
+    "react-native-worklets": "0.5.1"
+  },
+  "dependencies": {
+    "react-native-worklets": "0.5.1"
+  },
   "scripts": {
+    "build": "npm run build:backend",
+    "build:backend": "npm run build -w @serveos/api",
+    "start:backend": "npm run start -w @serveos/api",
     "dev": "turbo run dev --parallel",
     "dev:web-admin": "npm run dev -w @serveos/web-admin",
     "dev:customer-web": "npm run dev -w @serveos/customer-web",
@@ -16,6 +25,9 @@
     "dev:auth-service": "npm run dev -w @serveos/auth-service",
     "dev:restaurant-service": "npm run dev -w @serveos/restaurant-service",
     "dev:order-service": "npm run dev -w @serveos/order-service",
+    "dev:api": "npm run dev -w @serveos/api",
+    "dev:backend": "turbo run dev --parallel --filter=@serveos/api",
+    "dev:backend:legacy": "turbo run dev --parallel --filter=@serveos/api-gateway --filter=@serveos/auth-service --filter=@serveos/restaurant-service --filter=@serveos/order-service",
     "dev:payment-service": "npm run dev -w @serveos/payment-service",
     "dev:notification-service": "npm run dev -w @serveos/notification-service",
     "format": "prettier . --write",
@@ -26,6 +38,7 @@
     "@types/node": "^22.10.2",
     "eslint": "^9.18.0",
     "prettier": "^3.4.2",
+    "prisma": "^6.16.1",
     "turbo": "^2.5.6",
     "typescript": "^5.7.3"
   }

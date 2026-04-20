@@ -1,0 +1,17 @@
+{
+  "name": "@serveos/core-loading-native",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "peerDependencies": {
+    "expo-haptics": "*",
+    "react": "^19.0.0",
+    "react-native": "*",
+    "react-native-svg": "*"
+  }
+}
+

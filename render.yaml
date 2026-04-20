@@ -1,0 +1,23 @@
+# Render Blueprint — unified API (see docs/deploymentArchitecture.md).
+# Web admin + customer static sites: add separate `type: web` static services with
+# buildCommand `npm run build -w @serveos/web-admin` (or customer-web) and
+# env `VITE_API_URL` = this service URL.
+
+services:
+  - type: web
+    name: serveos-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: "3000"
+      # Set in Render dashboard (do not commit):
+      # DATABASE_URL, JWT_SECRET
+      # UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN (or KV_REST_API_*)

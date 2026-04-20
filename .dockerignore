@@ -1,0 +1,9 @@
+node_modules
+**/node_modules
+.git
+**/.expo
+**/.turbo
+**/dist
+**/.tmp*
+.cursor
+**/*.log

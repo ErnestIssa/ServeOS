@@ -1,0 +1,22 @@
+{
+  "name": "@serveos/core-ambient",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./themes": "./src/themes.ts",
+    "./package.json": "./package.json"
+  },
+  "peerDependencies": {
+    "framer-motion": ">=11",
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "devDependencies": {
+    "framer-motion": "^12.23.12",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  }
+}

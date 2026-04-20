@@ -1,6 +1,16 @@
 {
   "name": "@serveos/core-database",
   "version": "0.0.0",
-  "private": true
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "db:generate": "prisma generate --schema ./prisma/schema.prisma",
+    "db:migrate:dev": "prisma migrate dev --schema ./prisma/schema.prisma",
+    "db:push": "prisma db push --schema ./prisma/schema.prisma",
+    "db:studio": "prisma studio --schema ./prisma/schema.prisma"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.16.1"
+  }
 }
 

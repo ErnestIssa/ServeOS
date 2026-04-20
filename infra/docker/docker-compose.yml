@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: serveos-postgres
+    environment:
+      POSTGRES_DB: serveos
+      POSTGRES_USER: serveos
+      POSTGRES_PASSWORD: serveos
+    # Host port must not collide with other local Postgres tools (e.g. some PgAdmin builds use 5433).
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - serveos_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U serveos -d serveos"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: serveos-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - serveos_redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+
+volumes:
+  serveos_pg_data:
+  serveos_redis_data:
+

@@ -7,6 +7,7 @@
     "resolveJsonModule": true,
     "allowJs": false,
     "checkJs": false,
+    "jsx": "react-jsx",
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,
@@ -14,7 +15,15 @@
     "paths": {
       "@serveos/types": ["packages/types/src/index.ts"],
       "@serveos/utils": ["packages/utils/src/index.ts"],
-      "@serveos/ui": ["packages/ui/src/index.ts"]
+      "@serveos/ui": ["packages/ui/src/index.ts"],
+      "@serveos/core-loading": ["core/loading/src/index.ts"],
+      "@serveos/core-loading/*": ["core/loading/src/*"],
+      "@serveos/core-loading-native": ["core/loading-native/src/index.ts"],
+      "@serveos/core-loading-native/*": ["core/loading-native/src/*"],
+      "@serveos/core-theme": ["core/theme/src/index.ts"],
+      "@serveos/core-theme/*": ["core/theme/src/*"],
+      "@serveos/core-ambient": ["core/ambient/src/index.ts"],
+      "@serveos/core-ambient/*": ["core/ambient/src/*"]
     }
   },
   "include": ["apps", "services", "core", "packages", "infra", "docs"]
