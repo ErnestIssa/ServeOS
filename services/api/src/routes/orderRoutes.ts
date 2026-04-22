@@ -304,7 +304,7 @@ export async function registerOrderRoutes(
     const taxCents = 0;
     const totalCents = subtotalCents + taxCents;
 
-    const order = await prisma.$transaction(async (tx) => {
+    const order = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const o = await tx.order.create({
         data: {
           restaurantId: body.restaurantId,
@@ -320,7 +320,7 @@ export async function registerOrderRoutes(
               nameSnapshot: l.nameSnapshot,
               quantity: l.quantity,
               unitPriceCents: l.unitPriceCents,
-              selectedModifiers: l.selectedModifiers as unknown as Prisma.InputJsonValue,
+              selectedModifiers: l.selectedModifiers as unknown as any,
               lineTotalCents: l.lineTotalCents
             }))
           }
@@ -341,7 +341,7 @@ export async function registerOrderRoutes(
         subtotalCents: order.subtotalCents,
         taxCents: order.taxCents,
         totalCents: order.totalCents,
-        lines: order.lines.map((l) => ({
+        lines: order.lines.map((l: (typeof order.lines)[number]) => ({
           id: l.id,
           name: l.nameSnapshot,
           quantity: l.quantity,
@@ -362,13 +362,13 @@ export async function registerOrderRoutes(
     });
     return {
       ok: true,
-      orders: orders.map((o) => ({
+      orders: orders.map((o: (typeof orders)[number]) => ({
         id: o.id,
         status: o.status,
         totalCents: o.totalCents,
         customerUserId: o.customerUserId,
         createdAt: o.createdAt,
-        lines: o.lines.map((l) => ({
+        lines: o.lines.map((l: (typeof o.lines)[number]) => ({
           name: l.nameSnapshot,
           quantity: l.quantity,
           lineTotalCents: l.lineTotalCents
@@ -387,7 +387,7 @@ export async function registerOrderRoutes(
     });
     return {
       ok: true,
-      orders: orders.map((o) => ({
+      orders: orders.map((o: (typeof orders)[number]) => ({
         id: o.id,
         restaurant: o.restaurant,
         status: o.status,

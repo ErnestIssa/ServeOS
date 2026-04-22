@@ -32,5 +32,5 @@ export async function fetchMenuTree(
 
   if (!opts.onlyActive) return categories;
 
-  return categories.filter((c) => c.items.length > 0);
+  return categories.filter((c: (typeof categories)[number]) => c.items.length > 0);
 }
