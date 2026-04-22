@@ -38,7 +38,7 @@ export function LoadingScreen({ appReady }: LoadingScreenProps) {
 
   useEffect(() => {
     setShown(1);
-    setSweepKey((k) => k + 1);
+    setSweepKey((k: number) => k + 1);
 
     const timers: Array<ReturnType<typeof setTimeout>> = [];
 
@@ -80,7 +80,7 @@ export function LoadingScreen({ appReady }: LoadingScreenProps) {
                 layout
                 transition={{ duration: 0.28, ease: [0.2, 0.9, 0.2, 1] }}
               >
-                {visible.map((ch, idx) => {
+                {visible.map((ch: string, idx: number) => {
                   const isFirstS = idx === 0;
                   const isIconO = ch === "O";
 
