@@ -9,9 +9,12 @@
     "packages/*"
   ],
   "overrides": {
+    "esbuild": "0.27.2",
     "react-native-worklets": "0.5.1"
   },
   "dependencies": {
+    "@types/react": "19.1.17",
+    "@types/react-dom": "19.1.9",
     "react-native-worklets": "0.5.1"
   },
   "scripts": {
