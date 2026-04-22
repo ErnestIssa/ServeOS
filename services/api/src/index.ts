@@ -13,7 +13,7 @@ import { registerOrderRoutes } from "./routes/orderRoutes.js";
 
 const port = Number(process.env.PORT ?? process.env.API_GATEWAY_PORT ?? 3000);
 /** Render / Docker: set `HOST=0.0.0.0` so the service accepts external connections. */
-const host = process.env.HOST ?? "127.0.0.1";
+const host = process.env.HOST ?? "0.0.0.0";
 
 const app = Fastify({ logger: true });
 const prisma = new PrismaClient();
