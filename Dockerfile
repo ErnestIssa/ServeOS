@@ -7,7 +7,8 @@ COPY . .
 
 RUN npm ci
 
-RUN npx prisma generate --schema=core/database/prisma/schema.prisma
+# Bundles + generates Prisma client (prisma:generate is part of the api build)
+RUN npm run build:backend
 
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0

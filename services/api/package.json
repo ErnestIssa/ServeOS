@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "prisma:generate": "prisma generate --schema ../../core/database/prisma/schema.prisma",
-    "build": "esbuild src/index.ts --bundle --platform=node --format=cjs --target=node22 --outfile=dist/index.cjs --external:@prisma/client --external:@upstash/redis --external:bcrypt --external:jsonwebtoken",
+    "postinstall": "prisma generate --schema ../../core/database/prisma/schema.prisma",
+    "build": "npm run prisma:generate && esbuild src/index.ts --bundle --platform=node --format=cjs --target=node22 --outfile=dist/index.cjs --external:@prisma/client --external:@upstash/redis --external:bcrypt --external:jsonwebtoken",
     "start": "node dist/index.cjs",
     "start:backend": "node dist/index.cjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
@@ -22,12 +23,12 @@
     "fastify": "^5.3.3",
     "fastify-plugin": "^5.0.1",
     "jsonwebtoken": "^9.0.2",
+    "prisma": "^6.16.1",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",
     "@types/jsonwebtoken": "^9.0.10",
-    "prisma": "^6.16.1",
     "tsx": "^4.20.5",
     "typescript": "^5.7.3"
   }
