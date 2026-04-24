@@ -6,19 +6,52 @@ const fromEnv = import.meta.env.VITE_API_URL?.trim();
 const PROD_DEFAULT = "https://serveos-api.onrender.com";
 export const API_URL = fromEnv || (import.meta.env.DEV ? "" : PROD_DEFAULT);
 
+export function mapApiErrorToMessage(err?: string): string {
+  if (!err) return "Request failed";
+  if (err === "user_already_exists") return "That email is already registered — use Log in instead.";
+  if (err.startsWith("bad_response") || err.startsWith("non_json_") || err.startsWith("dev_proxy")) {
+    return import.meta.env.DEV
+      ? "Could not reach the API. Start the backend (npm run dev:backend) or set VITE_API_URL=https://serveos-api.onrender.com in .env"
+      : "Server error — check VITE_API_URL.";
+  }
+  return err;
+}
+
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const url = `${API_URL}${path}`;
   let res: Response;
   try {
-    res = await fetch(`${API_URL}${path}`, init);
+    res = await fetch(url, init);
   } catch {
     return { ok: false, error: "network_unreachable_is_backend_running" } as T;
   }
   const text = await res.text();
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    return { ok: false, error: "bad_response" } as T;
+  const type = (res.headers.get("content-type") ?? "").toLowerCase();
+  if (!type.includes("json") && res.status >= 400) {
+    return {
+      ok: false,
+      error: import.meta.env.DEV
+        ? `dev_proxy_error_${res.status} (is @serveos/api on :3000? Or set VITE_API_URL to Render URL)`
+        : `http_error_${res.status}`
+    } as T;
   }
+  let data: unknown;
+  try {
+    data = text ? (JSON.parse(text) as object) : {};
+  } catch {
+    return {
+      ok: false,
+      error: import.meta.env.DEV
+        ? `bad_response_http_${res.status} (start API on 3000 or set VITE_API_URL)`
+        : `bad_response_http_${res.status}`
+    } as T;
+  }
+  if (data && typeof data === "object") {
+    const o = data as Record<string, unknown> & { ok?: boolean; error?: string };
+    if (res.status === 409 && o.error === "user_already_exists") o.ok = false;
+    if ("ok" in o) return data as T;
+  }
+  return { ok: res.ok, ...((data as object) ?? {}) } as T;
 }
 
 export type OrderEventPayload = {

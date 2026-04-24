@@ -6,6 +6,7 @@ import {
   getPublicMenu,
   getPublicOrderTrack,
   loginCustomer,
+  mapApiErrorToMessage,
   orderEventsWebSocketUrl,
   placeOrder,
   signupCustomer,
@@ -78,7 +79,7 @@ export function App() {
     const res = await getPublicMenu(restaurantId.trim());
     if (!res.ok) {
       setMenu(null);
-      setStatus(res.error ?? "failed");
+      setStatus(mapApiErrorToMessage(res.error) ?? "failed");
       return;
     }
     setMenu(res);
@@ -149,7 +150,7 @@ export function App() {
       token: customerToken
     });
     if (!res.ok || !res.order) {
-      setStatus(res.error ?? "order_failed");
+      setStatus(mapApiErrorToMessage(res.error) ?? "order_failed");
       return;
     }
     setLastOrderId(res.order.id);
@@ -229,7 +230,7 @@ export function App() {
               className="rounded-xl bg-accent px-4 py-2 text-xs font-semibold text-white shadow-glow-blue hover:bg-[#2563EB]"
               onClick={async () => {
                 const res = await signupCustomer({ email: custEmail, password: custPassword });
-                if (!res.ok || !res.token) return setStatus(res.error ?? "signup_failed");
+                if (!res.ok || !res.token) return setStatus(mapApiErrorToMessage(res.error) ?? "signup_failed");
                 setCustomerToken(res.token);
                 setStatus("Signed up as customer");
               }}
@@ -241,7 +242,7 @@ export function App() {
               className="rounded-xl border border-slate-200/90 bg-white/80 px-4 py-2 text-xs font-semibold text-slate-900 hover:bg-white"
               onClick={async () => {
                 const res = await loginCustomer({ email: custEmail, password: custPassword });
-                if (!res.ok || !res.token) return setStatus(res.error ?? "login_failed");
+                if (!res.ok || !res.token) return setStatus(mapApiErrorToMessage(res.error) ?? "login_failed");
                 setCustomerToken(res.token);
                 setStatus("Logged in");
               }}

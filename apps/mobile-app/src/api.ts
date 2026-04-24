@@ -1,15 +1,31 @@
 /**
- * `EXPO_PUBLIC_API_URL` → your API (e.g. https://serveos-api.onrender.com or http://192.168.x.x:3000 for local).
- * If unset, production builds and physical devices use the hosted API so auth works out of the box.
+ * `EXPO_PUBLIC_API_URL` → unified API, e.g. `http://192.168.x.x:3000` (LAN) or
+ * `https://serveos-api.onrender.com` for production / EAS.
+ * Common typo `http//host` (missing colon) is fixed automatically.
+ *
+ * - **__DEV__** and env unset: `http://127.0.0.1:3000` (simulator / emulators; use EXPO on a real device).
+ * - **Release** and env unset: hosted API on Render.
  */
 const fromEnv = process.env.EXPO_PUBLIC_API_URL?.trim();
+
+function fixUrlScheme(s: string): string {
+  const t = s.trim();
+  if (/^https\/\//i.test(t)) return t.replace(/^https\/\//i, "https://");
+  if (/^http\/\//.test(t)) return t.replace(/^http\/\//, "http://");
+  if (/^https:\/(?!\/)/.test(t)) return t.replace(/^https:\//, "https://");
+  if (/^http:\/(?!\/)/.test(t)) return t.replace(/^http:\//, "http://");
+  return t;
+}
 
 function normalizeBase(u: string) {
   return u.replace(/\/$/, "");
 }
 
 export function getApiBaseUrl(): string {
-  if (fromEnv && fromEnv.length > 0) return normalizeBase(fromEnv);
+  if (fromEnv && fromEnv.length > 0) return normalizeBase(fixUrlScheme(fromEnv));
+  if (typeof __DEV__ !== "undefined" && __DEV__) {
+    return "http://127.0.0.1:3000";
+  }
   return "https://serveos-api.onrender.com";
 }
 
@@ -40,7 +56,10 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "request_failed";
     if (/network|failed to fetch|load failed|aborted|unable to resolve/i.test(msg) || msg === "Aborted") {
-      return { ok: false, error: "network_unreachable_check_expo_public_api_url" } as T;
+      return {
+        ok: false,
+        error: "network_unreachable — check EXPO_PUBLIC_API_URL (use http://192.168.x.x:3000 on a phone, fix http// typos) or that the API is running"
+      } as T;
     }
     return { ok: false, error: msg } as T;
   }
