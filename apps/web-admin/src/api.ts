@@ -1,14 +1,12 @@
 const fromEnv = import.meta.env.VITE_API_URL?.trim();
 const PROD_DEFAULT = "https://serveos-api.onrender.com";
-export const API_URL = fromEnv || (import.meta.env.DEV ? "" : PROD_DEFAULT);
+export const API_URL = fromEnv || PROD_DEFAULT;
 
 export function mapApiErrorToMessage(err?: string): string {
   if (!err) return "Request failed";
   if (err === "user_already_exists") return "That email is already registered — use Log in instead.";
-  if (err.startsWith("bad_response") || err.startsWith("non_json_")) {
-    return import.meta.env.DEV
-      ? "Could not reach the API. Start the backend (npm run dev:backend) or set VITE_API_URL to https://serveos-api.onrender.com in .env"
-      : "Server returned an error. Check VITE_API_URL and API health.";
+  if (err.startsWith("bad_response") || err.startsWith("non_json_") || err.startsWith("dev_proxy")) {
+    return "Could not reach the API. For local @serveos/api set VITE_API_URL=http://127.0.0.1:3000; default is the deployed Render API.";
   }
   return err;
 }

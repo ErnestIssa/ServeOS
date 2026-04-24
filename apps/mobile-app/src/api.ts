@@ -1,12 +1,10 @@
 /**
- * `EXPO_PUBLIC_API_URL` → unified API, e.g. `http://192.168.x.x:3000` (LAN) or
- * `https://serveos-api.onrender.com` for production / EAS.
- * Common typo `http//host` (missing colon) is fixed automatically.
- *
- * - **__DEV__** and env unset: `http://127.0.0.1:3000` (simulator / emulators; use EXPO on a real device).
- * - **Release** and env unset: hosted API on Render.
+ * `EXPO_PUBLIC_API_URL` overrides the API base (local LAN, etc.).
+ * If unset, defaults to the **deployed** API on Render (dev and release) so real data works without a local server.
+ * For local API only, set e.g. `EXPO_PUBLIC_API_URL=http://192.168.x.x:3000` in `.env` (use `http://` — typos like `http//` are auto-fixed).
  */
 const fromEnv = process.env.EXPO_PUBLIC_API_URL?.trim();
+const DEPLOYED_API = "https://serveos-api.onrender.com";
 
 function fixUrlScheme(s: string): string {
   const t = s.trim();
@@ -23,10 +21,7 @@ function normalizeBase(u: string) {
 
 export function getApiBaseUrl(): string {
   if (fromEnv && fromEnv.length > 0) return normalizeBase(fixUrlScheme(fromEnv));
-  if (typeof __DEV__ !== "undefined" && __DEV__) {
-    return "http://127.0.0.1:3000";
-  }
-  return "https://serveos-api.onrender.com";
+  return DEPLOYED_API;
 }
 
 export const API_URL = getApiBaseUrl();
@@ -58,7 +53,8 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     if (/network|failed to fetch|load failed|aborted|unable to resolve/i.test(msg) || msg === "Aborted") {
       return {
         ok: false,
-        error: "network_unreachable — check EXPO_PUBLIC_API_URL (use http://192.168.x.x:3000 on a phone, fix http// typos) or that the API is running"
+        error:
+          "Network error — check connection. Default API is the deployed host; for local only set EXPO_PUBLIC_API_URL (http://…)"
       } as T;
     }
     return { ok: false, error: msg } as T;

@@ -1,18 +1,16 @@
 /**
- * Dev default: same-origin + Vite proxy → API gateway (works with localhost/LAN hostnames).
- * Override with `VITE_API_URL` when the API is on another origin.
+ * Default: deployed API (works in `npm run dev` without a local server).
+ * Override with `VITE_API_URL` (e.g. `http://127.0.0.1:3000`) to use the Vite proxy + local @serveos/api.
  */
 const fromEnv = import.meta.env.VITE_API_URL?.trim();
 const PROD_DEFAULT = "https://serveos-api.onrender.com";
-export const API_URL = fromEnv || (import.meta.env.DEV ? "" : PROD_DEFAULT);
+export const API_URL = fromEnv || PROD_DEFAULT;
 
 export function mapApiErrorToMessage(err?: string): string {
   if (!err) return "Request failed";
   if (err === "user_already_exists") return "That email is already registered — use Log in instead.";
   if (err.startsWith("bad_response") || err.startsWith("non_json_") || err.startsWith("dev_proxy")) {
-    return import.meta.env.DEV
-      ? "Could not reach the API. Start the backend (npm run dev:backend) or set VITE_API_URL=https://serveos-api.onrender.com in .env"
-      : "Server error — check VITE_API_URL.";
+    return "Could not reach the API. If using a local server, set VITE_API_URL=http://127.0.0.1:3000 and run the backend; otherwise the default is the deployed API on Render.";
   }
   return err;
 }
