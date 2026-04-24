@@ -1,5 +1,6 @@
 const fromEnv = import.meta.env.VITE_API_URL?.trim();
-export const API_URL = fromEnv || (import.meta.env.DEV ? "" : "http://127.0.0.1:3000");
+const PROD_DEFAULT = "https://serveos-api.onrender.com";
+export const API_URL = fromEnv || (import.meta.env.DEV ? "" : PROD_DEFAULT);
 
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;

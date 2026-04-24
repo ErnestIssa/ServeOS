@@ -1,10 +1,10 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { StatusBar } from "expo-status-bar";
 import { ServeOSBrandScreenNative } from "@serveos/core-loading-native";
 import React from "react";
 import {
+  ActivityIndicator,
   Animated,
-  KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   StatusBar as RNStatusBar,
@@ -15,31 +15,21 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { ScrollMeshBackground } from "./src/ambient/ScrollMeshBackground";
+import { apiFetch, apiHttpToWsBase, authMe, API_URL } from "./src/api";
+import { AuthFlowScreen } from "./src/auth/AuthFlowScreen";
 import { contentBottomInset, FloatingGlassTabBar, type TabId } from "./src/shell/FloatingGlassTabBar";
 import { FloatingTopBar, FLOATING_TOP_BAR_HEIGHT } from "./src/shell/FloatingTopBar";
 import { R } from "./src/theme";
 
-function apiHttpToWsBase(u: string) {
-  const t = u.trim();
-  if (t.startsWith("https://")) return `wss://${t.slice(8)}`;
-  if (t.startsWith("http://")) return `ws://${t.slice(7)}`;
-  return `ws://${t}`;
-}
+const AUTH_TOKEN_KEY = "serveos.auth.jwt";
 
 export default function App() {
-  const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://127.0.0.1:3000";
   const insets = useSafeAreaInsets();
 
   const [showSplash, setShowSplash] = React.useState(true);
   const [appReady, setAppReady] = React.useState(false);
+  const [sessionReady, setSessionReady] = React.useState(false);
   const [tab, setTab] = React.useState<TabId>("home");
-
-  const [loginOpen, setLoginOpen] = React.useState(false);
-  const [signupOpen, setSignupOpen] = React.useState(false);
-
-  const [email, setEmail] = React.useState("");
-  const [password, setPassword] = React.useState("");
-  const [signupRole, setSignupRole] = React.useState<"OWNER" | "CUSTOMER" | "STAFF">("CUSTOMER");
 
   const [token, setToken] = React.useState<string | null>(null);
   const [userRole, setUserRole] = React.useState<string | null>(null);
@@ -89,37 +79,49 @@ export default function App() {
     }
   }, []);
 
-  async function call(path: string, init?: RequestInit) {
-    try {
-      const res = await fetch(`${API_URL}${path}`, init);
-      const text = await res.text();
-      try {
-        return JSON.parse(text) as any;
-      } catch {
-        return { ok: false, error: text ? "bad_response" : "empty_response" };
-      }
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "request_failed";
-      return {
-        ok: false,
-        error:
-          /network|failed to fetch|load failed/i.test(msg) || msg === "Aborted"
-            ? "network_error_check_expo_public_api_url"
-            : msg
-      };
-    }
-  }
-
   async function refreshRestaurants(t: string) {
-    const res = await call("/restaurants/restaurants", { headers: { Authorization: `Bearer ${t}` } });
+    const res = await apiFetch<{ ok: boolean; restaurants?: Array<{ id: string; name: string; role: string }>; error?: string }>(
+      "/restaurants/restaurants",
+      { headers: { Authorization: `Bearer ${t}` } }
+    );
     if (!res.ok) return setStatus(res.error ?? "failed_to_list_restaurants");
     setRestaurants(res.restaurants ?? []);
   }
 
+  React.useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
+        if (cancelled) return;
+        if (stored) {
+          const r = await authMe(stored);
+          if (r.ok && r.user) {
+            setToken(stored);
+            setUserRole(r.user.role);
+          } else {
+            await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
+          }
+        }
+      } finally {
+        if (!cancelled) setSessionReady(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (token) void refreshRestaurants(token);
+  }, [token]);
+
   async function loadPublicMenu() {
     if (!menuRid.trim()) return setStatus("Enter restaurant ID");
     setStatus("Loading…");
-    const res = await call(`/restaurants/public/menu/${encodeURIComponent(menuRid.trim())}`);
+    const res = await apiFetch<Record<string, unknown> & { ok?: boolean; error?: string }>(
+      `/restaurants/public/menu/${encodeURIComponent(menuRid.trim())}`
+    );
     if (!res.ok) {
       setMenuPreview(null);
       return setStatus(res.error ?? "menu_failed");
@@ -142,7 +144,7 @@ export default function App() {
     setStatus("Placing…");
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers.Authorization = `Bearer ${token}`;
-    const res = await call("/orders/place", {
+    const res = await apiFetch<Record<string, unknown> & { ok?: boolean; error?: string; order?: { id?: string } }>("/orders/place", {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -164,13 +166,15 @@ export default function App() {
 
   async function fetchTrack() {
     if (!trackId.trim()) return;
-    const res = await call(`/orders/public/${encodeURIComponent(trackId.trim())}`);
+    const res = await apiFetch<Record<string, unknown> & { ok?: boolean }>(`/orders/public/${encodeURIComponent(trackId.trim())}`);
     setTrackResult(res);
   }
 
   async function fetchMyOrders() {
     if (!token || userRole !== "CUSTOMER") return;
-    const res = await call("/orders/mine", { headers: { Authorization: `Bearer ${token}` } });
+    const res = await apiFetch<Record<string, unknown> & { ok?: boolean; orders?: unknown[] }>("/orders/mine", {
+      headers: { Authorization: `Bearer ${token}` }
+    });
     if (res.ok) setMyOrders(res.orders ?? []);
   }
 
@@ -227,48 +231,39 @@ export default function App() {
     return "Good evening";
   }
 
-  async function handleLogin() {
-    setStatus("…");
-    const res = await call("/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password })
-    });
-    if (!res.ok || !res.token) {
-      setStatus(res.error ?? "login_failed");
-      return;
-    }
-    setToken(res.token);
-    setUserRole(res.user?.role ?? null);
-    setLoginOpen(false);
-    setStatus("");
-    await refreshRestaurants(res.token);
-  }
-
-  async function handleSignup() {
-    setStatus("…");
-    const res = await call("/auth/signup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password, role: signupRole })
-    });
-    if (!res.ok || !res.token) {
-      setStatus(res.error ?? "signup_failed");
-      return;
-    }
-    setToken(res.token);
-    setUserRole(res.user?.role ?? null);
-    setSignupOpen(false);
-    setStatus("");
-    await refreshRestaurants(res.token);
-  }
-
   if (showSplash) {
     return (
       <>
         <SafeAreaView style={styles.splashOnly} edges={["top", "left", "right"]}>
           <ServeOSBrandScreenNative appReady={appReady} onDismiss={onSplashDismiss} />
         </SafeAreaView>
+        <StatusBar style="light" />
+      </>
+    );
+  }
+
+  if (!sessionReady) {
+    return (
+      <View style={styles.sessionLoading}>
+        <ActivityIndicator size="large" color="#FFFFFF" />
+        <Text style={styles.sessionHint}>Connecting…</Text>
+        <StatusBar style="light" />
+      </View>
+    );
+  }
+
+  if (!token) {
+    return (
+      <>
+        <AuthFlowScreen
+          onAuthed={async ({ token: t, user }) => {
+            await AsyncStorage.setItem(AUTH_TOKEN_KEY, t);
+            setToken(t);
+            setUserRole(user.role);
+            setStatus("");
+            await refreshRestaurants(t);
+          }}
+        />
         <StatusBar style="light" />
       </>
     );
@@ -335,18 +330,18 @@ export default function App() {
                 >
                   <Text style={styles.pillPrimaryText}>Order food</Text>
                 </Pressable>
-                <Pressable style={({ pressed }) => [styles.pillGhost, pressed && styles.pressed]} onPress={() => setLoginOpen(true)}>
-                  <Text style={styles.pillGhostText}>{token ? "Account" : "Sign in"}</Text>
+                <Pressable style={({ pressed }) => [styles.pillGhost, pressed && styles.pressed]} onPress={() => setTab("account")}>
+                  <Text style={styles.pillGhostText}>Account</Text>
                 </Pressable>
               </View>
             </View>
 
             <Text style={styles.sectionLabel}>Quick actions</Text>
             <View style={styles.tileRow}>
-              <Pressable style={({ pressed }) => [styles.cardShell, styles.tile, pressed && styles.pressed]} onPress={() => setSignupOpen(true)}>
+              <Pressable style={({ pressed }) => [styles.cardShell, styles.tile, pressed && styles.pressed]} onPress={() => setTab("account")}>
                 <Text style={styles.tileEmoji}>✦</Text>
-                <Text style={styles.tileTitle}>Create account</Text>
-                <Text style={styles.tileSub}>Owner, staff, or customer</Text>
+                <Text style={styles.tileTitle}>Venues</Text>
+                <Text style={styles.tileSub}>Manage your restaurants</Text>
               </Pressable>
               <Pressable style={({ pressed }) => [styles.cardShell, styles.tile, pressed && styles.pressed]} onPress={() => setTab("orders")}>
                 <Text style={styles.tileEmoji}>◎</Text>
@@ -543,7 +538,7 @@ export default function App() {
                 disabled={!token}
                 onPress={async () => {
                   if (!token) return;
-                  const res = await call("/restaurants/restaurants", {
+                  const res = await apiFetch<Record<string, unknown> & { ok?: boolean; error?: string }>("/restaurants/restaurants", {
                     method: "POST",
                     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
                     body: JSON.stringify({ name: restaurantName })
@@ -569,89 +564,32 @@ export default function App() {
             <View style={[styles.cardShell, styles.fieldCard]}>
               <Text style={styles.inputLabel}>API</Text>
               <Text style={styles.mono}>{API_URL}</Text>
-              {token ? (
-                <Pressable
-                  style={({ pressed }) => [styles.pillGhost, styles.mtSm, pressed && styles.pressed]}
-                  onPress={() => {
-                    setToken(null);
-                    setUserRole(null);
-                    setRestaurants([]);
-                    setMyOrders([]);
-                  }}
-                >
-                  <Text style={styles.pillGhostText}>Sign out</Text>
-                </Pressable>
-              ) : (
-                <Pressable style={({ pressed }) => [styles.pillPrimary, styles.mtSm, pressed && styles.pressed]} onPress={() => setLoginOpen(true)}>
-                  <Text style={styles.pillPrimaryText}>Sign in</Text>
-                </Pressable>
-              )}
+              <Pressable
+                style={({ pressed }) => [styles.pillGhost, styles.mtSm, pressed && styles.pressed]}
+                onPress={async () => {
+                  await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
+                  setToken(null);
+                  setUserRole(null);
+                  setRestaurants([]);
+                  setMyOrders([]);
+                }}
+              >
+                <Text style={styles.pillGhostText}>Sign out</Text>
+              </Pressable>
             </View>
           </Animated.ScrollView>
         )}
       </View>
 
       <FloatingGlassTabBar tab={tab} onChange={setTab} insets={insets} />
-
-      <Modal visible={loginOpen} animationType="slide" transparent onRequestClose={() => setLoginOpen(false)}>
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalOverlay}>
-          <Pressable style={styles.modalBackdrop} onPress={() => setLoginOpen(false)} />
-          <View style={[styles.modalSheet, { paddingBottom: Math.max(insets.bottom, R.space.lg) }]}>
-            <View style={styles.modalGrab} />
-            <Text style={styles.modalTitle}>Sign in</Text>
-            <Text style={styles.modalSub}>Use your ServeOS email and password.</Text>
-            <Text style={styles.inputLabel}>Email</Text>
-            <TextInput value={email} onChangeText={setEmail} style={styles.input} placeholder="you@email.com" placeholderTextColor={R.textMuted} autoCapitalize="none" keyboardType="email-address" />
-            <Text style={styles.inputLabel}>Password</Text>
-            <TextInput value={password} onChangeText={setPassword} style={styles.input} placeholder="••••••••" placeholderTextColor={R.textMuted} secureTextEntry />
-            <Pressable style={({ pressed }) => [styles.pillPrimary, styles.mtSm, pressed && styles.pressed]} onPress={() => void handleLogin()}>
-              <Text style={styles.pillPrimaryText}>Continue</Text>
-            </Pressable>
-            <Pressable style={styles.modalLink} onPress={() => { setLoginOpen(false); setSignupOpen(true); }}>
-              <Text style={styles.modalLinkText}>Need an account? Create one</Text>
-            </Pressable>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-
-      <Modal visible={signupOpen} animationType="slide" transparent onRequestClose={() => setSignupOpen(false)}>
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalOverlay}>
-          <Pressable style={styles.modalBackdrop} onPress={() => setSignupOpen(false)} />
-          <View style={[styles.modalSheet, { maxHeight: "88%", paddingBottom: Math.max(insets.bottom, R.space.lg) }]}>
-            <View style={styles.modalGrab} />
-            <Text style={styles.modalTitle}>Create account</Text>
-            <Text style={styles.modalSub}>Choose how you’ll use ServeOS.</Text>
-            <Text style={styles.inputLabel}>Role</Text>
-            <View style={styles.segment}>
-              {(["CUSTOMER", "OWNER", "STAFF"] as const).map((r) => (
-                <Pressable
-                  key={r}
-                  style={[styles.segmentChip, signupRole === r && styles.segmentChipOn]}
-                  onPress={() => setSignupRole(r)}
-                >
-                  <Text style={[styles.segmentText, signupRole === r && styles.segmentTextOn]}>{r}</Text>
-                </Pressable>
-              ))}
-            </View>
-            <Text style={styles.inputLabel}>Email</Text>
-            <TextInput value={email} onChangeText={setEmail} style={styles.input} placeholder="you@email.com" placeholderTextColor={R.textMuted} autoCapitalize="none" keyboardType="email-address" />
-            <Text style={styles.inputLabel}>Password (8+ characters)</Text>
-            <TextInput value={password} onChangeText={setPassword} style={styles.input} placeholder="••••••••" placeholderTextColor={R.textMuted} secureTextEntry />
-            <Pressable style={({ pressed }) => [styles.pillPrimary, styles.mtSm, pressed && styles.pressed]} onPress={() => void handleSignup()}>
-              <Text style={styles.pillPrimaryText}>Create account</Text>
-            </Pressable>
-            <Pressable style={styles.modalLink} onPress={() => { setSignupOpen(false); setLoginOpen(true); }}>
-              <Text style={styles.modalLinkText}>Already have an account? Sign in</Text>
-            </Pressable>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   splashOnly: { flex: 1, backgroundColor: "#8B5CF6" },
+  sessionLoading: { flex: 1, backgroundColor: "#8B5CF6", alignItems: "center", justifyContent: "center" },
+  sessionHint: { marginTop: 16, textAlign: "center", color: "rgba(255,255,255,0.88)", fontSize: 14, fontWeight: "600" },
   shell: { flex: 1, backgroundColor: "transparent" },
   main: { flex: 1, position: "relative" },
   scrollLayer: { flex: 1, zIndex: 1 },
@@ -812,31 +750,4 @@ const styles = StyleSheet.create({
   },
   mono: { fontSize: 11, color: R.textMuted, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
 
-  modalOverlay: { flex: 1, justifyContent: "flex-end" },
-  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(17,24,39,0.45)" },
-  modalSheet: {
-    backgroundColor: "rgba(255,255,255,0.96)",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: R.space.md,
-    paddingTop: R.space.xs
-  },
-  modalGrab: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: R.borderStrong, marginBottom: R.space.sm },
-  modalTitle: { fontSize: 22, fontWeight: "800", color: R.text },
-  modalSub: { fontSize: R.type.label, color: R.textSecondary, marginTop: 6, marginBottom: R.space.md },
-  modalLink: { marginTop: R.space.md, alignItems: "center", paddingVertical: 8 },
-  modalLinkText: { fontSize: R.type.label, color: R.accentBlue, fontWeight: "600" },
-
-  segment: { flexDirection: "row", gap: 8, marginBottom: R.space.sm, flexWrap: "wrap" },
-  segmentChip: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: R.radius.pill,
-    borderWidth: 1,
-    borderColor: R.border,
-    backgroundColor: R.bgElevated
-  },
-  segmentChipOn: { borderColor: R.accentPurple, backgroundColor: "rgba(245,243,255,0.95)" },
-  segmentText: { fontSize: 12, fontWeight: "600", color: R.textSecondary },
-  segmentTextOn: { color: R.accentPurple }
 });

@@ -11,6 +11,7 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@react-native-async-storage/async-storage": "^2.1.0",
     "@serveos/core-ambient": "0.0.0",
     "@serveos/core-loading": "0.0.0",
     "@serveos/core-loading-native": "0.0.0",

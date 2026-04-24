@@ -18,6 +18,7 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
+!apps/**/.env.example
 
 # OS / editor
 .DS_Store
@@ -29,5 +30,3 @@ vitals.md
 
 # cursor
 .cursor/
-
-.env.example
