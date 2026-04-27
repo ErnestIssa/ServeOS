@@ -29,6 +29,8 @@ export default function App() {
   const [showSplash, setShowSplash] = React.useState(true);
   const [appReady, setAppReady] = React.useState(false);
   const [sessionReady, setSessionReady] = React.useState(false);
+  const screenEnter = React.useRef(new Animated.Value(0)).current; // content enter opacity
+  const screenEnterY = React.useRef(new Animated.Value(18)).current;
   const [tab, setTab] = React.useState<TabId>("home");
 
   const [token, setToken] = React.useState<string | null>(null);
@@ -71,6 +73,17 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  React.useEffect(() => {
+    // Smooth transition whenever we (re)enter auth/main screens
+    if (showSplash || !sessionReady) return;
+    screenEnter.setValue(0);
+    screenEnterY.setValue(18);
+    Animated.parallel([
+      Animated.timing(screenEnter, { toValue: 1, duration: 520, useNativeDriver: true }),
+      Animated.timing(screenEnterY, { toValue: 0, duration: 620, useNativeDriver: true })
+    ]).start();
+  }, [showSplash, sessionReady, token, screenEnter, screenEnterY]);
 
   React.useEffect(() => {
     if (Platform.OS === "android") {
@@ -255,15 +268,17 @@ export default function App() {
   if (!token) {
     return (
       <>
-        <AuthFlowScreen
-          onAuthed={async ({ token: t, user }) => {
-            await AsyncStorage.setItem(AUTH_TOKEN_KEY, t);
-            setToken(t);
-            setUserRole(user.role);
-            setStatus("");
-            await refreshRestaurants(t);
-          }}
-        />
+        <Animated.View style={{ flex: 1, opacity: screenEnter, transform: [{ translateY: screenEnterY }] }}>
+          <AuthFlowScreen
+            onAuthed={async ({ token: t, user }) => {
+              await AsyncStorage.setItem(AUTH_TOKEN_KEY, t);
+              setToken(t);
+              setUserRole(user.role);
+              setStatus("");
+              await refreshRestaurants(t);
+            }}
+          />
+        </Animated.View>
         <StatusBar style="light" />
       </>
     );
@@ -289,7 +304,7 @@ export default function App() {
     "ServeOS";
 
   return (
-    <View style={styles.shell}>
+    <Animated.View style={[styles.shell, { opacity: screenEnter, transform: [{ translateY: screenEnterY }] }]}>
       {Platform.OS === "ios" ? <StatusBar style="dark" /> : null}
       {Platform.OS === "android" ? <RNStatusBar translucent backgroundColor="transparent" barStyle="dark-content" /> : null}
 
@@ -582,7 +597,7 @@ export default function App() {
       </View>
 
       <FloatingGlassTabBar tab={tab} onChange={setTab} insets={insets} />
-    </View>
+    </Animated.View>
   );
 }
 

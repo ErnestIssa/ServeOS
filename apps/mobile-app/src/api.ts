@@ -22,6 +22,24 @@ export type AuthUser = { id: string; email?: string | null; phone?: string | nul
 export type AuthResponse = { ok: boolean; token?: string; user?: AuthUser; error?: string };
 export type MeResponse = { ok: boolean; user?: AuthUser; error?: string };
 
+export type CompanyLookupResponse =
+  | {
+      success: true;
+      found: true;
+      data: {
+        companyName?: string;
+        address?: string;
+        postalCode?: string;
+        city?: string;
+        legalForm?: string;
+        status?: string;
+        vatNumber?: string;
+        source?: string;
+      };
+    }
+  | { success: true; found: false }
+  | { success: false; message: string };
+
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const base = getApiBaseUrl();
   try {
@@ -71,4 +89,12 @@ export async function authSignup(params: {
 
 export async function authMe(token: string): Promise<MeResponse> {
   return apiFetch<MeResponse>("/auth/me", { headers: { Authorization: `Bearer ${token}` } });
+}
+
+export async function lookupCompany(orgNumber: string): Promise<CompanyLookupResponse> {
+  return apiFetch<CompanyLookupResponse>("/api/business/lookup-company", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ orgNumber })
+  });
 }

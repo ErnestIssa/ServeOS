@@ -30,7 +30,7 @@
 * ✅ Product Details (modifiers, add-ons) — **Prio** *(read-only listing; cart flow next)*
 * ✅ Cart — **Prio**
 * ✅ Place Order — **Prio**
-* Order Status Tracking (real-time) — **Prio**
+* ✅ Order Status Tracking (real-time) — **Prio**
 * Payment (Stripe / Swish / Apple Pay) — **Prio**
 * Order Confirmation Screen — **Prio**
 * Order History — **Not Prio**
@@ -41,7 +41,7 @@
 
 # WEB ADMIN DASHBOARD (Control Center)
 
-* Admin Login / Auth — **Prio**
+* ✅ Admin Login / Auth — **Prio**
 * Main Dashboard (KPIs, charts) — **Prio**
 
 ---
@@ -140,7 +140,7 @@
 
 ### Advanced Services
 
-* Realtime Service (WebSockets) — **Prio**
+* ✅ Realtime Service (WebSockets) — **Prio**
 * Analytics Service — **Not Prio**
 * CRM Service — **Not Prio**
 * Billing Service (subscriptions) — **Prio**
@@ -159,7 +159,7 @@
 
 # REAL-TIME & EVENTS
 
-* Socket.io / WebSockets — **Prio**
+* ✅ Socket.io / WebSockets — **Prio**
 * Event queue (BullMQ / Redis queues) — **Prio**
 * Kafka (large scale) — **Not Prio**
 
@@ -185,14 +185,14 @@
 
 * JWT auth — **Prio**
 * OAuth (Google login) — **Not Prio**
-* Role-based access control — **Prio**
+* ✅ Role-based access control — **Prio**
 * Rate limiting — **Prio**
 
 ---
 
 # INFRASTRUCTURE / DEVOPS
 
-* Render / AWS (hosting) — **Prio**
+* ✅ Render / AWS (hosting) — **Prio**
 * ✅ Docker — **Prio**
 * Nginx (routing) — **Not Prio**
 * CI/CD (GitHub Actions) — **Not Prio (early)**
@@ -227,7 +227,7 @@
 
 # MONITORING & LOGGING
 
-* Logging (Winston / Pino) — **Prio**
+* ✅ Logging (Winston / Pino) — **Prio**
 * Error tracking (Sentry) — **Not Prio**
 * Analytics (PostHog / Mixpanel) — **Not Prio**
 

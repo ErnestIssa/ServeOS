@@ -1,7 +1,9 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022"],
+    "lib": [
+      "ES2022"
+    ],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "resolveJsonModule": true,
@@ -13,19 +15,48 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "@serveos/types": ["packages/types/src/index.ts"],
-      "@serveos/utils": ["packages/utils/src/index.ts"],
-      "@serveos/ui": ["packages/ui/src/index.ts"],
-      "@serveos/core-loading": ["core/loading/src/index.ts"],
-      "@serveos/core-loading/*": ["core/loading/src/*"],
-      "@serveos/core-loading-native": ["core/loading-native/src/index.ts"],
-      "@serveos/core-loading-native/*": ["core/loading-native/src/*"],
-      "@serveos/core-theme": ["core/theme/src/index.ts"],
-      "@serveos/core-theme/*": ["core/theme/src/*"],
-      "@serveos/core-ambient": ["core/ambient/src/index.ts"],
-      "@serveos/core-ambient/*": ["core/ambient/src/*"]
+      "@serveos/types": [
+        "packages/types/src/index.ts"
+      ],
+      "@serveos/utils": [
+        "packages/utils/src/index.ts"
+      ],
+      "@serveos/ui": [
+        "packages/ui/src/index.ts"
+      ],
+      "@serveos/core-loading": [
+        "core/loading/src/index.ts"
+      ],
+      "@serveos/core-loading/*": [
+        "core/loading/src/*"
+      ],
+      "@serveos/core-loading-native": [
+        "core/loading-native/src/index.ts"
+      ],
+      "@serveos/core-loading-native/*": [
+        "core/loading-native/src/*"
+      ],
+      "@serveos/core-theme": [
+        "core/theme/src/index.ts"
+      ],
+      "@serveos/core-theme/*": [
+        "core/theme/src/*"
+      ],
+      "@serveos/core-ambient": [
+        "core/ambient/src/index.ts"
+      ],
+      "@serveos/core-ambient/*": [
+        "core/ambient/src/*"
+      ]
     }
   },
-  "include": ["apps", "services", "core", "packages", "infra", "docs"]
+  "include": [
+    "apps",
+    "services",
+    "core",
+    "packages",
+    "infra",
+    "docs"
+  ],
+  "extends": "expo/tsconfig.base"
 }
-

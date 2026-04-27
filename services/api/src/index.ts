@@ -10,6 +10,7 @@ import { authPlugin } from "./plugins/auth.js";
 import { registerAuthRoutes } from "./routes/authRoutes.js";
 import { registerRestaurantRoutes } from "./routes/restaurantRoutes.js";
 import { registerOrderRoutes } from "./routes/orderRoutes.js";
+import { registerBusinessRoutes } from "./routes/businessRoutes.js";
 
 const port = Number(process.env.PORT ?? process.env.API_GATEWAY_PORT ?? 3000);
 /** Render / Docker: set `HOST=0.0.0.0` so the service accepts external connections. */
@@ -62,6 +63,7 @@ async function main() {
   registerAuthRoutes(app, prisma);
   registerRestaurantRoutes(app, prisma);
   await registerOrderRoutes(app, prisma, orderBus);
+  registerBusinessRoutes(app);
 
   await app.listen({ port, host });
 }
