@@ -1,22 +1,41 @@
-import { BlurView } from "expo-blur";
+import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
-import { Animated, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 
 export const FLOATING_TOP_BAR_HEIGHT = 56;
 const TOP_GAP = 10;
+/** Thin outer stroke for the floating nav capsule (bold violet). */
+const NAV_PURPLE_BORDER = "#7C3AED";
 
-type Props = {
-  topInset: number;
-  scrollY: Animated.Value;
-  leftLabel: string;
-  centerTitle: string;
-  notificationCount?: number;
-  onLeftPress?: () => void;
-  onSearch?: () => void;
-  onNotifications?: () => void;
-  onMenu?: () => void;
-};
+/** Matches current tab ambient page colors in a richer, capsule-friendly gradient. */
+export type NavPageGradient = { crest: string; deep: string };
+
+type Props =
+  | {
+      variant?: "default";
+      topInset: number;
+      scrollY: Animated.Value;
+      navGradient: NavPageGradient;
+      leftLabel: string;
+      centerTitle: string;
+      notificationCount?: number;
+      onLeftPress?: () => void;
+      onSearch?: () => void;
+      onNotifications?: () => void;
+      onMenu?: () => void;
+    }
+  | {
+      variant: "customer";
+      topInset: number;
+      scrollY: Animated.Value;
+      navGradient: NavPageGradient;
+      searchPlaceholder?: string;
+      searchValue: string;
+      onSearchChange: (text: string) => void;
+      onSearchSubmit?: () => void;
+      onMenu?: () => void;
+    };
 
 function IconSearch({ color }: { color: string }) {
   return (
@@ -51,9 +70,43 @@ function IconMenu({ color }: { color: string }) {
   );
 }
 
-export function FloatingTopBar({
-  topInset,
-  scrollY,
+type CustomerChromeProps = Extract<Props, { variant: "customer" }> & { iconColor: string };
+
+function CustomerTopBarChrome({
+  iconColor,
+  searchValue,
+  onSearchChange,
+  searchPlaceholder,
+  onSearchSubmit,
+  onMenu
+}: CustomerChromeProps) {
+  return (
+    <View style={[styles.row, styles.customerRow]}>
+      <View style={styles.searchFieldCustomer}>
+        <IconSearch color="rgba(15,23,42,0.4)" />
+        <TextInput
+          value={searchValue}
+          onChangeText={onSearchChange}
+          placeholder={searchPlaceholder ?? "Search"}
+          placeholderTextColor="rgba(15,23,42,0.42)"
+          style={styles.searchInputCustomer}
+          returnKeyType="search"
+          onSubmitEditing={onSearchSubmit}
+          accessibilityLabel="Search"
+          {...(Platform.OS === "ios" ? ({ clearButtonMode: "while-editing" as const } as const) : {})}
+        />
+      </View>
+      <Pressable onPress={onMenu} style={styles.iconBtn} hitSlop={12} accessibilityLabel="Menu">
+        <IconMenu color={iconColor} />
+      </Pressable>
+    </View>
+  );
+}
+
+type BusinessChromeProps = Exclude<Props, { variant: "customer" }> & { iconColor: string };
+
+function BusinessTopBarChrome({
+  iconColor,
   leftLabel,
   centerTitle,
   notificationCount = 0,
@@ -61,7 +114,57 @@ export function FloatingTopBar({
   onSearch,
   onNotifications,
   onMenu
-}: Props) {
+}: BusinessChromeProps) {
+  return (
+    <View style={styles.row}>
+      <Pressable onPress={onLeftPress} style={styles.left} hitSlop={10}>
+        <Text style={styles.leftText} numberOfLines={1}>
+          {leftLabel}
+        </Text>
+        <Text style={styles.chev}>▼</Text>
+      </Pressable>
+
+      <View style={styles.center} pointerEvents="none">
+        <Text style={styles.title} numberOfLines={1}>
+          {centerTitle}
+        </Text>
+      </View>
+
+      <View style={styles.right}>
+        <Pressable onPress={onSearch} style={styles.iconBtn} hitSlop={10} accessibilityLabel="Search">
+          <IconSearch color={iconColor} />
+        </Pressable>
+
+        <Pressable
+          onPress={onNotifications}
+          style={styles.iconBtn}
+          hitSlop={10}
+          accessibilityLabel="Notifications"
+        >
+          <IconBell color={iconColor} />
+          {notificationCount > 0 ? (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText} numberOfLines={1}>
+                {notificationCount > 99 ? "99+" : String(notificationCount)}
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.badgeDot} />
+          )}
+        </Pressable>
+
+        <Pressable onPress={onMenu} style={styles.iconBtn} hitSlop={10} accessibilityLabel="Menu">
+          <IconMenu color={iconColor} />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+export function FloatingTopBar(props: Props) {
+  const topInset = props.topInset;
+  const scrollY = props.scrollY;
+
   const hideY = scrollY.interpolate({
     inputRange: [0, 70],
     outputRange: [0, -(FLOATING_TOP_BAR_HEIGHT + TOP_GAP + topInset)],
@@ -88,58 +191,20 @@ export function FloatingTopBar({
       ]}
     >
       <View style={styles.outer}>
-        <BlurView
-          intensity={Platform.OS === "ios" ? 72 : Platform.OS === "android" ? 38 : 60}
-          tint={Platform.OS === "ios" ? "systemChromeMaterialDark" : "dark"}
-          blurReductionFactor={Platform.OS === "android" ? 3.2 : undefined}
-          style={styles.blur}
-          {...(Platform.OS === "android" ? ({ experimentalBlurMethod: "dimezisBlurView" } as const) : {})}
+        <LinearGradient
+          colors={[props.navGradient.crest, props.navGradient.deep]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.gradientShell}
         >
-          {Platform.OS === "android" ? <View style={styles.androidFallbackFill} /> : null}
+          <View style={styles.sheen} pointerEvents="none" />
 
-          <View style={styles.row}>
-            <Pressable onPress={onLeftPress} style={styles.left} hitSlop={10}>
-              <Text style={styles.leftText} numberOfLines={1}>
-                {leftLabel}
-              </Text>
-              <Text style={styles.chev}>▼</Text>
-            </Pressable>
-
-            <View style={styles.center} pointerEvents="none">
-              <Text style={styles.title} numberOfLines={1}>
-                {centerTitle}
-              </Text>
-            </View>
-
-            <View style={styles.right}>
-              <Pressable onPress={onSearch} style={styles.iconBtn} hitSlop={10} accessibilityLabel="Search">
-                <IconSearch color={iconColor} />
-              </Pressable>
-
-              <Pressable
-                onPress={onNotifications}
-                style={styles.iconBtn}
-                hitSlop={10}
-                accessibilityLabel="Notifications"
-              >
-                <IconBell color={iconColor} />
-                {notificationCount > 0 ? (
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText} numberOfLines={1}>
-                      {notificationCount > 99 ? "99+" : String(notificationCount)}
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={styles.badgeDot} />
-                )}
-              </Pressable>
-
-              <Pressable onPress={onMenu} style={styles.iconBtn} hitSlop={10} accessibilityLabel="Menu">
-                <IconMenu color={iconColor} />
-              </Pressable>
-            </View>
-          </View>
-        </BlurView>
+          {props.variant === "customer" ? (
+            <CustomerTopBarChrome iconColor={iconColor} {...props} />
+          ) : (
+            <BusinessTopBarChrome iconColor={iconColor} {...props} />
+          )}
+        </LinearGradient>
       </View>
     </Animated.View>
   );
@@ -169,16 +234,25 @@ const styles = StyleSheet.create({
       default: {}
     })
   },
-  blur: {
+  gradientShell: {
     minHeight: FLOATING_TOP_BAR_HEIGHT,
     borderRadius: 22,
     overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)"
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: NAV_PURPLE_BORDER,
+    ...Platform.select({
+      android: {
+        borderWidth: 1,
+        borderColor: NAV_PURPLE_BORDER
+      },
+      default: {}
+    })
   },
-  androidFallbackFill: {
+  sheen: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(15,23,42,0.72)"
+    borderRadius: 22,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22
   },
   row: {
     minHeight: FLOATING_TOP_BAR_HEIGHT,
@@ -257,6 +331,32 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: "rgba(255,255,255,0.26)"
+  },
+  customerRow: {
+    gap: 10,
+    paddingHorizontal: 10
+  },
+  /** Softer inset on bold nav gradient — airy, not saturated like the chrome. */
+  searchFieldCustomer: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.42)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.55)"
+  },
+  searchInputCustomer: {
+    flex: 1,
+    minWidth: 0,
+    paddingVertical: Platform.OS === "ios" ? 10 : 8,
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#0f172a"
   }
 });
 

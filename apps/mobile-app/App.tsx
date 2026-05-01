@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { StatusBar } from "expo-status-bar";
+import { nativeNavBoldGradient, type AmbientNativeTab } from "@serveos/core-ambient/themes";
 import { ServeOSBrandScreenNative } from "@serveos/core-loading-native";
 import React from "react";
 import {
@@ -7,6 +8,7 @@ import {
   Animated,
   Platform,
   Pressable,
+  ScrollView,
   StatusBar as RNStatusBar,
   StyleSheet,
   Text,
@@ -17,11 +19,18 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { ScrollMeshBackground } from "./src/ambient/ScrollMeshBackground";
 import { apiFetch, apiHttpToWsBase, authMe, API_URL, type AuthUser } from "./src/api";
 import { AuthFlowScreen } from "./src/auth/AuthFlowScreen";
+import { buildCustomerHomeHeader, customerDisplayName } from "./src/customer/customerHomeCopy";
+import {
+  getServeosDemoPublicMenu,
+  isServeosDemoMenuEnabled,
+  SERVEOS_DEMO_RESTAURANT_ID
+} from "./src/customer/demoPeakModeMenu";
 import { contentBottomInset, FloatingGlassTabBar, type TabId } from "./src/shell/FloatingGlassTabBar";
 import { FloatingTopBar, FLOATING_TOP_BAR_HEIGHT } from "./src/shell/FloatingTopBar";
 import { R } from "./src/theme";
 
 const AUTH_TOKEN_KEY = "serveos.auth.jwt";
+const CUSTOMER_VENUE_KEY = "serveos.customer.preferredRestaurantId";
 
 export default function App() {
   const insets = useSafeAreaInsets();
@@ -35,10 +44,12 @@ export default function App() {
 
   const [token, setToken] = React.useState<string | null>(null);
   const [userRole, setUserRole] = React.useState<string | null>(null);
+  const [sessionUser, setSessionUser] = React.useState<AuthUser | null>(null);
 
   const [restaurants, setRestaurants] = React.useState<Array<{ id: string; name: string; role: string; companyId?: string | null }>>([]);
   const [restaurantName, setRestaurantName] = React.useState("My Restaurant");
   const [status, setStatus] = React.useState("");
+  const [customerSearchQuery, setCustomerSearchQuery] = React.useState("");
 
   const [menuRid, setMenuRid] = React.useState("");
   const [menuPreview, setMenuPreview] = React.useState<any>(null);
@@ -48,6 +59,9 @@ export default function App() {
   const [trackId, setTrackId] = React.useState("");
   const [trackResult, setTrackResult] = React.useState<any>(null);
   const [myOrders, setMyOrders] = React.useState<any[]>([]);
+
+  const customerHomeScrollRef = React.useRef<ScrollView | null>(null);
+  const [customerMenuTopY, setCustomerMenuTopY] = React.useState(320);
 
   const scrollY = React.useRef(new Animated.Value(0)).current;
   const onScroll = React.useMemo(
@@ -124,6 +138,7 @@ export default function App() {
       throw new Error(ordersRes.error ?? "failed_to_fetch_orders");
     }
     setMyOrders(ordersRes.orders ?? []);
+    setSessionUser(me.user);
     return me.user;
   }, []);
 
@@ -155,6 +170,7 @@ export default function App() {
             if (!cancelled) {
               setToken(null);
               setUserRole(null);
+              setSessionUser(null);
               setRestaurants([]);
               setMyOrders([]);
             }
@@ -169,12 +185,42 @@ export default function App() {
     };
   }, [warmAuthenticatedSession]);
 
+  async function fetchPublicMenuForRestaurant(restaurantId: string) {
+    return apiFetch<Record<string, unknown> & { ok?: boolean; error?: string }>(
+      `/restaurants/public/menu/${encodeURIComponent(restaurantId.trim())}`
+    );
+  }
+
+  React.useEffect(() => {
+    if (!token || userRole !== "CUSTOMER" || isServeosDemoMenuEnabled()) return;
+    let cancelled = false;
+    void (async () => {
+      const rid = (await AsyncStorage.getItem(CUSTOMER_VENUE_KEY))?.trim();
+      if (!rid || cancelled) return;
+      setMenuRid(rid);
+      const res = await fetchPublicMenuForRestaurant(rid);
+      if (cancelled) return;
+      if (res.ok) {
+        setMenuPreview(res);
+        setCart([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, userRole]);
+
+  React.useEffect(() => {
+    if (!token || userRole !== "CUSTOMER" || !isServeosDemoMenuEnabled()) return;
+    setMenuRid(SERVEOS_DEMO_RESTAURANT_ID);
+    setMenuPreview(getServeosDemoPublicMenu());
+    setCart([]);
+  }, [token, userRole]);
+
   async function loadPublicMenu() {
     if (!menuRid.trim()) return setStatus("Enter restaurant ID");
     setStatus("Loading…");
-    const res = await apiFetch<Record<string, unknown> & { ok?: boolean; error?: string }>(
-      `/restaurants/public/menu/${encodeURIComponent(menuRid.trim())}`
-    );
+    const res = await fetchPublicMenuForRestaurant(menuRid.trim());
     if (!res.ok) {
       setMenuPreview(null);
       return setStatus(res.error ?? "menu_failed");
@@ -182,6 +228,9 @@ export default function App() {
     setMenuPreview(res);
     setCart([]);
     setStatus("");
+    if (userRole === "CUSTOMER" && menuRid.trim()) {
+      void AsyncStorage.setItem(CUSTOMER_VENUE_KEY, menuRid.trim());
+    }
   }
 
   function addFirstMenuItemToCart() {
@@ -277,6 +326,66 @@ export default function App() {
     return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(cents / 100);
   }
 
+  function menuListingContent() {
+    if (!menuPreview?.ok || !menuPreview.restaurant) return null;
+    return (
+      <>
+        <Text style={styles.menuVenue}>{menuPreview.restaurant.name}</Text>
+        {(menuPreview.categories ?? []).map((cat: any) => (
+          <View key={cat.id} style={styles.catBlock}>
+            <Text style={styles.catTitle}>{cat.name}</Text>
+            {(cat.items ?? []).map((item: any) => (
+              <View key={item.id} style={styles.menuRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.itemName}>{item.name}</Text>
+                  {item.description ? <Text style={styles.itemDesc}>{item.description}</Text> : null}
+                </View>
+                <Text style={styles.itemPrice}>{money(item.priceCents)}</Text>
+              </View>
+            ))}
+          </View>
+        ))}
+      </>
+    );
+  }
+
+  const customerHomeHeader = React.useMemo(() => {
+    const firstName = customerDisplayName(sessionUser?.signupProfile, sessionUser?.email ?? undefined);
+    const venueName =
+      menuPreview?.ok && menuPreview.restaurant?.name ? String(menuPreview.restaurant.name) : null;
+    return buildCustomerHomeHeader({
+      firstName,
+      restaurantName: venueName,
+      cartCount: cart.length
+    });
+  }, [sessionUser?.signupProfile, sessionUser?.email, menuPreview, cart.length]);
+
+  const customerScrollToMenu = React.useCallback(
+    (offsetExtra = 0) => {
+      customerHomeScrollRef.current?.scrollTo({
+        y: Math.max(0, customerMenuTopY - 16 + offsetExtra),
+        animated: true
+      });
+    },
+    [customerMenuTopY]
+  );
+
+  const customerStartOrdering = React.useCallback(() => {
+    if (menuPreview?.ok && menuPreview.restaurant) {
+      customerScrollToMenu(0);
+    } else {
+      setTab("account");
+    }
+  }, [menuPreview, customerScrollToMenu]);
+
+  const customerPopularPicks = React.useCallback(() => {
+    if (menuPreview?.ok && menuPreview.restaurant) {
+      customerScrollToMenu(96);
+    } else {
+      setTab("orders");
+    }
+  }, [menuPreview, customerScrollToMenu]);
+
   function greeting() {
     const h = new Date().getHours();
     if (h < 12) return "Good morning";
@@ -335,6 +444,8 @@ export default function App() {
     (restaurants[0]?.name ? String(restaurants[0]?.name) : null) ??
     "ServeOS";
 
+  const navGradient = nativeNavBoldGradient(tab as AmbientNativeTab);
+
   return (
     <Animated.View style={[styles.shell, { opacity: screenEnter, transform: [{ translateY: screenEnterY }] }]}>
       {Platform.OS === "ios" ? <StatusBar style="dark" /> : null}
@@ -342,62 +453,116 @@ export default function App() {
 
       <View style={styles.main}>
         <ScrollMeshBackground tab={tab} scrollY={scrollY} />
-        <FloatingTopBar
-          topInset={insets.top}
-          scrollY={scrollY}
-          leftLabel={leftLabel}
-          centerTitle={pageTitle}
-          notificationCount={0}
-          onLeftPress={() => setTab("account")}
-          onSearch={() => setStatus("search")}
-          onNotifications={() => setStatus("notifications")}
-          onMenu={() => setStatus("menu")}
-        />
+        {userRole === "CUSTOMER" ? (
+          <FloatingTopBar
+            variant="customer"
+            topInset={insets.top}
+            scrollY={scrollY}
+            navGradient={navGradient}
+            searchValue={customerSearchQuery}
+            onSearchChange={setCustomerSearchQuery}
+            searchPlaceholder="Search restaurants, dishes…"
+            onSearchSubmit={() => {
+              const q = customerSearchQuery.trim();
+              if (q) setStatus(`Searching: ${q}`);
+            }}
+            onMenu={() => setStatus("menu")}
+          />
+        ) : (
+          <FloatingTopBar
+            topInset={insets.top}
+            scrollY={scrollY}
+            navGradient={navGradient}
+            leftLabel={leftLabel}
+            centerTitle={pageTitle}
+            notificationCount={0}
+            onLeftPress={() => setTab("account")}
+            onSearch={() => setStatus("search")}
+            onNotifications={() => setStatus("notifications")}
+            onMenu={() => setStatus("menu")}
+          />
+        )}
         {tab === "home" && (
           <Animated.ScrollView
+            ref={userRole === "CUSTOMER" ? (customerHomeScrollRef as React.RefObject<any>) : undefined}
             style={styles.scrollLayer}
             onScroll={onScroll}
             scrollEventThrottle={16}
             contentContainerStyle={[styles.scrollPad, { paddingTop: scrollTopPad, paddingBottom: scrollBottom }]}
             showsVerticalScrollIndicator={false}
           >
-            <Text style={styles.heroGreeting}>{greeting()}</Text>
-            <Text style={styles.heroTitle}>ServeOS</Text>
-            <Text style={styles.heroSub}>Restaurant operating system — fast, minimal, in control.</Text>
+            {userRole === "CUSTOMER" ? (
+              <>
+                <Text style={styles.customerHeroGreeting}>{customerHomeHeader.greeting}</Text>
+                <Text style={styles.customerHeroSub}>{customerHomeHeader.sub}</Text>
+                <View style={styles.customerCtaColumn}>
+                  <Pressable style={({ pressed }) => [styles.pillPrimary, styles.customerPrimaryCta, pressed && styles.pressed]} onPress={customerStartOrdering}>
+                    <Text style={styles.pillPrimaryText}>{menuPreview?.ok && menuPreview.restaurant ? "Start ordering" : "Choose venue"}</Text>
+                  </Pressable>
+                  <Pressable
+                    style={({ pressed }) => [pressed && styles.pressed, { alignSelf: "center" }]}
+                    onPress={customerPopularPicks}
+                  >
+                    <Text style={styles.customerSecondaryCta}>{menuPreview?.ok && menuPreview.restaurant ? "Popular picks" : "Load menu in Orders"}</Text>
+                  </Pressable>
+                </View>
 
-            <View style={[styles.cardShell, styles.heroCard]}>
-              <View style={styles.heroAccent} />
-              <Text style={styles.cardLabel}>Overview</Text>
-              <Text style={styles.heroMetric}>{restaurants.length}</Text>
-              <Text style={styles.cardCaption}>venues linked to you</Text>
-              <View style={styles.heroActions}>
-                <Pressable
-                  style={({ pressed }) => [styles.pillPrimary, pressed && styles.pressed]}
-                  onPress={() => setTab("orders")}
-                >
-                  <Text style={styles.pillPrimaryText}>Order food</Text>
-                </Pressable>
-                <Pressable style={({ pressed }) => [styles.pillGhost, pressed && styles.pressed]} onPress={() => setTab("account")}>
-                  <Text style={styles.pillGhostText}>Account</Text>
-                </Pressable>
-              </View>
-            </View>
+                <Text style={[styles.sectionLabel, styles.mtSm]}>Menu</Text>
+                {menuPreview?.ok && menuPreview.restaurant ? (
+                  <View onLayout={(e) => setCustomerMenuTopY(e.nativeEvent.layout.y)}>
+                    <View style={[styles.cardShell, styles.menuCard]}>{menuListingContent()}</View>
+                  </View>
+                ) : (
+                  <View style={[styles.cardShell, styles.surfaceCard]}>
+                    <Text style={styles.cardBodyMuted}>
+                      Set your go-to venue in Account and we will load dishes here so ordering is one scroll away.
+                    </Text>
+                  </View>
+                )}
 
-            <Text style={styles.sectionLabel}>Quick actions</Text>
-            <View style={styles.tileRow}>
-              <Pressable style={({ pressed }) => [styles.cardShell, styles.tile, pressed && styles.pressed]} onPress={() => setTab("account")}>
-                <Text style={styles.tileEmoji}>✦</Text>
-                <Text style={styles.tileTitle}>Venues</Text>
-                <Text style={styles.tileSub}>Manage your restaurants</Text>
-              </Pressable>
-              <Pressable style={({ pressed }) => [styles.cardShell, styles.tile, pressed && styles.pressed]} onPress={() => setTab("orders")}>
-                <Text style={styles.tileEmoji}>◎</Text>
-                <Text style={styles.tileTitle}>Track order</Text>
-                <Text style={styles.tileSub}>Status without login</Text>
-              </Pressable>
-            </View>
+                {status ? <Text style={styles.banner}>{status}</Text> : null}
+              </>
+            ) : (
+              <>
+                <Text style={styles.heroGreeting}>{greeting()}</Text>
+                <Text style={styles.heroTitle}>ServeOS</Text>
+                <Text style={styles.heroSub}>Restaurant operating system — fast, minimal, in control.</Text>
 
-            {status ? <Text style={styles.banner}>{status}</Text> : null}
+                <View style={[styles.cardShell, styles.heroCard]}>
+                  <View style={styles.heroAccent} />
+                  <Text style={styles.cardLabel}>Overview</Text>
+                  <Text style={styles.heroMetric}>{restaurants.length}</Text>
+                  <Text style={styles.cardCaption}>venues linked to you</Text>
+                  <View style={styles.heroActions}>
+                    <Pressable
+                      style={({ pressed }) => [styles.pillPrimary, pressed && styles.pressed]}
+                      onPress={() => setTab("orders")}
+                    >
+                      <Text style={styles.pillPrimaryText}>Order food</Text>
+                    </Pressable>
+                    <Pressable style={({ pressed }) => [styles.pillGhost, pressed && styles.pressed]} onPress={() => setTab("account")}>
+                      <Text style={styles.pillGhostText}>Account</Text>
+                    </Pressable>
+                  </View>
+                </View>
+
+                <Text style={styles.sectionLabel}>Quick actions</Text>
+                <View style={styles.tileRow}>
+                  <Pressable style={({ pressed }) => [styles.cardShell, styles.tile, pressed && styles.pressed]} onPress={() => setTab("account")}>
+                    <Text style={styles.tileEmoji}>✦</Text>
+                    <Text style={styles.tileTitle}>Venues</Text>
+                    <Text style={styles.tileSub}>Manage your restaurants</Text>
+                  </Pressable>
+                  <Pressable style={({ pressed }) => [styles.cardShell, styles.tile, pressed && styles.pressed]} onPress={() => setTab("orders")}>
+                    <Text style={styles.tileEmoji}>◎</Text>
+                    <Text style={styles.tileTitle}>Track order</Text>
+                    <Text style={styles.tileSub}>Status without login</Text>
+                  </Pressable>
+                </View>
+
+                {status ? <Text style={styles.banner}>{status}</Text> : null}
+              </>
+            )}
           </Animated.ScrollView>
         )}
 
@@ -457,23 +622,7 @@ export default function App() {
             </View>
 
             {menuPreview?.ok && menuPreview.restaurant ? (
-              <View style={[styles.cardShell, styles.menuCard]}>
-                <Text style={styles.menuVenue}>{menuPreview.restaurant.name}</Text>
-                {(menuPreview.categories ?? []).map((cat: any) => (
-                  <View key={cat.id} style={styles.catBlock}>
-                    <Text style={styles.catTitle}>{cat.name}</Text>
-                    {(cat.items ?? []).map((item: any) => (
-                      <View key={item.id} style={styles.menuRow}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.itemName}>{item.name}</Text>
-                          {item.description ? <Text style={styles.itemDesc}>{item.description}</Text> : null}
-                        </View>
-                        <Text style={styles.itemPrice}>{money(item.priceCents)}</Text>
-                      </View>
-                    ))}
-                  </View>
-                ))}
-              </View>
+              <View style={[styles.cardShell, styles.menuCard]}>{menuListingContent()}</View>
             ) : null}
 
             <View style={[styles.cardShell, styles.fieldCard]}>
@@ -569,48 +718,82 @@ export default function App() {
             showsVerticalScrollIndicator={false}
           >
             <Text style={styles.pageTitle}>Account</Text>
-            <Text style={styles.pageSub}>Venues, session, and business tools.</Text>
+            <Text style={styles.pageSub}>
+              {userRole === "CUSTOMER" ? "Your go-to venue, session, and preferences." : "Venues, session, and business tools."}
+            </Text>
 
-            <View style={[styles.cardShell, styles.fieldCard]}>
-              <Text style={styles.inputLabel}>Add another venue (same company)</Text>
-              <TextInput
-                value={restaurantName}
-                onChangeText={setRestaurantName}
-                placeholder="Name"
-                placeholderTextColor={R.textMuted}
-                style={styles.input}
-              />
-              <Pressable
-                style={({ pressed }) => [styles.pillPrimary, styles.mtSm, pressed && styles.pressed, !token && styles.disabled]}
-                disabled={!token}
-                onPress={async () => {
-                  if (!token) return;
-                  const companyId = restaurants.map((r) => r.companyId).find((id) => typeof id === "string" && id.length > 0);
-                  const res = await apiFetch<Record<string, unknown> & { ok?: boolean; error?: string }>("/restaurants/restaurants", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                    body: JSON.stringify({
-                      name: restaurantName.trim(),
-                      ...(companyId ? { companyId } : {})
-                    })
-                  });
-                  if (!res.ok) return setStatus(res.error ?? "create_failed");
-                  await refreshRestaurants(token);
-                  setStatus("Venue created");
-                }}
-              >
-                <Text style={styles.pillPrimaryText}>Create venue</Text>
-              </Pressable>
-            </View>
-
-            <Text style={styles.sectionLabel}>Your venues</Text>
-            {restaurants.map((r) => (
-              <View key={r.id} style={[styles.cardShell, styles.venueCard]}>
-                <Text style={styles.itemName}>{r.name}</Text>
-                <Text style={styles.mono}>{r.id}</Text>
-                <Text style={styles.itemDesc}>Role: {r.role}</Text>
+            {userRole === "CUSTOMER" ? (
+              <View style={[styles.cardShell, styles.fieldCard]}>
+                <Text style={styles.sectionLabelSmall}>Your go-to venue</Text>
+                <Text style={styles.cardBodyMuted}>
+                  Paste the restaurant ID for the place you order from most. We will remember it on this device for your home
+                  menu.
+                </Text>
+                <Text style={[styles.inputLabel, styles.mtSm]}>Restaurant ID</Text>
+                <TextInput
+                  value={menuRid}
+                  onChangeText={setMenuRid}
+                  placeholder="Paste venue ID"
+                  placeholderTextColor={R.textMuted}
+                  style={styles.input}
+                  autoCapitalize="none"
+                />
+                <Pressable
+                  style={({ pressed }) => [styles.pillPrimary, styles.mtSm, pressed && styles.pressed]}
+                  onPress={async () => {
+                    const id = menuRid.trim();
+                    if (!id) return setStatus("Enter a restaurant ID");
+                    await AsyncStorage.setItem(CUSTOMER_VENUE_KEY, id);
+                    await loadPublicMenu();
+                  }}
+                >
+                  <Text style={styles.pillPrimaryText}>Save & load menu</Text>
+                </Pressable>
               </View>
-            ))}
+            ) : (
+              <>
+                <View style={[styles.cardShell, styles.fieldCard]}>
+                  <Text style={styles.inputLabel}>Add another venue (same company)</Text>
+                  <TextInput
+                    value={restaurantName}
+                    onChangeText={setRestaurantName}
+                    placeholder="Name"
+                    placeholderTextColor={R.textMuted}
+                    style={styles.input}
+                  />
+                  <Pressable
+                    style={({ pressed }) => [styles.pillPrimary, styles.mtSm, pressed && styles.pressed, !token && styles.disabled]}
+                    disabled={!token}
+                    onPress={async () => {
+                      if (!token) return;
+                      const companyId = restaurants.map((r) => r.companyId).find((x) => typeof x === "string" && x.length > 0);
+                      const res = await apiFetch<Record<string, unknown> & { ok?: boolean; error?: string }>("/restaurants/restaurants", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                        body: JSON.stringify({
+                          name: restaurantName.trim(),
+                          ...(companyId ? { companyId } : {})
+                        })
+                      });
+                      if (!res.ok) return setStatus(res.error ?? "create_failed");
+                      await refreshRestaurants(token);
+                      setStatus("Venue created");
+                    }}
+                  >
+                    <Text style={styles.pillPrimaryText}>Create venue</Text>
+                  </Pressable>
+                </View>
+
+                <Text style={styles.sectionLabel}>Your venues</Text>
+                {restaurants.map((r) => (
+                  <View key={r.id} style={[styles.cardShell, styles.venueCard]}>
+                    <Text style={styles.itemName}>{r.name}</Text>
+                    <Text style={styles.mono}>{r.id}</Text>
+                    <Text style={styles.itemDesc}>Role: {r.role}</Text>
+                  </View>
+                ))}
+              </>
+            )}
 
             <View style={[styles.cardShell, styles.fieldCard]}>
               <Text style={styles.inputLabel}>API</Text>
@@ -619,8 +802,10 @@ export default function App() {
                 style={({ pressed }) => [styles.pillGhost, styles.mtSm, pressed && styles.pressed]}
                 onPress={async () => {
                   await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
+                  await AsyncStorage.removeItem(CUSTOMER_VENUE_KEY);
                   setToken(null);
                   setUserRole(null);
+                  setSessionUser(null);
                   setRestaurants([]);
                   setMyOrders([]);
                 }}
@@ -645,6 +830,34 @@ const styles = StyleSheet.create({
   main: { flex: 1, position: "relative" },
   scrollLayer: { flex: 1, zIndex: 1 },
   scrollPad: { paddingHorizontal: R.space.sm },
+
+  customerHeroGreeting: {
+    fontSize: 26,
+    fontWeight: "800",
+    color: R.text,
+    letterSpacing: -0.35,
+    lineHeight: 32
+  },
+  customerHeroSub: {
+    fontSize: R.type.body,
+    color: R.textSecondary,
+    marginTop: R.space.sm,
+    lineHeight: 22,
+    fontWeight: "500"
+  },
+  customerCtaColumn: {
+    marginTop: R.space.md,
+    alignItems: "stretch",
+    gap: R.space.sm
+  },
+  customerPrimaryCta: { alignSelf: "stretch" },
+  customerSecondaryCta: {
+    textAlign: "center",
+    fontSize: R.type.label,
+    fontWeight: "700",
+    color: R.accentPurple,
+    paddingVertical: 8
+  },
 
   heroGreeting: { fontSize: R.type.label, color: R.textSecondary, fontWeight: "500" },
   heroTitle: { fontSize: R.type.hero, fontWeight: "800", color: R.text, letterSpacing: -0.5, marginTop: 4 },

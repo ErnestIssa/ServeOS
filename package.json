@@ -39,7 +39,8 @@
     "db:migrate:deploy": "prisma migrate deploy --schema core/database/prisma/schema.prisma",
     "db:migrate:status": "prisma migrate status --schema core/database/prisma/schema.prisma",
     "db:generate": "prisma generate --schema core/database/prisma/schema.prisma",
-    "db:studio": "prisma studio --schema core/database/prisma/schema.prisma"
+    "db:studio": "prisma studio --schema core/database/prisma/schema.prisma",
+    "db:seed": "npm run db:seed -w @serveos/core-database"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

@@ -61,3 +61,54 @@ export const ambientNativePalettes: Record<AmbientNativeTab, { top: string; bott
   messages: { top: "#F5F3FF", bottom: "#818CF8" },
   account: { top: "#F8FAFC", bottom: "#94A3B8" }
 };
+
+function normalizeHex(hex: string): string {
+  const h = hex.replace("#", "").trim();
+  if (h.length === 6) return h;
+  if (h.length === 3) {
+    return h
+      .split("")
+      .map((c) => c + c)
+      .join("");
+  }
+  return "000000";
+}
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const n = parseInt(normalizeHex(hex), 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  const c = (x: number) => Math.max(0, Math.min(255, Math.round(x)));
+  return `#${[c(r), c(g), c(b)]
+    .map((x) => x.toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+/**
+ * Saturated accent for floating nav — same hue DNA as {@link ambientNativePalettes} for `tab`,
+ * blended toward the page “bottom” color and deepened so it reads as a bold capsule over the gradient.
+ */
+export function nativeNavBoldGradient(tab: AmbientNativeTab): { crest: string; deep: string } {
+  const { top: pageTop, bottom: pageBottom } = ambientNativePalettes[tab];
+  const a = hexToRgb(pageTop);
+  const b = hexToRgb(pageBottom);
+  const wTop = 0.18;
+  const wBot = 0.82;
+  let rCh = a.r * wTop + b.r * wBot;
+  let gCh = a.g * wTop + b.g * wBot;
+  let bCh = a.b * wTop + b.b * wBot;
+
+  /** Stronger chroma push for a vivid nav capsule vs page wash. */
+  const mid = (rCh + gCh + bCh) / 3;
+  const saturate = 1.22;
+  rCh = mid + (rCh - mid) * saturate;
+  gCh = mid + (gCh - mid) * saturate;
+  bCh = mid + (bCh - mid) * saturate;
+
+  const crest = rgbToHex(rCh * 0.93, gCh * 0.93, bCh * 0.93);
+  const deep = rgbToHex(rCh * 0.68, gCh * 0.68, bCh * 0.68);
+
+  return { crest, deep };
+}
