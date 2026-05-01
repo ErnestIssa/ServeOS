@@ -16,4 +16,5 @@ ENV PORT=3000
 
 EXPOSE 3000
 
-CMD ["npm", "run", "start", "-w", "@serveos/api"]
+# Apply pending SQL migrations before serving (avoids Prisma/runtime errors when schema drifts from Neon).
+CMD ["sh", "-c", "npx prisma migrate deploy --schema core/database/prisma/schema.prisma && npm run start -w @serveos/api"]
