@@ -29,7 +29,7 @@ export function App() {
   const [email, setEmail] = useState("owner@example.com");
   const [password, setPassword] = useState("password123");
   const [token, setToken] = useState<string | null>(null);
-  const [restaurants, setRestaurants] = useState<Array<{ id: string; name: string; role: string }>>([]);
+  const [restaurants, setRestaurants] = useState<Array<{ id: string; name: string; role: string; companyId?: string | null }>>([]);
   const [restaurantName, setRestaurantName] = useState("My Restaurant");
   const [status, setStatus] = useState<string>("");
 
@@ -217,10 +217,11 @@ export function App() {
                 <button
                   className="rounded-xl bg-accent px-3 py-2 text-sm font-semibold text-white shadow-glow-blue hover:bg-[#2563EB]"
                   disabled={!token}
-                  onClick={async () => {
+                    onClick={async () => {
                     if (!token) return;
                     setStatus("Creating restaurant…");
-                    const res = await createRestaurant(token, { name: restaurantName });
+                    const companyId = restaurants.map((r) => r.companyId).find((id) => typeof id === "string" && id.length > 0);
+                    const res = await createRestaurant(token, { name: restaurantName, ...(companyId ? { companyId } : {}) });
                     if (!res.ok) return setStatus(res.error ?? "create_restaurant_failed");
                     setStatus("Restaurant created");
                     await refreshRestaurants(token);

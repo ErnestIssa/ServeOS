@@ -12,6 +12,33 @@ const USER_TOKEN_SELECT = {
 
 const SALT_ROUNDS = 10;
 
+function normalizeOrgNumber(raw: string): string {
+  const digits = raw.replace(/\D+/g, "");
+  if (digits.length > 0) return digits;
+  return raw.trim().toLowerCase();
+}
+
+/** Mobile business wizard final payload subset required to provision Company + first Restaurant */
+const businessSignupProvisionSchema = z
+  .object({
+    flow: z.literal("BUSINESS"),
+    orgNumber: z.string().min(1),
+    companyName: z.string().min(1),
+    venueTradingName: z.string().min(2),
+    businessType: z.enum(["Restaurant", "Cafe", "Bakery", "Other"]),
+    businessTypeOtherDescription: z.string().optional(),
+    establishmentLocation: z.string().min(2),
+    offeringsDescription: z.string().min(2)
+  })
+  .superRefine((d, ctx) => {
+    if (d.businessType === "Other" && !(d.businessTypeOtherDescription ?? "").trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["businessTypeOtherDescription"]
+      });
+    }
+  });
+
 export function registerAuthRoutes(app: FastifyInstance, prisma: PrismaClient) {
   const signupSchema = z.object({
     email: z.string().email().optional(),
@@ -49,6 +76,21 @@ export function registerAuthRoutes(app: FastifyInstance, prisma: PrismaClient) {
       role: body.role
     };
 
+    const reg = body.registrationProfile;
+    const needsBusinessBootstrap =
+      body.role === "OWNER" &&
+      reg &&
+      typeof reg === "object" &&
+      (reg as { flow?: unknown }).flow === "BUSINESS";
+    let businessProvision: z.infer<typeof businessSignupProvisionSchema> | null = null;
+    if (needsBusinessBootstrap) {
+      const parsed = businessSignupProvisionSchema.safeParse(reg);
+      if (!parsed.success) {
+        return reply.status(400).send({ ok: false, error: "invalid_registration_profile" });
+      }
+      businessProvision = parsed.data;
+    }
+
     let user;
     try {
       user = await prisma.user.create({
@@ -72,6 +114,40 @@ export function registerAuthRoutes(app: FastifyInstance, prisma: PrismaClient) {
           select: USER_TOKEN_SELECT
         });
       } else {
+        throw e;
+      }
+    }
+
+    if (businessProvision && user.role === "OWNER") {
+      const orgKey = normalizeOrgNumber(businessProvision.orgNumber);
+      try {
+        await prisma.$transaction(async (tx) => {
+          const company = await tx.company.upsert({
+            where: { orgNumberNormalized: orgKey },
+            create: { orgNumberNormalized: orgKey, legalName: businessProvision!.companyName.trim() },
+            update: { legalName: businessProvision!.companyName.trim() }
+          });
+          const otherDesc =
+            businessProvision!.businessType === "Other"
+              ? businessProvision!.businessTypeOtherDescription!.trim()
+              : null;
+          const restaurant = await tx.restaurant.create({
+            data: {
+              name: businessProvision!.venueTradingName.trim(),
+              companyId: company.id,
+              venueSubtype: businessProvision!.businessType,
+              venueSubtypeOther: otherDesc,
+              establishmentLocation: businessProvision!.establishmentLocation.trim(),
+              offeringsDescription: businessProvision!.offeringsDescription.trim()
+            },
+            select: { id: true }
+          });
+          await tx.membership.create({
+            data: { userId: user.id, restaurantId: restaurant.id, role: "OWNER" }
+          });
+        });
+      } catch (e) {
+        await prisma.user.delete({ where: { id: user.id } }).catch(() => undefined);
         throw e;
       }
     }

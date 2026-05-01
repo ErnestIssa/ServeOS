@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import jwt from "jsonwebtoken";
+import type { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { fetchMenuTree } from "../lib/menu.js";
@@ -74,30 +75,79 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
       where: { userId: user.sub },
       include: { restaurant: true }
     });
+    type RestaurantRow = { id: string; name: string; companyId: string | null };
     return {
       ok: true,
-      restaurants: memberships.map((m: (typeof memberships)[number]) => ({
-        id: m.restaurant.id,
-        name: m.restaurant.name,
-        role: m.role
-      }))
+      restaurants: memberships.map((m) => {
+        const r = m.restaurant as unknown as RestaurantRow;
+        return {
+          id: r.id,
+          name: r.name,
+          role: m.role,
+          companyId: r.companyId
+        };
+      })
     };
   });
 
   const createRestaurantSchema = z.object({
     name: z.string().min(2),
-    openingHours: z.string().optional()
+    openingHours: z.string().optional(),
+    companyId: z.string().min(1).optional()
   });
 
-  app.post("/restaurants/restaurants", async (req) => {
+  app.post("/restaurants/restaurants", async (req, reply) => {
     const user = requireUser(req);
+    if (user.role !== "OWNER") {
+      return reply.status(403).send({ ok: false, error: "owner_only" });
+    }
+
     const body = createRestaurantSchema.parse(req.body);
+
+    const ownerMemberships = await prisma.membership.findMany({
+      where: { userId: user.sub, role: "OWNER" },
+      select: { restaurantId: true }
+    });
+    if (ownerMemberships.length === 0) {
+      return reply
+        .status(403)
+        .send({ ok: false, error: "first_venue_requires_business_signup" });
+    }
+
+    type CompanyRef = { companyId: string | null };
+    const ownerRestaurantIds = [...new Set(ownerMemberships.map((m) => m.restaurantId))];
+    const ownerRestaurants = await prisma.restaurant.findMany({
+      where: { id: { in: ownerRestaurantIds } }
+    });
+    const companyIdsKnown = [
+      ...new Set(
+        (ownerRestaurants as unknown as CompanyRef[])
+          .map((r) => r.companyId)
+          .filter((id): id is string => typeof id === "string" && id.length > 0)
+      )
+    ];
+
+    let chosenCompanyId: string | null;
+
+    if (companyIdsKnown.length === 0) {
+      chosenCompanyId = body.companyId ?? null;
+    } else if (body.companyId) {
+      if (!companyIdsKnown.includes(body.companyId)) {
+        return reply.status(403).send({ ok: false, error: "company_not_allowed" });
+      }
+      chosenCompanyId = body.companyId;
+    } else if (companyIdsKnown.length === 1) {
+      chosenCompanyId = companyIdsKnown[0]!;
+    } else {
+      return reply.status(400).send({ ok: false, error: "company_id_required" });
+    }
 
     const restaurant = await prisma.restaurant.create({
       data: {
         name: body.name,
-        openingHours: body.openingHours
-      }
+        openingHours: body.openingHours ?? null,
+        companyId: chosenCompanyId
+      } as Prisma.RestaurantUncheckedCreateInput
     });
 
     await prisma.membership.create({

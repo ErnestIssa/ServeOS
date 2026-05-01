@@ -59,6 +59,26 @@ type Mode = "signin" | "signup";
 type Experience = "GUEST" | "BUSINESS";
 type WizardFlow = "GUEST" | "BUSINESS";
 
+/** Mapped to unified `Restaurant` row on the backend; distinguishes venue category in signup. */
+type EstablishmentBizType = "Restaurant" | "Cafe" | "Bakery" | "Other";
+
+const ESTABLISHMENT_TYPES: readonly EstablishmentBizType[] = ["Restaurant", "Cafe", "Bakery", "Other"];
+
+function establishmentKindLabel(kind: EstablishmentBizType): string {
+  switch (kind) {
+    case "Restaurant":
+      return "Restaurant";
+    case "Cafe":
+      return "Café";
+    case "Bakery":
+      return "Bakery";
+    case "Other":
+      return "Business";
+    default:
+      return "Business";
+  }
+}
+
 type Props = {
   onAuthed: (p: { token: string; user: AuthUser }) => void | Promise<void>;
 };
@@ -79,7 +99,9 @@ function readableAuthFailure(message: string): string {
     session_failed: "Could not verify your session. Try again.",
     failed_to_list_restaurants: "Could not load your venues. Try again.",
     failed_to_fetch_orders: "Could not load your orders. Try again.",
-    missing_token: "Session expired. Sign in again."
+    missing_token: "Session expired. Sign in again.",
+    invalid_registration_profile:
+      "Signup data was rejected. Complete all business steps and try again, or update the app."
   };
   const s = map[message];
   if (s) return s;
@@ -290,7 +312,11 @@ export function AuthFlowScreen({ onAuthed }: Props) {
   const [bizCountry, setBizCountry] = React.useState<AllowedCountry>("Sweden");
   const [bizCity, setBizCity] = React.useState("");
   const [bizAddress, setBizAddress] = React.useState("");
-  const [bizType, setBizType] = React.useState<"Restaurant" | "Cafe" | "Fast Food" | "Bakery" | "Ghost Kitchen" | "Other">("Restaurant");
+  const [bizType, setBizType] = React.useState<EstablishmentBizType>("Restaurant");
+  const [bizVenueTradingName, setBizVenueTradingName] = React.useState("");
+  const [bizTypeOtherDescribe, setBizTypeOtherDescribe] = React.useState("");
+  const [bizEstablishmentLocation, setBizEstablishmentLocation] = React.useState("");
+  const [bizOfferingsDescription, setBizOfferingsDescription] = React.useState("");
   const [bizLocations, setBizLocations] = React.useState("1");
   const [bizMonthlyOrders, setBizMonthlyOrders] = React.useState("");
   const [bizNeedBookings, setBizNeedBookings] = React.useState(true);
@@ -329,7 +355,11 @@ export function AuthFlowScreen({ onAuthed }: Props) {
     bizPassword2: new Animated.Value(0),
     bizOrgNumber: new Animated.Value(0),
     bizAcceptTerms: new Animated.Value(0),
-    bizAuthorized: new Animated.Value(0)
+    bizAuthorized: new Animated.Value(0),
+    bizVenueTradingName: new Animated.Value(0),
+    bizEstablishmentLocation: new Animated.Value(0),
+    bizOfferingsDescription: new Animated.Value(0),
+    bizTypeOtherDescribe: new Animated.Value(0)
   }).current;
 
   const wizShake = React.useRef<Record<string, Animated.Value>>({
@@ -354,13 +384,18 @@ export function AuthFlowScreen({ onAuthed }: Props) {
     bizPassword2: new Animated.Value(0),
     bizOrgNumber: new Animated.Value(0),
     bizAcceptTerms: new Animated.Value(0),
-    bizAuthorized: new Animated.Value(0)
+    bizAuthorized: new Animated.Value(0),
+    bizVenueTradingName: new Animated.Value(0),
+    bizEstablishmentLocation: new Animated.Value(0),
+    bizOfferingsDescription: new Animated.Value(0),
+    bizTypeOtherDescribe: new Animated.Value(0)
   }).current;
 
   const guestTotalSteps = 4;
   // Business steps:
-  // 0 org number (optional) → 1 identity → 2 details → 3 address → 4 operations → 5 security → 6 finish
-  const bizTotalSteps = 7;
+  // 0 org → 1 identity → 2 details → 3 registered address → 4 establishment category → 5 establishment profile
+  // → 6 operations → 7 security → 8 confirmation
+  const bizTotalSteps = 9;
   const totalSteps = wizardFlow === "BUSINESS" ? bizTotalSteps : guestTotalSteps;
   const progress = Math.max(0, Math.min(1, (wizardStep + 1) / totalSteps));
 
@@ -505,6 +540,11 @@ export function AuthFlowScreen({ onAuthed }: Props) {
       setBizCountry("Sweden");
       setBizCity("");
       setBizAddress("");
+      setBizType("Restaurant");
+      setBizVenueTradingName("");
+      setBizTypeOtherDescribe("");
+      setBizEstablishmentLocation("");
+      setBizOfferingsDescription("");
       setBizLocations("1");
       setBizMonthlyOrders("");
       setBizCurrentSystem("");
@@ -632,6 +672,11 @@ export function AuthFlowScreen({ onAuthed }: Props) {
           setBizAddress("");
           setBizCity("");
           setBizCountry("Sweden");
+          setBizType("Restaurant");
+          setBizVenueTradingName("");
+          setBizTypeOtherDescribe("");
+          setBizEstablishmentLocation("");
+          setBizOfferingsDescription("");
         }
         return next;
       });
@@ -695,7 +740,7 @@ export function AuthFlowScreen({ onAuthed }: Props) {
         b.missing.forEach(setWizFieldErrorOn);
         return;
       }
-    } else if (wizardStep >= 1 && wizardStep <= 5) {
+    } else if (wizardFlow === "BUSINESS" && wizardStep >= 1 && wizardStep <= 7) {
       const b = businessWizardStepValidation(wizardStep);
       if (b.missing.length > 0) {
         errorBuzz();
@@ -1088,6 +1133,35 @@ export function AuthFlowScreen({ onAuthed }: Props) {
       return { missing, msg };
     }
     if (stepIndex === 4) {
+      const allowed = (ESTABLISHMENT_TYPES as readonly string[]).includes(bizType);
+      if (!allowed) {
+        missing.push("bizType");
+        msg = "Choose establishment type";
+      }
+      return { missing, msg };
+    }
+    if (stepIndex === 5) {
+      if (!bizVenueTradingName.trim() || bizVenueTradingName.trim().length < 2) {
+        missing.push("bizVenueTradingName");
+        if (!msg) msg = `Enter ${establishmentKindLabel(bizType).toLowerCase()} name`;
+      }
+      if (bizType === "Other") {
+        if (!bizTypeOtherDescribe.trim()) {
+          missing.push("bizTypeOtherDescribe");
+          msg = "Describe what type of venue this is";
+        }
+      }
+      if (!bizEstablishmentLocation.trim() || bizEstablishmentLocation.trim().length < 2) {
+        missing.push("bizEstablishmentLocation");
+        if (!msg) msg = `Enter physical location`;
+      }
+      if (!bizOfferingsDescription.trim() || bizOfferingsDescription.trim().length < 2) {
+        missing.push("bizOfferingsDescription");
+        if (!msg) msg = "Describe what you serve or provide";
+      }
+      return { missing, msg };
+    }
+    if (stepIndex === 6) {
       if (!bizMonthlyOrders.trim() || !intOk(bizMonthlyOrders.trim())) {
         missing.push("bizMonthlyOrders");
         if (!msg) msg = "Enter monthly orders";
@@ -1095,7 +1169,7 @@ export function AuthFlowScreen({ onAuthed }: Props) {
       if (!bizCurrentSystem.trim()) missing.push("bizCurrentSystem");
       return { missing, msg };
     }
-    if (stepIndex === 5) {
+    if (stepIndex === 7) {
       const issue = strongPasswordIssue(passT);
       if (issue) {
         missing.push("bizPassword");
@@ -1147,7 +1221,7 @@ export function AuthFlowScreen({ onAuthed }: Props) {
   function evaluateBusinessSignupForFinish():
     | { ok: true; payload: WizardSignupPayload }
     | { ok: false; stepIndex: number; message: string; missing: string[] } {
-    for (let s = 1; s <= 5; s++) {
+    for (let s = 1; s <= 7; s++) {
       const b = businessWizardStepValidation(s);
       if (b.missing.length > 0) {
         return { ok: false, stepIndex: s, message: b.msg ?? "Fill required fields", missing: b.missing };
@@ -1172,6 +1246,11 @@ export function AuthFlowScreen({ onAuthed }: Props) {
           address: bizAddress.trim(),
           locationsCount: bizLocations.trim(),
           businessType: bizType,
+          venueTradingName: bizVenueTradingName.trim(),
+          businessTypeOtherDescription:
+            bizType === "Other" ? bizTypeOtherDescribe.trim() : undefined,
+          establishmentLocation: bizEstablishmentLocation.trim(),
+          offeringsDescription: bizOfferingsDescription.trim(),
           monthlyOrdersEstimate: bizMonthlyOrders.trim(),
           wantsBookings: bizNeedBookings,
           wantsDelivery: bizNeedDelivery,
@@ -2199,8 +2278,8 @@ export function AuthFlowScreen({ onAuthed }: Props) {
                       </ScrollView>
                     ) : wizardStep === 3 ? (
                       <>
-                        <Text style={styles.wizardSectionTitle}>Business Address</Text>
-                        <Text style={styles.wizardLabel}>Registered business address</Text>
+                        <Text style={styles.wizardSectionTitle}>Registered address</Text>
+                        <Text style={styles.wizardLabel}>Legal company address (registry)</Text>
                         <Animated.View style={{ transform: [{ translateX: Animated.multiply(wizShake.bizAddress, 8) }] }}>
                           <View style={styles.wizardInputWrap}>
                             <AnimatedTextInput
@@ -2233,26 +2312,156 @@ export function AuthFlowScreen({ onAuthed }: Props) {
                             ) : null}
                           </View>
                         </Animated.View>
-                        <View style={styles.wizardLabelRow}>
-                          <Text style={styles.wizardLabel}>Type of business</Text>
-                          <Text style={styles.wizardOptional}>(Optional)</Text>
-                        </View>
+                      </>
+                    ) : wizardStep === 4 ? (
+                      <>
+                        <Text style={styles.wizardSectionTitle}>Establishment type</Text>
+                        <Text style={styles.wizardMuted}>
+                          Hospitality venues stay under one restaurant model — pick the closest label for yours.
+                        </Text>
+                        <Text style={styles.wizardLabel}>What kind is this?</Text>
                         <View style={styles.wizardChips}>
-                          {(["Restaurant", "Cafe", "Fast Food", "Bakery", "Ghost Kitchen", "Other"] as const).map((t) => (
+                          {ESTABLISHMENT_TYPES.map((t) => (
                             <Pressable
                               key={t}
                               onPress={() => {
                                 void Haptics.selectionAsync();
                                 setBizType(t);
                               }}
-                              style={({ pressed }) => [styles.wizardChip, bizType === t && styles.wizardChipOn, pressed && { opacity: 0.92 }]}
+                              style={({ pressed }) => [
+                                styles.wizardChip,
+                                bizType === t && styles.wizardChipOn,
+                                pressed && { opacity: 0.92 }
+                              ]}
                             >
                               <Text style={[styles.wizardChipText, bizType === t && styles.wizardChipTextOn]}>{t}</Text>
                             </Pressable>
                           ))}
                         </View>
                       </>
-                    ) : wizardStep === 4 ? (
+                    ) : wizardStep === 5 ? (
+                      <ScrollView
+                        keyboardShouldPersistTaps="handled"
+                        showsVerticalScrollIndicator={false}
+                        bounces={false}
+                        nestedScrollEnabled
+                        style={{ maxHeight: wizardBizDetailsScrollMaxH }}
+                        contentContainerStyle={styles.wizardBusinessDetailsScroll}
+                      >
+                        <Text style={styles.wizardSectionTitle}>Your {establishmentKindLabel(bizType)}</Text>
+                        <Text style={styles.wizardLabel}>Name of your {establishmentKindLabel(bizType).toLowerCase()}</Text>
+                        <Animated.View style={{ transform: [{ translateX: Animated.multiply(wizShake.bizVenueTradingName, 8) }] }}>
+                          <AnimatedTextInput
+                            value={bizVenueTradingName}
+                            onChangeText={(t) => {
+                              if (wizardBtnErr) setWizardBtnErr(null);
+                              clearWizFieldError("bizVenueTradingName");
+                              setBizVenueTradingName(t);
+                            }}
+                            onFocus={(e) => {
+                              if (wizardBtnErr) setWizardBtnErr(null);
+                              clearWizFieldError("bizVenueTradingName");
+                              onWizardFocus(e);
+                            }}
+                            style={[
+                              styles.wizardInput,
+                              { borderColor: wizBorderColor("bizVenueTradingName"), backgroundColor: wizBgColor("bizVenueTradingName") }
+                            ]}
+                            placeholder={
+                              bizType === "Other" ? `Trade or display name` : `e.g. ${bizType === "Cafe" ? "Northside Café" : `${bizType} name`}`
+                            }
+                            placeholderTextColor="rgba(255,255,255,0.35)"
+                          />
+                        </Animated.View>
+                        {bizType === "Other" ? (
+                          <>
+                            <Text style={styles.wizardLabel}>Describe what this business is</Text>
+                            <Animated.View style={{ transform: [{ translateX: Animated.multiply(wizShake.bizTypeOtherDescribe, 8) }] }}>
+                              <AnimatedTextInput
+                                value={bizTypeOtherDescribe}
+                                onChangeText={(t) => {
+                                  if (wizardBtnErr) setWizardBtnErr(null);
+                                  clearWizFieldError("bizTypeOtherDescribe");
+                                  setBizTypeOtherDescribe(t);
+                                }}
+                                onFocus={(e) => {
+                                  if (wizardBtnErr) setWizardBtnErr(null);
+                                  clearWizFieldError("bizTypeOtherDescribe");
+                                  onWizardFocus(e);
+                                }}
+                                style={[
+                                  styles.wizardInput,
+                                  {
+                                    borderColor: wizBorderColor("bizTypeOtherDescribe"),
+                                    backgroundColor: wizBgColor("bizTypeOtherDescribe"),
+                                    minHeight: 76
+                                  }
+                                ]}
+                                placeholder="Brief description"
+                                placeholderTextColor="rgba(255,255,255,0.35)"
+                                multiline
+                              />
+                            </Animated.View>
+                          </>
+                        ) : null}
+                        <Text style={styles.wizardLabel}>
+                          Physical location of this {establishmentKindLabel(bizType).toLowerCase()}
+                        </Text>
+                        <Animated.View style={{ transform: [{ translateX: Animated.multiply(wizShake.bizEstablishmentLocation, 8) }] }}>
+                          <AnimatedTextInput
+                            value={bizEstablishmentLocation}
+                            onChangeText={(t) => {
+                              if (wizardBtnErr) setWizardBtnErr(null);
+                              clearWizFieldError("bizEstablishmentLocation");
+                              setBizEstablishmentLocation(t);
+                            }}
+                            onFocus={(e) => {
+                              if (wizardBtnErr) setWizardBtnErr(null);
+                              clearWizFieldError("bizEstablishmentLocation");
+                              onWizardFocus(e);
+                            }}
+                            style={[
+                              styles.wizardInput,
+                              {
+                                borderColor: wizBorderColor("bizEstablishmentLocation"),
+                                backgroundColor: wizBgColor("bizEstablishmentLocation"),
+                                minHeight: 72
+                              }
+                            ]}
+                            placeholder="Street, area, postal code…"
+                            placeholderTextColor="rgba(255,255,255,0.35)"
+                            multiline
+                          />
+                        </Animated.View>
+                        <Text style={styles.wizardLabel}>Food or core service offerings</Text>
+                        <Animated.View style={{ transform: [{ translateX: Animated.multiply(wizShake.bizOfferingsDescription, 8) }] }}>
+                          <AnimatedTextInput
+                            value={bizOfferingsDescription}
+                            onChangeText={(t) => {
+                              if (wizardBtnErr) setWizardBtnErr(null);
+                              clearWizFieldError("bizOfferingsDescription");
+                              setBizOfferingsDescription(t);
+                            }}
+                            onFocus={(e) => {
+                              if (wizardBtnErr) setWizardBtnErr(null);
+                              clearWizFieldError("bizOfferingsDescription");
+                              onWizardFocus(e);
+                            }}
+                            style={[
+                              styles.wizardInput,
+                              {
+                                borderColor: wizBorderColor("bizOfferingsDescription"),
+                                backgroundColor: wizBgColor("bizOfferingsDescription"),
+                                minHeight: 76
+                              }
+                            ]}
+                            placeholder="Examples: weekday lunch bowls, viennoiserie, weekday pizza & pasta…"
+                            placeholderTextColor="rgba(255,255,255,0.35)"
+                            multiline
+                          />
+                        </Animated.View>
+                      </ScrollView>
+                    ) : wizardStep === 6 ? (
                       <>
                         <Text style={styles.wizardSectionTitle}>Operations Setup</Text>
                         <Text style={styles.wizardLabel}>Estimated monthly orders</Text>
@@ -2309,7 +2518,7 @@ export function AuthFlowScreen({ onAuthed }: Props) {
                           />
                         </Animated.View>
                       </>
-                    ) : wizardStep === 5 ? (
+                    ) : wizardStep === 7 ? (
                       <>
                         <Text style={styles.wizardSectionTitle}>Security & Ownership</Text>
                         <Text style={styles.wizardLabel}>Password</Text>
@@ -2426,7 +2635,15 @@ export function AuthFlowScreen({ onAuthed }: Props) {
                           <Text style={styles.wizardToggleText}>Authorized to represent business</Text>
                         </Animated.View>
                       </>
-                    ) : null}
+                    ) : (
+                      <>
+                        <Text style={styles.wizardFinishTitle}>Almost there</Text>
+                        <Text style={styles.wizardMuted}>
+                          Company stays linked to your organization number. Venue name shown to guests matches what you entered for your{" "}
+                          {establishmentKindLabel(bizType).toLowerCase()}.
+                        </Text>
+                      </>
+                    )}
                   </>
                 )}
               </Animated.View>

@@ -100,24 +100,64 @@ app.get("/restaurants/restaurants", async (req) => {
     restaurants: memberships.map((m: (typeof memberships)[number]) => ({
       id: m.restaurant.id,
       name: m.restaurant.name,
-      role: m.role
+      role: m.role,
+      companyId: m.restaurant.companyId
     }))
   };
 });
 
 const createRestaurantSchema = z.object({
   name: z.string().min(2),
-  openingHours: z.string().optional()
+  openingHours: z.string().optional(),
+  companyId: z.string().min(1).optional()
 });
 
-app.post("/restaurants/restaurants", async (req) => {
+app.post("/restaurants/restaurants", async (req, reply) => {
   const user = requireUser(req);
+  if (user.role !== "OWNER") {
+    return reply.status(403).send({ ok: false, error: "owner_only" });
+  }
+
   const body = createRestaurantSchema.parse(req.body);
+
+  const ownerMemberships = await prisma.membership.findMany({
+    where: { userId: user.sub, role: "OWNER" },
+    include: { restaurant: { select: { companyId: true } } }
+  });
+  if (ownerMemberships.length === 0) {
+    return reply
+      .status(403)
+      .send({ ok: false, error: "first_venue_requires_business_signup" });
+  }
+
+  const companyIdsKnown = [
+    ...new Set(
+      ownerMemberships
+        .map((m) => m.restaurant.companyId)
+        .filter((id): id is string => typeof id === "string" && id.length > 0)
+    )
+  ];
+
+  let chosenCompanyId: string | null;
+
+  if (companyIdsKnown.length === 0) {
+    chosenCompanyId = body.companyId ?? null;
+  } else if (body.companyId) {
+    if (!companyIdsKnown.includes(body.companyId)) {
+      return reply.status(403).send({ ok: false, error: "company_not_allowed" });
+    }
+    chosenCompanyId = body.companyId;
+  } else if (companyIdsKnown.length === 1) {
+    chosenCompanyId = companyIdsKnown[0]!;
+  } else {
+    return reply.status(400).send({ ok: false, error: "company_id_required" });
+  }
 
   const restaurant = await prisma.restaurant.create({
     data: {
       name: body.name,
-      openingHours: body.openingHours
+      openingHours: body.openingHours,
+      companyId: chosenCompanyId
     }
   });
 

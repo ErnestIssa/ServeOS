@@ -36,7 +36,7 @@ export default function App() {
   const [token, setToken] = React.useState<string | null>(null);
   const [userRole, setUserRole] = React.useState<string | null>(null);
 
-  const [restaurants, setRestaurants] = React.useState<Array<{ id: string; name: string; role: string }>>([]);
+  const [restaurants, setRestaurants] = React.useState<Array<{ id: string; name: string; role: string; companyId?: string | null }>>([]);
   const [restaurantName, setRestaurantName] = React.useState("My Restaurant");
   const [status, setStatus] = React.useState("");
 
@@ -93,10 +93,11 @@ export default function App() {
   }, []);
 
   async function refreshRestaurants(t: string) {
-    const res = await apiFetch<{ ok: boolean; restaurants?: Array<{ id: string; name: string; role: string }>; error?: string }>(
-      "/restaurants/restaurants",
-      { headers: { Authorization: `Bearer ${t}` } }
-    );
+    const res = await apiFetch<{
+      ok: boolean;
+      restaurants?: Array<{ id: string; name: string; role: string; companyId?: string | null }>;
+      error?: string;
+    }>("/restaurants/restaurants", { headers: { Authorization: `Bearer ${t}` } });
     if (!res.ok) return setStatus(res.error ?? "failed_to_list_restaurants");
     setRestaurants(res.restaurants ?? []);
   }
@@ -107,10 +108,11 @@ export default function App() {
     if (!me.ok || !me.user) {
       throw new Error(me.error ?? "session_failed");
     }
-    const rest = await apiFetch<{ ok: boolean; restaurants?: Array<{ id: string; name: string; role: string }>; error?: string }>(
-      "/restaurants/restaurants",
-      { headers: { Authorization: `Bearer ${jwt}` } }
-    );
+    const rest = await apiFetch<{
+      ok: boolean;
+      restaurants?: Array<{ id: string; name: string; role: string; companyId?: string | null }>;
+      error?: string;
+    }>("/restaurants/restaurants", { headers: { Authorization: `Bearer ${jwt}` } });
     if (!rest.ok) {
       throw new Error(rest.error ?? "failed_to_list_restaurants");
     }
@@ -570,7 +572,7 @@ export default function App() {
             <Text style={styles.pageSub}>Venues, session, and business tools.</Text>
 
             <View style={[styles.cardShell, styles.fieldCard]}>
-              <Text style={styles.inputLabel}>New restaurant</Text>
+              <Text style={styles.inputLabel}>Add another venue (same company)</Text>
               <TextInput
                 value={restaurantName}
                 onChangeText={setRestaurantName}
@@ -583,14 +585,18 @@ export default function App() {
                 disabled={!token}
                 onPress={async () => {
                   if (!token) return;
+                  const companyId = restaurants.map((r) => r.companyId).find((id) => typeof id === "string" && id.length > 0);
                   const res = await apiFetch<Record<string, unknown> & { ok?: boolean; error?: string }>("/restaurants/restaurants", {
                     method: "POST",
                     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                    body: JSON.stringify({ name: restaurantName })
+                    body: JSON.stringify({
+                      name: restaurantName.trim(),
+                      ...(companyId ? { companyId } : {})
+                    })
                   });
                   if (!res.ok) return setStatus(res.error ?? "create_failed");
                   await refreshRestaurants(token);
-                  setStatus("Restaurant created");
+                  setStatus("Venue created");
                 }}
               >
                 <Text style={styles.pillPrimaryText}>Create venue</Text>

@@ -28,16 +28,38 @@ model User {
   customerOrders Order[] @relation("CustomerOrders")
 }
 
+model Company {
+  id                    String       @id @default(cuid())
+  ///Digits-only normalization of org/registry number for stable upserts across clients.
+  orgNumberNormalized String      @unique
+  legalName              String
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+
+  restaurants Restaurant[]
+}
+
 model Restaurant {
   id           String   @id @default(cuid())
   name         String
   openingHours String?  // later: structured JSON
+
+  companyId               String?
+  company                 Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  ///UI classification (restaurant/café/bakery/other); persisted under the unified Restaurant aggregate.
+  venueSubtype            String?
+  venueSubtypeOther       String?
+  establishmentLocation    String?
+  offeringsDescription    String?
+
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   memberships    Membership[]
   menuCategories MenuCategory[]
   orders         Order[]
+
+  @@index([companyId])
 }
 
 model Membership {

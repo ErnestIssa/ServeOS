@@ -94,13 +94,14 @@ export async function login(params: { email: string; password: string }) {
 }
 
 export async function listRestaurants(token: string) {
-  return jsonFetch<{ ok: boolean; restaurants?: Array<{ id: string; name: string; role: string }>; error?: string }>(
-    `/restaurants/restaurants`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
+  return jsonFetch<{
+    ok: boolean;
+    restaurants?: Array<{ id: string; name: string; role: string; companyId?: string | null }>;
+    error?: string;
+  }>(`/restaurants/restaurants`, { headers: { Authorization: `Bearer ${token}` } });
 }
 
-export async function createRestaurant(token: string, params: { name: string }) {
+export async function createRestaurant(token: string, params: { name: string; companyId?: string }) {
   return jsonFetch<{ ok: boolean; restaurant?: { id: string; name: string }; error?: string }>(`/restaurants/restaurants`, {
     method: "POST",
     headers: authHeaders(token),
