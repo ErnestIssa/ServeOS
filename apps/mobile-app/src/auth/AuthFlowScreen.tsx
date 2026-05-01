@@ -5,8 +5,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   ActivityIndicator,
   Animated,
+  Easing,
   Keyboard,
   KeyboardAvoidingView,
+  ScrollView,
   UIManager,
   Platform,
   Pressable,
@@ -23,21 +25,70 @@ import { type AuthUser, authLogin, authSignup, lookupCompany } from "../api";
 import { BlurView } from "expo-blur";
 import { ThemedSwitch } from "../components/ThemedSwitch";
 import { CountrySelect, type AllowedCountry } from "../components/CountrySelect";
-import { CitySelect } from "../components/CitySelect";
+import { CITIES, CitySelect } from "../components/CitySelect";
 
 const BG = "#8B5CF6";
 const BG_DEEP = "#4C1D95";
 const PAD = 24;
+/** Matches `authRoutes` signup Zod `phone.min(6)` when phone is sent. */
+const MIN_WIZARD_PHONE_LEN = 6;
+/** Dimmer ring track hues aligned with swapColor palette order (guest/business loaders). */
+const LOADER_SWAP_DIM: readonly string[] = [
+  "rgba(255,255,255,0.28)",
+  "rgba(253,230,138,0.42)",
+  "rgba(167,243,208,0.42)",
+  "rgba(186,230,253,0.42)"
+];
 const AnimatedTextInput = Animated.createAnimatedComponent(TextInput);
 const AnimatedInput = Animated.createAnimatedComponent(TextInput);
+
+function normalizeCityFromRegistry(country: AllowedCountry, raw: string | undefined): string {
+  const t = (raw ?? "").trim();
+  if (!t) return "";
+  const canon = CITIES.find((c) => c.country === country && c.name.toLowerCase() === t.toLowerCase());
+  if (canon) return canon.name;
+  return t
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
 
 type Mode = "signin" | "signup";
 type Experience = "GUEST" | "BUSINESS";
 type WizardFlow = "GUEST" | "BUSINESS";
 
 type Props = {
-  onAuthed: (p: { token: string; user: AuthUser }) => void;
+  onAuthed: (p: { token: string; user: AuthUser }) => void | Promise<void>;
 };
+
+type WizardSignupPayload = {
+  email: string;
+  password: string;
+  role: "CUSTOMER" | "OWNER";
+  phone?: string;
+  registrationProfile: Record<string, unknown>;
+};
+
+function readableAuthFailure(message: string): string {
+  const map: Record<string, string> = {
+    user_already_exists: "An account with this email or phone already exists.",
+    email_or_phone_required: "Email or phone is required.",
+    sign_up_failed: "Could not create your account. Try again.",
+    session_failed: "Could not verify your session. Try again.",
+    failed_to_list_restaurants: "Could not load your venues. Try again.",
+    failed_to_fetch_orders: "Could not load your orders. Try again.",
+    missing_token: "Session expired. Sign in again."
+  };
+  const s = map[message];
+  if (s) return s;
+  const m = message.trim();
+  if (/reach the API|reach the server|Network request failed|timed out|timeout|ECONNREFUSED|Failed to fetch|network/i.test(m)) {
+    return "Couldn't reach the server. Check Wi-Fi, or wait 30–60s if the backend was asleep, then try again.";
+  }
+  return message;
+}
 
 // Sign-in rotating subtitle (based on this device's last known preference)
 const GUEST_SIGNIN_SUBTITLES = ["Order smarter. Serve faster.", "Your table. Your time."] as const;
@@ -113,6 +164,11 @@ function useRotatingPhrase(phrases: readonly string[], intervalMs = 3000) {
 export function AuthFlowScreen({ onAuthed }: Props) {
   const insets = useSafeAreaInsets();
   const { width: screenW, height: screenH } = useWindowDimensions();
+  /** Keeps Business Details scroll area between header/footer without hugging notch/home indicator edges. */
+  const wizardBizDetailsScrollMaxH = React.useMemo(
+    () => Math.max(260, Math.min(520, screenH - insets.top - insets.bottom - 296)),
+    [screenH, insets.top, insets.bottom]
+  );
   const signInEmailRef = React.useRef<TextInput>(null);
   const signInPasswordRef = React.useRef<TextInput>(null);
 
@@ -120,6 +176,7 @@ export function AuthFlowScreen({ onAuthed }: Props) {
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [password2, setPassword2] = React.useState("");
+  const [signInShowPassword, setSignInShowPassword] = React.useState(false);
   const [experience, setExperience] = React.useState<Experience>("GUEST");
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
@@ -160,6 +217,64 @@ export function AuthFlowScreen({ onAuthed }: Props) {
   const wizardFade = React.useRef(new Animated.Value(0)).current;
   const wizardY = React.useRef(new Animated.Value(18)).current;
 
+  /** Final wizard step: sheet + blur fade, progress morphs → endless ring on gradient (no navigation into app yet). */
+  const [wizardExitInfiniteLoader, setWizardExitInfiniteLoader] = React.useState(false);
+  const [wizardExitInfiniteRing, setWizardExitInfiniteRing] = React.useState(false);
+  const [wizardExitInfiniteBiz, setWizardExitInfiniteBiz] = React.useState(false);
+  /** Shown on the fullscreen loader only; does not tear down the wizard animation. */
+  const [wizardExitLoaderErr, setWizardExitLoaderErr] = React.useState<string | null>(null);
+  const guestWizardChromeFade = React.useRef(new Animated.Value(1)).current;
+  const guestBlurFade = React.useRef(new Animated.Value(1)).current;
+  const guestMorphW = React.useRef(new Animated.Value(280)).current;
+  const guestMorphH = React.useRef(new Animated.Value(8)).current;
+  const guestMorphR = React.useRef(new Animated.Value(4)).current;
+  const guestSpinRotate = React.useRef(new Animated.Value(0)).current;
+  const wizardExitSpinLoopRef = React.useRef<{ stop(): void } | null>(null);
+  const wizardExitInfiniteFlightRef = React.useRef(false);
+  const wizardExitInfiniteLoaderShowingRef = React.useRef(false);
+  const wizardExitPendingSignupRef = React.useRef<WizardSignupPayload | null>(null);
+  const runWizardSignupFromLoaderRef = React.useRef<() => Promise<void>>(async () => undefined);
+  const stopWizardExitSpinLoop = () => {
+    (wizardExitSpinLoopRef as React.MutableRefObject<{ stop(): void } | null>).current?.stop();
+    wizardExitSpinLoopRef.current = null;
+  };
+
+  const recoverWizardExitLoader = React.useCallback(() => {
+    stopWizardExitSpinLoop();
+    wizardExitInfiniteFlightRef.current = false;
+    wizardExitPendingSignupRef.current = null;
+    setWizardExitInfiniteLoader(false);
+    setWizardExitInfiniteRing(false);
+    setWizardExitLoaderErr(null);
+    setBusy(false);
+    guestWizardChromeFade.setValue(1);
+    guestBlurFade.setValue(1);
+    guestSpinRotate.setValue(0);
+    const cardInnerWGuess = Math.min(520, screenW - PAD * 2) - 34;
+    const w = Math.max(180, progressTrackWRef.current > 40 ? progressTrackWRef.current : cardInnerWGuess);
+    guestMorphW.setValue(w);
+    guestMorphH.setValue(8);
+    guestMorphR.setValue(4);
+    setWizardOpen(true);
+    wizardFade.setValue(1);
+    wizardY.setValue(0);
+  }, [
+    screenW,
+    guestWizardChromeFade,
+    guestBlurFade,
+    guestSpinRotate,
+    guestMorphW,
+    guestMorphH,
+    guestMorphR,
+    wizardFade,
+    wizardY
+  ]);
+  const progressTrackWRef = React.useRef(280);
+  const guestSpinDeg = guestSpinRotate.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "360deg"]
+  });
+
   // Wizard form state (UI only; backend logic later)
   const [guestFirst, setGuestFirst] = React.useState("");
   const [guestLast, setGuestLast] = React.useState("");
@@ -186,6 +301,11 @@ export function AuthFlowScreen({ onAuthed }: Props) {
   const [bizAuthorized, setBizAuthorized] = React.useState(false);
   const [bizLookupBusy, setBizLookupBusy] = React.useState(false);
   const [bizLookupMsg, setBizLookupMsg] = React.useState<string | null>(null);
+  /** Set after verified org lookup; registry-sourced rows stay non-editable */
+  const [bizCompanyFieldsLocked, setBizCompanyFieldsLocked] = React.useState(false);
+  const [bizPostalLocked, setBizPostalLocked] = React.useState("");
+  const [bizLegalFormLocked, setBizLegalFormLocked] = React.useState("");
+  const [bizRegStatusLocked, setBizRegStatusLocked] = React.useState("");
 
   const wizAnim = React.useRef<Record<string, Animated.Value>>({
     guestFirst: new Animated.Value(0),
@@ -244,8 +364,31 @@ export function AuthFlowScreen({ onAuthed }: Props) {
   const totalSteps = wizardFlow === "BUSINESS" ? bizTotalSteps : guestTotalSteps;
   const progress = Math.max(0, Math.min(1, (wizardStep + 1) / totalSteps));
 
+  const wizardStepRef = React.useRef(wizardStep);
+  const wizardFlowRef = React.useRef(wizardFlow);
+  const totalStepsRef = React.useRef(totalSteps);
+  React.useEffect(() => {
+    wizardStepRef.current = wizardStep;
+  }, [wizardStep]);
+  React.useEffect(() => {
+    wizardFlowRef.current = wizardFlow;
+  }, [wizardFlow]);
+  React.useEffect(() => {
+    totalStepsRef.current = totalSteps;
+  }, [totalSteps]);
+
+  React.useEffect(() => {
+    wizardExitInfiniteLoaderShowingRef.current = wizardExitInfiniteLoader;
+  }, [wizardExitInfiniteLoader]);
+
   const wizardPhrases = wizardFlow === "BUSINESS" ? (BUSINESS_WIZARD_PHRASES as readonly string[]) : (GUEST_WIZARD_PHRASES as readonly string[]);
   const wizardSwap = useRotatingPhrase(wizardPhrases, 3000);
+  /** Full-screen endless loader uses its own rotation (same phrases + palette as signup wizard per flow). */
+  const infiniteLoaderPhrases = React.useMemo((): readonly string[] => {
+    if (!wizardExitInfiniteLoader) return [""];
+    return wizardExitInfiniteBiz ? BUSINESS_WIZARD_PHRASES : GUEST_WIZARD_PHRASES;
+  }, [wizardExitInfiniteLoader, wizardExitInfiniteBiz]);
+  const infiniteLoaderSwap = useRotatingPhrase(infiniteLoaderPhrases, 3000);
   const wizardStepOpacity = React.useRef(new Animated.Value(1)).current;
   const wizardStepX = React.useRef(new Animated.Value(0)).current;
   const wizardShift = React.useRef(new Animated.Value(0)).current;
@@ -264,8 +407,8 @@ export function AuthFlowScreen({ onAuthed }: Props) {
     setWizConfirmMismatch(null);
     setWizShowPass(false);
     setWizShowConfirmPass(false);
-    setPassword2("");
-  }, [wizardOpen, wizardFlow, wizardStep]);
+    // Don't clear confirm password on every step change; it breaks finish validation and forces users back.
+  }, [wizardOpen, wizardFlow]);
 
   React.useEffect(() => {
     const onShow = (e: any) => {
@@ -329,6 +472,16 @@ export function AuthFlowScreen({ onAuthed }: Props) {
 
   const openWizard = (flow: WizardFlow) => {
     void Haptics.selectionAsync();
+    stopWizardExitSpinLoop();
+    wizardExitInfiniteFlightRef.current = false;
+    wizardExitPendingSignupRef.current = null;
+    setWizardExitLoaderErr(null);
+    setWizardExitInfiniteLoader(false);
+    setWizardExitInfiniteRing(false);
+    setWizardExitInfiniteBiz(false);
+    guestWizardChromeFade.setValue(1);
+    guestBlurFade.setValue(1);
+    guestSpinRotate.setValue(0);
     setWizardFlow(flow);
     setWizardStep(0);
     setWizErr(null);
@@ -338,6 +491,27 @@ export function AuthFlowScreen({ onAuthed }: Props) {
     setWizConfirmMismatch(null);
     setWizShowPass(false);
     setWizShowConfirmPass(false);
+    setBizLookupMsg(null);
+    setBizLookupBusy(false);
+    setBizCompanyFieldsLocked(false);
+    setBizPostalLocked("");
+    setBizLegalFormLocked("");
+    setBizRegStatusLocked("");
+    if (flow === "BUSINESS") {
+      setBizOrgNumber("");
+      setBizName("");
+      setBizContact("");
+      setBizPhone("");
+      setBizCountry("Sweden");
+      setBizCity("");
+      setBizAddress("");
+      setBizLocations("1");
+      setBizMonthlyOrders("");
+      setBizCurrentSystem("");
+      setBizAcceptTerms(false);
+      setBizAuthorized(false);
+      setPassword("");
+    }
     setPassword2("");
     setWizardOpen(true);
     wizardFade.setValue(0);
@@ -359,6 +533,84 @@ export function AuthFlowScreen({ onAuthed }: Props) {
     });
   };
 
+  const triggerWizardInfiniteExitLoader = React.useCallback(
+    (businessAccent: boolean, signupPayload: WizardSignupPayload) => {
+      if (wizardExitInfiniteFlightRef.current) {
+        if (!wizardExitInfiniteLoaderShowingRef.current) {
+          wizardExitInfiniteFlightRef.current = false;
+        } else {
+          if (!wizardExitLoaderErr) {
+            setWizardExitLoaderErr("Hang on — we're still creating your account.");
+          }
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          return;
+        }
+      }
+      wizardExitPendingSignupRef.current = signupPayload;
+      wizardExitInfiniteFlightRef.current = true;
+      setBusy(true);
+      Keyboard.dismiss();
+      void Haptics.selectionAsync();
+
+      setWizardExitInfiniteBiz(businessAccent);
+      setWizardExitLoaderErr(null);
+
+      const cardInnerWGuess = Math.min(520, screenW - PAD * 2) - 34;
+      const initialW = Math.max(180, progressTrackWRef.current > 40 ? progressTrackWRef.current : cardInnerWGuess);
+
+      guestMorphW.setValue(initialW);
+      guestMorphH.setValue(8);
+      guestMorphR.setValue(4);
+      guestWizardChromeFade.setValue(1);
+      guestBlurFade.setValue(1);
+      guestSpinRotate.setValue(0);
+      stopWizardExitSpinLoop();
+
+      setWizardExitInfiniteRing(false);
+      setWizardExitInfiniteLoader(true);
+
+      Animated.parallel([
+        Animated.timing(guestWizardChromeFade, { toValue: 0, duration: 220, useNativeDriver: true }),
+        Animated.timing(guestBlurFade, { toValue: 0, duration: 260, useNativeDriver: true })
+      ]).start();
+
+      Animated.parallel([
+        Animated.timing(guestMorphW, { toValue: 52, duration: 460, delay: 40, useNativeDriver: false }),
+        Animated.timing(guestMorphH, { toValue: 52, duration: 460, delay: 40, useNativeDriver: false }),
+        Animated.timing(guestMorphR, { toValue: 26, duration: 460, delay: 40, useNativeDriver: false })
+      ]).start(({ finished }) => {
+        if (!finished) return;
+        setWizardExitInfiniteRing(true);
+        setTimeout(() => {
+          guestSpinRotate.setValue(0);
+          stopWizardExitSpinLoop();
+          const spinLoop = Animated.loop(
+            Animated.timing(guestSpinRotate, {
+              toValue: 1,
+              duration: 720,
+              easing: Easing.linear,
+              useNativeDriver: true
+            }),
+            { resetBeforeIteration: true }
+          );
+          wizardExitSpinLoopRef.current = spinLoop as unknown as { stop(): void };
+          spinLoop.start();
+        }, 40);
+      });
+
+      setTimeout(() => setWizardOpen(false), 240);
+
+      void runWizardSignupFromLoaderRef.current();
+    },
+    [screenW, wizardExitLoaderErr]
+  );
+
+  React.useEffect(() => {
+    return () => {
+      stopWizardExitSpinLoop();
+    };
+  }, []);
+
   const wizardBack = () => {
     void Haptics.selectionAsync();
     setWizErr(null);
@@ -369,7 +621,20 @@ export function AuthFlowScreen({ onAuthed }: Props) {
     ]).start(() => {
       wizardStepOpacity.setValue(0);
       wizardStepX.setValue(-22 * dir);
-      setWizardStep((s) => Math.max(0, s - 1));
+      setWizardStep((s) => {
+        const next = Math.max(0, s - 1);
+        if (wizardFlowRef.current === "BUSINESS" && next === 0) {
+          setBizCompanyFieldsLocked(false);
+          setBizPostalLocked("");
+          setBizLegalFormLocked("");
+          setBizRegStatusLocked("");
+          setBizName("");
+          setBizAddress("");
+          setBizCity("");
+          setBizCountry("Sweden");
+        }
+        return next;
+      });
       Animated.parallel([
         Animated.timing(wizardStepOpacity, { toValue: 1, duration: 220, useNativeDriver: true }),
         Animated.timing(wizardStepX, { toValue: 0, duration: 260, useNativeDriver: true })
@@ -377,109 +642,10 @@ export function AuthFlowScreen({ onAuthed }: Props) {
     });
   };
 
-  const wizardNext = () => {
-    void Haptics.selectionAsync();
-    setWizErr(null);
-
-    // Finish step: allow exiting the wizard (UI-only for now).
-    if (wizardStep >= totalSteps - 1) {
-      closeWizard();
-      return;
-    }
-
-    // Step validation: block progress if required info is missing/invalid.
-    const missing: string[] = [];
-    let msg: string | null = null;
-    const emailT = email.trim();
-    const passT = password;
-    const pass2T = password2;
-    const intOk = (v: string) => {
-      const n = Number(v);
-      return Number.isFinite(n) && n > 0 && Number.isInteger(n);
-    };
-
-    if (wizardFlow === "GUEST") {
-      if (wizardStep === 0) {
-        if (!guestFirst.trim()) missing.push("guestFirst");
-        if (!guestLast.trim()) missing.push("guestLast");
-        if (!emailT) missing.push("guestEmail");
-        else if (!isValidEmail(emailT)) {
-          missing.push("guestEmail");
-          msg = "Enter a valid email";
-        }
-        if (!guestPhone.trim()) missing.push("guestPhone");
-      } else if (wizardStep === 1) {
-        const issue = strongPasswordIssue(passT);
-        if (issue) {
-          missing.push("guestPassword");
-          msg = issue;
-        }
-        if (!pass2T.trim()) missing.push("guestPassword2");
-        else if (passT !== pass2T) {
-          missing.push("guestPassword2");
-          msg = "Passwords do not match";
-        }
-      } else if (wizardStep === 2) {
-        if (!guestCity.trim()) {
-          missing.push("guestCity");
-          msg = "Select city";
-        }
-      }
-    } else {
-      if (wizardStep === 0) {
-        // Org number is optional here by user request.
-      } else if (wizardStep === 1) {
-        if (!bizName.trim()) missing.push("bizName");
-        if (!bizContact.trim()) missing.push("bizContact");
-        if (!emailT) missing.push("bizEmail");
-        else if (!isValidEmail(emailT)) {
-          missing.push("bizEmail");
-          msg = "Enter a valid email";
-        }
-        if (!bizPhone.trim()) missing.push("bizPhone");
-      } else if (wizardStep === 2) {
-        if (!bizCity.trim()) {
-          missing.push("bizCity");
-          msg = "Select city";
-        }
-        if (!bizLocations.trim() || !intOk(bizLocations.trim())) {
-          missing.push("bizLocations");
-          if (!msg) msg = "Enter locations";
-        }
-      } else if (wizardStep === 3) {
-        if (!bizAddress.trim()) missing.push("bizAddress");
-        // bizType is optional → no validation
-      } else if (wizardStep === 4) {
-        if (!bizMonthlyOrders.trim() || !intOk(bizMonthlyOrders.trim())) {
-          missing.push("bizMonthlyOrders");
-          if (!msg) msg = "Enter monthly orders";
-        }
-        // User requirement: business fields required (except type)
-        if (!bizCurrentSystem.trim()) missing.push("bizCurrentSystem");
-      } else if (wizardStep === 5) {
-        const issue = strongPasswordIssue(passT);
-        if (issue) {
-          missing.push("bizPassword");
-          msg = issue;
-        }
-        if (!pass2T.trim()) missing.push("bizPassword2");
-        else if (passT !== pass2T) {
-          missing.push("bizPassword2");
-          msg = "Passwords do not match";
-        }
-        if (!bizAcceptTerms) missing.push("bizAcceptTerms");
-        if (!bizAuthorized) missing.push("bizAuthorized");
-      }
-    }
-
-    if (missing.length) {
-      errorBuzz();
-      showWizardBtnError(msg ?? "Fill required fields");
-      missing.forEach(setWizFieldErrorOn);
-      return;
-    }
-
-    if (wizardStep >= totalSteps - 1) return;
+  const runWizardStepForward = React.useCallback(() => {
+    const s = wizardStepRef.current;
+    const max = totalStepsRef.current;
+    if (s >= max - 1) return;
     const dir = 1;
     Animated.parallel([
       Animated.timing(wizardStepOpacity, { toValue: 0, duration: 180, useNativeDriver: true }),
@@ -487,12 +653,59 @@ export function AuthFlowScreen({ onAuthed }: Props) {
     ]).start(() => {
       wizardStepOpacity.setValue(0);
       wizardStepX.setValue(22 * dir);
-      setWizardStep((s) => Math.min(totalSteps - 1, s + 1));
+      setWizardStep((prev) => Math.min(max - 1, prev + 1));
       Animated.parallel([
         Animated.timing(wizardStepOpacity, { toValue: 1, duration: 220, useNativeDriver: true }),
         Animated.timing(wizardStepX, { toValue: 0, duration: 260, useNativeDriver: true })
       ]).start();
     });
+  }, [wizardStepOpacity, wizardStepX]);
+
+  const wizardNext = () => {
+    void Haptics.selectionAsync();
+    setWizErr(null);
+
+    // Finish: re-check every prior step; if something drifted, jump back to that step (no mystery errors on the last screen).
+    if (wizardStep >= totalSteps - 1) {
+      const fin = wizardFlow === "GUEST" ? evaluateGuestSignupForFinish() : evaluateBusinessSignupForFinish();
+      if (!fin.ok) {
+        errorBuzz();
+        setWizardStep(fin.stepIndex);
+        wizardStepOpacity.setValue(1);
+        wizardStepX.setValue(0);
+        setWizErr(fin.message);
+        showWizardBtnError(fin.message);
+        fin.missing.forEach(setWizFieldErrorOn);
+        shake(wizardBtnShake, 1);
+        return;
+      }
+      triggerWizardInfiniteExitLoader(wizardFlow === "BUSINESS", fin.payload);
+      return;
+    }
+
+    if (wizardFlow === "BUSINESS" && wizardStep === 0) {
+      return;
+    }
+
+    if (wizardFlow === "GUEST") {
+      const b = guestWizardStepValidation(wizardStep);
+      if (b.missing.length > 0) {
+        errorBuzz();
+        showWizardBtnError(b.msg ?? "Fill required fields");
+        b.missing.forEach(setWizFieldErrorOn);
+        return;
+      }
+    } else if (wizardStep >= 1 && wizardStep <= 5) {
+      const b = businessWizardStepValidation(wizardStep);
+      if (b.missing.length > 0) {
+        errorBuzz();
+        showWizardBtnError(b.msg ?? "Fill required fields");
+        b.missing.forEach(setWizFieldErrorOn);
+        return;
+      }
+    }
+
+    runWizardStepForward();
   };
 
   // Always rotate on sign-in. If we don't know the role yet, default to Guest.
@@ -530,6 +743,7 @@ export function AuthFlowScreen({ onAuthed }: Props) {
     setEmailErr(null);
     setPasswordErr(null);
     setSigninBtnErr(null);
+    setSignInShowPassword(false);
     Keyboard.dismiss();
   }, [mode]);
 
@@ -595,6 +809,42 @@ export function AuthFlowScreen({ onAuthed }: Props) {
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     Vibration.vibrate(80);
   };
+
+  const dismissWizardExitToEditDetails = React.useCallback(() => {
+    void Haptics.selectionAsync();
+    recoverWizardExitLoader();
+  }, [recoverWizardExitLoader]);
+
+  React.useEffect(() => {
+    runWizardSignupFromLoaderRef.current = async () => {
+      const pending = wizardExitPendingSignupRef.current;
+      if (!pending) return;
+      setWizardExitLoaderErr(null);
+      wizardExitInfiniteFlightRef.current = true;
+      setBusy(true);
+      try {
+        const res = await authSignup({
+          email: pending.email,
+          password: pending.password,
+          role: pending.role,
+          phone: pending.phone,
+          registrationProfile: pending.registrationProfile
+        });
+        if (!res.ok || !res.token || !res.user) {
+          throw new Error(res.error ?? "sign_up_failed");
+        }
+        await Promise.resolve(onAuthed({ token: res.token, user: res.user as AuthUser }));
+        wizardExitPendingSignupRef.current = null;
+      } catch (e) {
+        const raw = e instanceof Error ? e.message : String(e);
+        setWizardExitLoaderErr(readableAuthFailure(raw));
+        errorBuzz();
+        wizardExitInfiniteFlightRef.current = false;
+      } finally {
+        setBusy(false);
+      }
+    };
+  }, [onAuthed]);
 
   const animateWizFieldError = React.useCallback(
     (key: string, on: boolean) => {
@@ -668,6 +918,56 @@ export function AuthFlowScreen({ onAuthed }: Props) {
     [wizardBtnShake]
   );
 
+  const handleBusinessOrgStepContinue = React.useCallback(async () => {
+    void Haptics.selectionAsync();
+    setWizErr(null);
+    setWizardBtnErr(null);
+    setBizLookupMsg(null);
+    const t = bizOrgNumber.trim();
+    if (!t) {
+      errorBuzz();
+      showWizardBtnError("Enter organization number");
+      setWizFieldErrorOn("bizOrgNumber");
+      return;
+    }
+    setBizLookupBusy(true);
+    try {
+      const res = await lookupCompany(t);
+      if (res.success && res.found && res.data?.companyName?.trim()) {
+        const cityRaw = res.data.city?.trim();
+        if (!cityRaw) {
+          errorBuzz();
+          setBizLookupMsg("We couldn't find full company records. Try another organization number.");
+          showWizardBtnError("Incomplete registry data");
+          return;
+        }
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        setBizName(res.data.companyName.trim());
+        setBizAddress((res.data.address ?? "").trim());
+        setBizCity(normalizeCityFromRegistry("Sweden", cityRaw));
+        setBizCountry("Sweden");
+        setBizPostalLocked((res.data.postalCode ?? "").trim());
+        setBizLegalFormLocked((res.data.legalForm ?? "").trim());
+        setBizRegStatusLocked((res.data.status ?? "").trim());
+        setBizCompanyFieldsLocked(true);
+        clearWizFieldError("bizOrgNumber");
+        runWizardStepForward();
+        return;
+      }
+      errorBuzz();
+      setBizLookupMsg("We couldn't find your company.");
+      showWizardBtnError("Company not found");
+      setWizFieldErrorOn("bizOrgNumber");
+    } catch {
+      errorBuzz();
+      setBizLookupMsg("We couldn't find your company.");
+      showWizardBtnError("Lookup failed");
+      setWizFieldErrorOn("bizOrgNumber");
+    } finally {
+      setBizLookupBusy(false);
+    }
+  }, [bizOrgNumber, clearWizFieldError, runWizardStepForward, setWizFieldErrorOn, showWizardBtnError]);
+
   const wizBorderColor = React.useCallback(
     (key: string) =>
       (wizAnim[key] ?? new Animated.Value(0)).interpolate({
@@ -696,6 +996,194 @@ export function AuthFlowScreen({ onAuthed }: Props) {
     if (!/\d/.test(t)) return "Add a number";
     return null;
   };
+
+  function guestWizardStepValidation(stepIndex: number): { missing: string[]; msg: string | null } {
+    const emailT = email.trim();
+    const missing: string[] = [];
+    let msg: string | null = null;
+    const passT = password;
+    const pass2T = password2;
+
+    if (stepIndex === 0) {
+      if (!guestFirst.trim()) missing.push("guestFirst");
+      if (!guestLast.trim()) missing.push("guestLast");
+      if (!emailT) missing.push("guestEmail");
+      else if (!isValidEmail(emailT)) {
+        missing.push("guestEmail");
+        msg = "Enter a valid email";
+      }
+      const ph = guestPhone.trim();
+      if (!ph) missing.push("guestPhone");
+      else if (ph.length < MIN_WIZARD_PHONE_LEN) {
+        missing.push("guestPhone");
+        msg = msg ?? `Phone needs at least ${MIN_WIZARD_PHONE_LEN} characters`;
+      }
+      return { missing, msg };
+    }
+    if (stepIndex === 1) {
+      const issue = strongPasswordIssue(passT);
+      if (issue) {
+        missing.push("guestPassword");
+        msg = issue;
+      }
+      if (!pass2T.trim()) {
+        missing.push("guestPassword2");
+        if (!msg) msg = "Confirm your password";
+      } else if (passT !== pass2T) {
+        missing.push("guestPassword2");
+        msg = "Passwords do not match";
+      }
+      return { missing, msg };
+    }
+    if (stepIndex === 2) {
+      if (!guestCity.trim()) {
+        missing.push("guestCity");
+        msg = "Select city";
+      }
+      return { missing, msg };
+    }
+    return { missing: [], msg: null };
+  }
+
+  function businessWizardStepValidation(stepIndex: number): { missing: string[]; msg: string | null } {
+    const emailT = email.trim();
+    const missing: string[] = [];
+    let msg: string | null = null;
+    const passT = password;
+    const pass2T = password2;
+    const intOk = (v: string) => {
+      const n = Number(v);
+      return Number.isFinite(n) && n > 0 && Number.isInteger(n);
+    };
+
+    if (stepIndex === 1) {
+      if (!bizName.trim()) missing.push("bizName");
+      if (!bizContact.trim()) missing.push("bizContact");
+      if (!emailT) missing.push("bizEmail");
+      else if (!isValidEmail(emailT)) {
+        missing.push("bizEmail");
+        msg = "Enter a valid email";
+      }
+      const ph = bizPhone.trim();
+      if (!ph) missing.push("bizPhone");
+      else if (ph.length < MIN_WIZARD_PHONE_LEN) {
+        missing.push("bizPhone");
+        msg = msg ?? `Phone needs at least ${MIN_WIZARD_PHONE_LEN} characters`;
+      }
+      return { missing, msg };
+    }
+    if (stepIndex === 2) {
+      if (!bizCity.trim()) {
+        missing.push("bizCity");
+        msg = "Select city";
+      }
+      if (!bizLocations.trim() || !intOk(bizLocations.trim())) {
+        missing.push("bizLocations");
+        if (!msg) msg = "Enter locations";
+      }
+      return { missing, msg };
+    }
+    if (stepIndex === 3) {
+      if (!bizCompanyFieldsLocked && !bizAddress.trim()) missing.push("bizAddress");
+      return { missing, msg };
+    }
+    if (stepIndex === 4) {
+      if (!bizMonthlyOrders.trim() || !intOk(bizMonthlyOrders.trim())) {
+        missing.push("bizMonthlyOrders");
+        if (!msg) msg = "Enter monthly orders";
+      }
+      if (!bizCurrentSystem.trim()) missing.push("bizCurrentSystem");
+      return { missing, msg };
+    }
+    if (stepIndex === 5) {
+      const issue = strongPasswordIssue(passT);
+      if (issue) {
+        missing.push("bizPassword");
+        msg = issue;
+      }
+      if (!pass2T.trim()) missing.push("bizPassword2");
+      else if (passT !== pass2T) {
+        missing.push("bizPassword2");
+        msg = "Passwords do not match";
+      }
+      if (!bizAcceptTerms) missing.push("bizAcceptTerms");
+      if (!bizAuthorized) missing.push("bizAuthorized");
+      return { missing, msg };
+    }
+    return { missing: [], msg: null };
+  }
+
+  function evaluateGuestSignupForFinish():
+    | { ok: true; payload: WizardSignupPayload }
+    | { ok: false; stepIndex: number; message: string; missing: string[] } {
+    for (let s = 0; s <= 2; s++) {
+      const b = guestWizardStepValidation(s);
+      if (b.missing.length > 0) {
+        return { ok: false, stepIndex: s, message: b.msg ?? "Fill required fields", missing: b.missing };
+      }
+    }
+    return {
+      ok: true,
+      payload: {
+        email: email.trim(),
+        password,
+        role: "CUSTOMER",
+        phone: guestPhone.trim(),
+        registrationProfile: {
+          wizardVersion: 1,
+          flow: "GUEST",
+          firstName: guestFirst.trim(),
+          lastName: guestLast.trim(),
+          phone: guestPhone.trim(),
+          language: guestLanguage,
+          city: normalizeCityFromRegistry(guestCountry, guestCity),
+          country: guestCountry,
+          offersConsent: guestOffers
+        }
+      }
+    };
+  }
+
+  function evaluateBusinessSignupForFinish():
+    | { ok: true; payload: WizardSignupPayload }
+    | { ok: false; stepIndex: number; message: string; missing: string[] } {
+    for (let s = 1; s <= 5; s++) {
+      const b = businessWizardStepValidation(s);
+      if (b.missing.length > 0) {
+        return { ok: false, stepIndex: s, message: b.msg ?? "Fill required fields", missing: b.missing };
+      }
+    }
+    return {
+      ok: true,
+      payload: {
+        email: email.trim(),
+        password,
+        role: "OWNER",
+        phone: bizPhone.trim(),
+        registrationProfile: {
+          wizardVersion: 1,
+          flow: "BUSINESS",
+          orgNumber: bizOrgNumber.trim(),
+          companyName: bizName.trim(),
+          contactPerson: bizContact.trim(),
+          phone: bizPhone.trim(),
+          country: bizCountry,
+          city: normalizeCityFromRegistry(bizCountry, bizCity),
+          address: bizAddress.trim(),
+          locationsCount: bizLocations.trim(),
+          businessType: bizType,
+          monthlyOrdersEstimate: bizMonthlyOrders.trim(),
+          wantsBookings: bizNeedBookings,
+          wantsDelivery: bizNeedDelivery,
+          currentSystem: bizCurrentSystem.trim(),
+          postalCodeFromRegistry: bizPostalLocked || undefined,
+          legalFormFromRegistry: bizLegalFormLocked || undefined,
+          registrationStatusFromRegistry: bizRegStatusLocked || undefined,
+          companyLookupLocked: bizCompanyFieldsLocked
+        }
+      }
+    };
+  }
 
   function validateEmail() {
     const t = email.trim();
@@ -736,45 +1224,51 @@ export function AuthFlowScreen({ onAuthed }: Props) {
     setEmailErr(null);
     setPasswordErr(null);
     setSigninBtnErr(null);
-    const res = await authLogin({ email: email.trim(), password });
-    setBusy(false);
-    if (!res.ok || !res.token || !res.user) {
-      const code = res.error ?? "sign_in_failed";
-      if (code === "invalid_credentials") {
-        // Treat as both fields related. Shake both inputs + button, and show short error in button.
-        setPasswordErr("Email or password is incorrect");
-        setEmailErr(" ");
+    try {
+      const res = await authLogin({ email: email.trim(), password });
+      if (!res.ok || !res.token || !res.user) {
+        const code = res.error ?? "sign_in_failed";
+        if (code === "invalid_credentials") {
+          setPasswordErr("Email or password is incorrect");
+          setEmailErr(" ");
           animateFieldError("email", true);
           animateFieldError("password", true);
           scheduleAutoClearError("email");
           scheduleAutoClearError("password");
-        errorBuzz();
-        shake(emailShake, 2);
-        shake(passwordShake, 2);
-        shake(signinBtnShake, 2);
-        setSigninBtnErr("Wrong details");
-        if (signinBtnErrTimer.current) clearTimeout(signinBtnErrTimer.current);
-        signinBtnErrTimer.current = setTimeout(() => setSigninBtnErr(null), 1600);
-        return;
-      }
-      if (code === "email_or_phone_required") {
-        setEmailErr("Enter your email");
+          errorBuzz();
+          shake(emailShake, 2);
+          shake(passwordShake, 2);
+          shake(signinBtnShake, 2);
+          setSigninBtnErr("Wrong details");
+          if (signinBtnErrTimer.current) clearTimeout(signinBtnErrTimer.current);
+          signinBtnErrTimer.current = setTimeout(() => setSigninBtnErr(null), 1600);
+          return;
+        }
+        if (code === "email_or_phone_required") {
+          setEmailErr("Enter your email");
           animateFieldError("email", true);
           scheduleAutoClearError("email");
+          errorBuzz();
+          shake(emailShake, 1);
+          return;
+        }
+        setErr(readableAuthFailure(code));
         errorBuzz();
-        shake(emailShake, 1);
         return;
       }
-      setErr(code);
+      const pref: Experience = res.user.role === "OWNER" || res.user.role === "STAFF" ? "BUSINESS" : "GUEST";
+      setPreferredExperience(pref);
+      setHasSeenDevice(true);
+      void AsyncStorage.setItem("serveos.device.seen", "1");
+      void AsyncStorage.setItem("serveos.device.preferredExperience", pref);
+      await Promise.resolve(onAuthed({ token: res.token, user: res.user as AuthUser }));
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : String(e);
+      setErr(readableAuthFailure(raw));
       errorBuzz();
-      return;
+    } finally {
+      setBusy(false);
     }
-    const e: Experience = res.user.role === "OWNER" || res.user.role === "STAFF" ? "BUSINESS" : "GUEST";
-    setPreferredExperience(e);
-    setHasSeenDevice(true);
-    void AsyncStorage.setItem("serveos.device.seen", "1");
-    void AsyncStorage.setItem("serveos.device.preferredExperience", e);
-    onAuthed({ token: res.token, user: res.user as AuthUser });
   }
 
   async function doSignUp() {
@@ -785,14 +1279,22 @@ export function AuthFlowScreen({ onAuthed }: Props) {
     if (!validatePassword()) return;
     setBusy(true);
     setErr(null);
-    const role = experience === "BUSINESS" ? "OWNER" : "CUSTOMER";
-    const res = await authSignup({ email: email.trim(), password, role });
-    setBusy(false);
-    if (!res.ok || !res.token || !res.user) {
-      setErr(res.error ?? "sign_up_failed");
-      return;
+    try {
+      const role = experience === "BUSINESS" ? "OWNER" : "CUSTOMER";
+      const res = await authSignup({ email: email.trim(), password, role });
+      if (!res.ok || !res.token || !res.user) {
+        setErr(readableAuthFailure(res.error ?? "sign_up_failed"));
+        errorBuzz();
+        return;
+      }
+      await Promise.resolve(onAuthed({ token: res.token, user: res.user as AuthUser }));
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : String(e);
+      setErr(readableAuthFailure(raw));
+      errorBuzz();
+    } finally {
+      setBusy(false);
     }
-    onAuthed({ token: res.token, user: res.user as AuthUser });
   }
 
   const focusRefSoon = (r: React.RefObject<TextInput | null>) => {
@@ -945,43 +1447,57 @@ export function AuthFlowScreen({ onAuthed }: Props) {
 
                 <Text style={[styles.label, { marginTop: 14 }]}>Password</Text>
                 <Animated.View style={{ transform: [{ translateX: passwordShake.interpolate({ inputRange: [-1, 1], outputRange: [-8, 8] }) }] }}>
-                  <AnimatedTextInput
-                    ref={signInPasswordRef}
-                    value={password}
-                    onChangeText={(t) => {
-                      if (busy) return;
-                      setPassword(t);
-                      if (passwordErr) {
-                        setPasswordErr(null);
-                        animateFieldError("password", false);
-                      }
-                      if (signinBtnErr) setSigninBtnErr(null);
-                      if (err) setErr(null);
-                    }}
-                    style={[
-                      styles.input,
-                      {
-                        borderColor: passwordErrAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: ["rgba(255,255,255,0.35)", "rgba(239,68,68,0.95)"]
-                        }),
-                        backgroundColor: passwordErrAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: ["rgba(0,0,0,0.12)", "rgba(239,68,68,0.08)"]
-                        })
-                      }
-                    ]}
-                    placeholder="Enter your password"
-                    placeholderTextColor="rgba(255,255,255,0.45)"
-                    secureTextEntry
-                    textContentType="password"
-                    editable={!busy}
-                    returnKeyType="go"
-                    onSubmitEditing={() => {
-                      void Haptics.selectionAsync();
-                      onSubmitSignInPassword();
-                    }}
-                  />
+                  <View style={styles.signinInputWrap}>
+                    <AnimatedTextInput
+                      ref={signInPasswordRef}
+                      value={password}
+                      onChangeText={(t) => {
+                        if (busy) return;
+                        setPassword(t);
+                        if (passwordErr) {
+                          setPasswordErr(null);
+                          animateFieldError("password", false);
+                        }
+                        if (signinBtnErr) setSigninBtnErr(null);
+                        if (err) setErr(null);
+                      }}
+                      style={[
+                        styles.input,
+                        styles.signinInputWithEye,
+                        {
+                          borderColor: passwordErrAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: ["rgba(255,255,255,0.35)", "rgba(239,68,68,0.95)"]
+                          }),
+                          backgroundColor: passwordErrAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: ["rgba(0,0,0,0.12)", "rgba(239,68,68,0.08)"]
+                          })
+                        }
+                      ]}
+                      placeholder="Enter your password"
+                      placeholderTextColor="rgba(255,255,255,0.45)"
+                      secureTextEntry={!signInShowPassword}
+                      textContentType="password"
+                      editable={!busy}
+                      returnKeyType="go"
+                      onSubmitEditing={() => {
+                        void Haptics.selectionAsync();
+                        onSubmitSignInPassword();
+                      }}
+                    />
+                    <Pressable
+                      onPress={() => {
+                        void Haptics.selectionAsync();
+                        setSignInShowPassword((s) => !s);
+                      }}
+                      style={({ pressed }) => [styles.signinEyeIcon, pressed && { opacity: 0.75 }]}
+                      accessibilityRole="button"
+                      accessibilityLabel={signInShowPassword ? "Hide password" : "Show password"}
+                    >
+                      <Text style={styles.signinEyeIconText}>{signInShowPassword ? "🙈" : "👁"}</Text>
+                    </Pressable>
+                  </View>
                 </Animated.View>
                 {passwordErr ? <Text style={styles.fieldErr}>{passwordErr}</Text> : null}
 
@@ -1033,7 +1549,7 @@ export function AuthFlowScreen({ onAuthed }: Props) {
                 </Text>
               </View>
             ) : (
-              <Animated.View style={[styles.signupStage, wizardOpen ? styles.signupHidden : null]}>
+              <Animated.View style={[styles.signupStage, wizardOpen || wizardExitInfiniteLoader ? styles.signupHidden : null]}>
                 <Text style={[styles.signupHeader, { paddingTop: Math.max(18, insets.top + 12) }]}>Create your account</Text>
 
                 <View style={styles.signupCenter}>
@@ -1077,8 +1593,15 @@ export function AuthFlowScreen({ onAuthed }: Props) {
 
       {wizardOpen ? (
         <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-        <View style={styles.wizardOverlay}>
-          <BlurView intensity={34} tint="dark" style={StyleSheet.absoluteFill} />
+        <View
+          style={[
+            styles.wizardOverlay,
+            { paddingTop: Math.max(12, insets.top + 10), paddingBottom: Math.max(12, insets.bottom + 10) }
+          ]}
+        >
+          <Animated.View style={[StyleSheet.absoluteFill, { opacity: wizardExitInfiniteLoader ? guestBlurFade : 1 }]}>
+            <BlurView intensity={34} tint="dark" style={StyleSheet.absoluteFill} />
+          </Animated.View>
           <KeyboardAvoidingView
             pointerEvents="box-none"
             style={{ width: "100%", alignItems: "center" }}
@@ -1092,43 +1615,63 @@ export function AuthFlowScreen({ onAuthed }: Props) {
             ]}
           >
             <View style={[styles.wizardCard, wizardFlow === "BUSINESS" ? styles.wizardCardBusiness : styles.wizardCardGuest]}>
-              <Text style={styles.wizardIntroTitle}>
-                {wizardFlow === "BUSINESS" ? "Create your business account" : "Create your personal account"}
-              </Text>
-              <Animated.Text
-                numberOfLines={1}
-                ellipsizeMode="tail"
-                style={[
-                  styles.wizardIntroSub,
-                  { opacity: wizardSwap.opacity, transform: [{ translateX: wizardSwap.x }], color: swapColor(wizardSwap.colorIndex) }
-                ]}
+              <Animated.View
+                style={{
+                  opacity: wizardExitInfiniteLoader ? guestWizardChromeFade : 1
+                }}
               >
-                {wizardSwap.text}
-              </Animated.Text>
-
-              <View style={styles.wizardStepRow}>
-                <Text style={styles.wizardStepText}>
-                  Step {wizardStep + 1} of {totalSteps}
+                <Text style={styles.wizardIntroTitle}>
+                  {wizardFlow === "BUSINESS" ? "Create your business account" : "Create your personal account"}
                 </Text>
-              </View>
-              <View style={styles.wizardProgressTrack}>
-                <View
+                <Animated.Text
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
                   style={[
-                    styles.wizardProgressFill,
-                    {
-                      width: `${Math.round(progress * 100)}%`,
-                      backgroundColor:
-                        progress >= 0.999
-                          ? wizardFlow === "BUSINESS"
-                            ? "rgba(59,130,246,0.95)"
-                            : "rgba(34,197,94,0.95)"
-                          : "rgba(255,255,255,0.92)"
-                    }
+                    styles.wizardIntroSub,
+                    { opacity: wizardSwap.opacity, transform: [{ translateX: wizardSwap.x }], color: swapColor(wizardSwap.colorIndex) }
                   ]}
-                />
-              </View>
+                >
+                  {wizardSwap.text}
+                </Animated.Text>
 
-              {wizErr ? <Text style={styles.wizardErr}>{wizErr}</Text> : null}
+                <View style={styles.wizardStepRow}>
+                  <Text style={styles.wizardStepText}>
+                    Step {wizardStep + 1} of {totalSteps}
+                  </Text>
+                </View>
+              </Animated.View>
+
+              {wizardExitInfiniteLoader ? null : (
+                <View
+                  style={styles.wizardProgressTrack}
+                  onLayout={(e) => {
+                    const w = e.nativeEvent.layout.width;
+                    if (w > 0) progressTrackWRef.current = w;
+                  }}
+                >
+                  <View
+                    style={[
+                      styles.wizardProgressFill,
+                      {
+                        width: `${Math.round(progress * 100)}%`,
+                        backgroundColor:
+                          progress >= 0.999
+                            ? wizardFlow === "BUSINESS"
+                              ? "rgba(59,130,246,0.95)"
+                              : "rgba(34,197,94,0.95)"
+                            : "rgba(255,255,255,0.92)"
+                      }
+                    ]}
+                  />
+                </View>
+              )}
+
+              <Animated.View
+                style={{
+                  opacity: wizardExitInfiniteLoader ? guestWizardChromeFade : 1
+                }}
+              >
+                {wizErr ? <Text style={styles.wizardErr}>{wizErr}</Text> : null}
 
               <Animated.View style={[styles.wizardContent, { opacity: wizardStepOpacity, transform: [{ translateX: wizardStepX }] }]}>
                 {wizardFlow === "GUEST" ? (
@@ -1392,12 +1935,7 @@ export function AuthFlowScreen({ onAuthed }: Props) {
                   <>
                     {wizardStep === 0 ? (
                       <>
-                        <Text style={styles.wizardSectionTitle}>Organization</Text>
-                        <Text style={styles.wizardMuted}>Enter your organization number to auto-fill company details.</Text>
-                        <View style={styles.wizardLabelRow}>
-                          <Text style={styles.wizardLabel}>Organization number</Text>
-                          <Text style={styles.wizardOptional}>(Optional)</Text>
-                        </View>
+                        <Text style={styles.wizardLabel}>Organisation number</Text>
                         <Animated.View style={{ transform: [{ translateX: Animated.multiply(wizShake.bizOrgNumber, 8) }] }}>
                           <AnimatedTextInput
                             value={bizOrgNumber}
@@ -1415,94 +1953,126 @@ export function AuthFlowScreen({ onAuthed }: Props) {
                             style={[styles.wizardInput, { borderColor: wizBorderColor("bizOrgNumber"), backgroundColor: wizBgColor("bizOrgNumber") }]}
                             placeholder="556123-4567"
                             placeholderTextColor="rgba(255,255,255,0.35)"
+                            keyboardType="numbers-and-punctuation"
                           />
                         </Animated.View>
 
-                        {bizLookupMsg ? <Text style={styles.wizardHint}>{bizLookupMsg}</Text> : null}
-
-                        <View style={styles.wizardLookupRow}>
-                          <Pressable
-                            onPress={async () => {
-                              void Haptics.selectionAsync();
-                              setBizLookupMsg(null);
-                              const t = bizOrgNumber.trim();
-                              if (!t) {
-                                errorBuzz();
-                                showWizardBtnError("Enter org number");
-                                setWizFieldErrorOn("bizOrgNumber");
-                                return;
-                              }
-                              setBizLookupBusy(true);
-                              try {
-                                const res = await lookupCompany(t);
-                                if (res.success && res.found) {
-                                  void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                                  if (res.data.companyName) setBizName(res.data.companyName);
-                                  if (res.data.address) setBizAddress(res.data.address);
-                                  if (res.data.city) setBizCity(res.data.city);
-                                  setBizLookupMsg("Company found. We prefilled your details.");
-                                  wizardNext();
-                                  return;
-                                }
-                                if (res.success && !res.found) {
-                                  setBizLookupMsg("We couldn't find your company. You can continue manually.");
-                                  return;
-                                }
-                                setBizLookupMsg(res.message || "We couldn't find your company. You can continue manually.");
-                              } catch {
-                                setBizLookupMsg("We couldn't find your company. You can continue manually.");
-                              } finally {
-                                setBizLookupBusy(false);
-                              }
-                            }}
-                            style={({ pressed }) => [
-                              styles.wizardLookupBtn,
-                              pressed && { opacity: 0.92 },
-                              bizLookupBusy && { opacity: 0.7 }
-                            ]}
-                            disabled={bizLookupBusy}
-                          >
-                            {bizLookupBusy ? (
-                              <ActivityIndicator color="#FFFFFF" />
-                            ) : (
-                              <Text style={styles.wizardLookupText}>Lookup Company</Text>
-                            )}
-                          </Pressable>
-                          <Pressable
-                            onPress={() => {
-                              void Haptics.selectionAsync();
-                              setBizLookupMsg(null);
-                              wizardNext();
-                            }}
-                            style={({ pressed }) => [styles.wizardManualBtn, pressed && { opacity: 0.92 }]}
-                            disabled={bizLookupBusy}
-                          >
-                            <Text style={styles.wizardManualText}>Continue Manually</Text>
-                          </Pressable>
-                        </View>
+                        {bizLookupMsg ? <Text style={styles.fieldErr}>{bizLookupMsg}</Text> : null}
                       </>
                     ) : wizardStep === 1 ? (
                       <>
                         <Text style={styles.wizardSectionTitle}>Business Identity</Text>
-                        <Text style={styles.wizardLabel}>Business / restaurant name</Text>
-                        <Animated.View style={{ transform: [{ translateX: Animated.multiply(wizShake.bizName, 8) }] }}>
-                          <AnimatedTextInput
-                            value={bizName}
-                            onChangeText={(t) => {
-                              if (wizardBtnErr) setWizardBtnErr(null);
-                              clearWizFieldError("bizName");
-                              setBizName(t);
-                            }}
-                            onFocus={(e) => {
-                              if (wizardBtnErr) setWizardBtnErr(null);
-                              clearWizFieldError("bizName");
-                              onWizardFocus(e);
-                            }}
-                            style={[styles.wizardInput, { borderColor: wizBorderColor("bizName"), backgroundColor: wizBgColor("bizName") }]}
-                            placeholder="Business name"
-                            placeholderTextColor="rgba(255,255,255,0.35)"
-                          />
-                        </Animated.View>
+                        {bizCompanyFieldsLocked ? (
+                          <>
+                            <View style={styles.wizardRow2}>
+                              <Animated.View style={{ flex: 1, minWidth: 0, transform: [{ translateX: Animated.multiply(wizShake.bizName, 8) }] }}>
+                                <Text style={styles.wizardLabel}>Legal company name</Text>
+                                <View style={styles.wizardInputWrap}>
+                                  <AnimatedTextInput
+                                    value={bizName}
+                                    editable={false}
+                                    style={[
+                                      styles.wizardInput,
+                                      styles.wizardInputWithEye,
+                                      { borderColor: wizBorderColor("bizName"), backgroundColor: wizBgColor("bizName") }
+                                    ]}
+                                    placeholder="Business name"
+                                    placeholderTextColor="rgba(255,255,255,0.35)"
+                                  />
+                                  <View
+                                    style={styles.wizardLockIconWrap}
+                                    pointerEvents="none"
+                                    accessibilityElementsHidden
+                                    importantForAccessibility="no-hide-descendants"
+                                  >
+                                    <Text style={styles.wizardLockIconText}>🔒</Text>
+                                  </View>
+                                </View>
+                              </Animated.View>
+                              <View style={{ flex: 1, minWidth: 0 }}>
+                                <Text style={styles.wizardLabel}>Legal form</Text>
+                                <View style={styles.wizardInputWrap}>
+                                  <View style={[styles.wizardInput, styles.wizardInputWithEye]}>
+                                    <Text style={styles.wizardLockedRegistryText} numberOfLines={1}>
+                                      {bizLegalFormLocked.trim() ? bizLegalFormLocked : "—"}
+                                    </Text>
+                                  </View>
+                                  <View
+                                    style={styles.wizardLockIconWrap}
+                                    pointerEvents="none"
+                                    accessibilityElementsHidden
+                                    importantForAccessibility="no-hide-descendants"
+                                  >
+                                    <Text style={styles.wizardLockIconText}>🔒</Text>
+                                  </View>
+                                </View>
+                              </View>
+                            </View>
+                            <View style={[styles.wizardRow2, { marginTop: 4 }]}>
+                              <View style={{ flex: 1, minWidth: 0 }}>
+                                <Text style={styles.wizardLabel}>Registration status</Text>
+                                <View style={styles.wizardInputWrap}>
+                                  <View style={[styles.wizardInput, styles.wizardInputWithEye]}>
+                                    <Text style={styles.wizardLockedRegistryText} numberOfLines={1}>
+                                      {bizRegStatusLocked.trim() ? bizRegStatusLocked : "—"}
+                                    </Text>
+                                  </View>
+                                  <View
+                                    style={styles.wizardLockIconWrap}
+                                    pointerEvents="none"
+                                    accessibilityElementsHidden
+                                    importantForAccessibility="no-hide-descendants"
+                                  >
+                                    <Text style={styles.wizardLockIconText}>🔒</Text>
+                                  </View>
+                                </View>
+                              </View>
+                              <View style={{ flex: 1, minWidth: 0 }}>
+                                <Text style={styles.wizardLabel}>Postal code</Text>
+                                <View style={styles.wizardInputWrap}>
+                                  <View style={[styles.wizardInput, styles.wizardInputWithEye]}>
+                                    <Text style={styles.wizardLockedRegistryText} numberOfLines={1}>
+                                      {bizPostalLocked.trim() ? bizPostalLocked : "—"}
+                                    </Text>
+                                  </View>
+                                  <View
+                                    style={styles.wizardLockIconWrap}
+                                    pointerEvents="none"
+                                    accessibilityElementsHidden
+                                    importantForAccessibility="no-hide-descendants"
+                                  >
+                                    <Text style={styles.wizardLockIconText}>🔒</Text>
+                                  </View>
+                                </View>
+                              </View>
+                            </View>
+                          </>
+                        ) : (
+                          <>
+                            <Text style={styles.wizardLabel}>Legal company name</Text>
+                            <Animated.View style={{ transform: [{ translateX: Animated.multiply(wizShake.bizName, 8) }] }}>
+                              <View style={styles.wizardInputWrap}>
+                                <AnimatedTextInput
+                                  value={bizName}
+                                  editable
+                                  onChangeText={(t) => {
+                                    if (wizardBtnErr) setWizardBtnErr(null);
+                                    clearWizFieldError("bizName");
+                                    setBizName(t);
+                                  }}
+                                  onFocus={(e) => {
+                                    if (wizardBtnErr) setWizardBtnErr(null);
+                                    clearWizFieldError("bizName");
+                                    onWizardFocus(e);
+                                  }}
+                                  style={[styles.wizardInput, { borderColor: wizBorderColor("bizName"), backgroundColor: wizBgColor("bizName") }]}
+                                  placeholder="Business name"
+                                  placeholderTextColor="rgba(255,255,255,0.35)"
+                                />
+                              </View>
+                            </Animated.View>
+                          </>
+                        )}
                         <Text style={styles.wizardLabel}>Contact person full name</Text>
                         <Animated.View style={{ transform: [{ translateX: Animated.multiply(wizShake.bizContact, 8) }] }}>
                           <AnimatedTextInput
@@ -1572,21 +2142,34 @@ export function AuthFlowScreen({ onAuthed }: Props) {
                         </Animated.View>
                       </>
                     ) : wizardStep === 2 ? (
-                      <>
+                      <ScrollView
+                        keyboardShouldPersistTaps="handled"
+                        showsVerticalScrollIndicator={false}
+                        bounces={false}
+                        nestedScrollEnabled
+                        style={{ maxHeight: wizardBizDetailsScrollMaxH }}
+                        contentContainerStyle={styles.wizardBusinessDetailsScroll}
+                      >
                         <Text style={styles.wizardSectionTitle}>Business Details</Text>
-                        <View style={styles.wizardRow2}>
-                          <View style={{ flex: 1 }}>
-                            <CountrySelect value={bizCountry} onChange={setBizCountry} />
+                        <View style={[styles.wizardRow2, { marginTop: 10 }]}>
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <CountrySelect
+                              value={bizCountry}
+                              onChange={setBizCountry}
+                              locked={bizCompanyFieldsLocked}
+                            />
                           </View>
-                          <Animated.View style={{ flex: 1, transform: [{ translateX: Animated.multiply(wizShake.bizCity, 8) }] }}>
+                          <Animated.View style={{ flex: 1, minWidth: 0, transform: [{ translateX: Animated.multiply(wizShake.bizCity, 8) }] }}>
                             <CitySelect
                               country={bizCountry}
                               value={bizCity}
                               onChange={(c) => {
+                                if (bizCompanyFieldsLocked) return;
                                 if (wizardBtnErr) setWizardBtnErr(null);
                                 clearWizFieldError("bizCity");
                                 setBizCity(c);
                               }}
+                              locked={bizCompanyFieldsLocked}
                             />
                           </Animated.View>
                         </View>
@@ -1613,28 +2196,42 @@ export function AuthFlowScreen({ onAuthed }: Props) {
                             keyboardType="number-pad"
                           />
                         </Animated.View>
-                      </>
+                      </ScrollView>
                     ) : wizardStep === 3 ? (
                       <>
                         <Text style={styles.wizardSectionTitle}>Business Address</Text>
-                        <Text style={styles.wizardLabel}>Business address</Text>
+                        <Text style={styles.wizardLabel}>Registered business address</Text>
                         <Animated.View style={{ transform: [{ translateX: Animated.multiply(wizShake.bizAddress, 8) }] }}>
-                          <AnimatedTextInput
-                            value={bizAddress}
-                            onChangeText={(t) => {
-                              if (wizardBtnErr) setWizardBtnErr(null);
-                              clearWizFieldError("bizAddress");
-                              setBizAddress(t);
-                            }}
-                            onFocus={(e) => {
-                              if (wizardBtnErr) setWizardBtnErr(null);
-                              clearWizFieldError("bizAddress");
-                              onWizardFocus(e);
-                            }}
-                            style={[styles.wizardInput, { borderColor: wizBorderColor("bizAddress"), backgroundColor: wizBgColor("bizAddress") }]}
-                            placeholder="Address"
-                            placeholderTextColor="rgba(255,255,255,0.35)"
-                          />
+                          <View style={styles.wizardInputWrap}>
+                            <AnimatedTextInput
+                              value={bizAddress}
+                              editable={!bizCompanyFieldsLocked}
+                              onChangeText={(t) => {
+                                if (bizCompanyFieldsLocked) return;
+                                if (wizardBtnErr) setWizardBtnErr(null);
+                                clearWizFieldError("bizAddress");
+                                setBizAddress(t);
+                              }}
+                              onFocus={(e) => {
+                                if (bizCompanyFieldsLocked) return;
+                                if (wizardBtnErr) setWizardBtnErr(null);
+                                clearWizFieldError("bizAddress");
+                                onWizardFocus(e);
+                              }}
+                              style={[
+                                styles.wizardInput,
+                                bizCompanyFieldsLocked && styles.wizardInputWithEye,
+                                { borderColor: wizBorderColor("bizAddress"), backgroundColor: wizBgColor("bizAddress") }
+                              ]}
+                              placeholder={bizCompanyFieldsLocked && !bizAddress.trim() ? "—" : "Address"}
+                              placeholderTextColor="rgba(255,255,255,0.35)"
+                            />
+                            {bizCompanyFieldsLocked ? (
+                              <View style={styles.wizardLockIconWrap} pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+                                <Text style={styles.wizardLockIconText}>🔒</Text>
+                              </View>
+                            ) : null}
+                          </View>
                         </Animated.View>
                         <View style={styles.wizardLabelRow}>
                           <Text style={styles.wizardLabel}>Type of business</Text>
@@ -1829,13 +2426,7 @@ export function AuthFlowScreen({ onAuthed }: Props) {
                           <Text style={styles.wizardToggleText}>Authorized to represent business</Text>
                         </Animated.View>
                       </>
-                    ) : (
-                      <>
-                        <Text style={styles.wizardFinishTitle}>Business account ready</Text>
-                        <Text style={styles.wizardHint}>Account under quick verification. Usually completed within minutes.</Text>
-                        <Text style={styles.wizardFinishCTA}>Launch Dashboard</Text>
-                      </>
-                    )}
+                    ) : null}
                   </>
                 )}
               </Animated.View>
@@ -1850,7 +2441,13 @@ export function AuthFlowScreen({ onAuthed }: Props) {
                 </Pressable>
                 <Animated.View style={{ flex: 1, transform: [{ translateX: Animated.multiply(wizardBtnShake, 8) }] }}>
                   <Pressable
-                    onPress={wizardNext}
+                    onPress={() => {
+                      if (wizardFlow === "BUSINESS" && wizardStep === 0) {
+                        void handleBusinessOrgStepContinue();
+                        return;
+                      }
+                      wizardNext();
+                    }}
                     style={({ pressed }) => [
                       styles.wizardNext,
                       wizardStep >= totalSteps - 1
@@ -1859,14 +2456,21 @@ export function AuthFlowScreen({ onAuthed }: Props) {
                           : styles.wizardNextGuest
                         : null,
                       pressed && { opacity: 0.96 },
-                      busy && { opacity: 0.7 }
+                      (busy || bizLookupBusy) && { opacity: 0.75 }
                     ]}
-                    disabled={busy}
+                    disabled={busy || bizLookupBusy}
                   >
-                    {wizardStep < totalSteps - 1 && wizardBtnErr ? (
+                    {bizLookupBusy && wizardFlow === "BUSINESS" && wizardStep === 0 ? (
+                      <ActivityIndicator color="#0B1020" />
+                    ) : wizardBtnErr ? (
                       <Text style={styles.primaryTextErr}>{wizardBtnErr}</Text>
                     ) : (
-                      <Text style={styles.wizardNextText}>
+                      <Text
+                        style={[
+                          styles.wizardNextText,
+                          wizardStep >= totalSteps - 1 && wizardFlow === "BUSINESS" && styles.wizardNextTextOnAccent
+                        ]}
+                      >
                         {wizardStep >= totalSteps - 1 ? (wizardFlow === "BUSINESS" ? "Launch Dashboard" : "Start Exploring") : "Continue"}
                       </Text>
                     )}
@@ -1874,12 +2478,97 @@ export function AuthFlowScreen({ onAuthed }: Props) {
                 </Animated.View>
               </View>
 
-              <Text style={styles.wizardProtect}>Your information is encrypted and protected.</Text>
+                <Text style={styles.wizardProtect}>Your information is encrypted and protected.</Text>
+              </Animated.View>
             </View>
           </Animated.View>
           </KeyboardAvoidingView>
         </View>
         </TouchableWithoutFeedback>
+      ) : null}
+
+      {wizardExitInfiniteLoader ? (
+        <View style={[StyleSheet.absoluteFillObject, styles.wizardExitInfiniteLoaderRoot]} pointerEvents="auto">
+          <View style={styles.wizardExitInfiniteLoaderColumn}>
+            <Text style={styles.wizardExitLoaderHint}>Creating your account and loading the app…</Text>
+            <Text style={styles.wizardExitLoaderSubHint}>
+              Slow or sleeping servers may need a minute. This screen stays up until sign-in succeeds or you choose Edit details.
+            </Text>
+            {wizardExitLoaderErr ? (
+              <View style={styles.wizardExitLoaderErrBox}>
+                <Text style={styles.wizardExitLoaderErrText}>{wizardExitLoaderErr}</Text>
+                <View style={styles.wizardExitLoaderErrActions}>
+                  <Pressable
+                    onPress={() => {
+                      void Haptics.selectionAsync();
+                      void runWizardSignupFromLoaderRef.current();
+                    }}
+                    disabled={busy}
+                    style={({ pressed }) => [
+                      styles.wizardExitLoaderErrBtnPrimary,
+                      pressed && !busy ? { opacity: 0.92 } : null,
+                      busy && styles.wizardExitLoaderBtnDisabled
+                    ]}
+                  >
+                    <Text style={styles.wizardExitLoaderErrBtnPrimaryText}>Try again</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={dismissWizardExitToEditDetails}
+                    disabled={busy}
+                    style={({ pressed }) => [
+                      styles.wizardExitLoaderErrBtnGhost,
+                      pressed && !busy ? { opacity: 0.88 } : null,
+                      busy && styles.wizardExitLoaderBtnDisabled
+                    ]}
+                  >
+                    <Text style={styles.wizardExitLoaderErrBtnGhostText}>Edit details</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
+            {!wizardExitInfiniteRing ? (
+              <Animated.View
+                style={{
+                  alignSelf: "center",
+                  width: guestMorphW,
+                  height: guestMorphH,
+                  borderRadius: guestMorphR,
+                  backgroundColor: swapColor(infiniteLoaderSwap.colorIndex)
+                }}
+              />
+            ) : (
+              <Animated.View
+                style={{
+                  width: 52,
+                  height: 52,
+                  borderRadius: 26,
+                  borderWidth: 5,
+                  borderColor: LOADER_SWAP_DIM[infiniteLoaderSwap.colorIndex % 4] ?? LOADER_SWAP_DIM[0],
+                  borderTopColor: swapColor(infiniteLoaderSwap.colorIndex),
+                  borderRightColor: swapColor(infiniteLoaderSwap.colorIndex),
+                  transform: [{ rotate: guestSpinDeg }]
+                }}
+              />
+            )}
+            {infiniteLoaderPhrases.length > 1 ? (
+              <Animated.Text
+                numberOfLines={2}
+                ellipsizeMode="tail"
+                style={[
+                  styles.wizardIntroSub,
+                  styles.wizardExitInfinitePhrase,
+                  {
+                    opacity: infiniteLoaderSwap.opacity,
+                    transform: [{ translateX: infiniteLoaderSwap.x }],
+                    color: swapColor(infiniteLoaderSwap.colorIndex)
+                  }
+                ]}
+              >
+                {infiniteLoaderSwap.text}
+              </Animated.Text>
+            ) : null}
+          </View>
+        </View>
       ) : null}
     </LinearGradient>
   );
@@ -1921,6 +2610,17 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     backgroundColor: "rgba(0,0,0,0.12)"
   },
+  signinInputWrap: { width: "100%", position: "relative" },
+  signinInputWithEye: { paddingRight: 48 },
+  signinEyeIcon: {
+    position: "absolute",
+    right: 10,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
+    paddingHorizontal: 6
+  },
+  signinEyeIconText: { fontSize: 16, color: "rgba(255,255,255,0.85)" },
   inputErr: {
     borderColor: "rgba(239,68,68,0.95)",
     backgroundColor: "rgba(239,68,68,0.08)"
@@ -2000,6 +2700,91 @@ const styles = StyleSheet.create({
   },
 
   // --- Signup wizard overlay ---
+  wizardExitInfiniteLoaderRoot: {
+    zIndex: 80,
+    elevation: 28,
+    backgroundColor: "rgba(49,46,129,0.82)"
+  },
+  wizardExitLoaderHint: {
+    color: "rgba(255,255,255,0.94)",
+    fontSize: 16,
+    fontWeight: "800",
+    textAlign: "center",
+    marginBottom: 10,
+    paddingHorizontal: 12
+  },
+  wizardExitLoaderSubHint: {
+    color: "rgba(255,255,255,0.72)",
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "center",
+    marginBottom: 28,
+    paddingHorizontal: PAD,
+    maxWidth: 460,
+    alignSelf: "center"
+  },
+  wizardExitLoaderErrBox: {
+    width: "100%",
+    maxWidth: 480,
+    marginBottom: 24,
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: "rgba(0,0,0,0.28)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)"
+  },
+  wizardExitLoaderErrText: {
+    color: "rgba(254,226,226,0.98)",
+    fontSize: 14,
+    fontWeight: "700",
+    textAlign: "center",
+    marginBottom: 14,
+    lineHeight: 20
+  },
+  wizardExitLoaderErrActions: {
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "center",
+    flexWrap: "wrap",
+    alignItems: "center"
+  },
+  wizardExitLoaderErrBtnPrimary: {
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.95)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.6)"
+  },
+  wizardExitLoaderErrBtnPrimaryText: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: "#312E81"
+  },
+  wizardExitLoaderErrBtnGhost: {
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 14,
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.45)"
+  },
+  wizardExitLoaderErrBtnGhostText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "rgba(255,255,255,0.92)"
+  },
+  wizardExitLoaderBtnDisabled: {
+    opacity: 0.5
+  },
+  wizardExitInfiniteLoaderColumn: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+    paddingHorizontal: PAD + 8
+  },
+  wizardExitInfinitePhrase: { marginTop: 28, maxWidth: 520, alignSelf: "center", width: "100%" },
   wizardOverlay: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 50,
@@ -2049,12 +2834,26 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     backgroundColor: "rgba(0,0,0,0.18)"
   },
+  wizardLockedRegistryText: { fontSize: 15, fontWeight: "600", color: "#FFFFFF", flexShrink: 1 },
   wizardRow2: { flexDirection: "row", gap: 12, width: "100%" },
+  wizardBusinessDetailsScroll: {
+    flexGrow: 1,
+    paddingTop: 10,
+    paddingBottom: 18
+  },
   wizardSectionTitle: { color: "#FFFFFF", fontSize: 16, fontWeight: "900", textAlign: "center" },
   wizardMuted: { marginTop: 8, color: "rgba(255,255,255,0.72)", fontSize: 12, fontWeight: "700", textAlign: "center" },
-  wizardHint: { marginTop: 10, color: "rgba(255,255,255,0.62)", fontSize: 12, fontWeight: "700", textAlign: "center" },
   wizardInputWrap: { width: "100%", position: "relative" },
   wizardInputWithEye: { paddingRight: 44 },
+  wizardLockIconWrap: {
+    position: "absolute",
+    right: 10,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
+    paddingHorizontal: 6
+  },
+  wizardLockIconText: { fontSize: 13, lineHeight: 16 },
   wizardEyeIcon: {
     position: "absolute",
     right: 10,
@@ -2064,27 +2863,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6
   },
   wizardEyeIconText: { fontSize: 16, color: "rgba(255,255,255,0.82)" },
-  wizardLookupRow: { marginTop: 12, gap: 10 },
-  wizardLookupBtn: {
-    width: "100%",
-    paddingVertical: 13,
-    borderRadius: 16,
-    backgroundColor: "rgba(59,130,246,0.92)",
-    alignItems: "center"
-  },
-  wizardLookupText: { color: "#FFFFFF", fontSize: 13, fontWeight: "900" },
-  wizardManualBtn: {
-    width: "100%",
-    paddingVertical: 13,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: "rgba(255,255,255,0.20)",
-    backgroundColor: "rgba(0,0,0,0.18)",
-    alignItems: "center"
-  },
-  wizardManualText: { color: "rgba(255,255,255,0.90)", fontSize: 13, fontWeight: "900" },
   wizardFinishTitle: { marginTop: 10, color: "#FFFFFF", fontSize: 18, fontWeight: "900", textAlign: "center" },
-  wizardFinishCTA: { marginTop: 12, color: "#FFFFFF", fontSize: 14, fontWeight: "900", textAlign: "center" },
   wizardProtect: { marginTop: 28, color: "rgba(255,255,255,0.62)", fontSize: 12, fontWeight: "800", textAlign: "center" },
   wizardBtnRow: { marginTop: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
   wizardToggleRow: { marginTop: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
@@ -2098,6 +2877,7 @@ const styles = StyleSheet.create({
   wizardNextGuest: { backgroundColor: "rgba(34,197,94,0.95)" },
   wizardNextBusiness: { backgroundColor: "rgba(59,130,246,0.95)" },
   wizardNextText: { color: "#0B1020", fontSize: 14, fontWeight: "900" },
+  wizardNextTextOnAccent: { color: "#FFFFFF" },
   langRow: { flexDirection: "row", gap: 10, width: "100%" },
   langBtn: {
     flex: 1,

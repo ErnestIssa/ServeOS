@@ -5,7 +5,7 @@ import type { AllowedCountry } from "./CountrySelect";
 
 export type CityOption = { country: AllowedCountry; name: string };
 
-const CITIES: ReadonlyArray<CityOption> = [
+export const CITIES: ReadonlyArray<CityOption> = [
   { country: "Sweden", name: "Stockholm" },
   { country: "Sweden", name: "Gothenburg" },
   { country: "Sweden", name: "Malmö" },
@@ -32,9 +32,10 @@ type Props = {
   label?: string;
   placeholder?: string;
   disabled?: boolean;
+  locked?: boolean;
 };
 
-export function CitySelect({ country, value, onChange, label = "City", placeholder = "Select city", disabled }: Props) {
+export function CitySelect({ country, value, onChange, label = "City", placeholder = "Select city", disabled, locked }: Props) {
   const [open, setOpen] = React.useState(false);
   const [q, setQ] = React.useState("");
   const sheetOpacity = React.useRef(new Animated.Value(0)).current;
@@ -67,15 +68,18 @@ export function CitySelect({ country, value, onChange, label = "City", placehold
       <Text style={styles.label}>{label}</Text>
       <Pressable
         onPress={() => {
-          if (disabled) return;
+          if (disabled || locked) return;
           Keyboard.dismiss();
           setOpen(true);
         }}
-        style={({ pressed }) => [styles.pill, pressed && !disabled && { opacity: 0.95 }, disabled && { opacity: 0.6 }]}
+        style={({ pressed }) => [styles.pill, pressed && !disabled && !locked && { opacity: 0.95 }, (disabled || locked) && { opacity: 1 }]}
         accessibilityRole="button"
+        accessibilityState={{ disabled: Boolean(disabled || locked) }}
       >
-        <Text style={styles.pillText}>{value?.trim() ? value : placeholder}</Text>
-        <Text style={styles.chev}>▼</Text>
+        <Text style={styles.pillText} numberOfLines={1}>
+          {value?.trim() ? value : placeholder}
+        </Text>
+        {locked ? <Text style={styles.lockIcon}>🔒</Text> : <Text style={styles.chev}>▼</Text>}
       </Pressable>
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={close}>
@@ -140,8 +144,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between"
   },
-  pillText: { color: "#FFFFFF", fontSize: 15, fontWeight: "900" },
-  chev: { color: "rgba(255,255,255,0.65)", fontWeight: "900" },
+  pillText: { color: "#FFFFFF", fontSize: 15, fontWeight: "900", flex: 1 },
+  chev: { color: "rgba(255,255,255,0.65)", fontWeight: "900", marginLeft: 10 },
+  lockIcon: { fontSize: 13, lineHeight: 16, marginLeft: 10 },
   modalRoot: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 20 },
   sheet: {
     width: "98%",

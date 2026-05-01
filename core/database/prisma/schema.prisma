@@ -19,6 +19,8 @@ model User {
   phone     String?  @unique
   password  String
   role      Role
+  /// Wizard / registration snapshot (JSON). Used to restore context on next login; not a substitute for typed domain models.
+  signupProfile Json?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

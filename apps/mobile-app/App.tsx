@@ -15,7 +15,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { ScrollMeshBackground } from "./src/ambient/ScrollMeshBackground";
-import { apiFetch, apiHttpToWsBase, authMe, API_URL } from "./src/api";
+import { apiFetch, apiHttpToWsBase, authMe, API_URL, type AuthUser } from "./src/api";
 import { AuthFlowScreen } from "./src/auth/AuthFlowScreen";
 import { contentBottomInset, FloatingGlassTabBar, type TabId } from "./src/shell/FloatingGlassTabBar";
 import { FloatingTopBar, FLOATING_TOP_BAR_HEIGHT } from "./src/shell/FloatingTopBar";
@@ -101,6 +101,41 @@ export default function App() {
     setRestaurants(res.restaurants ?? []);
   }
 
+  /** Prefetch authenticated data so tabs render without flashing secondary loaders after entry. */
+  const warmAuthenticatedSession = React.useCallback(async (jwt: string) => {
+    const me = await authMe(jwt);
+    if (!me.ok || !me.user) {
+      throw new Error(me.error ?? "session_failed");
+    }
+    const rest = await apiFetch<{ ok: boolean; restaurants?: Array<{ id: string; name: string; role: string }>; error?: string }>(
+      "/restaurants/restaurants",
+      { headers: { Authorization: `Bearer ${jwt}` } }
+    );
+    if (!rest.ok) {
+      throw new Error(rest.error ?? "failed_to_list_restaurants");
+    }
+    setRestaurants(rest.restaurants ?? []);
+    const ordersRes = await apiFetch<{ ok: boolean; orders?: any[]; error?: string }>("/orders/mine", {
+      headers: { Authorization: `Bearer ${jwt}` }
+    });
+    if (!ordersRes.ok) {
+      throw new Error(ordersRes.error ?? "failed_to_fetch_orders");
+    }
+    setMyOrders(ordersRes.orders ?? []);
+    return me.user;
+  }, []);
+
+  const completeAuthSession = React.useCallback(
+    async ({ token: jwt }: { token: string; user: AuthUser }) => {
+      const meUser = await warmAuthenticatedSession(jwt);
+      await AsyncStorage.setItem(AUTH_TOKEN_KEY, jwt);
+      setToken(jwt);
+      setUserRole(meUser.role);
+      setStatus("");
+    },
+    [warmAuthenticatedSession]
+  );
+
   React.useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -108,12 +143,19 @@ export default function App() {
         const stored = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
         if (cancelled) return;
         if (stored) {
-          const r = await authMe(stored);
-          if (r.ok && r.user) {
+          try {
+            const user = await warmAuthenticatedSession(stored);
+            if (cancelled) return;
             setToken(stored);
-            setUserRole(r.user.role);
-          } else {
+            setUserRole(user.role);
+          } catch {
             await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
+            if (!cancelled) {
+              setToken(null);
+              setUserRole(null);
+              setRestaurants([]);
+              setMyOrders([]);
+            }
           }
         }
       } finally {
@@ -123,11 +165,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  React.useEffect(() => {
-    if (token) void refreshRestaurants(token);
-  }, [token]);
+  }, [warmAuthenticatedSession]);
 
   async function loadPublicMenu() {
     if (!menuRid.trim()) return setStatus("Enter restaurant ID");
@@ -269,15 +307,7 @@ export default function App() {
     return (
       <>
         <Animated.View style={{ flex: 1, opacity: screenEnter, transform: [{ translateY: screenEnterY }] }}>
-          <AuthFlowScreen
-            onAuthed={async ({ token: t, user }) => {
-              await AsyncStorage.setItem(AUTH_TOKEN_KEY, t);
-              setToken(t);
-              setUserRole(user.role);
-              setStatus("");
-              await refreshRestaurants(t);
-            }}
-          />
+          <AuthFlowScreen onAuthed={completeAuthSession} />
         </Animated.View>
         <StatusBar style="light" />
       </>

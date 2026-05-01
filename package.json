@@ -35,7 +35,11 @@
     "dev:notification-service": "npm run dev -w @serveos/notification-service",
     "format": "prettier . --write",
     "lint": "eslint .",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "db:migrate:deploy": "prisma migrate deploy --schema core/database/prisma/schema.prisma",
+    "db:migrate:status": "prisma migrate status --schema core/database/prisma/schema.prisma",
+    "db:generate": "prisma generate --schema core/database/prisma/schema.prisma",
+    "db:studio": "prisma studio --schema core/database/prisma/schema.prisma"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

@@ -17,7 +17,13 @@ export function apiHttpToWsBase(u: string) {
   return `ws://${t}`;
 }
 
-export type AuthUser = { id: string; email?: string | null; phone?: string | null; role: string };
+export type AuthUser = {
+  id: string;
+  email?: string | null;
+  phone?: string | null;
+  role: string;
+  signupProfile?: unknown | null;
+};
 
 export type AuthResponse = { ok: boolean; token?: string; user?: AuthUser; error?: string };
 export type MeResponse = { ok: boolean; user?: AuthUser; error?: string };
@@ -79,11 +85,19 @@ export async function authSignup(params: {
   email: string;
   password: string;
   role: "OWNER" | "STAFF" | "CUSTOMER";
+  phone?: string;
+  registrationProfile?: Record<string, unknown>;
 }): Promise<AuthResponse> {
   return apiFetch<AuthResponse>("/auth/signup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: params.email, password: params.password, role: params.role })
+    body: JSON.stringify({
+      email: params.email,
+      password: params.password,
+      role: params.role,
+      ...(params.phone ? { phone: params.phone } : {}),
+      ...(params.registrationProfile ? { registrationProfile: params.registrationProfile } : {})
+    })
   });
 }
 

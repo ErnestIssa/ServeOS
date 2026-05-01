@@ -1,6 +1,6 @@
 import bcrypt from "bcrypt";
 import type { FastifyInstance } from "fastify";
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { z } from "zod";
 
 const SALT_ROUNDS = 10;
@@ -10,7 +10,8 @@ export function registerAuthRoutes(app: FastifyInstance, prisma: PrismaClient) {
     email: z.string().email().optional(),
     phone: z.string().min(6).optional(),
     password: z.string().min(8),
-    role: z.enum(["OWNER", "STAFF", "CUSTOMER"]).default("OWNER")
+    role: z.enum(["OWNER", "STAFF", "CUSTOMER"]).default("OWNER"),
+    registrationProfile: z.record(z.string(), z.any()).optional()
   });
 
   app.post("/auth/signup", async (req, reply) => {
@@ -38,9 +39,11 @@ export function registerAuthRoutes(app: FastifyInstance, prisma: PrismaClient) {
         email: body.email,
         phone: body.phone,
         password: passwordHash,
-        role: body.role
+        role: body.role,
+        signupProfile:
+          body.registrationProfile !== undefined ? (body.registrationProfile as Prisma.InputJsonValue) : undefined
       },
-      select: { id: true, email: true, phone: true, role: true }
+      select: { id: true, email: true, phone: true, role: true, signupProfile: true }
     });
 
     const token = app.signJwt({ sub: user.id, role: user.role });
@@ -101,7 +104,7 @@ export function registerAuthRoutes(app: FastifyInstance, prisma: PrismaClient) {
     const payload = app.verifyJwt(token);
     const user = await prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { id: true, email: true, phone: true, role: true }
+      select: { id: true, email: true, phone: true, role: true, signupProfile: true }
     });
     if (!user) return reply.status(404).send({ ok: false, error: "user_not_found" });
     return { ok: true, user };
