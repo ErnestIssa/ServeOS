@@ -37,7 +37,8 @@ app.post("/auth/signup", async (req, reply) => {
         body.email ? { email: body.email } : undefined,
         body.phone ? { phone: body.phone } : undefined
       ].filter(Boolean) as any
-    }
+    },
+    select: { id: true }
   });
   if (existing) {
     return reply.status(409).send({ ok: false, error: "user_already_exists" });
@@ -92,7 +93,8 @@ app.post("/auth/login", async (req, reply) => {
     if (valid) {
       await prisma.user.update({
         where: { id: user.id },
-        data: { password: await bcrypt.hash(body.password, SALT_ROUNDS) }
+        data: { password: await bcrypt.hash(body.password, SALT_ROUNDS) },
+        select: { id: true }
       });
     }
   }

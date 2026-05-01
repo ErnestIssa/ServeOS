@@ -1,7 +1,14 @@
 import bcrypt from "bcrypt";
 import type { FastifyInstance } from "fastify";
-import type { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { z } from "zod";
+
+const USER_TOKEN_SELECT = {
+  id: true,
+  email: true,
+  phone: true,
+  role: true
+} as const;
 
 const SALT_ROUNDS = 10;
 
@@ -26,7 +33,8 @@ export function registerAuthRoutes(app: FastifyInstance, prisma: PrismaClient) {
           body.email ? { email: body.email } : undefined,
           body.phone ? { phone: body.phone } : undefined
         ].filter(Boolean) as any
-      }
+      },
+      select: { id: true }
     });
     if (existing) {
       return reply.status(409).send({ ok: false, error: "user_already_exists" });
@@ -34,17 +42,39 @@ export function registerAuthRoutes(app: FastifyInstance, prisma: PrismaClient) {
 
     const passwordHash = await bcrypt.hash(body.password, SALT_ROUNDS);
 
-    const user = await prisma.user.create({
-      data: {
-        email: body.email,
-        phone: body.phone,
-        password: passwordHash,
-        role: body.role,
-        signupProfile:
-          body.registrationProfile !== undefined ? (body.registrationProfile as Prisma.InputJsonValue) : undefined
-      },
-      select: { id: true, email: true, phone: true, role: true, signupProfile: true }
-    });
+    const baseUserData = {
+      email: body.email,
+      phone: body.phone,
+      password: passwordHash,
+      role: body.role
+    };
+
+    let user;
+    try {
+      user = await prisma.user.create({
+        data:
+          body.registrationProfile !== undefined
+            ? {
+                ...baseUserData,
+                signupProfile: body.registrationProfile as Prisma.InputJsonValue
+              }
+            : baseUserData,
+        select: USER_TOKEN_SELECT
+      });
+    } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === "P2022" &&
+        body.registrationProfile !== undefined
+      ) {
+        user = await prisma.user.create({
+          data: baseUserData,
+          select: USER_TOKEN_SELECT
+        });
+      } else {
+        throw e;
+      }
+    }
 
     const token = app.signJwt({ sub: user.id, role: user.role });
     return { ok: true, user, token };
@@ -83,7 +113,8 @@ export function registerAuthRoutes(app: FastifyInstance, prisma: PrismaClient) {
       if (valid) {
         await prisma.user.update({
           where: { id: user.id },
-          data: { password: await bcrypt.hash(body.password, SALT_ROUNDS) }
+          data: { password: await bcrypt.hash(body.password, SALT_ROUNDS) },
+          select: { id: true }
         });
       }
     }
@@ -102,10 +133,22 @@ export function registerAuthRoutes(app: FastifyInstance, prisma: PrismaClient) {
     const token = auth.slice("Bearer ".length);
 
     const payload = app.verifyJwt(token);
-    const user = await prisma.user.findUnique({
-      where: { id: payload.sub },
-      select: { id: true, email: true, phone: true, role: true, signupProfile: true }
-    });
+    let user;
+    try {
+      user = await prisma.user.findUnique({
+        where: { id: payload.sub },
+        select: { ...USER_TOKEN_SELECT, signupProfile: true }
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2022") {
+        user = await prisma.user.findUnique({
+          where: { id: payload.sub },
+          select: USER_TOKEN_SELECT
+        });
+      } else {
+        throw e;
+      }
+    }
     if (!user) return reply.status(404).send({ ok: false, error: "user_not_found" });
     return { ok: true, user };
   });

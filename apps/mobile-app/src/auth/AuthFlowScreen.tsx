@@ -2490,10 +2490,7 @@ export function AuthFlowScreen({ onAuthed }: Props) {
       {wizardExitInfiniteLoader ? (
         <View style={[StyleSheet.absoluteFillObject, styles.wizardExitInfiniteLoaderRoot]} pointerEvents="auto">
           <View style={styles.wizardExitInfiniteLoaderColumn}>
-            <Text style={styles.wizardExitLoaderHint}>Creating your account and loading the app…</Text>
-            <Text style={styles.wizardExitLoaderSubHint}>
-              Slow or sleeping servers may need a minute. This screen stays up until sign-in succeeds or you choose Edit details.
-            </Text>
+            <Text style={styles.wizardExitLoaderHint}>Creating your account</Text>
             {wizardExitLoaderErr ? (
               <View style={styles.wizardExitLoaderErrBox}>
                 <Text style={styles.wizardExitLoaderErrText}>{wizardExitLoaderErr}</Text>
@@ -2710,18 +2707,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "800",
     textAlign: "center",
-    marginBottom: 10,
+    marginBottom: 24,
     paddingHorizontal: 12
-  },
-  wizardExitLoaderSubHint: {
-    color: "rgba(255,255,255,0.72)",
-    fontSize: 13,
-    fontWeight: "600",
-    textAlign: "center",
-    marginBottom: 28,
-    paddingHorizontal: PAD,
-    maxWidth: 460,
-    alignSelf: "center"
   },
   wizardExitLoaderErrBox: {
     width: "100%",
