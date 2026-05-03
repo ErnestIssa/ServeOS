@@ -8,6 +8,7 @@ import {
   type OrderEventPayload,
   publishOrderEventToUpstash
 } from "@serveos/core-upstash";
+import { priceMenuItemLineInput, type ModifierSnap } from "../lib/menuItemLinePricing.js";
 
 export type { OrderEventPayload };
 
@@ -20,13 +21,6 @@ function roomRestaurant(id: string) {
 function roomCustomer(id: string) {
   return `customer:${id}`;
 }
-
-type ModifierSnap = {
-  optionId: string;
-  groupName: string;
-  optionName: string;
-  priceDeltaCents: number;
-};
 
 export async function registerOrderRoutes(
   app: FastifyInstance,
@@ -195,19 +189,23 @@ export async function registerOrderRoutes(
     }
   );
 
-  const placeOrderSchema = z.object({
-    restaurantId: z.string(),
-    note: z.string().optional(),
-    lines: z
-      .array(
-        z.object({
-          menuItemId: z.string(),
-          quantity: z.number().int().positive(),
-          modifierOptionIds: z.array(z.string()).optional()
-        })
-      )
-      .min(1)
+  const orderLineBody = z.object({
+    menuItemId: z.string(),
+    quantity: z.number().int().positive(),
+    modifierOptionIds: z.array(z.string()).optional()
   });
+
+  const placeOrderSchema = z
+    .object({
+      restaurantId: z.string(),
+      note: z.string().optional(),
+      lines: z.array(orderLineBody).optional(),
+      fromCart: z.boolean().optional()
+    })
+    .refine(
+      (b) => (b.fromCart ? true : !!(b.lines && b.lines.length > 0)),
+      { message: "lines_or_fromCart" }
+    );
 
   app.post("/orders/place", async (req) => {
     const body = placeOrderSchema.parse(req.body);
@@ -215,6 +213,28 @@ export async function registerOrderRoutes(
 
     const restaurant = await prisma.restaurant.findUnique({ where: { id: body.restaurantId } });
     if (!restaurant) throw Object.assign(new Error("restaurant_not_found"), { statusCode: 404 });
+
+    let lineSources: Array<{ menuItemId: string; quantity: number; modifierOptionIds?: string[] }>;
+
+    if (body.fromCart) {
+      if (!customer) throw Object.assign(new Error("missing_token"), { statusCode: 401 });
+      const cart = await prisma.shoppingCart.findUnique({
+        where: { userId_restaurantId: { userId: customer.sub, restaurantId: body.restaurantId } },
+        include: { lines: true }
+      });
+      if (!cart || cart.lines.length === 0) {
+        throw Object.assign(new Error("cart_empty"), { statusCode: 400 });
+      }
+      lineSources = cart.lines.map((l: (typeof cart.lines)[number]) => ({
+        menuItemId: l.menuItemId,
+        quantity: l.quantity,
+        modifierOptionIds: Array.isArray(l.modifierOptionIds)
+          ? (l.modifierOptionIds as string[])
+          : []
+      }));
+    } else {
+      lineSources = body.lines ?? [];
+    }
 
     const lineInputs: Array<{
       menuItemId: string;
@@ -225,79 +245,14 @@ export async function registerOrderRoutes(
       lineTotalCents: number;
     }> = [];
 
-    for (const line of body.lines) {
-      const item = await prisma.menuItem.findFirst({
-        where: {
-          id: line.menuItemId,
-          isActive: true,
-          category: { restaurantId: body.restaurantId, isActive: true }
-        },
-        include: {
-          modifierGroups: {
-            include: { options: { where: { isActive: true } } }
-          }
-        }
-      });
-      if (!item) throw Object.assign(new Error("menu_item_not_found"), { statusCode: 400 });
-
-      const optionIds = [...new Set(line.modifierOptionIds ?? [])];
-
-      const optionMeta = new Map<string, { groupId: string; groupName: string; priceDeltaCents: number; name: string }>();
-      for (const g of item.modifierGroups) {
-        for (const o of g.options) {
-          optionMeta.set(o.id, {
-            groupId: g.id,
-            groupName: g.name,
-            priceDeltaCents: o.priceDeltaCents,
-            name: o.name
-          });
-        }
-      }
-
-      for (const oid of optionIds) {
-        if (!optionMeta.has(oid)) {
-          throw Object.assign(new Error("invalid_modifier_option"), { statusCode: 400 });
-        }
-      }
-
-      const selectedByGroup = new Map<string, string[]>();
-      for (const g of item.modifierGroups) {
-        selectedByGroup.set(g.id, []);
-      }
-      for (const oid of optionIds) {
-        const meta = optionMeta.get(oid)!;
-        selectedByGroup.get(meta.groupId)!.push(oid);
-      }
-
-      for (const g of item.modifierGroups) {
-        const n = selectedByGroup.get(g.id)!.length;
-        if (n < g.minSelect || n > g.maxSelect) {
-          throw Object.assign(new Error("modifier_count_invalid"), { statusCode: 400 });
-        }
-      }
-
-      const selectedModifiers: ModifierSnap[] = optionIds.map((oid) => {
-        const m = optionMeta.get(oid)!;
-        return {
-          optionId: oid,
-          groupName: m.groupName,
-          optionName: m.name,
-          priceDeltaCents: m.priceDeltaCents
-        };
-      });
-
-      const extras = selectedModifiers.reduce((s, m) => s + m.priceDeltaCents, 0);
-      const unitPriceCents = item.priceCents + extras;
-      const lineTotalCents = unitPriceCents * line.quantity;
-
-      lineInputs.push({
-        menuItemId: item.id,
-        nameSnapshot: item.name,
+    for (const line of lineSources) {
+      const priced = await priceMenuItemLineInput(prisma, {
+        restaurantId: body.restaurantId,
+        menuItemId: line.menuItemId,
         quantity: line.quantity,
-        unitPriceCents,
-        selectedModifiers,
-        lineTotalCents
+        modifierOptionIds: line.modifierOptionIds
       });
+      lineInputs.push(priced);
     }
 
     const subtotalCents = lineInputs.reduce((s, l) => s + l.lineTotalCents, 0);
@@ -327,6 +282,11 @@ export async function registerOrderRoutes(
         },
         include: { lines: true }
       });
+      if (body.fromCart && customer) {
+        await tx.shoppingCart.deleteMany({
+          where: { userId: customer.sub, restaurantId: body.restaurantId }
+        });
+      }
       return o;
     });
 

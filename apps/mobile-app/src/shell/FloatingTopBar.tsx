@@ -4,7 +4,7 @@ import { Animated, Platform, Pressable, StyleSheet, Text, TextInput, View } from
 import Svg, { Path } from "react-native-svg";
 
 export const FLOATING_TOP_BAR_HEIGHT = 56;
-const TOP_GAP = 10;
+export const FLOATING_TOP_GAP = 10;
 /** Thin outer stroke for the floating nav capsule (bold violet). */
 const NAV_PURPLE_BORDER = "#7C3AED";
 
@@ -167,7 +167,7 @@ export function FloatingTopBar(props: Props) {
 
   const hideY = scrollY.interpolate({
     inputRange: [0, 70],
-    outputRange: [0, -(FLOATING_TOP_BAR_HEIGHT + TOP_GAP + topInset)],
+    outputRange: [0, -(FLOATING_TOP_BAR_HEIGHT + FLOATING_TOP_GAP + topInset)],
     extrapolate: "clamp"
   });
   const hideOpacity = scrollY.interpolate({
@@ -184,7 +184,7 @@ export function FloatingTopBar(props: Props) {
       style={[
         styles.anchor,
         {
-          paddingTop: topInset + TOP_GAP,
+          paddingTop: topInset + FLOATING_TOP_GAP,
           transform: [{ translateY: hideY }],
           opacity: hideOpacity
         }

@@ -26,6 +26,7 @@ model User {
 
   memberships   Membership[]
   customerOrders Order[] @relation("CustomerOrders")
+  shoppingCarts ShoppingCart[]
 }
 
 model Company {
@@ -58,6 +59,7 @@ model Restaurant {
   memberships    Membership[]
   menuCategories MenuCategory[]
   orders         Order[]
+  shoppingCarts  ShoppingCart[]
 
   @@index([companyId])
 }
@@ -105,8 +107,38 @@ model MenuItem {
   category       MenuCategory    @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   modifierGroups ModifierGroup[]
   orderLineItems OrderLineItem[]
+  cartLines      CartLine[]
 
   @@index([categoryId])
+}
+
+model ShoppingCart {
+  id             String   @id @default(cuid())
+  userId         String
+  restaurantId   String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  lines      CartLine[]
+
+  @@unique([userId, restaurantId])
+  @@index([restaurantId])
+}
+
+model CartLine {
+  id                String @id @default(cuid())
+  cartId            String
+  menuItemId        String
+  quantity          Int    @default(1)
+  /// Sorted string[] of ModifierOption ids for this line (JSON array).
+  modifierOptionIds Json   @default("[]")
+
+  cart     ShoppingCart @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  menuItem MenuItem     @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@index([cartId])
 }
 
 enum OrderStatus {

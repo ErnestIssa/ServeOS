@@ -3,39 +3,33 @@ const fs = require("fs");
 const path = require("path");
 
 const workspaceRoot = path.resolve(__dirname, "../..");
-const workletsPluginPath = path.join(
+const reanimatedPluginPath = path.join(
   workspaceRoot,
   "node_modules",
-  "react-native-worklets",
+  "react-native-reanimated",
   "plugin",
   "index.js"
 );
-const workletsPkgPath = path.join(workspaceRoot, "node_modules", "react-native-worklets", "package.json");
 
-function workletsToolingFingerprint() {
+function reanimatedPluginFingerprint() {
   try {
-    const version = JSON.parse(fs.readFileSync(workletsPkgPath, "utf8")).version;
-    const pluginHash = crypto.createHash("sha1").update(fs.readFileSync(workletsPluginPath)).digest("hex").slice(0, 12);
-    return `${version}@${pluginHash}`;
+    const hash = crypto.createHash("sha1").update(fs.readFileSync(reanimatedPluginPath)).digest("hex").slice(0, 12);
+    return `reanimated-plugin@${hash}`;
   } catch {
-    return "worklets-missing";
+    return "reanimated-missing";
   }
 }
 
 module.exports = function (api) {
-  api.cache(() => workletsToolingFingerprint());
-
-  if (!fs.existsSync(workletsPluginPath)) {
-    throw new Error(
-      `Missing react-native-worklets Babel plugin at ${workletsPluginPath}. Install deps from the monorepo root.`
-    );
-  }
+  api.cache(() => reanimatedPluginFingerprint());
 
   return {
     presets: [
       [
         "babel-preset-expo",
         {
+          // Preset must not inject worklets/reanimated; we register the plugin explicitly below.
+          // `react-native-reanimated/plugin` re-exports `react-native-worklets/plugin` — adding both duplicates the pass.
           worklets: false,
           reanimated: false,
           native: { worklets: false, reanimated: false },
@@ -43,6 +37,7 @@ module.exports = function (api) {
         }
       ]
     ],
-    plugins: [workletsPluginPath]
+    /** Official Reanimated 4+: one plugin entry (delegates internally to react-native-worklets). */
+    plugins: ["react-native-reanimated/plugin"]
   };
 };
