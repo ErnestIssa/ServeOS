@@ -21,6 +21,65 @@ function sortedUniqueOptionIds(raw: string[] | undefined): string[] {
 }
 
 /**
+ * For browse "tap +" quick-add (no picker): pad required modifier selections with deterministic defaults
+ * (`sortOrder`, then option id); trim to `maxSelect` when needed so validation never fails when the DB requires choices.
+ */
+export async function resolveQuickAddModifierOptionIds(
+  prisma: PrismaClient,
+  restaurantId: string,
+  menuItemId: string,
+  requested: string[] | undefined
+): Promise<string[]> {
+  const item = await prisma.menuItem.findFirst({
+    where: {
+      id: menuItemId,
+      isActive: true,
+      category: { restaurantId, isActive: true }
+    },
+    include: {
+      modifierGroups: {
+        orderBy: { sortOrder: "asc" },
+        include: { options: { where: { isActive: true } } }
+      }
+    }
+  });
+
+  if (!item) throw Object.assign(new Error("menu_item_not_found"), { statusCode: 400 });
+
+  const groups = [...item.modifierGroups].sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id));
+
+  const optionMeta = new Map<string, string>();
+  for (const g of groups) {
+    for (const o of g.options) optionMeta.set(o.id, g.id);
+  }
+
+  const requestedClean = [...new Set(requested ?? [])].filter((id) => optionMeta.has(id));
+
+  const out: string[] = [];
+
+  for (const g of groups) {
+    const optsSorted = [...g.options].sort(
+      (a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id)
+    );
+    const rank = new Map(optsSorted.map((o, ix) => [o.id, ix]));
+
+    let picks = requestedClean.filter((oid) => optsSorted.some((o) => o.id === oid));
+
+    for (const o of optsSorted) {
+      if (picks.length >= g.minSelect) break;
+      if (!picks.includes(o.id)) picks.push(o.id);
+    }
+
+    picks = [...new Set(picks)].sort((a, b) => (rank.get(a)! - rank.get(b)!));
+    if (picks.length > g.maxSelect) picks = picks.slice(0, g.maxSelect);
+
+    out.push(...picks);
+  }
+
+  return sortedUniqueOptionIds(out);
+}
+
+/**
  * Validates menu item + modifiers for `restaurantId`, returns pricing for one order-style line (quantity applied).
  */
 export async function priceMenuItemLineInput(

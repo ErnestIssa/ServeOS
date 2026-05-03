@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Haptics from "expo-haptics";
 import { StatusBar } from "expo-status-bar";
 import { nativeNavBoldGradient, type AmbientNativeTab } from "@serveos/core-ambient/themes";
 import { ServeOSBrandScreenNative } from "@serveos/core-loading-native";
@@ -132,6 +133,13 @@ export default function App() {
     sheetHeightSV.value = withSpring(snapMid, SHEET_SPRING_CONFIG);
     setCartFabDeferred(true);
   }, [insets, sheetHeightSV]);
+
+  /** Restaurant id for the menu on screen (authoritative for cart + place order). */
+  const activeRestaurantId = React.useCallback(() => {
+    const fromMenu =
+      menuPreview?.ok && menuPreview.restaurant?.id ? String(menuPreview.restaurant.id).trim() : "";
+    return fromMenu || menuRid.trim();
+  }, [menuPreview, menuRid]);
 
   useAnimatedReaction(
     () => sheetHeightSV.value,
@@ -308,8 +316,8 @@ export default function App() {
   async function addFirstMenuItemToCart() {
     const first = menuPreview?.categories?.[0]?.items?.[0];
     if (!first) return setStatus("Load a menu first");
-    if (userRole === "CUSTOMER" && token && menuRid.trim()) {
-      const rid = menuRid.trim();
+    if (userRole === "CUSTOMER" && token && activeRestaurantId()) {
+      const rid = activeRestaurantId();
       const hadAny = customerCart.totalQuantity > 0;
       const res = await postCartAddItem({ jwt: token, restaurantId: rid, menuItemId: first.id });
       if (!res.ok) return setStatus(String((res as { error?: string }).error ?? "cart_add_failed"));
@@ -324,7 +332,7 @@ export default function App() {
   }
 
   async function submitOrder() {
-    const rid = menuRid.trim();
+    const rid = activeRestaurantId().trim();
     if (!rid) return setStatus("Need restaurant");
 
     setStatus("Placing…");
@@ -402,24 +410,41 @@ export default function App() {
 
   /** Menu + from Home / Orders (+) buttons */
   async function addMenuLineFromBrowse(menuItemId: string) {
-    const rid = menuRid.trim();
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-    if (userRole === "CUSTOMER" && token && rid) {
-      const hadAny = customerCart.totalQuantity > 0;
-      const res = await postCartAddItem({ jwt: token, restaurantId: rid, menuItemId });
-      if (!res.ok) {
-        setStatus(String((res as { error?: string }).error ?? "cart_add_failed"));
+    const rid = activeRestaurantId();
+    if (!menuItemId.trim()) return setStatus("Missing menu item.");
+
+    try {
+      if (userRole === "CUSTOMER" && token && rid) {
+        const hadAny = customerCart.totalQuantity > 0;
+        const res = await postCartAddItem({ jwt: token, restaurantId: rid, menuItemId });
+        if (!res.ok) {
+          setStatus(String((res as { error?: string }).error ?? "cart_add_failed"));
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          return;
+        }
+        applyCustomerCartResponse(res);
+        setCartFabDeferred(false);
+        setStatus("");
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        if (tab === "home" && hadAny) setCartFabBump((n) => n + 1);
         return;
       }
-      if (res.ok) applyCustomerCartResponse(res);
-      setCartFabDeferred(false);
-      setStatus("");
-      if (tab === "home" && hadAny) setCartFabBump((n) => n + 1);
-      return;
-    }
 
-    setLocalCart((c) => [...c, { menuItemId, quantity: 1, modifierOptionIds: [] }]);
-    setStatus("Added to cart");
+      if (userRole === "CUSTOMER" && token && !rid) {
+        setStatus("Set a venue ID in Account — we need it to sync your basket.");
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        return;
+      }
+
+      setLocalCart((c) => [...c, { menuItemId, quantity: 1, modifierOptionIds: [] }]);
+      setStatus("Added to cart");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "cart_add_failed";
+      setStatus(msg);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
   }
 
   async function fetchTrack() {
@@ -644,6 +669,8 @@ export default function App() {
             style={styles.scrollLayer}
             onScroll={onScroll}
             scrollEventThrottle={16}
+            nestedScrollEnabled
+            keyboardShouldPersistTaps="handled"
             contentContainerStyle={[
               customerScreenEdgeBleed ? styles.scrollPadHomeBleed : styles.scrollPad,
               { paddingTop: scrollTopPad, paddingBottom: scrollBottom }
@@ -685,7 +712,7 @@ export default function App() {
                       filterQuery={userRole === "CUSTOMER" ? customerSearchQuery : ""}
                       prefsVersion={menuPrefsSeq}
                       edgeToEdge
-                      onAddItem={(it) => addMenuLineFromBrowse(it.id)}
+                      onAddItem={(it) => void addMenuLineFromBrowse(it.id)}
                     />
                   </View>
                 ) : (
@@ -782,6 +809,8 @@ export default function App() {
             style={styles.scrollLayer}
             onScroll={onScroll}
             scrollEventThrottle={16}
+            nestedScrollEnabled
+            keyboardShouldPersistTaps="handled"
             contentContainerStyle={[
               customerScreenEdgeBleed ? styles.scrollPadHomeBleed : styles.scrollPad,
               { paddingTop: scrollTopPad, paddingBottom: scrollBottom }
@@ -823,7 +852,7 @@ export default function App() {
                     filterQuery={customerSearchQuery}
                     prefsVersion={menuPrefsSeq}
                     edgeToEdge
-                    onAddItem={(it) => addMenuLineFromBrowse(it.id)}
+                    onAddItem={(it) => void addMenuLineFromBrowse(it.id)}
                   />
                 ) : null}
 
@@ -908,7 +937,7 @@ export default function App() {
                     restaurantId={String(menuPreview.restaurant.id)}
                     filterQuery=""
                     prefsVersion={menuPrefsSeq}
-                    onAddItem={(it) => addMenuLineFromBrowse(it.id)}
+                    onAddItem={(it) => void addMenuLineFromBrowse(it.id)}
                   />
                 ) : null}
 

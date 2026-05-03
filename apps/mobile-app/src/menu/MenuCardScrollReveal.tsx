@@ -22,12 +22,20 @@ export function MenuCardScrollReveal({ delayMs, style, children }: Props) {
   const progress = useSharedValue(0);
 
   useEffect(() => {
-    if (delayMs === undefined) {
+    if (delayMs !== undefined) {
       progress.value = 0;
+      progress.value = withDelay(delayMs, withTiming(1, { duration: DURATION_MS, easing: ENTRANCE_EASING }));
       return;
     }
+    /**
+     * If viewability hasn't assigned stagger yet (nested lists / RN timing), fade in shortly so taps and
+     * prices are never stranded at opacity 0.
+     */
     progress.value = 0;
-    progress.value = withDelay(delayMs, withTiming(1, { duration: DURATION_MS, easing: ENTRANCE_EASING }));
+    const t = setTimeout(() => {
+      progress.value = withTiming(1, { duration: 280, easing: ENTRANCE_EASING });
+    }, 560);
+    return () => clearTimeout(t);
   }, [delayMs]);
 
   const animatedStyle = useAnimatedStyle(() => ({

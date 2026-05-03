@@ -70,7 +70,14 @@ export function MenuItemCard({
         )}
         <View style={styles.footer}>
           <Text style={styles.price}>{priceLabel}</Text>
-          <Pressable accessibilityRole="button" accessibilityLabel={`Add ${title}`} style={({ pressed }) => [styles.addBtn, pressed && styles.addPressed]} onPress={onAddPress}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Add ${title}`}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            android_ripple={{ color: "rgba(99,102,241,0.15)" }}
+            style={({ pressed }) => [styles.addBtn, pressed && styles.addPressed]}
+            onPress={onAddPress}
+          >
             <Text style={styles.addBtnText}>+</Text>
           </Pressable>
         </View>

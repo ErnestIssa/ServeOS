@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import type { PrismaClient } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
-import { priceMenuItemLineInput } from "../lib/menuItemLinePricing.js";
+import { priceMenuItemLineInput, resolveQuickAddModifierOptionIds } from "../lib/menuItemLinePricing.js";
 
 function requireCustomer(req: { headers: { authorization?: string } }) {
   const secret = process.env.JWT_SECRET;
@@ -18,10 +18,6 @@ function requireCustomer(req: { headers: { authorization?: string } }) {
     throw Object.assign(new Error("forbidden"), { statusCode: 403 });
   }
   return p;
-}
-
-function normalizeModifierIds(raw: string[] | undefined): string[] {
-  return [...new Set(raw ?? [])].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
 async function serializeCustomerCart(prisma: PrismaClient, userId: string, restaurantId: string) {
@@ -152,18 +148,20 @@ export function registerCartRoutes(app: FastifyInstance, prisma: PrismaClient) {
     const body = addItemSchema.parse(req.body);
     const restaurantId = body.restaurantId.trim();
     const qty = body.quantity ?? 1;
-    const modKey = normalizeModifierIds(body.modifierOptionIds);
-    const modJson = modKey as unknown as Prisma.InputJsonValue;
 
     const restaurant = await prisma.restaurant.findUnique({ where: { id: restaurantId } });
     if (!restaurant) throw Object.assign(new Error("restaurant_not_found"), { statusCode: 404 });
+
+    const inferredMods = await resolveQuickAddModifierOptionIds(prisma, restaurantId, body.menuItemId, body.modifierOptionIds);
 
     await priceMenuItemLineInput(prisma, {
       restaurantId,
       menuItemId: body.menuItemId,
       quantity: 1,
-      modifierOptionIds: modKey
+      modifierOptionIds: inferredMods
     });
+
+    const modJson = inferredMods as unknown as Prisma.InputJsonValue;
 
     const cart = await prisma.shoppingCart.upsert({
       where: { userId_restaurantId: { userId: user.sub, restaurantId } },
