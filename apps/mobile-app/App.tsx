@@ -5,9 +5,10 @@ import { nativeNavBoldGradient, type AmbientNativeTab } from "@serveos/core-ambi
 import { ServeOSBrandScreenNative } from "@serveos/core-loading-native";
 import React from "react";
 import {
-  ActivityIndicator,
   Animated,
+  DevSettings,
   Dimensions,
+  Keyboard,
   Platform,
   Pressable,
   ScrollView,
@@ -18,13 +19,20 @@ import {
   View
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { runOnJS, useAnimatedReaction, useSharedValue, withSpring } from "react-native-reanimated";
+import { Easing, runOnJS, useAnimatedReaction, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
 import { ScrollMeshBackground } from "./src/ambient/ScrollMeshBackground";
 import { apiFetch, apiHttpToWsBase, authMe, API_URL, type AuthUser } from "./src/api";
+import { CustomerOrdersVenueScreen } from "./src/customer/CustomerOrdersVenueScreen";
 import { AuthFlowScreen } from "./src/auth/AuthFlowScreen";
-import { deleteCartLine, fetchCustomerCart, postCartAddItem, type CartLineApi } from "./src/customer/cartApi";
+import { deleteCartLine, fetchCustomerCart, patchCartLineQuantity, postCartAddItem, type CartLineApi } from "./src/customer/cartApi";
+import { playCartAddCue } from "./src/customer/cartCueSound";
 import { CartFABPopup } from "./src/customer/CartFABPopup";
 import { CartSheetPanel } from "./src/customer/CartSheetPanel";
+import { CustomerNavSearchSheet } from "./src/customer/CustomerNavSearchSheet";
+import { appendNavSearchRecent } from "./src/customer/navSearchRecentStorage";
+import { NutritionInfoModal } from "./src/customer/NutritionInfoModal";
+import { ActionModal } from "./src/components/ActionModal";
+import { SwapColorFullscreenLoader } from "./src/components/SwapColorLoader";
 import { buildCustomerHomeHeader, customerDisplayName } from "./src/customer/customerHomeCopy";
 import {
   getServeosDemoPublicMenu,
@@ -50,6 +58,12 @@ import { R } from "./src/theme";
 const AUTH_TOKEN_KEY = "serveos.auth.jwt";
 const CUSTOMER_VENUE_KEY = "serveos.customer.preferredRestaurantId";
 
+/** Customer search opens the nav sheet with this timing — slower than drag/snapped springs. */
+const SEARCH_SHEET_OPEN_MS = 920;
+
+/** iOS: swipe keyboard down; Android: drag scroll to dismiss. */
+const SCROLL_KEYBOARD_DISMISS_MODE = Platform.OS === "ios" ? ("interactive" as const) : ("on-drag" as const);
+
 export default function App() {
   const insets = useSafeAreaInsets();
 
@@ -59,16 +73,23 @@ export default function App() {
   const screenEnter = React.useRef(new Animated.Value(0)).current; // content enter opacity
   const screenEnterY = React.useRef(new Animated.Value(18)).current;
   const [tab, setTab] = React.useState<TabId>("home");
+  const tabRef = React.useRef<TabId>(tab);
+  tabRef.current = tab;
 
   const [token, setToken] = React.useState<string | null>(null);
   const [userRole, setUserRole] = React.useState<string | null>(null);
   const [sessionUser, setSessionUser] = React.useState<AuthUser | null>(null);
 
+  /** JWT + profile can disagree briefly; cart API gate uses this (not UI role alone). */
+  const isCustomerSession = React.useMemo(
+    () => String(sessionUser?.role ?? userRole ?? "").toUpperCase() === "CUSTOMER",
+    [sessionUser?.role, userRole]
+  );
+
   const [restaurants, setRestaurants] = React.useState<Array<{ id: string; name: string; role: string; companyId?: string | null }>>([]);
   const [restaurantName, setRestaurantName] = React.useState("My Restaurant");
   const [status, setStatus] = React.useState("");
   const [customerSearchQuery, setCustomerSearchQuery] = React.useState("");
-
   const [menuRid, setMenuRid] = React.useState("");
   const [menuPreview, setMenuPreview] = React.useState<any>(null);
   const [localCart, setLocalCart] = React.useState<Array<{ menuItemId: string; quantity: number; modifierOptionIds: string[] }>>(
@@ -87,6 +108,30 @@ export default function App() {
   const [placingOrder, setPlacingOrder] = React.useState(false);
   const [cartFabBump, setCartFabBump] = React.useState(0);
   const [cartFabDeferred, setCartFabDeferred] = React.useState(false);
+  const [pendingAddsCount, setPendingAddsCount] = React.useState(0);
+  const [addingById, setAddingById] = React.useState<Record<string, boolean>>({});
+  const [optimisticCartQty, setOptimisticCartQty] = React.useState(0);
+
+  const [actionModal, setActionModal] = React.useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    primaryLabel: string;
+    onPrimary: () => void;
+    secondaryLabel?: string;
+    onSecondary?: () => void;
+  }>({
+    visible: false,
+    title: "",
+    message: "",
+    primaryLabel: "OK",
+    onPrimary: () => {}
+  });
+
+  const lastAddAttemptRef = React.useRef<null | { menuItemId: string }>(null);
+  const [nutritionOpen, setNutritionOpen] = React.useState(false);
+  const [nutritionPendingOpen, setNutritionPendingOpen] = React.useState(false);
+  const nutritionPendingOpenSV = useSharedValue(0);
 
   const [trackId, setTrackId] = React.useState("");
   const [trackResult, setTrackResult] = React.useState<any>(null);
@@ -107,6 +152,16 @@ export default function App() {
 
   const sheetHeightSV = useSharedValue(0);
 
+  /**
+   * Cart UI in the nav sheet is shown only after:
+   * - cart FAB on Home, or
+   * - user drag-opens from collapsed on Home (see `onSheetDragOpenFromCollapsed`).
+   * Cleared when sheet fully collapses or search programmatically opens the sheet.
+   */
+  const [homeNavSheetCartEligible, setHomeNavSheetCartEligible] = React.useState(false);
+  /** True from search-bar open until sheet fully closes or cart sheet takes over — drives full-only sheet snap + early mount. */
+  const [navSheetSearchMode, setNavSheetSearchMode] = React.useState(false);
+
   const applyCustomerCartResponse = React.useCallback(
     (body: { lines: CartLineApi[]; subtotalCents: number; totalQuantity: number }) => {
       setCustomerCart({
@@ -114,6 +169,7 @@ export default function App() {
         subtotalCents: body.subtotalCents,
         totalQuantity: body.totalQuantity
       });
+      setOptimisticCartQty(body.totalQuantity);
     },
     []
   );
@@ -121,17 +177,39 @@ export default function App() {
   const refreshCustomerCart = React.useCallback(
     async (restaurantId: string) => {
       const t = token;
-      if (!t || userRole !== "CUSTOMER" || !restaurantId.trim()) return;
+      if (!t || !isCustomerSession || !restaurantId.trim()) return;
       const res = await fetchCustomerCart(restaurantId.trim(), t);
       if (res.ok) applyCustomerCartResponse(res);
     },
-    [token, userRole, applyCustomerCartResponse]
+    [token, isCustomerSession, applyCustomerCartResponse]
   );
 
   const openCartSheetHalf = React.useCallback(() => {
+    if (tabRef.current !== "home") setTab("home");
+    setNavSheetSearchMode(false);
+    setHomeNavSheetCartEligible(true);
     const { snapMid } = computeNavSheetSnapDims(Dimensions.get("window").height, insets);
-    sheetHeightSV.value = withSpring(snapMid, SHEET_SPRING_CONFIG);
+    sheetHeightSV.value = withSpring(snapMid + 3, SHEET_SPRING_CONFIG);
     setCartFabDeferred(true);
+  }, [insets, sheetHeightSV]);
+
+  const onSheetDragOpenFromCollapsed = React.useCallback(() => {
+    if (tabRef.current !== "home") return;
+    setNavSheetSearchMode(false);
+    setHomeNavSheetCartEligible(true);
+  }, []);
+
+  /** Customer top search: first taps expand nav sheet to full without raising the keyboard. */
+  const expandCustomerNavSheetFullFromSearch = React.useCallback(() => {
+    Keyboard.dismiss();
+    setCustomerSearchQuery("");
+    setHomeNavSheetCartEligible(false);
+    setNavSheetSearchMode(true);
+    const { snapHigh } = computeNavSheetSnapDims(Dimensions.get("window").height, insets);
+    sheetHeightSV.value = withTiming(snapHigh, {
+      duration: SEARCH_SHEET_OPEN_MS,
+      easing: Easing.inOut(Easing.cubic)
+    });
   }, [insets, sheetHeightSV]);
 
   /** Restaurant id for the menu on screen (authoritative for cart + place order). */
@@ -145,13 +223,92 @@ export default function App() {
     () => sheetHeightSV.value,
     (h) => {
       if (h <= 40) runOnJS(setCartFabDeferred)(false);
+      if (h > 56) runOnJS(setCartFabDeferred)(true);
     },
     []
+  );
+
+  const [sheetBackdropActive, setSheetBackdropActive] = React.useState(false);
+  const [sheetOpenStage, setSheetOpenStage] = React.useState<0 | 1 | 2>(0);
+  const { snapMid: snapMidNow, snapHigh: snapHighNow } = React.useMemo(
+    () => computeNavSheetSnapDims(Dimensions.get("window").height, insets),
+    [insets.top, insets.bottom]
+  );
+  useAnimatedReaction(
+    () => sheetHeightSV.value,
+    (h, prevH) => {
+      if (h > 12) runOnJS(setSheetBackdropActive)(true);
+      if (h <= 12) {
+        runOnJS(setSheetBackdropActive)(false);
+        /** Only clear cart eligibility when the sheet actually collapses (was above 12). Otherwise FAB/search springs start at h≈0 and would wipe eligibility before the sheet grows. */
+        if (typeof prevH === "number" && prevH > 12) {
+          runOnJS(setHomeNavSheetCartEligible)(false);
+          runOnJS(setNavSheetSearchMode)(false);
+        }
+      }
+
+      // 0 = closed-ish, 1 = half-ish, 2 = full-ish
+      const fullish = h >= snapHighNow * 0.86;
+      const halfish = h >= snapMidNow * 0.82;
+      const stage: 0 | 1 | 2 = fullish ? 2 : halfish ? 1 : 0;
+      const p = typeof prevH === "number" ? prevH : 0;
+      const prevStage: 0 | 1 | 2 = p >= snapHighNow * 0.86 ? 2 : p >= snapMidNow * 0.82 ? 1 : 0;
+      if (stage !== prevStage) runOnJS(setSheetOpenStage)(stage);
+    },
+    [snapMidNow, snapHighNow]
+  );
+
+  const closeSheetFromBackdrop = React.useCallback(() => {
+    const { snapMid, snapHigh } = computeNavSheetSnapDims(Dimensions.get("window").height, insets);
+    const cur = sheetHeightSV.value;
+    /** Cart panel open — allow half-dismiss. Search / discovery uses full-only snapping via `sheetFullOnly`. */
+    if (!homeNavSheetCartEligible) {
+      sheetHeightSV.value = withTiming(0, { duration: 520, easing: Easing.inOut(Easing.cubic) });
+      return;
+    }
+    const target = cur >= snapHigh * 0.86 ? snapMid : 0;
+    sheetHeightSV.value = withSpring(target, { ...SHEET_SPRING_CONFIG, damping: 28, stiffness: 320, mass: 0.7 });
+  }, [insets, sheetHeightSV, homeNavSheetCartEligible]);
+
+  const openNutritionAfterFullSheet = React.useCallback(() => {
+    const { snapHigh } = computeNavSheetSnapDims(Dimensions.get("window").height, insets);
+    const cur = sheetHeightSV.value;
+    if (cur >= snapHigh * 0.9) {
+      setNutritionOpen(true);
+      return;
+    }
+    setNutritionPendingOpen(true);
+    nutritionPendingOpenSV.value = 1;
+    sheetHeightSV.value = withSpring(snapHigh, { ...SHEET_SPRING_CONFIG, damping: 26, stiffness: 360, mass: 0.62 });
+  }, [insets, sheetHeightSV, nutritionPendingOpenSV]);
+
+  const requestKitchenNoteFocus = React.useCallback(() => {
+    const { snapHigh } = computeNavSheetSnapDims(Dimensions.get("window").height, insets);
+    const cur = sheetHeightSV.value;
+    if (cur >= snapHigh * 0.9) return;
+    sheetHeightSV.value = withSpring(snapHigh, { ...SHEET_SPRING_CONFIG, damping: 26, stiffness: 360, mass: 0.62 });
+  }, [insets, sheetHeightSV]);
+
+  useAnimatedReaction(
+    () => sheetHeightSV.value,
+    (h) => {
+      if (nutritionPendingOpenSV.value < 0.5) return;
+      if (h >= snapHighNow * 0.9) {
+        nutritionPendingOpenSV.value = 0;
+        runOnJS(setNutritionPendingOpen)(false);
+        runOnJS(setNutritionOpen)(true);
+      }
+    },
+    [snapHighNow]
   );
 
   React.useEffect(() => {
     scrollY.setValue(0);
   }, [tab, scrollY]);
+
+  React.useEffect(() => {
+    if (tab !== "home") setNavSheetSearchMode(false);
+  }, [tab]);
 
   const onSplashDismiss = React.useCallback(() => setShowSplash(false), []);
 
@@ -272,8 +429,16 @@ export default function App() {
     if (!token || userRole !== "CUSTOMER" || isServeosDemoMenuEnabled()) return;
     let cancelled = false;
     void (async () => {
-      const rid = (await AsyncStorage.getItem(CUSTOMER_VENUE_KEY))?.trim();
+      const serverPref =
+        typeof sessionUser?.preferredRestaurantId === "string"
+          ? sessionUser.preferredRestaurantId.trim()
+          : "";
+      const local = ((await AsyncStorage.getItem(CUSTOMER_VENUE_KEY)) ?? "").trim();
+      const rid = serverPref || local;
       if (!rid || cancelled) return;
+      if (serverPref && serverPref !== local) {
+        await AsyncStorage.setItem(CUSTOMER_VENUE_KEY, serverPref);
+      }
       setMenuRid(rid);
       const res = await fetchPublicMenuForRestaurant(rid);
       if (cancelled) return;
@@ -286,7 +451,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [token, userRole, refreshCustomerCart]);
+  }, [token, userRole, sessionUser?.preferredRestaurantId, refreshCustomerCart]);
 
   React.useEffect(() => {
     if (!token || userRole !== "CUSTOMER" || !isServeosDemoMenuEnabled()) return;
@@ -309,31 +474,51 @@ export default function App() {
     setStatus("");
     void refreshCustomerCart(menuRid.trim());
     if (userRole === "CUSTOMER" && menuRid.trim()) {
-      void AsyncStorage.setItem(CUSTOMER_VENUE_KEY, menuRid.trim());
+      const id = menuRid.trim();
+      void AsyncStorage.setItem(CUSTOMER_VENUE_KEY, id);
     }
   }
+
+  /** After PATCH on the server — refresh menus, cart, and profile snapshot (single source of truth). */
+  const applyCustomerVenueChange = React.useCallback(
+    async (restaurantId: string) => {
+      const rid = restaurantId.trim();
+      if (!rid || !token) return;
+      await AsyncStorage.setItem(CUSTOMER_VENUE_KEY, rid);
+      setMenuRid(rid);
+      setTrackResult(null);
+      setMenuPrefsSeq((x) => x + 1);
+      const res = await fetchPublicMenuForRestaurant(rid);
+      if (res.ok) {
+        setMenuPreview(res);
+        setLocalCart([]);
+        setStatus("");
+      } else {
+        setMenuPreview(null);
+        setStatus(res.error ?? "menu_failed");
+      }
+      await refreshCustomerCart(rid);
+      const me = await authMe(token);
+      if (me.ok && me.user) setSessionUser(me.user);
+      if (__DEV__ && Platform.OS !== "web") {
+        DevSettings.reload();
+      }
+    },
+    [token, refreshCustomerCart]
+  );
 
   async function addFirstMenuItemToCart() {
     const first = menuPreview?.categories?.[0]?.items?.[0];
     if (!first) return setStatus("Load a menu first");
-    if (userRole === "CUSTOMER" && token && activeRestaurantId()) {
-      const rid = activeRestaurantId();
-      const hadAny = customerCart.totalQuantity > 0;
-      const res = await postCartAddItem({ jwt: token, restaurantId: rid, menuItemId: first.id });
-      if (!res.ok) return setStatus(String((res as { error?: string }).error ?? "cart_add_failed"));
-      if (res.ok) applyCustomerCartResponse(res);
-      setCartFabDeferred(false);
-      if (tab === "home" && hadAny) setCartFabBump((n) => n + 1);
-      setStatus("Added to cart");
-      return;
-    }
-    setLocalCart((c) => [...c, { menuItemId: first.id, quantity: 1, modifierOptionIds: [] }]);
-    setStatus("Added to cart");
+    await addMenuLineFromBrowse(first.id);
   }
 
   async function submitOrder() {
+    if (placingOrder) return;
     const rid = activeRestaurantId().trim();
     if (!rid) return setStatus("Need restaurant");
+
+    const noteTrim = orderNote.trim() || undefined;
 
     setStatus("Placing…");
 
@@ -342,7 +527,7 @@ export default function App() {
 
     let lineIdsSnapshot: string[];
 
-    if (userRole === "CUSTOMER" && token) {
+    if (isCustomerSession && token) {
       if (customerCart.lines.length === 0) {
         setStatus("Cart is empty");
         return;
@@ -357,7 +542,7 @@ export default function App() {
           body: JSON.stringify({
             restaurantId: rid,
             fromCart: true,
-            note: orderNote.trim() ? orderNote.trim() : undefined
+            note: noteTrim
           })
         }
       );
@@ -367,6 +552,7 @@ export default function App() {
       setMenuPrefsSeq((x) => x + 1);
       setStatus("Order placed");
       void refreshCustomerCart(rid);
+      setOrderNote("");
       setTab("orders");
       setTrackId(res.order?.id ?? "");
       return;
@@ -375,6 +561,7 @@ export default function App() {
     if (localCart.length === 0) return setStatus("Need restaurant + cart");
 
     lineIdsSnapshot = localCart.map((l) => l.menuItemId);
+    setPlacingOrder(true);
     const res = await apiFetch<Record<string, unknown> & { ok?: boolean; error?: string; order?: { id?: string } }>("/orders/place", {
       method: "POST",
       headers,
@@ -385,20 +572,22 @@ export default function App() {
           quantity: l.quantity,
           modifierOptionIds: l.modifierOptionIds.length ? l.modifierOptionIds : undefined
         })),
-        note: orderNote || undefined
+        note: noteTrim
       })
     });
+    setPlacingOrder(false);
     if (!res.ok) return setStatus(res.error ?? "order_failed");
     void recordOrderedItemsForRestaurant(rid, lineIdsSnapshot);
     setMenuPrefsSeq((x) => x + 1);
     setStatus("Order placed");
     setLocalCart([]);
+    setOrderNote("");
     setTab("orders");
     setTrackId(res.order?.id ?? "");
   }
 
   async function removeCustomerCartLine(lineId: string) {
-    if (!token || userRole !== "CUSTOMER") return;
+    if (!token || !isCustomerSession) return;
     const res = await deleteCartLine(token, lineId);
     if (!res.ok) {
       setStatus(String((res as { error?: string }).error ?? "cart_remove_failed"));
@@ -408,6 +597,66 @@ export default function App() {
     setCartFabDeferred(false);
   }
 
+  async function incCustomerCartLine(lineId: string) {
+    if (!token || !isCustomerSession) return;
+    const cur = customerCart.lines.find((l) => l.id === lineId);
+    if (!cur) return;
+    applyCustomerCartResponse({
+      lines: customerCart.lines.map((l) => (l.id === lineId ? { ...l, quantity: l.quantity + 1, lineTotalCents: l.unitPriceCents * (l.quantity + 1) } : l)),
+      subtotalCents: customerCart.subtotalCents + cur.unitPriceCents,
+      totalQuantity: customerCart.totalQuantity + 1
+    });
+    setOptimisticCartQty((q) => q + 1);
+    const res = await patchCartLineQuantity(token, lineId, cur.quantity + 1);
+    if (res.ok) applyCustomerCartResponse(res);
+  }
+
+  async function decCustomerCartLine(lineId: string) {
+    if (!token || !isCustomerSession) return;
+    const cur = customerCart.lines.find((l) => l.id === lineId);
+    if (!cur) return;
+    if (cur.quantity <= 1) return void removeCustomerCartLine(lineId);
+    applyCustomerCartResponse({
+      lines: customerCart.lines.map((l) => (l.id === lineId ? { ...l, quantity: l.quantity - 1, lineTotalCents: l.unitPriceCents * (l.quantity - 1) } : l)),
+      subtotalCents: Math.max(0, customerCart.subtotalCents - cur.unitPriceCents),
+      totalQuantity: Math.max(0, customerCart.totalQuantity - 1)
+    });
+    setOptimisticCartQty((q) => Math.max(0, q - 1));
+    const res = await patchCartLineQuantity(token, lineId, cur.quantity - 1);
+    if (res.ok) applyCustomerCartResponse(res);
+  }
+
+  function showCartErrorModal(raw: string) {
+    const msg =
+      raw === "missing_token"
+        ? "You’re signed out. Please sign in again."
+        : raw === "restaurant_required"
+          ? "Pick a venue first so we know where you’re ordering from."
+          : raw === "restaurant_not_found"
+            ? "That venue couldn’t be found. Try choosing a different venue."
+            : raw === "menu_item_not_found"
+              ? "That item isn’t available right now. Try another dish."
+              : raw === "modifier_count_invalid"
+                ? "This item needs a quick choice (like doneness). Tap the item to customize, then add again."
+                : /can’t reach|can't reach|network|timeout/i.test(raw)
+                  ? "We can’t reach the server right now. Check your connection and try again."
+                  : "We couldn’t add that item. Please try again.";
+
+    setActionModal({
+      visible: true,
+      title: "Couldn’t add to cart",
+      message: msg,
+      primaryLabel: "Try again",
+      onPrimary: () => {
+        setActionModal((p) => ({ ...p, visible: false }));
+        const last = lastAddAttemptRef.current;
+        if (last?.menuItemId) void addMenuLineFromBrowse(last.menuItemId);
+      },
+      secondaryLabel: "Dismiss",
+      onSecondary: () => setActionModal((p) => ({ ...p, visible: false }))
+    });
+  }
+
   /** Menu + from Home / Orders (+) buttons */
   async function addMenuLineFromBrowse(menuItemId: string) {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -415,35 +664,67 @@ export default function App() {
     const rid = activeRestaurantId();
     if (!menuItemId.trim()) return setStatus("Missing menu item.");
 
+    lastAddAttemptRef.current = { menuItemId };
+
+    // Instant UI feedback (optimistic): spinner on this card + FAB bump + sound.
+    setAddingById((prev) => ({ ...prev, [menuItemId]: true }));
+    setPendingAddsCount((n) => n + 1);
+    setCartFabDeferred(false);
+    if (tab === "home") setCartFabBump((n) => n + 1);
+    void playCartAddCue();
+    if (isCustomerSession) setOptimisticCartQty((q) => q + 1);
+
     try {
-      if (userRole === "CUSTOMER" && token && rid) {
-        const hadAny = customerCart.totalQuantity > 0;
+      /** Primary path: server cart. Reconcile after POST; don't block UI on GET. */
+      if (token && isCustomerSession && rid) {
         const res = await postCartAddItem({ jwt: token, restaurantId: rid, menuItemId });
         if (!res.ok) {
-          setStatus(String((res as { error?: string }).error ?? "cart_add_failed"));
+          const err = String((res as { error?: string }).error ?? "cart_add_failed");
+          setStatus(err);
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          showCartErrorModal(err);
+          if (isCustomerSession) setOptimisticCartQty((q) => Math.max(0, q - 1));
           return;
         }
-        applyCustomerCartResponse(res);
-        setCartFabDeferred(false);
+        void refreshCustomerCart(rid);
         setStatus("");
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        if (tab === "home" && hadAny) setCartFabBump((n) => n + 1);
         return;
       }
 
-      if (userRole === "CUSTOMER" && token && !rid) {
-        setStatus("Set a venue ID in Account — we need it to sync your basket.");
+      if (token && isCustomerSession && !rid) {
+        const msg = "Set your go-to venue in Account so we can sync your basket to the server.";
+        setStatus(msg);
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        setActionModal({
+          visible: true,
+          title: "Choose a venue",
+          message: msg,
+          primaryLabel: "Go to Account",
+          onPrimary: () => {
+            setActionModal((p) => ({ ...p, visible: false }));
+            setTab("account");
+          },
+          secondaryLabel: "Dismiss",
+          onSecondary: () => setActionModal((p) => ({ ...p, visible: false }))
+        });
         return;
       }
 
       setLocalCart((c) => [...c, { menuItemId, quantity: 1, modifierOptionIds: [] }]);
-      setStatus("Added to cart");
+      setStatus("Added to cart (this device only — sign in as a diner for cloud cart).");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "cart_add_failed";
       setStatus(msg);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      showCartErrorModal(msg);
+      if (isCustomerSession) setOptimisticCartQty((q) => Math.max(0, q - 1));
+    } finally {
+      setAddingById((prev) => {
+        const next = { ...prev };
+        delete next[menuItemId];
+        return next;
+      });
+      setPendingAddsCount((n) => Math.max(0, n - 1));
     }
   }
 
@@ -514,9 +795,16 @@ export default function App() {
     return buildCustomerHomeHeader({
       firstName,
       restaurantName: venueName,
-      cartCount: userRole === "CUSTOMER" ? customerCart.totalQuantity : localCart.reduce((s, l) => s + l.quantity, 0)
+      cartCount: isCustomerSession ? customerCart.totalQuantity : localCart.reduce((s, l) => s + l.quantity, 0)
     });
-  }, [sessionUser?.signupProfile, sessionUser?.email, menuPreview, userRole, customerCart.totalQuantity, localCart]);
+  }, [
+    sessionUser?.signupProfile,
+    sessionUser?.email,
+    menuPreview,
+    isCustomerSession,
+    customerCart.totalQuantity,
+    localCart
+  ]);
 
   const customerScrollToMenu = React.useCallback(
     (offsetExtra = 0) => {
@@ -532,7 +820,7 @@ export default function App() {
     if (menuPreview?.ok && menuPreview.restaurant) {
       customerScrollToMenu(0);
     } else {
-      setTab("account");
+      setTab("orders");
     }
   }, [menuPreview, customerScrollToMenu]);
 
@@ -570,11 +858,10 @@ export default function App() {
 
   if (!sessionReady) {
     return (
-      <View style={styles.sessionLoading}>
-        <ActivityIndicator size="large" color="#FFFFFF" />
-        <Text style={styles.sessionHint}>Connecting…</Text>
+      <>
+        <SwapColorFullscreenLoader hint="Connecting…" sub="Reconnecting to ServeOS" />
         <StatusBar style="light" />
-      </View>
+      </>
     );
   }
 
@@ -613,7 +900,13 @@ export default function App() {
   const customerScreenEdgeBleed = userRole === "CUSTOMER" && (tab === "home" || tab === "orders");
 
   const sheetCartPanel =
-    token && userRole === "CUSTOMER" && menuPreview?.ok && menuPreview.restaurant ? (
+    token &&
+    isCustomerSession &&
+    tab === "home" &&
+    homeNavSheetCartEligible &&
+    sheetBackdropActive &&
+    menuPreview?.ok &&
+    menuPreview.restaurant ? (
       <CartSheetPanel
         lines={customerCart.lines}
         subtotalCents={customerCart.subtotalCents}
@@ -624,8 +917,34 @@ export default function App() {
         placing={placingOrder}
         onPlaceOrder={() => void submitOrder()}
         onRemoveLine={(id) => void removeCustomerCartLine(id)}
+        onIncLine={(id) => void incCustomerCartLine(id)}
+        onDecLine={(id) => void decCustomerCartLine(id)}
+        onOpenInfo={openNutritionAfterFullSheet}
+        userFirstName={customerDisplayName(sessionUser?.signupProfile, sessionUser?.email ?? undefined)}
+        sheetOpenStage={sheetOpenStage}
+        onRequestNoteFocus={requestKitchenNoteFocus}
       />
     ) : null;
+
+  const sheetSearchPanel =
+    token &&
+    isCustomerSession &&
+    !homeNavSheetCartEligible &&
+    (navSheetSearchMode || sheetBackdropActive) &&
+    menuPreview?.ok &&
+    menuPreview.restaurant ? (
+      <CustomerNavSearchSheet
+        restaurantId={String(menuPreview.restaurant.id)}
+        categories={(menuPreview.categories ?? []) as MenuCategoryLite[]}
+        money={money}
+        searchQuery={customerSearchQuery}
+        onSearchChange={setCustomerSearchQuery}
+        onAddItem={(it) => void addMenuLineFromBrowse(it.id)}
+        addingItemIds={addingById}
+      />
+    ) : null;
+
+  const displayCartQty = isCustomerSession ? Math.max(0, optimisticCartQty) : Math.max(0, localCart.reduce((s, l) => s + l.quantity, 0));
 
   return (
     <Animated.View style={[styles.shell, { opacity: screenEnter, transform: [{ translateY: screenEnterY }] }]}>
@@ -634,6 +953,7 @@ export default function App() {
 
       <View style={styles.main}>
         <ScrollMeshBackground tab={tab} scrollY={scrollY} />
+        <TopNavContentDimmer scrollY={scrollY} topInset={insets.top} />
         {userRole === "CUSTOMER" ? (
           <FloatingTopBar
             variant="customer"
@@ -642,12 +962,14 @@ export default function App() {
             navGradient={navGradient}
             searchValue={customerSearchQuery}
             onSearchChange={setCustomerSearchQuery}
-            searchPlaceholder="Search restaurants, dishes…"
-            onSearchSubmit={() => {
-              const q = customerSearchQuery.trim();
-              if (q) setStatus(`Searching: ${q}`);
+            searchPlaceholder="Search dishes, drinks…"
+            searchSheetFullyExpanded={sheetOpenStage === 2}
+            onSearchExpandSheet={expandCustomerNavSheetFullFromSearch}
+            onSearchSubmit={() => void appendNavSearchRecent(customerSearchQuery.trim())}
+            onMenu={() => {
+              Keyboard.dismiss();
+              setStatus("menu");
             }}
-            onMenu={() => setStatus("menu")}
           />
         ) : (
           <FloatingTopBar
@@ -671,6 +993,7 @@ export default function App() {
             scrollEventThrottle={16}
             nestedScrollEnabled
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={SCROLL_KEYBOARD_DISMISS_MODE}
             contentContainerStyle={[
               customerScreenEdgeBleed ? styles.scrollPadHomeBleed : styles.scrollPad,
               { paddingTop: scrollTopPad, paddingBottom: scrollBottom }
@@ -690,7 +1013,7 @@ export default function App() {
                       style={({ pressed }) => [pressed && styles.pressed, { alignSelf: "center" }]}
                       onPress={customerPopularPicks}
                     >
-                      <Text style={styles.customerSecondaryCta}>{menuPreview?.ok && menuPreview.restaurant ? "Popular picks" : "Load menu in Orders"}</Text>
+                      <Text style={styles.customerSecondaryCta}>{menuPreview?.ok && menuPreview.restaurant ? "Popular picks" : "Choose venue in Orders"}</Text>
                     </Pressable>
                   </View>
 
@@ -709,9 +1032,10 @@ export default function App() {
                       }}
                       money={money}
                       restaurantId={String(menuPreview.restaurant.id)}
-                      filterQuery={userRole === "CUSTOMER" ? customerSearchQuery : ""}
+                      filterQuery=""
                       prefsVersion={menuPrefsSeq}
                       edgeToEdge
+                      addingItemIds={addingById}
                       onAddItem={(it) => void addMenuLineFromBrowse(it.id)}
                     />
                   </View>
@@ -719,7 +1043,7 @@ export default function App() {
                   <View style={styles.customerHomeCopyInset}>
                     <View style={[styles.cardShell, styles.surfaceCard]}>
                       <Text style={styles.cardBodyMuted}>
-                        Set your go-to venue in Account and we will load dishes here so ordering is one scroll away.
+                        Open the Orders tab to pick your restaurant — it is saved to your account — and we’ll load dishes here.
                       </Text>
                     </View>
                   </View>
@@ -780,6 +1104,7 @@ export default function App() {
             style={styles.scrollLayer}
             onScroll={onScroll}
             scrollEventThrottle={16}
+            keyboardDismissMode={SCROLL_KEYBOARD_DISMISS_MODE}
             contentContainerStyle={[styles.scrollPad, { paddingTop: scrollTopPad, paddingBottom: scrollBottom }]}
             showsVerticalScrollIndicator={false}
           >
@@ -811,6 +1136,7 @@ export default function App() {
             scrollEventThrottle={16}
             nestedScrollEnabled
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={SCROLL_KEYBOARD_DISMISS_MODE}
             contentContainerStyle={[
               customerScreenEdgeBleed ? styles.scrollPadHomeBleed : styles.scrollPad,
               { paddingTop: scrollTopPad, paddingBottom: scrollBottom }
@@ -818,93 +1144,19 @@ export default function App() {
             showsVerticalScrollIndicator={false}
           >
             {userRole === "CUSTOMER" ? (
-              <>
-                <View style={styles.customerHomeCopyInset}>
-                  <Text style={styles.pageTitle}>Orders</Text>
-                  <Text style={styles.pageSub}>Browse menus, place orders, and track status — same flow as customer web.</Text>
-
-                  <View style={[styles.cardShell, styles.fieldCard]}>
-                    <Text style={styles.inputLabel}>Restaurant ID</Text>
-                    <TextInput
-                      value={menuRid}
-                      onChangeText={setMenuRid}
-                      placeholder="Paste venue ID"
-                      placeholderTextColor={R.textMuted}
-                      style={styles.input}
-                      autoCapitalize="none"
-                    />
-                    <Pressable style={({ pressed }) => [styles.pillPrimary, styles.mtSm, pressed && styles.pressed]} onPress={() => void loadPublicMenu()}>
-                      <Text style={styles.pillPrimaryText}>Load menu</Text>
-                    </Pressable>
-                  </View>
-                </View>
-
-                {menuPreview?.ok && menuPreview.restaurant ? (
-                  <CustomerMenuBrowsing
-                    key={`menu-${String(menuPreview.restaurant.id)}`}
-                    menuPreview={{
-                      ok: true,
-                      restaurant: menuPreview.restaurant,
-                      categories: menuPreview.categories ?? []
-                    }}
-                    money={money}
-                    restaurantId={String(menuPreview.restaurant.id)}
-                    filterQuery={customerSearchQuery}
-                    prefsVersion={menuPrefsSeq}
-                    edgeToEdge
-                    onAddItem={(it) => void addMenuLineFromBrowse(it.id)}
-                  />
-                ) : null}
-
-                <View style={styles.customerHomeCopyInset}>
-                  <View style={[styles.cardShell, styles.surfaceCard]}>
-                    <Text style={styles.sectionLabelSmall}>Basket</Text>
-                    <Text style={styles.cardBodyMuted}>
-                      {customerCart.totalQuantity > 0
-                        ? `Cart · ${customerCart.totalQuantity} item(s) · ${money(customerCart.subtotalCents)}. Checkout from the cart shortcut on Home or by expanding the navigation sheet above the tabs.`
-                        : "Anything you tap + on saves to your account cart. Checkout appears in that bottom sheet when you are ready."}
-                    </Text>
-                  </View>
-
-                  <View style={[styles.cardShell, styles.surfaceCard, styles.mtSm]}>
-                    <Text style={styles.sectionLabelSmall}>Track an order</Text>
-                    <Text style={styles.inputLabel}>Order ID</Text>
-                    <TextInput
-                      value={trackId}
-                      onChangeText={setTrackId}
-                      placeholder="Paste order id"
-                      placeholderTextColor={R.textMuted}
-                      style={styles.input}
-                      autoCapitalize="none"
-                    />
-                    <Pressable style={({ pressed }) => [styles.pillPrimary, styles.mtSm, pressed && styles.pressed]} onPress={() => void fetchTrack()}>
-                      <Text style={styles.pillPrimaryText}>Track</Text>
-                    </Pressable>
-                    {trackResult?.ok ? (
-                      <View style={styles.trackBox}>
-                        <Text style={styles.trackVenue}>{trackResult.restaurantName}</Text>
-                        <Text style={styles.trackLine}>
-                          {trackResult.status} · {money(trackResult.totalCents ?? 0)}
-                        </Text>
-                      </View>
-                    ) : null}
-                  </View>
-
-                  <View style={[styles.cardShell, styles.surfaceCard, styles.mtSm]}>
-                    <Text style={styles.sectionLabelSmall}>Your orders</Text>
-                    {myOrders.length === 0 ? (
-                      <Text style={styles.itemDesc}>No orders yet.</Text>
-                    ) : (
-                      myOrders.map((o: any) => (
-                        <View key={o.id} style={styles.orderRow}>
-                          <Text style={styles.itemName}>{money(o.totalCents)}</Text>
-                          <Text style={styles.itemDesc}>{o.status}</Text>
-                        </View>
-                      ))
-                    )}
-                  </View>
-                </View>
-              </>
+              <CustomerOrdersVenueScreen
+                token={token}
+                activeId={activeRestaurantId()}
+                activeName={
+                  menuPreview?.ok &&
+                  menuPreview.restaurant &&
+                  String(menuPreview.restaurant.id).trim() === activeRestaurantId().trim()
+                    ? String(menuPreview.restaurant.name ?? "")
+                    : ""
+                }
+                demoMode={isServeosDemoMenuEnabled()}
+                onVenueHydrated={applyCustomerVenueChange}
+              />
             ) : (
               <>
                 <Text style={styles.pageTitle}>Orders</Text>
@@ -937,6 +1189,7 @@ export default function App() {
                     restaurantId={String(menuPreview.restaurant.id)}
                     filterQuery=""
                     prefsVersion={menuPrefsSeq}
+                    addingItemIds={addingById}
                     onAddItem={(it) => void addMenuLineFromBrowse(it.id)}
                   />
                 ) : null}
@@ -1010,6 +1263,7 @@ export default function App() {
             style={styles.scrollLayer}
             onScroll={onScroll}
             scrollEventThrottle={16}
+            keyboardDismissMode={SCROLL_KEYBOARD_DISMISS_MODE}
             contentContainerStyle={[styles.scrollPad, { paddingTop: scrollTopPad, paddingBottom: scrollBottom }]}
             showsVerticalScrollIndicator={false}
           >
@@ -1032,6 +1286,7 @@ export default function App() {
             style={styles.scrollLayer}
             onScroll={onScroll}
             scrollEventThrottle={16}
+            keyboardDismissMode={SCROLL_KEYBOARD_DISMISS_MODE}
             contentContainerStyle={[styles.scrollPad, { paddingTop: scrollTopPad, paddingBottom: scrollBottom }]}
             showsVerticalScrollIndicator={false}
           >
@@ -1042,30 +1297,16 @@ export default function App() {
 
             {userRole === "CUSTOMER" ? (
               <View style={[styles.cardShell, styles.fieldCard]}>
-                <Text style={styles.sectionLabelSmall}>Your go-to venue</Text>
+                <Text style={styles.sectionLabelSmall}>Your restaurant</Text>
                 <Text style={styles.cardBodyMuted}>
-                  Paste the restaurant ID for the place you order from most. We will remember it on this device for your home
-                  menu.
+                  Venue choice is tied to your account on the server. Use the Orders tab to see every venue and switch — the app
+                  then reloads menus and your cart for that place only.
                 </Text>
-                <Text style={[styles.inputLabel, styles.mtSm]}>Restaurant ID</Text>
-                <TextInput
-                  value={menuRid}
-                  onChangeText={setMenuRid}
-                  placeholder="Paste venue ID"
-                  placeholderTextColor={R.textMuted}
-                  style={styles.input}
-                  autoCapitalize="none"
-                />
                 <Pressable
                   style={({ pressed }) => [styles.pillPrimary, styles.mtSm, pressed && styles.pressed]}
-                  onPress={async () => {
-                    const id = menuRid.trim();
-                    if (!id) return setStatus("Enter a restaurant ID");
-                    await AsyncStorage.setItem(CUSTOMER_VENUE_KEY, id);
-                    await loadPublicMenu();
-                  }}
+                  onPress={() => setTab("orders")}
                 >
-                  <Text style={styles.pillPrimaryText}>Save & load menu</Text>
+                  <Text style={styles.pillPrimaryText}>Choose or change venue</Text>
                 </Pressable>
               </View>
             ) : (
@@ -1133,18 +1374,27 @@ export default function App() {
             </View>
           </Animated.ScrollView>
         )}
+        <BottomNavContentDimmer scrollY={scrollY} bottomInset={insets.bottom} />
       </View>
 
-      <TopNavContentDimmer scrollY={scrollY} topInset={insets.top} />
+      {sheetBackdropActive ? (
+        <Pressable
+          style={styles.sheetBackdropTapClose}
+          onPress={() => {
+            Keyboard.dismiss();
+            closeSheetFromBackdrop();
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Close panel"
+        />
+      ) : null}
 
-      <BottomNavContentDimmer scrollY={scrollY} bottomInset={insets.bottom} />
-
-      {token && userRole === "CUSTOMER" && tab === "home" ? (
+      {token && isCustomerSession && tab === "home" && menuPreview?.ok ? (
         <View style={styles.cartFabPortal} pointerEvents="box-none">
           <CartFABPopup
-            active={customerCart.totalQuantity > 0 && !cartFabDeferred}
+            active={displayCartQty > 0 && !cartFabDeferred && !(sheetBackdropActive && !homeNavSheetCartEligible)}
             bumpKey={cartFabBump}
-            totalQuantity={customerCart.totalQuantity}
+            totalQuantity={displayCartQty}
             bottomOffset={insets.bottom + FLOAT_MARGIN_BOTTOM + FLOATING_TAB_BAR_HEIGHT + 12}
             rightOffset={FLOAT_MARGIN_SIDE + 4}
             onOpenCart={openCartSheetHalf}
@@ -1152,18 +1402,40 @@ export default function App() {
         </View>
       ) : null}
 
+      <ActionModal
+        visible={actionModal.visible}
+        title={actionModal.title}
+        message={actionModal.message}
+        primaryLabel={actionModal.primaryLabel}
+        onPrimary={actionModal.onPrimary}
+        secondaryLabel={actionModal.secondaryLabel}
+        onSecondary={actionModal.onSecondary}
+        onDismiss={() => setActionModal((p) => ({ ...p, visible: false }))}
+      />
+
+      <NutritionInfoModal visible={nutritionOpen} onDismiss={() => setNutritionOpen(false)} />
+
       <FloatingGlassTabBar
         tab={tab}
-        onChange={setTab}
+        onChange={(next) => {
+          Keyboard.dismiss();
+          setTab(next);
+        }}
         insets={insets}
         sheetHeightSV={sheetHeightSV}
-        sheetContent={sheetCartPanel ?? undefined}
+        sheetContent={sheetCartPanel ?? sheetSearchPanel ?? undefined}
+        onSheetDragOpenFromCollapsed={onSheetDragOpenFromCollapsed}
+        sheetFullOnly={navSheetSearchMode}
       />
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
+  sheetBackdropTapClose: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 19
+  },
   cartFabPortal: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 13,

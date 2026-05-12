@@ -58,3 +58,11 @@ export async function deleteCartLine(jwt: string, lineId: string) {
     headers: { Authorization: `Bearer ${jwt}` }
   });
 }
+
+export async function patchCartLineQuantity(jwt: string, lineId: string, quantity: number) {
+  return apiFetch<CartMeOk | { ok: false; error?: string }>(`/cart/me/lines/${encodeURIComponent(lineId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${jwt}` },
+    body: JSON.stringify({ quantity })
+  });
+}

@@ -3,7 +3,6 @@ import * as Haptics from "expo-haptics";
 import React from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
-  ActivityIndicator,
   Animated,
   Easing,
   Keyboard,
@@ -26,6 +25,7 @@ import { BlurView } from "expo-blur";
 import { ThemedSwitch } from "../components/ThemedSwitch";
 import { CountrySelect, type AllowedCountry } from "../components/CountrySelect";
 import { CITIES, CitySelect } from "../components/CitySelect";
+import { SwapColorFullscreenLoader, SwapColorSpinner } from "../components/SwapColorLoader";
 
 const BG = "#8B5CF6";
 const BG_DEEP = "#4C1D95";
@@ -1442,6 +1442,11 @@ export function AuthFlowScreen({ onAuthed }: Props) {
               { opacity: enterOpacity, transform: [{ translateY: enterY }] }
             ]}
           >
+          {mode === "signin" && busy ? (
+            <View style={StyleSheet.absoluteFillObject} pointerEvents="auto">
+              <SwapColorFullscreenLoader hint="Signing you in" sub="Setting up your session…" />
+            </View>
+          ) : null}
           {mode === "signin" ? (
             <View style={styles.phraseWrap}>
               <Animated.Text
@@ -1606,7 +1611,7 @@ export function AuthFlowScreen({ onAuthed }: Props) {
                     disabled={busy}
                   >
                     {busy ? (
-                      <ActivityIndicator color="#1E1B4B" />
+                      <SwapColorSpinner size={18} stroke={3} />
                     ) : signinBtnErr ? (
                       <Text style={styles.primaryTextErr}>{signinBtnErr}</Text>
                     ) : (
@@ -2678,7 +2683,7 @@ export function AuthFlowScreen({ onAuthed }: Props) {
                     disabled={busy || bizLookupBusy}
                   >
                     {bizLookupBusy && wizardFlow === "BUSINESS" && wizardStep === 0 ? (
-                      <ActivityIndicator color="#0B1020" />
+                      <SwapColorSpinner size={18} stroke={3} />
                     ) : wizardBtnErr ? (
                       <Text style={styles.primaryTextErr}>{wizardBtnErr}</Text>
                     ) : (

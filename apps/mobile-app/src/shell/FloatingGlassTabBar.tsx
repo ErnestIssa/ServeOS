@@ -1,7 +1,7 @@
 import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import React from "react";
-import { Platform, Pressable, StyleSheet, Text, View, useWindowDimensions, type ViewStyle } from "react-native";
+import { Keyboard, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions, type ViewStyle } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
@@ -28,7 +28,7 @@ import {
   NavIconOrdersMark
 } from "./NavTabIcons";
 import { FLOATING_TOP_BAR_HEIGHT, FLOATING_TOP_GAP } from "./FloatingTopBar";
-import { useNavSheetPanGestures } from "./NavExpandSheet";
+import { computeNavSheetSnapDims, useNavSheetPanGestures } from "./NavExpandSheet";
 import { R } from "../theme";
 
 export type TabId = "home" | "bookings" | "orders" | "messages" | "account";
@@ -63,6 +63,10 @@ type Props = {
   insets: EdgeInsets;
   sheetHeightSV: SharedValue<number>;
   sheetContent?: React.ReactNode;
+  /** Home: user dragged sheet open from collapsed — enables cart panel for this open cycle. */
+  onSheetDragOpenFromCollapsed?: () => void;
+  /** When true, sheet is in search/discovery mode and must only settle at full or closed (no half detent). */
+  sheetFullOnly?: boolean;
 };
 
 function TabGlyph({ id, color }: { id: TabId; color: string }) {
@@ -82,17 +86,40 @@ function TabGlyph({ id, color }: { id: TabId; color: string }) {
   }
 }
 
-export function FloatingGlassTabBar({ tab, onChange, insets, sheetHeightSV, sheetContent }: Props) {
+export function FloatingGlassTabBar({
+  tab,
+  onChange,
+  insets,
+  sheetHeightSV,
+  sheetContent,
+  onSheetDragOpenFromCollapsed,
+  sheetFullOnly
+}: Props) {
   const { height: screenH } = useWindowDimensions();
 
   const { panVerticalOnSheetBody, panVerticalSeamGrab, panVerticalWithTabsDuplicate, sheetPanDragSessionSV } =
-    useNavSheetPanGestures(insets, sheetHeightSV);
+    useNavSheetPanGestures(insets, sheetHeightSV, {
+      onUserDragFromCollapsed: onSheetDragOpenFromCollapsed,
+      allowHalfDetent: !sheetFullOnly
+    });
 
   const dockBottom = insets.bottom + FLOAT_MARGIN_BOTTOM;
   const pillAnchorBottom = FLOAT_MARGIN_BOTTOM + insets.bottom + FLOATING_TAB_BAR_HEIGHT;
   const topReserve = insets.top + FLOATING_TOP_BAR_HEIGHT + FLOATING_TOP_GAP + 8;
   const fullH = Math.max(120, screenH - topReserve);
   const dockMaxH = Math.max(0, fullH - pillAnchorBottom);
+
+  const { snapMid, snapHigh } = React.useMemo(
+    () => computeNavSheetSnapDims(screenH, insets),
+    [screenH, insets.bottom, insets.top]
+  );
+  const snapMidSV = useSharedValue(snapMid);
+  const snapHighSV = useSharedValue(snapHigh);
+  React.useLayoutEffect(() => {
+    const v = computeNavSheetSnapDims(screenH, insets);
+    snapMidSV.value = v.snapMid;
+    snapHighSV.value = v.snapHigh;
+  }, [screenH, insets.bottom, insets.top, snapMidSV, snapHighSV]);
 
   const rowW = useSharedValue(0);
   const pillX = useSharedValue(0);
@@ -184,9 +211,13 @@ export function FloatingGlassTabBar({ tab, onChange, insets, sheetHeightSV, shee
       };
     }
 
-    const spillT =
-      dockMaxH >= fullH - 1 ? 0 : Math.min(1, Math.max(0, (h - dockMaxH) / Math.max(1, fullH - dockMaxH)));
-    const marginH = interpolate(spillT, [0, 1], [FLOAT_MARGIN_SIDE, 0], Extrapolation.CLAMP);
+    /** Search mode should not “kink” at half; start shrinking inset from the first pixel of open. */
+    const sm = sheetFullOnly ? 0 : snapMidSV.value;
+    const sh = snapHighSV.value;
+    const span = Math.max(1, sh - sm);
+    const expandT =
+      h <= sm ? 0 : h >= sh ? 1 : (h - sm) / span;
+    const marginH = interpolate(expandT, [0, 1], [FLOAT_MARGIN_SIDE, 0], Extrapolation.CLAMP);
 
     const bottomPos = h <= dockMaxH ? dockBottom : screenH - topReserve - FLOATING_TAB_BAR_HEIGHT - h;
 
@@ -200,7 +231,7 @@ export function FloatingGlassTabBar({ tab, onChange, insets, sheetHeightSV, shee
       borderBottomLeftRadius: 28,
       borderBottomRightRadius: 28
     };
-  }, [dockBottom, dockMaxH, fullH, screenH, topReserve, sheetHeightSV]);
+  }, [dockBottom, dockMaxH, screenH, topReserve, sheetHeightSV, snapMidSV, snapHighSV]);
 
   const sheetPanelStyle = useAnimatedStyle(
     () => ({
@@ -292,9 +323,11 @@ export function FloatingGlassTabBar({ tab, onChange, insets, sheetHeightSV, shee
                 >
                   <View style={styles.sheetTopHandleDash} />
                 </Animated.View>
-                <View style={styles.sheetBodyHost} collapsable={false}>
-                  {sheetContent}
-                </View>
+                <Pressable accessible={false} style={styles.sheetBodyHost} collapsable={false} onPress={Keyboard.dismiss}>
+                  <View style={styles.sheetBodyInner} collapsable={false}>
+                    {sheetContent}
+                  </View>
+                </Pressable>
               </Animated.View>
             </GestureDetector>
 
@@ -441,6 +474,10 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(15,23,42,0.88)"
   },
   sheetBodyHost: {
+    flex: 1,
+    minHeight: 48
+  },
+  sheetBodyInner: {
     flex: 1,
     minHeight: 48
   },

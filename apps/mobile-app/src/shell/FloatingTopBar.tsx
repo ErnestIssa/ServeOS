@@ -1,10 +1,12 @@
 import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
-import { Animated, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Animated, Keyboard, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 
 export const FLOATING_TOP_BAR_HEIGHT = 56;
-export const FLOATING_TOP_GAP = 10;
+export const FLOATING_TOP_GAP = 0;
+/** Negative lifts the chrome into the safe-area (closer to physical top edge). */
+export const FLOATING_TOP_NUDGE = -8;
 /** Thin outer stroke for the floating nav capsule (bold violet). */
 const NAV_PURPLE_BORDER = "#7C3AED";
 
@@ -34,6 +36,10 @@ type Props =
       searchValue: string;
       onSearchChange: (text: string) => void;
       onSearchSubmit?: () => void;
+      /** When `onSearchExpandSheet` is set, taps open the nav sheet until this is true (full detent). */
+      searchSheetFullyExpanded?: boolean;
+      /** First taps on the search field call this (no keyboard); typing works once the sheet is fully open. */
+      onSearchExpandSheet?: () => void;
       onMenu?: () => void;
     };
 
@@ -78,8 +84,13 @@ function CustomerTopBarChrome({
   onSearchChange,
   searchPlaceholder,
   onSearchSubmit,
+  searchSheetFullyExpanded,
+  onSearchExpandSheet,
   onMenu
 }: CustomerChromeProps) {
+  const expandFirst = typeof onSearchExpandSheet === "function";
+  const sheetReadyForTyping = !expandFirst || !!searchSheetFullyExpanded;
+
   return (
     <View style={[styles.row, styles.customerRow]}>
       <View style={styles.searchFieldCustomer}>
@@ -93,8 +104,21 @@ function CustomerTopBarChrome({
           returnKeyType="search"
           onSubmitEditing={onSearchSubmit}
           accessibilityLabel="Search"
+          pointerEvents={sheetReadyForTyping ? "auto" : "none"}
+          showSoftInputOnFocus
           {...(Platform.OS === "ios" ? ({ clearButtonMode: "while-editing" as const } as const) : {})}
         />
+        {expandFirst && !searchSheetFullyExpanded ? (
+          <Pressable
+            style={styles.searchFieldTapShield}
+            accessibilityRole="button"
+            accessibilityLabel="Open search sheet"
+            onPress={() => {
+              Keyboard.dismiss();
+              onSearchExpandSheet?.();
+            }}
+          />
+        ) : null}
       </View>
       <Pressable onPress={onMenu} style={styles.iconBtn} hitSlop={12} accessibilityLabel="Menu">
         <IconMenu color={iconColor} />
@@ -163,18 +187,9 @@ function BusinessTopBarChrome({
 
 export function FloatingTopBar(props: Props) {
   const topInset = props.topInset;
-  const scrollY = props.scrollY;
-
-  const hideY = scrollY.interpolate({
-    inputRange: [0, 70],
-    outputRange: [0, -(FLOATING_TOP_BAR_HEIGHT + FLOATING_TOP_GAP + topInset)],
-    extrapolate: "clamp"
-  });
-  const hideOpacity = scrollY.interpolate({
-    inputRange: [0, 60],
-    outputRange: [1, 0],
-    extrapolate: "clamp"
-  });
+  // Keep the top nav pinned; do not react to scroll.
+  const hideY = 0;
+  const hideOpacity = 1;
 
   const iconColor = "rgba(255,255,255,0.92)";
 
@@ -200,7 +215,9 @@ export function FloatingTopBar(props: Props) {
           <View style={styles.sheen} pointerEvents="none" />
 
           {props.variant === "customer" ? (
-            <CustomerTopBarChrome iconColor={iconColor} {...props} />
+            <Pressable accessible={false} onPress={Keyboard.dismiss} style={styles.customerChromeDismissTap}>
+              <CustomerTopBarChrome iconColor={iconColor} {...props} />
+            </Pressable>
           ) : (
             <BusinessTopBarChrome iconColor={iconColor} {...props} />
           )}
@@ -213,7 +230,7 @@ export function FloatingTopBar(props: Props) {
 const styles = StyleSheet.create({
   anchor: {
     position: "absolute",
-    top: 0,
+    top: FLOATING_TOP_NUDGE,
     left: 0,
     right: 0,
     zIndex: 30,
@@ -233,6 +250,11 @@ const styles = StyleSheet.create({
       android: { elevation: 16 },
       default: {}
     })
+  },
+  /** Tap chrome outside focused controls dismisses keyboard (search field). */
+  customerChromeDismissTap: {
+    alignSelf: "stretch",
+    minHeight: FLOATING_TOP_BAR_HEIGHT
   },
   gradientShell: {
     minHeight: FLOATING_TOP_BAR_HEIGHT,
@@ -348,7 +370,13 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     backgroundColor: "rgba(255,255,255,0.42)",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.55)"
+    borderColor: "rgba(255,255,255,0.55)",
+    position: "relative",
+    overflow: "hidden"
+  },
+  searchFieldTapShield: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 4
   },
   searchInputCustomer: {
     flex: 1,

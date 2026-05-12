@@ -23,6 +23,8 @@ export type AuthUser = {
   phone?: string | null;
   role: string;
   signupProfile?: unknown | null;
+  /** Server-held customer venue preference; source of truth for “current restaurant”. */
+  preferredRestaurantId?: string | null;
 };
 
 export type AuthResponse = { ok: boolean; token?: string; user?: AuthUser; error?: string };
@@ -103,6 +105,33 @@ export async function authSignup(params: {
 
 export async function authMe(token: string): Promise<MeResponse> {
   return apiFetch<MeResponse>("/auth/me", { headers: { Authorization: `Bearer ${token}` } });
+}
+
+export type CustomerRestaurantRow = { id: string; name: string };
+
+export type CustomerDirectoryResponse =
+  | { ok: true; restaurants: CustomerRestaurantRow[] }
+  | { ok: false; error?: string };
+
+export async function fetchCustomerRestaurantDirectory(token: string): Promise<CustomerDirectoryResponse> {
+  return apiFetch<CustomerDirectoryResponse>("/customer/restaurant-directory", {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export type PatchPreferredRestaurantResponse =
+  | { ok: true; preferredRestaurantId: string; restaurantName: string }
+  | { ok: false; error?: string };
+
+export async function patchCustomerPreferredRestaurant(
+  token: string,
+  restaurantId: string
+): Promise<PatchPreferredRestaurantResponse> {
+  return apiFetch<PatchPreferredRestaurantResponse>("/customer/preferred-restaurant", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ restaurantId })
+  });
 }
 
 export async function lookupCompany(orgNumber: string): Promise<CompanyLookupResponse> {

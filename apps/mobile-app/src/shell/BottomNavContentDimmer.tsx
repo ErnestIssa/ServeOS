@@ -4,8 +4,16 @@ import { Animated, StyleSheet } from "react-native";
 import { BOTTOM_NAV_DIMMER_COLORS, BOTTOM_NAV_DIMMER_LOCATIONS } from "./chromeNavDimmerGradient";
 import { FLOATING_TAB_BAR_HEIGHT, FLOAT_MARGIN_BOTTOM } from "./navBottomMetrics";
 
-/** Extra fade above the pill so the transition feels gradual, not a hard line. */
-const VIGNETTE_EXTENSION = 96;
+/** Feather upward into scroll content (extends slightly past the pill; tab bar paints above). */
+const VIGNETTE_EXTENSION = 228;
+
+/** Extra reach below the pill anchor (safe-area / margin). */
+const BELOW_CHROME_PAD = 18;
+
+/**
+ * Same stacking rule as `TopNavContentDimmer`: above `scrollLayer` (1), below `FloatingGlassTabBar` (20).
+ */
+const DIMMER_Z_INDEX = 15;
 
 type Props = {
   scrollY: Animated.Value;
@@ -13,16 +21,16 @@ type Props = {
 };
 
 /**
- * Darkens scroll content that sits behind / meets the floating tab bar — a bottom vignette
- * whose strength increases as the user scrolls (content “settles” into the chrome).
+ * Darkens scroll content behind / meeting the floating tab bar — bottom vignette only;
+ * chrome stays above this layer in `App.tsx`.
  */
 export function BottomNavContentDimmer({ scrollY, bottomInset }: Props) {
   const zoneHeight =
-    FLOATING_TAB_BAR_HEIGHT + FLOAT_MARGIN_BOTTOM + bottomInset + VIGNETTE_EXTENSION;
+    FLOATING_TAB_BAR_HEIGHT + FLOAT_MARGIN_BOTTOM + bottomInset + BELOW_CHROME_PAD + VIGNETTE_EXTENSION;
 
   const overlayOpacity = scrollY.interpolate({
     inputRange: [0, 40, 160, 480],
-    outputRange: [0.56, 0.68, 0.86, 0.97],
+    outputRange: [0.82, 0.9, 0.96, 1],
     extrapolate: "clamp"
   });
 
@@ -50,7 +58,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    zIndex: 12,
+    zIndex: DIMMER_Z_INDEX,
     elevation: 0
   }
 });

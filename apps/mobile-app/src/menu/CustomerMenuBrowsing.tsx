@@ -31,7 +31,8 @@ function MenuCarouselStrip({
   money,
   likedOrder,
   onToggleLike,
-  onAddItem
+  onAddItem,
+  addingItemIds
 }: {
   trackingKey: string;
   headingTitle: string;
@@ -44,6 +45,7 @@ function MenuCarouselStrip({
   likedOrder: string[];
   onToggleLike: (id: string) => void;
   onAddItem: (item: MenuItemFlat) => void;
+  addingItemIds?: Record<string, boolean> | undefined;
 }) {
   const rowsSig = useMemo(() => menuRowsSignature(items), [items]);
   const { delayById, onViewableItemsChanged } = useMenuRevealDelays(rowsSig);
@@ -86,6 +88,7 @@ function MenuCarouselStrip({
               image={menuImageSourceForKey(item.id)}
               liked={likedOrder.includes(item.id)}
               onToggleLike={() => onToggleLike(item.id)}
+              addLoading={!!addingItemIds?.[item.id]}
               onAddPress={() => onAddItem(item)}
             />
           </MenuCardScrollReveal>
@@ -103,7 +106,8 @@ function MenuGridChunk({
   money,
   likedOrder,
   onToggleLike,
-  onAddItem
+  onAddItem,
+  addingItemIds
 }: {
   trackingKey: string;
   items: MenuItemFlat[];
@@ -113,6 +117,7 @@ function MenuGridChunk({
   likedOrder: string[];
   onToggleLike: (id: string) => void;
   onAddItem: (item: MenuItemFlat) => void;
+  addingItemIds?: Record<string, boolean> | undefined;
 }) {
   const rowsSig = useMemo(() => menuRowsSignature(items), [items]);
   const { delayById, onViewableItemsChanged } = useMenuRevealDelays(rowsSig);
@@ -146,6 +151,7 @@ function MenuGridChunk({
             image={menuImageSourceForKey(item.id)}
             liked={likedOrder.includes(item.id)}
             onToggleLike={() => onToggleLike(item.id)}
+            addLoading={!!addingItemIds?.[item.id]}
             onAddPress={() => onAddItem(item)}
           />
         </MenuCardScrollReveal>
@@ -166,6 +172,7 @@ type Props = {
   restaurantId: string;
   filterQuery?: string;
   onAddItem: (item: MenuItemFlat) => void;
+  addingItemIds?: Record<string, boolean> | undefined;
   likedIdsInitial?: string[];
   prefsVersion?: number;
   edgeToEdge?: boolean;
@@ -177,6 +184,7 @@ export function CustomerMenuBrowsing({
   restaurantId,
   filterQuery = "",
   onAddItem,
+  addingItemIds,
   likedIdsInitial,
   prefsVersion = 0,
   edgeToEdge = false
@@ -289,7 +297,8 @@ export function CustomerMenuBrowsing({
     onToggleLike: (id: string) => {
       void handleLike(id);
     },
-    onAddItem
+    onAddItem,
+    addingItemIds
   };
 
   /** Venue has no dishes at all */

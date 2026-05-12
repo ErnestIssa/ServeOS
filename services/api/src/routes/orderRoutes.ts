@@ -198,7 +198,7 @@ export async function registerOrderRoutes(
   const placeOrderSchema = z
     .object({
       restaurantId: z.string(),
-      note: z.string().optional(),
+      note: z.string().max(2000).optional(),
       lines: z.array(orderLineBody).optional(),
       fromCart: z.boolean().optional()
     })

@@ -1,4 +1,3 @@
-import { Audio } from "expo-av";
 import * as Haptics from "expo-haptics";
 import React, { useEffect, useRef } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
@@ -25,25 +24,6 @@ type Props = {
   onOpenCart: () => void;
 };
 
-let lastSoundAt = 0;
-
-async function playCartNoticeThrottled() {
-  const now = Date.now();
-  if (now - lastSoundAt < 260) return;
-  lastSoundAt = now;
-  try {
-    const { sound } = await Audio.Sound.createAsync(require("../appSounds/cartNotice.wav"), {
-      shouldPlay: true,
-      volume: Platform.OS === "ios" ? 0.34 : 0.4
-    });
-    sound.setOnPlaybackStatusUpdate((status) => {
-      if (!status.isLoaded || status.didJustFinish) void sound.unloadAsync().catch(() => {});
-    });
-  } catch {
-    /* optional */
-  }
-}
-
 export function CartFABPopup({ active, bumpKey, totalQuantity, bottomOffset, rightOffset, onOpenCart }: Props) {
   const prog = useSharedValue(0);
   const bump = useSharedValue(1);
@@ -55,10 +35,7 @@ export function CartFABPopup({ active, bumpKey, totalQuantity, bottomOffset, rig
     cancelAnimation(bump);
     if (active && totalQuantity > 0) {
       prog.value = withSpring(1, { damping: 17, stiffness: 260, mass: 0.72 });
-      if (!wasActive.current) {
-        void playCartNoticeThrottled();
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      }
+      if (!wasActive.current) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } else {
       prog.value = withTiming(0, { duration: 240, easing: Easing.out(Easing.cubic) });
     }
@@ -72,7 +49,6 @@ export function CartFABPopup({ active, bumpKey, totalQuantity, bottomOffset, rig
       withSpring(1.1, { damping: 13, stiffness: 400 }),
       withSpring(1, { damping: 16, stiffness: 330 })
     );
-    void playCartNoticeThrottled();
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }, [active, bumpKey, bump, totalQuantity]);
 

@@ -21,12 +21,17 @@ model User {
   role      Role
   /// Wizard / registration snapshot (JSON). Used to restore context on next login; not a substitute for typed domain models.
   signupProfile Json?
+  /// Customer app: authoritative venue preference (mobile + web consumers read via /auth/me).
+  preferredRestaurantId String?
+  preferredRestaurant    Restaurant? @relation("CustomerPreferredRestaurant", fields: [preferredRestaurantId], references: [id], onDelete: SetNull)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   memberships   Membership[]
   customerOrders Order[] @relation("CustomerOrders")
   shoppingCarts ShoppingCart[]
+
+  @@index([preferredRestaurantId])
 }
 
 model Company {
@@ -60,6 +65,7 @@ model Restaurant {
   menuCategories MenuCategory[]
   orders         Order[]
   shoppingCarts  ShoppingCart[]
+  customerPreferringUsers User[] @relation("CustomerPreferredRestaurant")
 
   @@index([companyId])
 }

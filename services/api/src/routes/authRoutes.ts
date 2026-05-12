@@ -7,7 +7,8 @@ const USER_TOKEN_SELECT = {
   id: true,
   email: true,
   phone: true,
-  role: true
+  role: true,
+  preferredRestaurantId: true
 } as const;
 
 const SALT_ROUNDS = 10;

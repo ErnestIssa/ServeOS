@@ -12,6 +12,7 @@ import { registerRestaurantRoutes } from "./routes/restaurantRoutes.js";
 import { registerOrderRoutes } from "./routes/orderRoutes.js";
 import { registerCartRoutes } from "./routes/cartRoutes.js";
 import { registerBusinessRoutes } from "./routes/businessRoutes.js";
+import { registerCustomerRoutes } from "./routes/customerRoutes.js";
 
 const port = Number(process.env.PORT ?? process.env.API_GATEWAY_PORT ?? 3000);
 /** Render / Docker: set `HOST=0.0.0.0` so the service accepts external connections. */
@@ -58,11 +59,12 @@ async function main() {
     ok: true,
     name: "ServeOS API",
     deployment: "unified",
-    endpoints: ["/health", "/auth/*", "/restaurants/*", "/orders/*"]
+    endpoints: ["/health", "/auth/*", "/customer/*", "/restaurants/*", "/orders/*"]
   }));
 
   registerAuthRoutes(app, prisma);
   registerRestaurantRoutes(app, prisma);
+  registerCustomerRoutes(app, prisma);
   await registerOrderRoutes(app, prisma, orderBus);
   registerCartRoutes(app, prisma);
   registerBusinessRoutes(app);

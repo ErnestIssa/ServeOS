@@ -9,6 +9,7 @@ import {
   type ImageSourcePropType
 } from "react-native";
 import { R } from "../theme";
+import { SwapColorSpinner } from "../components/SwapColorLoader";
 
 type Props = {
   title: string;
@@ -21,6 +22,7 @@ type Props = {
   liked?: boolean;
   onToggleLike?: () => void;
   onAddPress: () => void;
+  addLoading?: boolean;
 };
 
 export function MenuItemCard({
@@ -33,7 +35,8 @@ export function MenuItemCard({
   gridCardWidth,
   liked,
   onToggleLike,
-  onAddPress
+  onAddPress,
+  addLoading = false
 }: Props) {
   const carousel = layout === "carousel";
   const desc = description?.trim();
@@ -76,9 +79,10 @@ export function MenuItemCard({
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             android_ripple={{ color: "rgba(99,102,241,0.15)" }}
             style={({ pressed }) => [styles.addBtn, pressed && styles.addPressed]}
+            disabled={addLoading}
             onPress={onAddPress}
           >
-            <Text style={styles.addBtnText}>+</Text>
+            {addLoading ? <SwapColorSpinner size={18} stroke={3} /> : <Text style={styles.addBtnText}>+</Text>}
           </Pressable>
         </View>
       </View>
