@@ -97,10 +97,6 @@ export function CustomerOrdersVenueScreen(props: Props) {
   return (
     <View style={styles.inset}>
       <Text style={styles.pageTitle}>Orders</Text>
-      <Text style={styles.pageSub}>
-        Your account is scoped to one restaurant at a time. Pick a venue below, save, and the app reloads menus and your
-        cart for that place only.
-      </Text>
 
       <View style={[styles.cardShell, styles.heroCard]}>
         <Text style={styles.nowLabel}>Ordering at</Text>
