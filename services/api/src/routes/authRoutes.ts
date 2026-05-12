@@ -2,14 +2,53 @@ import bcrypt from "bcrypt";
 import type { FastifyInstance } from "fastify";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { z } from "zod";
+import { readPreferredRestaurantIdFromProfile } from "../lib/customerPreferredVenue.js";
 
-const USER_TOKEN_SELECT = {
+/** Fields that exist on every deployed DB revision (safe for signup response + fallbacks). */
+const USER_CORE_SELECT = {
   id: true,
   email: true,
   phone: true,
-  role: true,
-  preferredRestaurantId: true
+  role: true
 } as const;
+
+function publicUserFromDbRow(row: {
+  id: string;
+  email: string | null;
+  phone: string | null;
+  role: string;
+  signupProfile?: unknown | null;
+}) {
+  return {
+    id: row.id,
+    email: row.email,
+    phone: row.phone,
+    role: row.role,
+    signupProfile: row.signupProfile ?? null,
+    preferredRestaurantId: readPreferredRestaurantIdFromProfile(row.signupProfile)
+  };
+}
+
+async function findUserForAuthMe(prisma: PrismaClient, sub: string) {
+  try {
+    const row = await prisma.user.findUnique({
+      where: { id: sub },
+      select: { ...USER_CORE_SELECT, signupProfile: true }
+    });
+    if (!row) return null;
+    return publicUserFromDbRow(row);
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2022") {
+      const row = await prisma.user.findUnique({
+        where: { id: sub },
+        select: USER_CORE_SELECT
+      });
+      if (!row) return null;
+      return publicUserFromDbRow({ ...row, signupProfile: null });
+    }
+    throw e;
+  }
+}
 
 const SALT_ROUNDS = 10;
 
@@ -92,9 +131,15 @@ export function registerAuthRoutes(app: FastifyInstance, prisma: PrismaClient) {
       businessProvision = parsed.data;
     }
 
-    let user;
+    let dbUser: {
+      id: string;
+      email: string | null;
+      phone: string | null;
+      role: string;
+      signupProfile?: unknown | null;
+    };
     try {
-      user = await prisma.user.create({
+      dbUser = await prisma.user.create({
         data:
           body.registrationProfile !== undefined
             ? {
@@ -102,7 +147,7 @@ export function registerAuthRoutes(app: FastifyInstance, prisma: PrismaClient) {
                 signupProfile: body.registrationProfile as Prisma.InputJsonValue
               }
             : baseUserData,
-        select: USER_TOKEN_SELECT
+        select: { ...USER_CORE_SELECT, signupProfile: true }
       });
     } catch (e) {
       if (
@@ -110,16 +155,17 @@ export function registerAuthRoutes(app: FastifyInstance, prisma: PrismaClient) {
         e.code === "P2022" &&
         body.registrationProfile !== undefined
       ) {
-        user = await prisma.user.create({
+        dbUser = await prisma.user.create({
           data: baseUserData,
-          select: USER_TOKEN_SELECT
+          select: USER_CORE_SELECT
         });
+        dbUser = { ...dbUser, signupProfile: null };
       } else {
         throw e;
       }
     }
 
-    if (businessProvision && user.role === "OWNER") {
+    if (businessProvision && dbUser.role === "OWNER") {
       const orgKey = normalizeOrgNumber(businessProvision.orgNumber);
       try {
         await prisma.$transaction(async (tx) => {
@@ -144,17 +190,20 @@ export function registerAuthRoutes(app: FastifyInstance, prisma: PrismaClient) {
             select: { id: true }
           });
           await tx.membership.create({
-            data: { userId: user.id, restaurantId: restaurant.id, role: "OWNER" }
+            data: { userId: dbUser.id, restaurantId: restaurant.id, role: "OWNER" }
           });
         });
       } catch (e) {
-        await prisma.user.delete({ where: { id: user.id } }).catch(() => undefined);
+        await prisma.user.delete({ where: { id: dbUser.id } }).catch(() => undefined);
         throw e;
       }
     }
 
-    const token = app.signJwt({ sub: user.id, role: user.role });
-    return { ok: true, user, token };
+    const token = app.signJwt({
+      sub: dbUser.id,
+      role: dbUser.role as "OWNER" | "STAFF" | "CUSTOMER"
+    });
+    return { ok: true, user: publicUserFromDbRow(dbUser), token };
   });
 
   const loginSchema = z.object({
@@ -210,22 +259,7 @@ export function registerAuthRoutes(app: FastifyInstance, prisma: PrismaClient) {
     const token = auth.slice("Bearer ".length);
 
     const payload = app.verifyJwt(token);
-    let user;
-    try {
-      user = await prisma.user.findUnique({
-        where: { id: payload.sub },
-        select: { ...USER_TOKEN_SELECT, signupProfile: true }
-      });
-    } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2022") {
-        user = await prisma.user.findUnique({
-          where: { id: payload.sub },
-          select: USER_TOKEN_SELECT
-        });
-      } else {
-        throw e;
-      }
-    }
+    const user = await findUserForAuthMe(prisma, payload.sub);
     if (!user) return reply.status(404).send({ ok: false, error: "user_not_found" });
     return { ok: true, user };
   });

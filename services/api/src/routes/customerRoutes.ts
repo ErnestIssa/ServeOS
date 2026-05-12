@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@prisma/client";
 import { z } from "zod";
+import { mergePreferredRestaurantIntoProfile } from "../lib/customerPreferredVenue.js";
 
 function bearerToken(headers: { authorization?: string }): string | null {
   const auth = headers.authorization;
@@ -48,9 +49,15 @@ export function registerCustomerRoutes(app: FastifyInstance, prisma: PrismaClien
     });
     if (!r) return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
 
+    const u = await prisma.user.findUnique({
+      where: { id: pl.sub },
+      select: { id: true, signupProfile: true }
+    });
+    if (!u) return reply.status(404).send({ ok: false, error: "user_not_found" });
+
     await prisma.user.update({
       where: { id: pl.sub },
-      data: { preferredRestaurantId: r.id },
+      data: { signupProfile: mergePreferredRestaurantIntoProfile(u.signupProfile, r.id) },
       select: { id: true }
     });
 
