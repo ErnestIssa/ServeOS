@@ -9,6 +9,7 @@ import {
   publishOrderEventToUpstash
 } from "@serveos/core-upstash";
 import { priceMenuItemLineInput, type ModifierSnap } from "../lib/menuItemLinePricing.js";
+import { autoTerminateStaleActiveOrdersForCustomer } from "../lib/autoTerminateStaleActiveOrders.js";
 
 export type { OrderEventPayload };
 
@@ -339,6 +340,10 @@ export async function registerOrderRoutes(
 
   app.get("/orders/mine", async (req) => {
     const user = requireUser(req);
+    const terminatedIds = await autoTerminateStaleActiveOrdersForCustomer(prisma, user.sub, new Date());
+    for (const id of terminatedIds) {
+      await publishOrderEvent(id);
+    }
     const orders = await prisma.order.findMany({
       where: { customerUserId: user.sub },
       orderBy: { createdAt: "desc" },
@@ -353,7 +358,14 @@ export async function registerOrderRoutes(
         status: o.status,
         totalCents: o.totalCents,
         createdAt: o.createdAt,
-        lines: o.lines
+        updatedAt: o.updatedAt,
+        note: o.note ?? null,
+        lines: o.lines.map((l: (typeof o.lines)[number]) => ({
+          menuItemId: l.menuItemId,
+          name: l.nameSnapshot,
+          quantity: l.quantity,
+          lineTotalCents: l.lineTotalCents
+        }))
       }))
     };
   });

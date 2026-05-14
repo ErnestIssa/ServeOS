@@ -107,7 +107,7 @@ export async function authMe(token: string): Promise<MeResponse> {
   return apiFetch<MeResponse>("/auth/me", { headers: { Authorization: `Bearer ${token}` } });
 }
 
-export type CustomerRestaurantRow = { id: string; name: string };
+export type CustomerRestaurantRow = { id: string; name: string; openingHours?: string | null };
 
 export type CustomerDirectoryResponse =
   | { ok: true; restaurants: CustomerRestaurantRow[] }

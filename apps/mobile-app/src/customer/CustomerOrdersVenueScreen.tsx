@@ -1,44 +1,57 @@
+import * as Haptics from "expo-haptics";
 import React from "react";
-import {
-  ActivityIndicator,
-  Keyboard,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View
-} from "react-native";
-import {
-  fetchCustomerRestaurantDirectory,
-  patchCustomerPreferredRestaurant,
-  type CustomerRestaurantRow
-} from "../api";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { fetchCustomerRestaurantDirectory, type CustomerRestaurantRow } from "../api";
 import { R } from "../theme";
+import { FLOATING_TOP_BAR_HEIGHT } from "../shell/FloatingTopBar";
+import { getServeosDemoPublicMenu, SERVEOS_DEMO_RESTAURANT_ID } from "./demoPeakModeMenu";
+import { CustomerOrderTrackingSection, pickActiveOrder, type CustomerMineOrder } from "./CustomerOrderTrackingSection";
+import { CustomerVenueActionsModal } from "./CustomerVenueActionsModal";
+import { isVenueOpenNow, useVenueClockTick } from "./venueOpenNow";
 
 type Props = {
   token: string;
+  userDisplayName: string;
   /** Venue currently driving menus & cart across the app. */
   activeId: string;
   activeName: string;
-  demoMode: boolean;
+  /** When true (demo menu env), venue switching in the modal is disabled — layout stays identical. */
+  venueSwitchLocked: boolean;
   /** Persist new venue everywhere (menus, cart, profile). Caller may bump keys / reload shell. */
   onVenueHydrated: (restaurantId: string) => Promise<void>;
+  /** Customer’s orders from `GET /orders/mine` (same list as app shell). */
+  customerOrders: CustomerMineOrder[];
+  money: (cents: number) => string;
+  onBrowseMenu: () => void;
+  onNeedHelp: () => void;
 };
 
 export function CustomerOrdersVenueScreen(props: Props) {
-  const { token, activeId, activeName, demoMode, onVenueHydrated } = props;
+  const {
+    token,
+    userDisplayName,
+    activeId,
+    activeName,
+    venueSwitchLocked,
+    onVenueHydrated,
+    customerOrders,
+    money,
+    onBrowseMenu,
+    onNeedHelp
+  } = props;
+  const clock = useVenueClockTick(30000);
   const [rows, setRows] = React.useState<CustomerRestaurantRow[] | null>(null);
   const [loadErr, setLoadErr] = React.useState<string | null>(null);
-  const [pendingId, setPendingId] = React.useState<string>(activeId);
-  const [saving, setSaving] = React.useState(false);
-  const [notice, setNotice] = React.useState<string | null>(null);
+  const [venueModalOpen, setVenueModalOpen] = React.useState(false);
+
+  const aid = activeId.trim();
+  const activeOrderForPage = React.useMemo(
+    () => pickActiveOrder(customerOrders, aid),
+    [customerOrders, aid]
+  );
 
   React.useEffect(() => {
-    setPendingId(activeId || "");
-  }, [activeId]);
-
-  React.useEffect(() => {
-    if (demoMode) return;
+    if (!token || !activeOrderForPage) return;
     let cancelled = false;
     setLoadErr(null);
     void (async () => {
@@ -54,173 +67,158 @@ export function CustomerOrdersVenueScreen(props: Props) {
     return () => {
       cancelled = true;
     };
-  }, [token, demoMode]);
+  }, [token, activeOrderForPage]);
 
-  const hasChange = pendingId.trim() !== activeId.trim();
+  const currentRow = React.useMemo(
+    () => (rows && activeId ? rows.find((r) => r.id === activeId.trim()) : undefined),
+    [rows, activeId]
+  );
 
-  async function onSave() {
-    const rid = pendingId.trim();
-    if (!rid || !hasChange || saving || demoMode) return;
-    Keyboard.dismiss();
-    setNotice(null);
-    setSaving(true);
-    const patched = await patchCustomerPreferredRestaurant(token, rid);
-    if (!patched.ok) {
-      setSaving(false);
-      setNotice(patched.error ?? "Could not save venue");
-      return;
-    }
-    try {
-      await onVenueHydrated(patched.preferredRestaurantId);
-      setNotice("Saved. Reloading your session for this venue…");
-    } catch {
-      setNotice("Saved on the server, but refresh failed. Try signing out and back in.");
-    } finally {
-      setSaving(false);
-    }
+  const demoNameFallback =
+    aid === SERVEOS_DEMO_RESTAURANT_ID ? String(getServeosDemoPublicMenu().restaurant.name ?? "Demo venue") : "Your venue";
+  const displayVenueName =
+    (currentRow?.name ?? activeName).trim() || (aid ? demoNameFallback : "No venue yet");
+
+  const hoursSource = currentRow?.openingHours ?? null;
+  const cardBusy = rows === null;
+  const openNow = isVenueOpenNow(hoursSource, clock);
+
+  const modalActive = React.useMemo(
+    () => ({
+      id: aid,
+      name: displayVenueName,
+      openingHours: currentRow?.openingHours ?? null
+    }),
+    [aid, displayVenueName, currentRow?.openingHours]
+  );
+
+  function openVenueModal() {
+    if (!aid && !venueSwitchLocked) return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setVenueModalOpen(true);
   }
 
-  if (demoMode) {
-    return (
-      <View style={styles.inset}>
-        <Text style={styles.pageTitle}>Orders</Text>
-        <Text style={styles.pageSub}>Demo menu mode — venue is fixed for design preview.</Text>
-        <View style={[styles.cardShell, styles.heroCard]}>
-          <Text style={styles.nowLabel}>Current venue</Text>
-          <Text style={styles.venueName}>{activeName || "Demo venue"}</Text>
-          <Text style={styles.mono}>{activeId || "—"}</Text>
-        </View>
-      </View>
-    );
+  const cardDisabled = !aid && !venueSwitchLocked;
+
+  if (!activeOrderForPage) {
+    return null;
   }
 
   return (
     <View style={styles.inset}>
-      <Text style={styles.pageTitle}>Orders</Text>
-
-      <View style={[styles.cardShell, styles.heroCard]}>
-        <Text style={styles.nowLabel}>Ordering at</Text>
-        <Text style={styles.venueName}>{activeName || (activeId ? "Loading name…" : "No venue yet")}</Text>
-        {activeId ? <Text style={styles.mono}>{activeId}</Text> : null}
-        <Text style={styles.hintMuted}>Tap another venue in the list, then save to switch.</Text>
+      <View style={styles.venueBarWrap}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={cardDisabled ? undefined : `${displayVenueName}, venue and hours`}
+          accessibilityHint={cardDisabled ? undefined : "Opens venue options"}
+          android_ripple={cardDisabled ? undefined : { color: "rgba(15, 23, 42, 0.06)" }}
+          onPress={openVenueModal}
+          disabled={cardDisabled}
+          style={({ pressed }) => [
+            styles.venueBar,
+            cardBusy && styles.cardBusy,
+            cardDisabled && styles.cardDisabled,
+            pressed && !cardDisabled && styles.pressed
+          ]}
+        >
+          <View style={styles.venueBarInner}>
+            <Text style={styles.venueBarTitle} numberOfLines={1}>
+              {displayVenueName}
+            </Text>
+            <View style={styles.venueBarRight}>
+              <Text style={[styles.venueBarStatus, openNow ? styles.venueOpen : styles.venueClosed]}>
+                {openNow ? "Open" : "Closed"}
+              </Text>
+              {!cardDisabled ? <Text style={styles.venueBarCue}>›</Text> : null}
+            </View>
+          </View>
+        </Pressable>
       </View>
 
+      {venueSwitchLocked ? (
+        <Text style={styles.pageSub}>Demo menu mode — venue switching is turned off while previewing this build.</Text>
+      ) : null}
+
       {loadErr ? <Text style={styles.warn}>{loadErr}</Text> : null}
-      {rows === null ? (
-        <View style={styles.loader}>
-          <ActivityIndicator color={R.accentPurple} />
-          <Text style={styles.loaderCap}>Loading venues…</Text>
-        </View>
-      ) : rows.length === 0 && !loadErr ? (
-        <Text style={styles.warn}>No restaurants are available yet.</Text>
-      ) : (
-        <View style={styles.list}>
-          {rows!.map((r) => {
-            const selected = pendingId === r.id;
-            return (
-              <Pressable
-                key={r.id}
-                onPress={() => {
-                  setNotice(null);
-                  setPendingId(r.id);
-                }}
-                style={({ pressed }) => [
-                  styles.row,
-                  selected && styles.rowSelected,
-                  pressed && styles.pressed
-                ]}
-              >
-                <View style={styles.radioOuter}>{selected ? <View style={styles.radioInner} /> : null}</View>
-                <View style={styles.rowText}>
-                  <Text style={styles.rowName}>{r.name}</Text>
-                  <Text style={styles.rowId}>{r.id}</Text>
-                </View>
-              </Pressable>
-            );
-          })}
-        </View>
-      )}
 
-      <Pressable
-        style={({ pressed }) => [
-          styles.pillPrimary,
-          (!hasChange || saving || !pendingId.trim()) && styles.pillDisabled,
-          pressed && styles.pressed
-        ]}
-        disabled={!hasChange || saving || !pendingId.trim()}
-        onPress={() => void onSave()}
-      >
-        {saving ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.pillPrimaryText}>Save &amp; apply venue</Text>
-        )}
-      </Pressable>
+      <CustomerOrderTrackingSection
+        orders={customerOrders}
+        activeVenueId={aid}
+        money={money}
+        onBrowseMenu={onBrowseMenu}
+        onNeedHelp={onNeedHelp}
+      />
 
-      {notice ? <Text style={styles.notice}>{notice}</Text> : null}
+      <CustomerVenueActionsModal
+        visible={venueModalOpen}
+        onDismiss={() => setVenueModalOpen(false)}
+        userDisplayName={userDisplayName}
+        active={modalActive}
+        restaurants={rows ?? []}
+        token={token}
+        onVenueHydrated={onVenueHydrated}
+        changeDisabled={venueSwitchLocked}
+      />
     </View>
   );
 }
 
+const VENUE_BAR_RADIUS = 22;
+const VENUE_BAR_MARGIN_H = 10;
+
 const styles = StyleSheet.create({
-  inset: { paddingHorizontal: 4 },
-  pageTitle: { fontSize: 28, fontWeight: "700", color: R.text, letterSpacing: -0.5 },
-  pageSub: { marginTop: 8, fontSize: 15, lineHeight: 22, color: R.textMuted },
-  cardShell: {
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: R.border,
-    backgroundColor: R.bgElevated
+  inset: { paddingHorizontal: 4, alignItems: "stretch" },
+  venueBarWrap: {
+    width: "100%",
+    paddingHorizontal: VENUE_BAR_MARGIN_H,
+    marginTop: 4,
+    alignSelf: "stretch"
   },
-  heroCard: { padding: 18, marginTop: 20 },
-  nowLabel: { fontSize: 12, fontWeight: "600", color: R.textMuted, textTransform: "uppercase", letterSpacing: 0.6 },
-  venueName: { marginTop: 6, fontSize: 22, fontWeight: "700", color: R.text },
-  mono: { marginTop: 6, fontSize: 11, fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }), color: R.textMuted },
-  hintMuted: { marginTop: 12, fontSize: 14, lineHeight: 20, color: R.textMuted },
-  loader: { marginTop: 24, alignItems: "center" },
-  loaderCap: { marginTop: 10, fontSize: 13, color: R.textMuted },
-  list: { marginTop: 16, gap: 8 },
-  row: {
+  venueBar: {
+    minHeight: FLOATING_TOP_BAR_HEIGHT,
+    borderRadius: VENUE_BAR_RADIUS,
+    justifyContent: "center",
+    paddingHorizontal: 14,
+    backgroundColor: "rgba(255, 255, 255, 0.94)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(203, 213, 225, 0.55)"
+  },
+  venueBarInner: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: R.border,
-    backgroundColor: R.bgElevated
+    justifyContent: "space-between",
+    gap: 12
   },
-  rowSelected: { borderColor: R.accentPurple, backgroundColor: "rgba(139, 92, 246, 0.08)" },
+  venueBarTitle: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 19,
+    fontWeight: "900",
+    color: R.text,
+    letterSpacing: -0.35
+  },
+  venueBarRight: { flexDirection: "row", alignItems: "center", flexShrink: 0, gap: 2 },
+  venueBarStatus: { fontSize: 12, fontWeight: "800" },
+  venueOpen: { color: "#047857" },
+  venueClosed: { color: "#B91C1C" },
+  venueBarCue: {
+    fontSize: 22,
+    fontWeight: "300",
+    color: R.textSecondary,
+    marginLeft: 2,
+    marginTop: -1
+  },
+  pageSub: {
+    marginTop: 18,
+    fontSize: 15,
+    lineHeight: 22,
+    color: R.textMuted,
+    alignSelf: "center",
+    textAlign: "center",
+    paddingHorizontal: 8
+  },
+  cardBusy: { opacity: 0.72 },
+  cardDisabled: { opacity: 0.55 },
   pressed: { opacity: 0.92 },
-  radioOuter: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 2,
-    borderColor: R.accentPurple,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12
-  },
-  radioInner: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: R.accentPurple
-  },
-  rowText: { flex: 1, minWidth: 0 },
-  rowName: { fontSize: 16, fontWeight: "600", color: R.text },
-  rowId: { marginTop: 2, fontSize: 11, color: R.textMuted },
-  pillPrimary: {
-    marginTop: 22,
-    backgroundColor: R.accentPurple,
-    borderRadius: 999,
-    paddingVertical: 15,
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  pillDisabled: { opacity: 0.45 },
-  pillPrimaryText: { color: "#fff", fontWeight: "700", fontSize: 16 },
-  warn: { marginTop: 12, fontSize: 14, color: R.danger },
-  notice: { marginTop: 14, fontSize: 14, lineHeight: 20, color: R.textMuted }
+  warn: { marginTop: 12, fontSize: 14, color: R.danger, alignSelf: "center", textAlign: "center", paddingHorizontal: 8 }
 });

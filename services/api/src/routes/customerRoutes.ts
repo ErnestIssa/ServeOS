@@ -19,7 +19,7 @@ export function registerCustomerRoutes(app: FastifyInstance, prisma: PrismaClien
     }
 
     const restaurants = await prisma.restaurant.findMany({
-      select: { id: true, name: true },
+      select: { id: true, name: true, openingHours: true },
       orderBy: { name: "asc" }
     });
     return { ok: true, restaurants };

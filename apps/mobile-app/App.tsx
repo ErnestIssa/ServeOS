@@ -23,6 +23,7 @@ import { Easing, runOnJS, useAnimatedReaction, useSharedValue, withSpring, withT
 import { ScrollMeshBackground } from "./src/ambient/ScrollMeshBackground";
 import { apiFetch, apiHttpToWsBase, authMe, API_URL, type AuthUser } from "./src/api";
 import { CustomerOrdersVenueScreen } from "./src/customer/CustomerOrdersVenueScreen";
+import type { CustomerMineOrder } from "./src/customer/CustomerOrderTrackingSection";
 import { AuthFlowScreen } from "./src/auth/AuthFlowScreen";
 import { deleteCartLine, fetchCustomerCart, patchCartLineQuantity, postCartAddItem, type CartLineApi } from "./src/customer/cartApi";
 import { playCartAddCue } from "./src/customer/cartCueSound";
@@ -426,7 +427,7 @@ export default function App() {
   }
 
   React.useEffect(() => {
-    if (!token || userRole !== "CUSTOMER" || isServeosDemoMenuEnabled()) return;
+    if (!token || !isCustomerSession || isServeosDemoMenuEnabled()) return;
     let cancelled = false;
     void (async () => {
       const serverPref =
@@ -451,15 +452,15 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [token, userRole, sessionUser?.preferredRestaurantId, refreshCustomerCart]);
+  }, [token, isCustomerSession, sessionUser?.preferredRestaurantId, refreshCustomerCart]);
 
   React.useEffect(() => {
-    if (!token || userRole !== "CUSTOMER" || !isServeosDemoMenuEnabled()) return;
+    if (!token || !isCustomerSession || !isServeosDemoMenuEnabled()) return;
     setMenuRid(SERVEOS_DEMO_RESTAURANT_ID);
     setMenuPreview(getServeosDemoPublicMenu());
     setLocalCart([]);
     void refreshCustomerCart(SERVEOS_DEMO_RESTAURANT_ID);
-  }, [token, userRole, refreshCustomerCart]);
+  }, [token, isCustomerSession, refreshCustomerCart]);
 
   async function loadPublicMenu() {
     if (!menuRid.trim()) return setStatus("Enter restaurant ID");
@@ -473,7 +474,7 @@ export default function App() {
     setLocalCart([]);
     setStatus("");
     void refreshCustomerCart(menuRid.trim());
-    if (userRole === "CUSTOMER" && menuRid.trim()) {
+    if (isCustomerSession && menuRid.trim()) {
       const id = menuRid.trim();
       void AsyncStorage.setItem(CUSTOMER_VENUE_KEY, id);
     }
@@ -735,7 +736,7 @@ export default function App() {
   }
 
   async function fetchMyOrders() {
-    if (!token || userRole !== "CUSTOMER") return;
+    if (!token || !isCustomerSession) return;
     const res = await apiFetch<Record<string, unknown> & { ok?: boolean; orders?: unknown[] }>("/orders/mine", {
       headers: { Authorization: `Bearer ${token}` }
     });
@@ -743,8 +744,8 @@ export default function App() {
   }
 
   React.useEffect(() => {
-    if (tab === "orders" && token && userRole === "CUSTOMER") void fetchMyOrders();
-  }, [tab, token, userRole]);
+    if (tab === "orders" && token && isCustomerSession) void fetchMyOrders();
+  }, [tab, token, isCustomerSession]);
 
   React.useEffect(() => {
     const id = trackId.trim();
@@ -777,12 +778,12 @@ export default function App() {
   }, [trackId, API_URL]);
 
   React.useEffect(() => {
-    if (!token || userRole !== "CUSTOMER") return;
+    if (!token || !isCustomerSession) return;
     const url = `${apiHttpToWsBase(API_URL)}/orders/events?${new URLSearchParams({ mine: "1", token }).toString()}`;
     const ws = new WebSocket(url);
     ws.onmessage = () => void fetchMyOrders();
     return () => ws.close();
-  }, [token, userRole, API_URL]);
+  }, [token, isCustomerSession, API_URL]);
 
   function money(cents: number) {
     return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(cents / 100);
@@ -833,10 +834,10 @@ export default function App() {
   }, [menuPreview, customerScrollToMenu]);
 
   const customerHomeHasMenuBody = React.useMemo(() => {
-    if (userRole !== "CUSTOMER") return false;
+    if (!isCustomerSession) return false;
     if (!menuPreview?.ok || !menuPreview.categories?.length) return false;
     return buildFilteredMenuPool(menuPreview.categories as MenuCategoryLite[], "").length > 0;
-  }, [userRole, menuPreview]);
+  }, [isCustomerSession, menuPreview]);
 
   function greeting() {
     const h = new Date().getHours();
@@ -896,8 +897,8 @@ export default function App() {
     "ServeOS";
 
   const navGradient = nativeNavBoldGradient(tab as AmbientNativeTab);
-  /** Home + Orders use full-width menu rails for customers only */
-  const customerScreenEdgeBleed = userRole === "CUSTOMER" && (tab === "home" || tab === "orders");
+  /** Home only: full-width menu rails. Orders keeps normal horizontal padding so layout matches other tabs. */
+  const customerScreenEdgeBleed = isCustomerSession && tab === "home";
 
   const sheetCartPanel =
     token &&
@@ -954,7 +955,7 @@ export default function App() {
       <View style={styles.main}>
         <ScrollMeshBackground tab={tab} scrollY={scrollY} />
         <TopNavContentDimmer scrollY={scrollY} topInset={insets.top} />
-        {userRole === "CUSTOMER" ? (
+        {isCustomerSession ? (
           <FloatingTopBar
             variant="customer"
             topInset={insets.top}
@@ -987,7 +988,7 @@ export default function App() {
         )}
         {tab === "home" && (
           <Animated.ScrollView
-            ref={userRole === "CUSTOMER" ? (customerHomeScrollRef as React.RefObject<any>) : undefined}
+            ref={isCustomerSession ? (customerHomeScrollRef as React.RefObject<any>) : undefined}
             style={styles.scrollLayer}
             onScroll={onScroll}
             scrollEventThrottle={16}
@@ -1000,7 +1001,7 @@ export default function App() {
             ]}
             showsVerticalScrollIndicator={false}
           >
-            {userRole === "CUSTOMER" ? (
+            {isCustomerSession ? (
               <>
                 <View style={styles.customerHomeCopyInset}>
                   <Text style={styles.customerHeroGreeting}>{customerHomeHeader.greeting}</Text>
@@ -1143,9 +1144,10 @@ export default function App() {
             ]}
             showsVerticalScrollIndicator={false}
           >
-            {userRole === "CUSTOMER" ? (
+            {token && isCustomerSession ? (
               <CustomerOrdersVenueScreen
                 token={token}
+                userDisplayName={customerDisplayName(sessionUser?.signupProfile, sessionUser?.email ?? undefined)}
                 activeId={activeRestaurantId()}
                 activeName={
                   menuPreview?.ok &&
@@ -1154,8 +1156,15 @@ export default function App() {
                     ? String(menuPreview.restaurant.name ?? "")
                     : ""
                 }
-                demoMode={isServeosDemoMenuEnabled()}
+                venueSwitchLocked={isServeosDemoMenuEnabled()}
                 onVenueHydrated={applyCustomerVenueChange}
+                customerOrders={myOrders as CustomerMineOrder[]}
+                money={money}
+                onBrowseMenu={() => {
+                  setTab("home");
+                  setTimeout(() => customerScrollToMenu(0), 400);
+                }}
+                onNeedHelp={() => setTab("messages")}
               />
             ) : (
               <>
@@ -1236,7 +1245,7 @@ export default function App() {
                   ) : null}
                 </View>
 
-                {token && userRole === "CUSTOMER" ? (
+                {token && isCustomerSession ? (
                   <View style={[styles.cardShell, styles.surfaceCard, styles.mtSm]}>
                     <Text style={styles.sectionLabelSmall}>Your orders</Text>
                     {myOrders.length === 0 ? (
@@ -1292,10 +1301,10 @@ export default function App() {
           >
             <Text style={styles.pageTitle}>Account</Text>
             <Text style={styles.pageSub}>
-              {userRole === "CUSTOMER" ? "Your go-to venue, session, and preferences." : "Venues, session, and business tools."}
+              {isCustomerSession ? "Your go-to venue, session, and preferences." : "Venues, session, and business tools."}
             </Text>
 
-            {userRole === "CUSTOMER" ? (
+            {isCustomerSession ? (
               <View style={[styles.cardShell, styles.fieldCard]}>
                 <Text style={styles.sectionLabelSmall}>Your restaurant</Text>
                 <Text style={styles.cardBodyMuted}>

@@ -7,6 +7,7 @@ import websocket from "@fastify/websocket";
 import jwt from "jsonwebtoken";
 import { PrismaClient, type Prisma } from "@prisma/client";
 import { z } from "zod";
+import { autoTerminateStaleActiveOrdersForCustomer } from "./lib/autoTerminateStaleActiveOrders.js";
 
 const port = Number(process.env.ORDER_SERVICE_PORT ?? 3003);
 const host = process.env.HOST ?? "127.0.0.1";
@@ -397,6 +398,10 @@ app.get("/orders/restaurant/:restaurantId", async (req) => {
 
 app.get("/orders/mine", async (req) => {
   const user = requireUser(req);
+  const terminatedIds = await autoTerminateStaleActiveOrdersForCustomer(prisma, user.sub, new Date());
+  for (const id of terminatedIds) {
+    await publishOrderEvent(id);
+  }
   const orders = await prisma.order.findMany({
     where: { customerUserId: user.sub },
     orderBy: { createdAt: "desc" },
@@ -411,7 +416,14 @@ app.get("/orders/mine", async (req) => {
       status: o.status,
       totalCents: o.totalCents,
       createdAt: o.createdAt,
-      lines: o.lines
+      updatedAt: o.updatedAt,
+      note: o.note ?? null,
+      lines: o.lines.map((l) => ({
+        menuItemId: l.menuItemId,
+        name: l.nameSnapshot,
+        quantity: l.quantity,
+        lineTotalCents: l.lineTotalCents
+      }))
     }))
   };
 });
