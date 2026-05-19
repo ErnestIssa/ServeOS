@@ -4,6 +4,8 @@ import { isVenueOpenNow } from "./venueOpenNow.js";
 const ACTIVE_TERMINATION_STATUSES = ["PENDING", "CONFIRMED", "PREPARING", "READY"] as const;
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+/** Same as main API — never “closed venue” cancel a brand-new order on first `/orders/mine`. */
+const MIN_AGE_MS_FOR_VENUE_CLOSED_TERMINATION = 30 * 60 * 1000;
 
 export async function autoTerminateStaleActiveOrdersForCustomer(
   prisma: PrismaClient,
@@ -24,7 +26,9 @@ export async function autoTerminateStaleActiveOrdersForCustomer(
 
   const ids = candidates
     .filter((o) => {
-      if (now.getTime() - o.createdAt.getTime() >= MS_PER_DAY) return true;
+      const ageMs = now.getTime() - o.createdAt.getTime();
+      if (ageMs >= MS_PER_DAY) return true;
+      if (ageMs < MIN_AGE_MS_FOR_VENUE_CLOSED_TERMINATION) return false;
       const hours = o.restaurant?.openingHours ?? null;
       if (!isVenueOpenNow(hours, now)) return true;
       return false;

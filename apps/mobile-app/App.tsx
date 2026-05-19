@@ -23,7 +23,7 @@ import { Easing, runOnJS, useAnimatedReaction, useSharedValue, withSpring, withT
 import { ScrollMeshBackground } from "./src/ambient/ScrollMeshBackground";
 import { apiFetch, apiHttpToWsBase, authMe, API_URL, type AuthUser } from "./src/api";
 import { CustomerOrdersVenueScreen } from "./src/customer/CustomerOrdersVenueScreen";
-import type { CustomerMineOrder } from "./src/customer/CustomerOrderTrackingSection";
+import { pickActiveOrder, type CustomerMineOrder } from "./src/customer/CustomerOrderTrackingSection";
 import { AuthFlowScreen } from "./src/auth/AuthFlowScreen";
 import { deleteCartLine, fetchCustomerCart, patchCartLineQuantity, postCartAddItem, type CartLineApi } from "./src/customer/cartApi";
 import { playCartAddCue } from "./src/customer/cartCueSound";
@@ -41,6 +41,7 @@ import {
   SERVEOS_DEMO_RESTAURANT_ID
 } from "./src/customer/demoPeakModeMenu";
 import { CustomerMenuBrowsing, recordOrderedItemsForRestaurant } from "./src/menu/CustomerMenuBrowsing";
+import { bumpBrowseEngagement } from "./src/menu/menuPreferencesStorage";
 import { buildFilteredMenuPool, type MenuCategoryLite } from "./src/menu/menuBrowseUtils";
 import { BottomNavContentDimmer } from "./src/shell/BottomNavContentDimmer";
 import { TopNavContentDimmer } from "./src/shell/TopNavContentDimmer";
@@ -138,6 +139,8 @@ export default function App() {
   const [trackResult, setTrackResult] = React.useState<any>(null);
   const [myOrders, setMyOrders] = React.useState<any[]>([]);
   const [menuPrefsSeq, setMenuPrefsSeq] = React.useState(0);
+  const [ordersEmptySessionVisitCount, setOrdersEmptySessionVisitCount] = React.useState(0);
+  const ordersEmptyVisitLatchRef = React.useRef(false);
 
   const customerHomeScrollRef = React.useRef<ScrollView | null>(null);
   const [customerMenuTopY, setCustomerMenuTopY] = React.useState(320);
@@ -549,13 +552,43 @@ export default function App() {
       );
       setPlacingOrder(false);
       if (!res.ok) return setStatus(res.error ?? "order_failed");
+      const placed = res.order as {
+        id?: string;
+        status?: string;
+        totalCents?: number;
+        lines?: Array<{ name: string; quantity: number; lineTotalCents: number }>;
+      };
+      const venueName =
+        menuPreview?.ok && String(menuPreview.restaurant?.id ?? "").trim() === rid
+          ? String(menuPreview.restaurant?.name ?? "")
+          : "";
+      if (placed?.id) {
+        setMyOrders((prev: any[]) => {
+          if (prev.some((o) => o?.id === placed.id)) return prev;
+          return [
+            {
+              id: placed.id,
+              restaurant: { id: rid, name: venueName || "Restaurant" },
+              status: String(placed.status ?? "PENDING"),
+              totalCents: Number(placed.totalCents ?? 0),
+              lines: (placed.lines ?? []).map((l) => ({
+                name: l.name,
+                quantity: l.quantity,
+                lineTotalCents: l.lineTotalCents
+              }))
+            },
+            ...prev
+          ];
+        });
+      }
       void recordOrderedItemsForRestaurant(rid, lineIdsSnapshot);
       setMenuPrefsSeq((x) => x + 1);
       setStatus("Order placed");
       void refreshCustomerCart(rid);
       setOrderNote("");
+      await fetchMyOrders();
       setTab("orders");
-      setTrackId(res.order?.id ?? "");
+      setTrackId(placed.id ?? "");
       return;
     }
 
@@ -688,6 +721,9 @@ export default function App() {
           return;
         }
         void refreshCustomerCart(rid);
+        void bumpBrowseEngagement(rid).then(() => {
+          setMenuPrefsSeq((s) => s + 1);
+        });
         setStatus("");
         return;
       }
@@ -746,6 +782,22 @@ export default function App() {
   React.useEffect(() => {
     if (tab === "orders" && token && isCustomerSession) void fetchMyOrders();
   }, [tab, token, isCustomerSession]);
+
+  React.useEffect(() => {
+    const emptyCustomerOrders =
+      tab === "orders" &&
+      token &&
+      isCustomerSession &&
+      !pickActiveOrder(myOrders as CustomerMineOrder[], activeRestaurantId().trim());
+    if (emptyCustomerOrders) {
+      if (!ordersEmptyVisitLatchRef.current) {
+        setOrdersEmptySessionVisitCount((n) => n + 1);
+        ordersEmptyVisitLatchRef.current = true;
+      }
+    } else {
+      ordersEmptyVisitLatchRef.current = false;
+    }
+  }, [tab, token, isCustomerSession, myOrders, activeRestaurantId]);
 
   React.useEffect(() => {
     const id = trackId.trim();
@@ -899,6 +951,9 @@ export default function App() {
   const navGradient = nativeNavBoldGradient(tab as AmbientNativeTab);
   /** Home only: full-width menu rails. Orders keeps normal horizontal padding so layout matches other tabs. */
   const customerScreenEdgeBleed = isCustomerSession && tab === "home";
+  /** Empty Orders: pause cart bounce + CTA rotation while customer search sheet is open. */
+  const ordersEmptyMotionPaused =
+    tab === "orders" && isCustomerSession && (navSheetSearchMode || sheetBackdropActive);
 
   const sheetCartPanel =
     token &&
@@ -1037,6 +1092,7 @@ export default function App() {
                       prefsVersion={menuPrefsSeq}
                       edgeToEdge
                       addingItemIds={addingById}
+                      onMenuEngagement={() => setMenuPrefsSeq((s) => s + 1)}
                       onAddItem={(it) => void addMenuLineFromBrowse(it.id)}
                     />
                   </View>
@@ -1130,7 +1186,44 @@ export default function App() {
           </Animated.ScrollView>
         )}
 
-        {tab === "orders" && (
+        {tab === "orders" &&
+          token &&
+          isCustomerSession &&
+          !pickActiveOrder(myOrders as CustomerMineOrder[], activeRestaurantId().trim()) ? (
+          <Animated.View
+            style={[
+              styles.scrollLayer,
+              customerScreenEdgeBleed ? styles.scrollPadHomeBleed : styles.scrollPad,
+              { paddingTop: scrollTopPad, paddingBottom: scrollBottom }
+            ]}
+          >
+            <CustomerOrdersVenueScreen
+              token={token}
+              userDisplayName={customerDisplayName(sessionUser?.signupProfile, sessionUser?.email ?? undefined)}
+              activeId={activeRestaurantId()}
+              activeName={
+                menuPreview?.ok &&
+                menuPreview.restaurant &&
+                String(menuPreview.restaurant.id).trim() === activeRestaurantId().trim()
+                  ? String(menuPreview.restaurant.name ?? "")
+                  : ""
+              }
+              venueSwitchLocked={isServeosDemoMenuEnabled()}
+              onVenueHydrated={applyCustomerVenueChange}
+              customerOrders={myOrders as CustomerMineOrder[]}
+              money={money}
+              onBrowseMenu={() => {
+                setTab("home");
+                setTimeout(() => customerScrollToMenu(0), 400);
+              }}
+              onNeedHelp={() => setTab("messages")}
+              cartItemCount={customerCart.totalQuantity}
+              menuPrefsVersion={menuPrefsSeq}
+              ordersEmptySessionVisits={ordersEmptySessionVisitCount}
+              emptyMotionPaused={ordersEmptyMotionPaused}
+            />
+          </Animated.View>
+        ) : tab === "orders" ? (
           <Animated.ScrollView
             style={styles.scrollLayer}
             onScroll={onScroll}
@@ -1165,6 +1258,10 @@ export default function App() {
                   setTimeout(() => customerScrollToMenu(0), 400);
                 }}
                 onNeedHelp={() => setTab("messages")}
+                cartItemCount={customerCart.totalQuantity}
+                menuPrefsVersion={menuPrefsSeq}
+                ordersEmptySessionVisits={ordersEmptySessionVisitCount}
+                emptyMotionPaused={ordersEmptyMotionPaused}
               />
             ) : (
               <>
@@ -1199,6 +1296,7 @@ export default function App() {
                     filterQuery=""
                     prefsVersion={menuPrefsSeq}
                     addingItemIds={addingById}
+                    onMenuEngagement={() => setMenuPrefsSeq((s) => s + 1)}
                     onAddItem={(it) => void addMenuLineFromBrowse(it.id)}
                   />
                 ) : null}
@@ -1265,7 +1363,7 @@ export default function App() {
               </>
             )}
           </Animated.ScrollView>
-        )}
+        ) : null}
 
         {tab === "messages" && (
           <Animated.ScrollView

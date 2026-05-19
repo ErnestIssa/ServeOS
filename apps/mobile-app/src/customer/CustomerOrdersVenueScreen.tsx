@@ -1,12 +1,16 @@
 import * as Haptics from "expo-haptics";
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { fetchCustomerRestaurantDirectory, type CustomerRestaurantRow } from "../api";
 import { R } from "../theme";
 import { FLOATING_TOP_BAR_HEIGHT } from "../shell/FloatingTopBar";
+import { contentBottomInset } from "../shell/navBottomMetrics";
 import { getServeosDemoPublicMenu, SERVEOS_DEMO_RESTAURANT_ID } from "./demoPeakModeMenu";
 import { CustomerOrderTrackingSection, pickActiveOrder, type CustomerMineOrder } from "./CustomerOrderTrackingSection";
 import { CustomerVenueActionsModal } from "./CustomerVenueActionsModal";
+import { EmptyOrdersCartAnimation } from "./EmptyOrdersCartAnimation";
+import { EmptyOrdersCtaSection } from "./EmptyOrdersCtaSection";
 import { isVenueOpenNow, useVenueClockTick } from "./venueOpenNow";
 
 type Props = {
@@ -24,6 +28,14 @@ type Props = {
   money: (cents: number) => string;
   onBrowseMenu: () => void;
   onNeedHelp: () => void;
+  /** Empty-state CTA: server cart lines (customer session). */
+  cartItemCount?: number;
+  /** Bumps when menu hearts change so empty Orders CTA reloads prefs. */
+  menuPrefsVersion?: number;
+  /** How many times user landed on empty Orders this session (tab entries). */
+  ordersEmptySessionVisits?: number;
+  /** Pauses empty-state cart bounce + rotating CTA (e.g. search sheet open). */
+  emptyMotionPaused?: boolean;
 };
 
 export function CustomerOrdersVenueScreen(props: Props) {
@@ -37,12 +49,19 @@ export function CustomerOrdersVenueScreen(props: Props) {
     customerOrders,
     money,
     onBrowseMenu,
-    onNeedHelp
+    onNeedHelp,
+    cartItemCount = 0,
+    menuPrefsVersion = 0,
+    ordersEmptySessionVisits = 0,
+    emptyMotionPaused = false
   } = props;
   const clock = useVenueClockTick(30000);
+  const { height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [rows, setRows] = React.useState<CustomerRestaurantRow[] | null>(null);
   const [loadErr, setLoadErr] = React.useState<string | null>(null);
   const [venueModalOpen, setVenueModalOpen] = React.useState(false);
+  const [phraseLandTick, setPhraseLandTick] = React.useState(0);
 
   const aid = activeId.trim();
   const activeOrderForPage = React.useMemo(
@@ -100,8 +119,39 @@ export function CustomerOrdersVenueScreen(props: Props) {
 
   const cardDisabled = !aid && !venueSwitchLocked;
 
+  const ordersEmptyMinHeight = React.useMemo(() => {
+    const scrollBottom = contentBottomInset(insets.bottom);
+    const scrollTopPad = R.space.sm + insets.top + FLOATING_TOP_BAR_HEIGHT + 18;
+    return Math.max(320, windowHeight - scrollTopPad - scrollBottom);
+  }, [windowHeight, insets.top, insets.bottom]);
+
   if (!activeOrderForPage) {
-    return null;
+    return (
+      <View
+        style={{
+          minHeight: ordersEmptyMinHeight,
+          width: "100%",
+          justifyContent: "center",
+          alignItems: "stretch"
+        }}
+      >
+        <EmptyOrdersCartAnimation
+          embedded
+          paused={emptyMotionPaused}
+          onLastBounceLand={() => setPhraseLandTick((n) => n + 1)}
+        />
+        <EmptyOrdersCtaSection
+          restaurantId={aid}
+          venueName={displayVenueName}
+          cartItemCount={cartItemCount}
+          menuPrefsVersion={menuPrefsVersion}
+          ordersSessionVisits={ordersEmptySessionVisits}
+          phraseLandTick={phraseLandTick}
+          motionPaused={emptyMotionPaused}
+          onPrimaryCta={onBrowseMenu}
+        />
+      </View>
+    );
   }
 
   return (

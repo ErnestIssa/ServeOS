@@ -2,7 +2,12 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const STORAGE_KEY = "serveos.customer.menu_prefs_v1";
 
-type RestaurantPrefs = { likes: string[]; lastOrdered: string[] };
+export type RestaurantPrefs = {
+  likes: string[];
+  lastOrdered: string[];
+  /** Menu + taps / hearts for this venue (drives empty Orders CTA tone). */
+  browseEngagementScore?: number;
+};
 type Store = Record<string, RestaurantPrefs | undefined>;
 
 function emptyRestaurant(): RestaurantPrefs {
@@ -29,6 +34,19 @@ export async function getRestaurantPrefs(restaurantId: string): Promise<Restaura
   return { ...emptyRestaurant(), ...s[restaurantId] };
 }
 
+/** Counts a meaningful menu interaction (+ tap or new heart) for this venue. */
+export async function bumpBrowseEngagement(restaurantId: string): Promise<void> {
+  const rid = restaurantId.trim();
+  if (!rid) return;
+  const store = await loadAll();
+  const prev = store[rid] ?? emptyRestaurant();
+  store[rid] = {
+    ...prev,
+    browseEngagementScore: (prev.browseEngagementScore ?? 0) + 1
+  };
+  await saveAll(store);
+}
+
 export async function toggleLike(restaurantId: string, menuItemId: string): Promise<boolean> {
   const store = await loadAll();
   const prev = store[restaurantId] ?? emptyRestaurant();
@@ -44,6 +62,7 @@ export async function toggleLike(restaurantId: string, menuItemId: string): Prom
     nowLiked = true;
   }
   store[restaurantId] = {
+    ...prev,
     likes,
     lastOrdered: [...prev.lastOrdered]
   };
@@ -65,6 +84,7 @@ export async function appendLastOrdered(restaurantId: string, menuItemIds: strin
     if (uniq.length >= 32) break;
   }
   store[restaurantId] = {
+    ...prev,
     likes: [...prev.likes],
     lastOrdered: uniq
   };

@@ -4,7 +4,7 @@ import { R } from "../theme";
 import { MenuItemCard } from "./MenuItemCard";
 import { MenuCardScrollReveal } from "./MenuCardScrollReveal";
 import { menuImageSourceForKey } from "./menuCardAssets";
-import { appendLastOrdered, getRestaurantPrefs, toggleLike } from "./menuPreferencesStorage";
+import { appendLastOrdered, bumpBrowseEngagement, getRestaurantPrefs, toggleLike } from "./menuPreferencesStorage";
 import {
   buildFilteredMenuPool,
   clusterCategoriesForBrowse,
@@ -176,6 +176,8 @@ type Props = {
   likedIdsInitial?: string[];
   prefsVersion?: number;
   edgeToEdge?: boolean;
+  /** Fires after local menu engagement storage updates (likes / + taps). */
+  onMenuEngagement?: () => void;
 };
 
 export function CustomerMenuBrowsing({
@@ -187,7 +189,8 @@ export function CustomerMenuBrowsing({
   addingItemIds,
   likedIdsInitial,
   prefsVersion = 0,
-  edgeToEdge = false
+  edgeToEdge = false,
+  onMenuEngagement
 }: Props) {
   const { width: winW } = useWindowDimensions();
   const pad = R.space.sm * 2;
@@ -282,11 +285,23 @@ export function CustomerMenuBrowsing({
   }, [likedOrder, poolFull, filterQuery]);
 
   const handleLike = useCallback(async (itemId: string) => {
-    await toggleLike(restaurantId, itemId);
+    const nowLiked = await toggleLike(restaurantId, itemId);
+    if (nowLiked) {
+      void bumpBrowseEngagement(restaurantId).then(() => {
+        onMenuEngagement?.();
+      });
+    }
     prefsFetchGen.current += 1;
     const p = await getRestaurantPrefs(restaurantId);
     setLikedOrder(p.likes);
-  }, [restaurantId]);
+  }, [restaurantId, onMenuEngagement]);
+
+  const handleAddItem = useCallback(
+    (item: MenuItemFlat) => {
+      onAddItem(item);
+    },
+    [onAddItem]
+  );
 
   const stripProps = {
     carouselCardW,
@@ -297,7 +312,7 @@ export function CustomerMenuBrowsing({
     onToggleLike: (id: string) => {
       void handleLike(id);
     },
-    onAddItem,
+    onAddItem: handleAddItem,
     addingItemIds
   };
 
@@ -380,7 +395,7 @@ export function CustomerMenuBrowsing({
                       money={money}
                     likedOrder={likedOrder}
                     onToggleLike={(id) => void handleLike(id)}
-                      onAddItem={onAddItem}
+                      onAddItem={handleAddItem}
                     />
                   </View>
                 )

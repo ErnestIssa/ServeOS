@@ -240,4 +240,13 @@
 * Backend = modular services — **Prio**
 * Real-time system = core engine — **Prio**
 
+
+
+Then this will be integrated with my own integrations with own bought products:
+
+KDS systems
+Checkouts integration (payment services that customer already has, otherwise use mine if they dont have one yet)
+Quick Checkut Screens
+(meant for small restaurants)
+
 ---
