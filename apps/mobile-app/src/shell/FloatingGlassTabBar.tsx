@@ -62,6 +62,9 @@ type Props = {
   onChange: (t: TabId) => void;
   insets: EdgeInsets;
   sheetHeightSV: SharedValue<number>;
+  /** Arming pair for snap “hit” haptics (first entry into target band). Owned by App, shared with programmatic springs. */
+  snapImpactTargetSV: SharedValue<number>;
+  snapImpactArmedSV: SharedValue<number>;
   sheetContent?: React.ReactNode;
   /** Home: user dragged sheet open from collapsed — enables cart panel for this open cycle. */
   onSheetDragOpenFromCollapsed?: () => void;
@@ -91,6 +94,8 @@ export function FloatingGlassTabBar({
   onChange,
   insets,
   sheetHeightSV,
+  snapImpactTargetSV,
+  snapImpactArmedSV,
   sheetContent,
   onSheetDragOpenFromCollapsed,
   sheetFullOnly
@@ -100,7 +105,9 @@ export function FloatingGlassTabBar({
   const { panVerticalOnSheetBody, panVerticalSeamGrab, panVerticalWithTabsDuplicate, sheetPanDragSessionSV } =
     useNavSheetPanGestures(insets, sheetHeightSV, {
       onUserDragFromCollapsed: onSheetDragOpenFromCollapsed,
-      allowHalfDetent: !sheetFullOnly
+      allowHalfDetent: !sheetFullOnly,
+      snapImpactTargetSV,
+      snapImpactArmedSV
     });
 
   const dockBottom = insets.bottom + FLOAT_MARGIN_BOTTOM;

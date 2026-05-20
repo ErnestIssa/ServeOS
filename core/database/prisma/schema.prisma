@@ -28,6 +28,7 @@ model User {
   memberships   Membership[]
   customerOrders Order[] @relation("CustomerOrders")
   shoppingCarts ShoppingCart[]
+  customerChatRooms ChatRoom[] @relation("CustomerChatRooms")
 }
 
 model Company {
@@ -61,6 +62,7 @@ model Restaurant {
   menuCategories MenuCategory[]
   orders         Order[]
   shoppingCarts  ShoppingCart[]
+  chatRooms      ChatRoom[]
 
   @@index([companyId])
 }
@@ -166,9 +168,56 @@ model Order {
   restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   customer   User?      @relation("CustomerOrders", fields: [customerUserId], references: [id], onDelete: SetNull)
   lines      OrderLineItem[]
+  chatRoom   ChatRoom?
 
   @@index([restaurantId, createdAt])
   @@index([customerUserId])
+}
+
+enum ChatRoomType {
+  ORDER
+  VENUE
+  STAFF
+  SUPPORT
+}
+
+enum ChatMessageType {
+  TEXT
+  SYSTEM
+  ACTION
+}
+
+model ChatRoom {
+  id             String       @id @default(cuid())
+  type           ChatRoomType
+  restaurantId   String
+  orderId        String?      @unique
+  customerUserId String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  restaurant Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  order      Order?        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  customer   User?         @relation("CustomerChatRooms", fields: [customerUserId], references: [id], onDelete: Cascade)
+  messages   ChatMessage[]
+
+  @@unique([type, restaurantId, customerUserId])
+  @@index([restaurantId])
+  @@index([customerUserId])
+}
+
+model ChatMessage {
+  id           String          @id @default(cuid())
+  chatRoomId   String
+  senderUserId String?
+  senderRole   String
+  content      String
+  type         ChatMessageType @default(TEXT)
+  createdAt    DateTime        @default(now())
+
+  chatRoom ChatRoom @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
+
+  @@index([chatRoomId, createdAt])
 }
 
 model OrderLineItem {

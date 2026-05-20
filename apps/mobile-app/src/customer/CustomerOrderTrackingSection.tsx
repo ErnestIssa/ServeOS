@@ -11,18 +11,9 @@ import {
   View,
   useWindowDimensions
 } from "react-native";
-import Animated, {
-  Easing,
-  interpolate,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withSequence,
-  withTiming,
-  type SharedValue
-} from "react-native-reanimated";
 import { R } from "../theme";
 import { menuImageSourceForKey } from "../menu/menuCardAssets";
+import { OrderLiveStatusView } from "./OrderLiveStatusView";
 
 export type CustomerMineOrderLine = {
   menuItemId?: string;
@@ -43,12 +34,6 @@ export type CustomerMineOrder = {
 };
 
 const ACTIVE_STATUSES = new Set(["PENDING", "CONFIRMED", "PREPARING", "READY"]);
-
-const STEPS = [
-  { key: "received", label: "Received", emoji: "✅" },
-  { key: "prep", label: "Preparing", emoji: "👨‍🍳" },
-  { key: "ready", label: "Ready", emoji: "🍽" }
-] as const;
 
 function isActiveStatus(status: string): boolean {
   return ACTIVE_STATUSES.has(status);
@@ -180,70 +165,11 @@ function OrderDetailsSheet(props: {
   );
 }
 
-function StepDot(props: {
-  index: number;
-  milestone: number;
-  emoji: string;
-  label: string;
-  pulse: SharedValue<number>;
-}) {
-  const { index, milestone, emoji, label, pulse } = props;
-  const done = index < milestone;
-  const current = index === milestone;
-
-  const ringStyle = useAnimatedStyle(() => {
-    if (!current) return { transform: [{ scale: 1 }], opacity: 1 };
-    const s = interpolate(pulse.value, [0, 1], [1, 1.08]);
-    return {
-      transform: [{ scale: s }],
-      opacity: 1
-    };
-  }, [current, pulse]);
-
-  return (
-    <View style={styles.stepCol}>
-      <Animated.View
-        style={[
-          styles.stepDot,
-          done && styles.stepDotDone,
-          current && styles.stepDotCurrent,
-          !done && !current && styles.stepDotTodo,
-          ringStyle
-        ]}
-      >
-        <Text style={styles.stepEmoji}>{done ? "✓" : emoji}</Text>
-      </Animated.View>
-      <Text style={[styles.stepLabel, current && styles.stepLabelCurrent]} numberOfLines={2}>
-        {label}
-      </Text>
-    </View>
-  );
-}
-
-function ProgressTrack(props: { milestone: number; pulse: SharedValue<number> }) {
-  const { milestone, pulse } = props;
-
-  return (
-    <View style={styles.progressRow}>
-      <StepDot index={0} milestone={milestone} emoji={STEPS[0].emoji} label={STEPS[0].label} pulse={pulse} />
-      <View style={styles.segPad}>
-        <View style={[styles.segLine, milestone >= 1 ? styles.segLineDone : styles.segLineTodo]} />
-      </View>
-      <StepDot index={1} milestone={milestone} emoji={STEPS[1].emoji} label={STEPS[1].label} pulse={pulse} />
-      <View style={styles.segPad}>
-        <View style={[styles.segLine, milestone >= 2 ? styles.segLineDone : styles.segLineTodo]} />
-      </View>
-      <StepDot index={2} milestone={milestone} emoji={STEPS[2].emoji} label={STEPS[2].label} pulse={pulse} />
-    </View>
-  );
-}
-
 export function CustomerOrderTrackingSection(props: Props) {
   const { orders, activeVenueId, money, onBrowseMenu, onNeedHelp } = props;
   const { width: winW, height: winH } = useWindowDimensions();
   const order = React.useMemo(() => pickActiveOrder(orders, activeVenueId), [orders, activeVenueId]);
   const [detailsOpen, setDetailsOpen] = React.useState(false);
-  const pulse = useSharedValue(0);
 
   const heroStripHeight = React.useMemo(
     () => Math.round(Math.min(Math.max(winH * 0.44, 300), 480, winW * 0.98)),
@@ -251,22 +177,13 @@ export function CustomerOrderTrackingSection(props: Props) {
   );
 
   const milestone = order ? milestoneIndex(order.status) : 0;
-  const trackKey = order ? `${order.id}-${order.status}-${order.updatedAt ?? ""}` : "";
-
-  React.useEffect(() => {
-    pulse.value = withRepeat(
-      withSequence(withTiming(1, { duration: 900, easing: Easing.inOut(Easing.quad) }), withTiming(0, { duration: 900 })),
-      -1,
-      false
-    );
-  }, [pulse, trackKey]);
-
   if (!order) {
     return null;
   }
 
   const bullets = activityLines(order);
   const activeOrder = order;
+  const thumbSize = Math.max(44, Math.round(heroStripHeight / 6));
 
   function contextualPrimary() {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -288,12 +205,28 @@ export function CustomerOrderTrackingSection(props: Props) {
   return (
     <View style={styles.block}>
       <View style={[styles.heroStrip, { height: heroStripHeight }]}>
-        <Image source={heroDishSource(order)} style={styles.heroStripImage} resizeMode="cover" accessibilityIgnoresInvertColors />
+        <OrderLiveStatusView
+          milestone={milestone}
+          status={activeOrder.status}
+          createdAt={activeOrder.createdAt}
+          updatedAt={activeOrder.updatedAt}
+          variant="hero"
+        />
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionLabel}>Status</Text>
-        <ProgressTrack milestone={milestone} pulse={pulse} />
+      <View style={[styles.section, styles.thumbRow]}>
+        <Image
+          source={heroDishSource(order)}
+          style={[styles.thumbImage, { width: thumbSize, height: thumbSize, borderRadius: Math.round(thumbSize / 4) }]}
+          resizeMode="cover"
+          accessibilityIgnoresInvertColors
+        />
+        <View style={styles.thumbMeta}>
+          <Text style={styles.thumbMetaTitle}>Order #{shortOrderLabel(order.id)}</Text>
+          <Text style={styles.thumbMetaSub} numberOfLines={1}>
+            {order.restaurant?.name ?? "Venue"}
+          </Text>
+        </View>
       </View>
 
       <View style={styles.section}>
@@ -327,7 +260,7 @@ export function CustomerOrderTrackingSection(props: Props) {
 }
 
 const styles = StyleSheet.create({
-  block: { marginTop: 6, width: "100%", paddingHorizontal: 10, paddingBottom: 12 },
+  block: { marginTop: 6, width: "100%", paddingHorizontal: 10, paddingBottom: 12, backgroundColor: "transparent" },
   heroStrip: {
     alignSelf: "stretch",
     marginHorizontal: -10,
@@ -335,13 +268,17 @@ const styles = StyleSheet.create({
     marginBottom: 0,
     borderRadius: 14,
     overflow: "hidden",
-    backgroundColor: R.bgSubtle
+    backgroundColor: "transparent"
   },
-  heroStripImage: { width: "100%", height: "100%" },
   section: {
     marginTop: 22,
     paddingHorizontal: 2
   },
+  thumbRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  thumbImage: { backgroundColor: "transparent", borderWidth: 1, borderColor: R.border },
+  thumbMeta: { flex: 1, minHeight: 40, justifyContent: "center" },
+  thumbMetaTitle: { fontSize: 15, fontWeight: "800", color: R.text, letterSpacing: -0.2 },
+  thumbMetaSub: { marginTop: 3, fontSize: 13, fontWeight: "700", color: R.textMuted },
   sectionLabel: {
     fontSize: 11,
     fontWeight: "800",
@@ -350,45 +287,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.7,
     marginBottom: 12
   },
-  progressRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between"
-  },
-  stepCol: { width: 72, alignItems: "center" },
-  stepDot: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2
-  },
-  stepDotDone: {
-    backgroundColor: "rgba(16, 185, 129, 0.14)",
-    borderColor: R.success
-  },
-  stepDotCurrent: {
-    backgroundColor: "rgba(139, 92, 246, 0.12)",
-    borderColor: R.accentPurple
-  },
-  stepDotTodo: {
-    backgroundColor: R.bgSubtle,
-    borderColor: R.border
-  },
-  stepEmoji: { fontSize: 18 },
-  stepLabel: {
-    marginTop: 8,
-    fontSize: 12,
-    fontWeight: "600",
-    color: R.textMuted,
-    textAlign: "center"
-  },
-  stepLabelCurrent: { color: R.text, fontWeight: "700" },
-  segPad: { flex: 1, paddingTop: 20, paddingHorizontal: 4 },
-  segLine: { height: 3, borderRadius: 2 },
-  segLineDone: { backgroundColor: R.success },
-  segLineTodo: { backgroundColor: R.border },
   bulletRow: { flexDirection: "row", alignItems: "flex-start", marginBottom: 10 },
   bulletDot: { width: 18, fontSize: 16, color: R.accentPurple, fontWeight: "800", marginTop: -1 },
   bulletText: { flex: 1, fontSize: 15, lineHeight: 22, color: R.textSecondary, fontWeight: "600" },

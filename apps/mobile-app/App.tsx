@@ -22,6 +22,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { Easing, runOnJS, useAnimatedReaction, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
 import { ScrollMeshBackground } from "./src/ambient/ScrollMeshBackground";
 import { apiFetch, apiHttpToWsBase, authMe, API_URL, type AuthUser } from "./src/api";
+import { CustomerChatScreen } from "./src/customer/CustomerChatScreen";
 import { CustomerOrdersVenueScreen } from "./src/customer/CustomerOrdersVenueScreen";
 import { pickActiveOrder, type CustomerMineOrder } from "./src/customer/CustomerOrderTrackingSection";
 import { AuthFlowScreen } from "./src/auth/AuthFlowScreen";
@@ -141,6 +142,7 @@ export default function App() {
   const [menuPrefsSeq, setMenuPrefsSeq] = React.useState(0);
   const [ordersEmptySessionVisitCount, setOrdersEmptySessionVisitCount] = React.useState(0);
   const ordersEmptyVisitLatchRef = React.useRef(false);
+  const [customerChatRefreshTick, setCustomerChatRefreshTick] = React.useState(0);
 
   const customerHomeScrollRef = React.useRef<ScrollView | null>(null);
   const [customerMenuTopY, setCustomerMenuTopY] = React.useState(320);
@@ -155,6 +157,16 @@ export default function App() {
   );
 
   const sheetHeightSV = useSharedValue(0);
+  const snapImpactTargetSV = useSharedValue(-1);
+  const snapImpactArmedSV = useSharedValue(0);
+
+  const armNavSheetSnapImpact = React.useCallback(
+    (target: number) => {
+      snapImpactTargetSV.value = target;
+      snapImpactArmedSV.value = 1;
+    },
+    [snapImpactArmedSV, snapImpactTargetSV]
+  );
 
   /**
    * Cart UI in the nav sheet is shown only after:
@@ -193,9 +205,10 @@ export default function App() {
     setNavSheetSearchMode(false);
     setHomeNavSheetCartEligible(true);
     const { snapMid } = computeNavSheetSnapDims(Dimensions.get("window").height, insets);
+    armNavSheetSnapImpact(snapMid + 3);
     sheetHeightSV.value = withSpring(snapMid + 3, SHEET_SPRING_CONFIG);
     setCartFabDeferred(true);
-  }, [insets, sheetHeightSV]);
+  }, [insets, sheetHeightSV, armNavSheetSnapImpact]);
 
   const onSheetDragOpenFromCollapsed = React.useCallback(() => {
     if (tabRef.current !== "home") return;
@@ -210,11 +223,12 @@ export default function App() {
     setHomeNavSheetCartEligible(false);
     setNavSheetSearchMode(true);
     const { snapHigh } = computeNavSheetSnapDims(Dimensions.get("window").height, insets);
+    armNavSheetSnapImpact(snapHigh);
     sheetHeightSV.value = withTiming(snapHigh, {
       duration: SEARCH_SHEET_OPEN_MS,
       easing: Easing.inOut(Easing.cubic)
     });
-  }, [insets, sheetHeightSV]);
+  }, [insets, sheetHeightSV, armNavSheetSnapImpact]);
 
   /** Restaurant id for the menu on screen (authoritative for cart + place order). */
   const activeRestaurantId = React.useCallback(() => {
@@ -267,12 +281,14 @@ export default function App() {
     const cur = sheetHeightSV.value;
     /** Cart panel open — allow half-dismiss. Search / discovery uses full-only snapping via `sheetFullOnly`. */
     if (!homeNavSheetCartEligible) {
+      armNavSheetSnapImpact(0);
       sheetHeightSV.value = withTiming(0, { duration: 520, easing: Easing.inOut(Easing.cubic) });
       return;
     }
     const target = cur >= snapHigh * 0.86 ? snapMid : 0;
+    armNavSheetSnapImpact(target);
     sheetHeightSV.value = withSpring(target, { ...SHEET_SPRING_CONFIG, damping: 28, stiffness: 320, mass: 0.7 });
-  }, [insets, sheetHeightSV, homeNavSheetCartEligible]);
+  }, [insets, sheetHeightSV, homeNavSheetCartEligible, armNavSheetSnapImpact]);
 
   const openNutritionAfterFullSheet = React.useCallback(() => {
     const { snapHigh } = computeNavSheetSnapDims(Dimensions.get("window").height, insets);
@@ -283,15 +299,17 @@ export default function App() {
     }
     setNutritionPendingOpen(true);
     nutritionPendingOpenSV.value = 1;
+    armNavSheetSnapImpact(snapHigh);
     sheetHeightSV.value = withSpring(snapHigh, { ...SHEET_SPRING_CONFIG, damping: 26, stiffness: 360, mass: 0.62 });
-  }, [insets, sheetHeightSV, nutritionPendingOpenSV]);
+  }, [insets, sheetHeightSV, nutritionPendingOpenSV, armNavSheetSnapImpact]);
 
   const requestKitchenNoteFocus = React.useCallback(() => {
     const { snapHigh } = computeNavSheetSnapDims(Dimensions.get("window").height, insets);
     const cur = sheetHeightSV.value;
     if (cur >= snapHigh * 0.9) return;
+    armNavSheetSnapImpact(snapHigh);
     sheetHeightSV.value = withSpring(snapHigh, { ...SHEET_SPRING_CONFIG, damping: 26, stiffness: 360, mass: 0.62 });
-  }, [insets, sheetHeightSV]);
+  }, [insets, sheetHeightSV, armNavSheetSnapImpact]);
 
   useAnimatedReaction(
     () => sheetHeightSV.value,
@@ -784,6 +802,13 @@ export default function App() {
   }, [tab, token, isCustomerSession]);
 
   React.useEffect(() => {
+    if (tab === "messages" && token && isCustomerSession) {
+      void fetchMyOrders();
+      setCustomerChatRefreshTick((n) => n + 1);
+    }
+  }, [tab, token, isCustomerSession]);
+
+  React.useEffect(() => {
     const emptyCustomerOrders =
       tab === "orders" &&
       token &&
@@ -833,7 +858,10 @@ export default function App() {
     if (!token || !isCustomerSession) return;
     const url = `${apiHttpToWsBase(API_URL)}/orders/events?${new URLSearchParams({ mine: "1", token }).toString()}`;
     const ws = new WebSocket(url);
-    ws.onmessage = () => void fetchMyOrders();
+    ws.onmessage = () => {
+      void fetchMyOrders();
+      setCustomerChatRefreshTick((n) => n + 1);
+    };
     return () => ws.close();
   }, [token, isCustomerSession, API_URL]);
 
@@ -1365,7 +1393,35 @@ export default function App() {
           </Animated.ScrollView>
         ) : null}
 
-        {tab === "messages" && (
+        {tab === "messages" && token && isCustomerSession ? (
+          <CustomerChatScreen
+            token={token}
+            restaurantId={activeRestaurantId()}
+            money={money}
+            onScroll={onScroll}
+            scrollTopPad={scrollTopPad}
+            scrollBottom={scrollBottom}
+            refreshKey={customerChatRefreshTick}
+            onViewMenu={() => {
+              setTab("home");
+              setTimeout(() => customerScrollToMenu(0), 400);
+            }}
+            onPopularItems={customerPopularPicks}
+            onOpenCart={() => {
+              setTab("home");
+              setTimeout(() => openCartSheetHalf(), 400);
+            }}
+            onPlaceOrder={() => {
+              setTab("home");
+              setTimeout(() => openCartSheetHalf(), 400);
+            }}
+            onChooseVenue={() => setTab("orders")}
+            onReorder={() => {
+              setTab("home");
+              setTimeout(() => customerScrollToMenu(0), 400);
+            }}
+          />
+        ) : tab === "messages" ? (
           <Animated.ScrollView
             style={styles.scrollLayer}
             onScroll={onScroll}
@@ -1375,18 +1431,19 @@ export default function App() {
             showsVerticalScrollIndicator={false}
           >
             <Text style={styles.pageTitle}>Messages</Text>
-            <Text style={styles.pageSub}>Guest and team conversations in one thread — clear, fast, on-brand.</Text>
+            <Text style={styles.pageSub}>Operational threads for your venues — order-linked, not social chat.</Text>
             <View style={[styles.cardShell, styles.surfaceCard]}>
               <View style={styles.premiumBadgeRow}>
-                <Text style={styles.premiumBadge}>Inbox</Text>
+                <Text style={styles.premiumBadge}>Staff & owner</Text>
               </View>
-              <Text style={styles.cardHeadline}>No conversations yet</Text>
+              <Text style={styles.cardHeadline}>Venue operations inbox</Text>
               <Text style={styles.cardBodyMuted}>
-                When guests or staff message your venues, threads will appear here with read state and quick actions.
+                Guest order threads and internal coordination will appear here. Customer assistance lives in the customer Chat
+                tab.
               </Text>
             </View>
           </Animated.ScrollView>
-        )}
+        ) : null}
 
         {tab === "account" && (
           <Animated.ScrollView
@@ -1530,6 +1587,8 @@ export default function App() {
         }}
         insets={insets}
         sheetHeightSV={sheetHeightSV}
+        snapImpactTargetSV={snapImpactTargetSV}
+        snapImpactArmedSV={snapImpactArmedSV}
         sheetContent={sheetCartPanel ?? sheetSearchPanel ?? undefined}
         onSheetDragOpenFromCollapsed={onSheetDragOpenFromCollapsed}
         sheetFullOnly={navSheetSearchMode}
