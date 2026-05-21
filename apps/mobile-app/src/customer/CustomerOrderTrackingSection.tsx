@@ -208,6 +208,7 @@ export function CustomerOrderTrackingSection(props: Props) {
         <OrderLiveStatusView
           milestone={milestone}
           status={activeOrder.status}
+          venueName={activeOrder.restaurant?.name}
           createdAt={activeOrder.createdAt}
           updatedAt={activeOrder.updatedAt}
           variant="hero"
@@ -268,7 +269,8 @@ const styles = StyleSheet.create({
     marginBottom: 0,
     borderRadius: 14,
     overflow: "hidden",
-    backgroundColor: "transparent"
+    backgroundColor: "transparent",
+    justifyContent: "center"
   },
   section: {
     marginTop: 22,

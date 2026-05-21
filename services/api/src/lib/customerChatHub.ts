@@ -250,45 +250,32 @@ export async function syncOrderRoomSystemMessage(
   });
 }
 
-export async function listChatMessages(prisma: PrismaClient, chatRoomId: string) {
-  const rows = await prisma.chatMessage.findMany({
-    where: { chatRoomId },
-    orderBy: { createdAt: "asc" },
-    take: 80
-  });
-  return rows.map((m) => {
-    let content = m.content;
-    if (m.type === "SYSTEM" && content.includes("|")) {
-      const parts = content.split("|");
-      content = parts.slice(1).join("|").trim() || parts[0];
-    }
-    return {
-      id: m.id,
-      chatRoomId: m.chatRoomId,
-      senderUserId: m.senderUserId,
-      senderRole: m.senderRole,
-      content,
-      type: m.type as ChatMessageType,
-      createdAt: m.createdAt.toISOString()
+export type ThreadFeedItem =
+  | { kind: "system"; id: string; content: string; at: string }
+  | {
+      kind: "message";
+      id: string;
+      chatRoomId: string;
+      senderUserId: string | null;
+      senderRole: string;
+      content: string;
+      type: ChatMessageType;
+      createdAt: string;
+      deliveryStatus?: "sent" | "delivered" | "read";
+      isMine?: boolean;
     };
-  });
-}
 
-export async function appendCustomerTextMessage(
-  prisma: PrismaClient,
-  input: { chatRoomId: string; customerUserId: string; content: string }
-) {
-  const trimmed = input.content.trim();
-  if (!trimmed.length) throw Object.assign(new Error("empty_message"), { statusCode: 400 });
-  if (trimmed.length > 2000) throw Object.assign(new Error("message_too_long"), { statusCode: 400 });
-
-  return prisma.chatMessage.create({
-    data: {
-      chatRoomId: input.chatRoomId,
-      senderUserId: input.customerUserId,
-      senderRole: "CUSTOMER",
-      content: trimmed,
-      type: "TEXT"
-    }
-  });
+export function buildThreadFeed(
+  timeline: Array<{ key: string; content: string }>,
+  messages: ThreadFeedItem[],
+  orderUpdatedAt?: string
+): ThreadFeedItem[] {
+  const systemItems: ThreadFeedItem[] = timeline.map((t) => ({
+    kind: "system",
+    id: `sys-${t.key}`,
+    content: t.content,
+    at: orderUpdatedAt ?? new Date().toISOString()
+  }));
+  const msgItems = messages.filter((m): m is Extract<ThreadFeedItem, { kind: "message" }> => m.kind === "message");
+  return [...systemItems, ...msgItems];
 }

@@ -183,4 +183,9 @@ BUT a real-time operations console with a chat layer on top
 
 ## 15. Implementation note (current repo)
 
-Until backend and UI catch up, the mobile **Chat** tab may show placeholder copy. New work on that tab should align with this document: **channel types**, **order binding**, **system messages**, and **operational** layout — not a generic chat clone.
+**Customer mobile (Phase 1)** — implemented against this doc:
+
+- **Backend SOT:** `GET /customer/chat/hub`, `POST /customer/chat/messages`, shared `createChatTextMessage`, scene logic in `customerChatHub.ts`.
+- **Realtime:** Fastify WebSocket `GET /customer/chat/events?token=` (same transport pattern as `/orders/events`, not Socket.IO). Events: `new_message`, `user_typing`, `messages_read`.
+- **UI:** Thread layout with operational header (order # · status · ETA), system lines + WhatsApp-style grouped bubbles, delivery labels (sent / delivered / read), typing dots, quick-action chips, bottom composer.
+- **Still Phase 2:** staff/support channels, in-thread action buttons, web admin 3-pane, push notifications.

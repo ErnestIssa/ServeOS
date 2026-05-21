@@ -1,22 +1,32 @@
+import type { EventEmitter } from "node:events";
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { readPreferredRestaurantIdFromProfile } from "../lib/customerPreferredVenue.js";
 import { autoTerminateStaleActiveOrdersForCustomer } from "../lib/autoTerminateStaleActiveOrders.js";
 import {
-  appendCustomerTextMessage,
+  createChatTextMessage,
+  listRoomMessages,
+  markCustomerRead,
+  serializeMessage
+} from "../lib/chatMessageService.js";
+import { emitChatEvent } from "../lib/chatRealtime.js";
+import {
   buildOrderTimeline,
+  buildThreadFeed,
   ensureCustomerChatRoom,
   estimateOrderMinutesRemaining,
   hubCopyForScene,
-  listChatMessages,
   orderStatusCustomerLabel,
   pickActiveOrderForVenue,
   quickActionsForScene,
   resolveCustomerChatScene,
   syncOrderRoomSystemMessage,
-  type CustomerChatScene
+  type CustomerChatScene,
+  type ThreadFeedItem
 } from "../lib/customerChatHub.js";
+import { isRestaurantStaffOnline } from "../lib/restaurantPresence.js";
+import { buildVenueStatusPayload } from "../lib/venueHoursStatus.js";
 
 function bearerToken(headers: { authorization?: string }): string | null {
   const auth = headers.authorization;
@@ -34,7 +44,7 @@ const postMessageSchema = z.object({
   orderId: z.string().min(1).optional()
 });
 
-export function registerCustomerChatRoutes(app: FastifyInstance, prisma: PrismaClient) {
+export function registerCustomerChatRoutes(app: FastifyInstance, prisma: PrismaClient, chatBus: EventEmitter) {
   app.get("/customer/chat/hub", async (req, reply) => {
     const tok = bearerToken(req.headers as { authorization?: string });
     if (!tok) return reply.status(401).send({ ok: false, error: "missing_token" });
@@ -106,8 +116,10 @@ export function registerCustomerChatRoutes(app: FastifyInstance, prisma: PrismaC
         recentOrders: [],
         timeline: [],
         messages: [],
+        threadFeed: [],
         chatRoomId: null,
-        composerHint: "Choose a venue in Orders to message the restaurant."
+        composerHint: "Choose a venue in Orders to message the restaurant.",
+        venueStatus: buildVenueStatusPayload(null, false)
       };
     }
 
@@ -171,15 +183,19 @@ export function registerCustomerChatRoutes(app: FastifyInstance, prisma: PrismaC
       await syncOrderRoomSystemMessage(prisma, chatRoomId, activeOrder.status, activeOrder.restaurant.name);
     }
 
-    const messages = await listChatMessages(prisma, chatRoomId);
+    await markCustomerRead(prisma, chatRoomId, pl.sub).catch(() => undefined);
+
+    const serialized = await listRoomMessages(prisma, chatRoomId, { userId: pl.sub, role: "CUSTOMER" });
+    const messages: ThreadFeedItem[] = serialized.map((m) => ({ kind: "message" as const, ...m }));
     const timeline =
       scene === "active_order" && activeOrder
-        ? buildOrderTimeline(activeOrder.status, activeOrder.restaurant.name).map((t) => ({
-            key: t.key,
-            content: t.content,
-            kind: "system" as const
-          }))
+        ? buildOrderTimeline(activeOrder.status, activeOrder.restaurant.name)
         : [];
+    const threadFeed = buildThreadFeed(
+      timeline,
+      messages,
+      activeOrder?.updatedAt.toISOString()
+    );
 
     const recentOrders = orderRows
       .filter((o) => o.restaurantId === restaurantId && (o.status === "COMPLETED" || o.status === "CANCELLED"))
@@ -246,9 +262,15 @@ export function registerCustomerChatRoutes(app: FastifyInstance, prisma: PrismaC
       cart: cartPayload,
       activeOrder: activeOrderPayload,
       recentOrders,
-      timeline,
+      timeline: timeline.map((t) => ({ key: t.key, content: t.content, kind: "system" as const })),
       messages,
-      chatRoomId
+      threadFeed,
+      chatRoomId,
+      venueTyping: false,
+      venueStatus: buildVenueStatusPayload(
+        restaurant.openingHours,
+        isRestaurantStaffOnline(restaurant.id)
+      )
     };
   });
 
@@ -327,23 +349,21 @@ export function registerCustomerChatRoutes(app: FastifyInstance, prisma: PrismaC
       orderId: resolvedOrderId
     });
 
-    const row = await appendCustomerTextMessage(prisma, {
+    const row = await createChatTextMessage(prisma, {
       chatRoomId,
-      customerUserId: pl.sub,
+      senderUserId: pl.sub,
+      senderRole: "CUSTOMER",
       content
     });
 
-    return {
-      ok: true,
-      message: {
-        id: row.id,
-        chatRoomId: row.chatRoomId,
-        senderUserId: row.senderUserId,
-        senderRole: row.senderRole,
-        content: row.content,
-        type: row.type,
-        createdAt: row.createdAt.toISOString()
-      }
-    };
+    const room = await prisma.chatRoom.findUnique({ where: { id: chatRoomId } });
+    const message = serializeMessage(row, { userId: pl.sub, role: "CUSTOMER" }, {
+      restaurantLastReadAt: room?.restaurantLastReadAt ?? null,
+      customerLastReadAt: room?.customerLastReadAt ?? null
+    });
+
+    emitChatEvent(chatBus, chatRoomId, pl.sub, { type: "new_message", message });
+
+    return { ok: true, message };
   });
 }

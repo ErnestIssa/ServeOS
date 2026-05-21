@@ -65,6 +65,10 @@ export function formatTodaysClosingHint(openingHours: string | null | undefined,
   return formatMinutes12h(r.close);
 }
 
+export type VenueHoursState = "open" | "closing_soon" | "closed";
+
+const CLOSING_SOON_MINUTES = 60;
+
 /**
  * Whole minutes until closing for the **current** open session, or `null` if closed / unparseable.
  */
@@ -94,17 +98,17 @@ export function minutesUntilClosingIfOpen(openingHours: string | null | undefine
  * Three-line schedules use Mon–Fri / Sat / Sun rows; otherwise match day name or Mon–Fri block for weekdays.
  */
 export function isVenueOpenNow(openingHours: string | null | undefined, now: Date = new Date()): boolean {
-  const lines = formatOpeningHoursLines(openingHours);
-  if (lines.length === 0) return false;
+  return minutesUntilClosingIfOpen(openingHours, now) != null;
+}
 
-  const dayIx = now.getDay();
-  const nowMin = minutesOfDay(now);
-  const line = pickLineForWeekday(lines, dayIx);
-  const r = parseTimeRange(line);
-  if (r) return isWithin(nowMin, r.open, r.close);
-  const r0 = parseTimeRange(lines[0]);
-  if (r0) return isWithin(nowMin, r0.open, r0.close);
-  return false;
+export function computeVenueHoursState(
+  openingHours: string | null | undefined,
+  now: Date = new Date()
+): VenueHoursState {
+  const mins = minutesUntilClosingIfOpen(openingHours, now);
+  if (mins == null) return "closed";
+  if (mins <= CLOSING_SOON_MINUTES) return "closing_soon";
+  return "open";
 }
 
 /** Re-render periodically so Open / Closed updates while the user stays on screen. */

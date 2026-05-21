@@ -5,6 +5,7 @@ import {
   Image,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  PixelRatio,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -28,9 +29,30 @@ import {
   ORDER_STATUS_ICON_ORDER_READY,
   ORDER_STATUS_ICON_ORDER_RECEIVED
 } from "../shell/orderStatusIconAssets";
+import { LiveStatusEnergyLine } from "./LiveStatusEnergyLine";
 import { R } from "../theme";
 
 const LIVE_GREEN = "#22C55E";
+
+/** Fling velocity (px/ms) — lower = easier page change on a short swipe. */
+const SNAP_VELOCITY = 0.18;
+/** Drag past this fraction of a page width → snap to the next step without a hard fling. */
+const SNAP_DRAG_FRAC = 0.07;
+
+function resolvePageIndex(offsetX: number, velocityX: number, pageW: number, count: number): number {
+  const max = Math.max(0, count - 1);
+  const raw = offsetX / pageW;
+  if (velocityX > SNAP_VELOCITY) {
+    return Math.max(0, Math.min(max, Math.ceil(raw - 1e-4)));
+  }
+  if (velocityX < -SNAP_VELOCITY) {
+    return Math.max(0, Math.min(max, Math.floor(raw + 1e-4)));
+  }
+  const base = Math.floor(raw + 1e-4);
+  const frac = raw - base;
+  if (frac > SNAP_DRAG_FRAC) return Math.min(max, base + 1);
+  return Math.max(0, Math.min(max, base));
+}
 
 export type LiveStatusStep = {
   key: string;
@@ -39,16 +61,41 @@ export type LiveStatusStep = {
   icon: ImageSourcePropType;
 };
 
-function pad2(n: number): string {
-  return n < 10 ? `0${n}` : String(n);
+const SEC_PER_DAY = 86400;
+const SEC_PER_HOUR = 3600;
+const SEC_PER_MIN = 60;
+
+/** Largest sensible unit for the remaining window (full words, pluralized). */
+function formatRemainingHuman(totalMs: number): { value: number; unit: string } {
+  const totalSec = Math.max(0, Math.floor(totalMs / 1000));
+  if (totalSec >= SEC_PER_DAY) {
+    const days = Math.floor(totalSec / SEC_PER_DAY);
+    return { value: days, unit: days === 1 ? "day" : "days" };
+  }
+  if (totalSec >= SEC_PER_HOUR) {
+    const hours = Math.floor(totalSec / SEC_PER_HOUR);
+    return { value: hours, unit: hours === 1 ? "hour" : "hours" };
+  }
+  if (totalSec >= SEC_PER_MIN) {
+    const minutes = Math.floor(totalSec / SEC_PER_MIN);
+    return { value: minutes, unit: minutes === 1 ? "minute" : "minutes" };
+  }
+  return { value: totalSec, unit: totalSec === 1 ? "second" : "seconds" };
 }
 
-function formatHms(totalMs: number): string {
-  const s = Math.max(0, Math.floor(totalMs / 1000));
-  const hh = Math.floor(s / 3600);
-  const mm = Math.floor((s % 3600) / 60);
-  const ss = s % 60;
-  return `${pad2(hh)}:${pad2(mm)}:${pad2(ss)}`;
+function RemainingCountdown(props: { remainingMs: number; live: boolean }) {
+  const { value, unit } = formatRemainingHuman(props.remainingMs);
+  return (
+    <View style={styles.remainingRow} accessibilityLabel={`Approximately ${value} ${unit} remaining`}>
+      <Text style={styles.approxIcon} accessibilityElementsHidden>
+        ≈
+      </Text>
+      <View style={styles.remainingPhraseRow}>
+        <Text style={[styles.remainingValue, props.live && styles.remainingValueLive]}>{value}</Text>
+        <Text style={styles.remainingMeta}>{` ${unit} remaining`}</Text>
+      </View>
+    </View>
+  );
 }
 
 function parseMs(iso?: string | null): number | null {
@@ -68,6 +115,67 @@ function useOrderCountdownDeadlineMs(status: string, createdAt?: string | null, 
   }, [status, createdAt, updatedAt]);
 }
 
+/** Budget for each live-status phase (not the whole-order ETA shown above the title). */
+const STEP_PHASE_MS = [10 * 60 * 1000, 30 * 60 * 1000, 25 * 60 * 1000] as const;
+
+function stepBudgetMs(stepIndex: number): number {
+  return STEP_PHASE_MS[Math.max(0, Math.min(2, stepIndex))] ?? STEP_PHASE_MS[2];
+}
+
+function stepPhaseStartMs(milestone: number, status: string, created: number, updated: number): number {
+  if (milestone === 0) return created;
+  if (milestone === 1) return created + stepBudgetMs(0);
+  return status === "READY" ? updated : created + stepBudgetMs(0) + stepBudgetMs(1);
+}
+
+/** Time left in the current swipe card's phase only. */
+export function stepRemainingMsForCard(
+  stepIndex: number,
+  milestone: number,
+  status: string,
+  createdAt: string | null | undefined,
+  updatedAt: string | null | undefined,
+  nowMs: number
+): number {
+  const created = parseMs(createdAt) ?? nowMs;
+  const updated = parseMs(updatedAt) ?? created;
+  const budget = stepBudgetMs(stepIndex);
+  if (stepIndex < milestone) return 0;
+  if (stepIndex > milestone) return budget;
+  const start = stepPhaseStartMs(milestone, status, created, updated);
+  return Math.max(0, budget - (nowMs - start));
+}
+
+export function stepProgressForCard(
+  stepIndex: number,
+  milestone: number,
+  status: string,
+  createdAt: string | null | undefined,
+  updatedAt: string | null | undefined,
+  nowMs: number
+): number {
+  if (stepIndex < milestone) return 1;
+  if (stepIndex > milestone) return 0;
+  const budget = stepBudgetMs(stepIndex);
+  if (budget <= 0) return 0;
+  const rem = stepRemainingMsForCard(stepIndex, milestone, status, createdAt, updatedAt, nowMs);
+  return clamp01(1 - rem / budget);
+}
+
+/** Short label for the energy line: `3 sec`, `17 mins`, `1hr`, `4hrs`. */
+export function formatStepRemainingShort(ms: number): string {
+  const sec = Math.max(0, Math.floor(ms / 1000));
+  if (sec >= 3600) {
+    const h = Math.floor(sec / 3600);
+    return h === 1 ? "1hr" : `${h}hrs`;
+  }
+  if (sec >= 60) {
+    const m = Math.floor(sec / 60);
+    return `${m} mins`;
+  }
+  return sec === 1 ? "1 sec" : `${sec} sec`;
+}
+
 function useTickMs(): number {
   const [now, setNow] = React.useState(() => Date.now());
   React.useEffect(() => {
@@ -79,43 +187,6 @@ function useTickMs(): number {
 
 function clamp01(x: number): number {
   return Math.max(0, Math.min(1, x));
-}
-
-function LiveLineLoader(props: { progress: number; active: boolean }) {
-  const { progress, active } = props;
-  const [barW, setBarW] = React.useState(0);
-  const arrowPulse = useSharedValue(0);
-  React.useEffect(() => {
-    if (!active) {
-      arrowPulse.value = 0;
-      return;
-    }
-    arrowPulse.value = withRepeat(withTiming(1, { duration: 1100, easing: Easing.inOut(Easing.quad) }), -1, true);
-  }, [active, arrowPulse]);
-
-  const arrowStyle = useAnimatedStyle(() => {
-    if (!active) return { opacity: 0.55, transform: [{ translateY: 0 }] };
-    const y = interpolate(arrowPulse.value, [0, 1], [0, -3], Extrapolation.CLAMP);
-    return { opacity: 0.95, transform: [{ translateY: y }] };
-  }, [active]);
-
-  const p = clamp01(progress);
-  const fillW = Math.max(0, Math.min(barW, barW * p));
-  const arrowX = Math.max(0, Math.min(barW, fillW));
-
-  return (
-    <View
-      style={styles.lineLoaderWrap}
-      accessibilityLabel="Live progress"
-      onLayout={(e) => setBarW(e.nativeEvent.layout.width)}
-    >
-      <View style={styles.lineTrack} />
-      <View style={[styles.lineFill, { width: fillW }]} />
-      <Animated.View style={[styles.lineArrow, { left: arrowX }, arrowStyle]}>
-        <Text style={styles.lineArrowGlyph}>→</Text>
-      </Animated.View>
-    </View>
-  );
 }
 
 function BlinkingLiveRing(props: { active: boolean; children: React.ReactNode }) {
@@ -137,16 +208,10 @@ function BlinkingLiveRing(props: { active: boolean; children: React.ReactNode })
 
   const ringStyle = useAnimatedStyle(() => {
     if (!props.active) {
-      return {
-        borderColor: R.border,
-        borderWidth: 2,
-        shadowOpacity: 0
-      };
+      return { shadowOpacity: 0 };
     }
     const glow = interpolate(pulse.value, [0.35, 1], [0.65, 1], Extrapolation.CLAMP);
     return {
-      borderColor: LIVE_GREEN,
-      borderWidth: 3,
       shadowColor: LIVE_GREEN,
       shadowOpacity: 0.2 + 0.45 * glow,
       shadowRadius: 12 + 10 * glow,
@@ -177,39 +242,46 @@ function ClockBlock(props: {
       </View>
     );
   }
-  const remaining = deadlineMs - nowMs;
-  const text = formatHms(remaining);
-  let label = "Est. to ready";
-  if (stepIndex === milestone) {
-    label = status === "READY" && milestone === 2 ? "Pickup window" : "Time remaining";
+  if (stepIndex > milestone) {
+    return (
+      <View style={styles.clockBlock}>
+        <Text style={styles.clockLabel}>Up next</Text>
+        <Text style={styles.clockMuted}>—</Text>
+      </View>
+    );
   }
+
+  const orderRemainingMs = Math.max(0, deadlineMs - nowMs);
+  const orderLabel =
+    status === "READY" && milestone === 2 ? "Est. pickup window (whole order)" : "Est. order ready (whole order)";
 
   return (
     <View style={styles.clockBlock}>
-      <Text style={styles.clockLabel}>{label}</Text>
-      <Text style={[styles.clockDigits, stepIndex === milestone && styles.clockDigitsLive]}>{text}</Text>
+      <Text style={styles.clockLabel}>{orderLabel}</Text>
+      <RemainingCountdown remainingMs={orderRemainingMs} live />
     </View>
   );
 }
 
-function buildSteps(): LiveStatusStep[] {
+function buildSteps(venueName: string): LiveStatusStep[] {
+  const kitchen = venueName.trim() || "Your venue";
   return [
     {
       key: "received",
       title: "Order received",
-      subtitle: "The kitchen has your order in the queue.",
+      subtitle: `${kitchen} has your order in the queue.`,
       icon: ORDER_STATUS_ICON_ORDER_RECEIVED
     },
     {
       key: "prep",
       title: "In preparation",
-      subtitle: "Chefs are preparing your items fresh.",
+      subtitle: `${kitchen} is preparing your items fresh.`,
       icon: ORDER_STATUS_ICON_MEAL_PREPARATION
     },
     {
       key: "ready",
       title: "Ready for pickup",
-      subtitle: "Head to the counter or pickup shelf when you arrive.",
+      subtitle: `${kitchen} has your order ready — head to the pickup area when you arrive.`,
       icon: ORDER_STATUS_ICON_ORDER_READY
     }
   ];
@@ -218,6 +290,8 @@ function buildSteps(): LiveStatusStep[] {
 type Props = {
   milestone: number;
   status: string;
+  /** Restaurant / kitchen name for personalised step copy. */
+  venueName?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
   /** In hero mode, hide header/hint so it fits the image frame. */
@@ -225,67 +299,105 @@ type Props = {
 };
 
 export function OrderLiveStatusView(props: Props) {
-  const { milestone, status, createdAt, updatedAt } = props;
+  const { milestone, status, venueName, createdAt, updatedAt } = props;
   const { width: winW } = useWindowDimensions();
-  const steps = React.useMemo(() => buildSteps(), []);
+  const steps = React.useMemo(() => buildSteps(venueName ?? ""), [venueName]);
   const deadlineMs = useOrderCountdownDeadlineMs(status, createdAt, updatedAt);
   const nowMs = useTickMs();
   const variant = props.variant ?? "section";
 
-  /** Measured viewport width so each page == visible list width (paging lines up with centering). */
-  const [pageW, setPageW] = React.useState(winW);
-  const pagePad = 18;
+  /** Measured FlatList width — each page slot matches this exactly for centering + snap. */
+  const [pageW, setPageW] = React.useState(0);
+  const pagePad = 16;
 
   const listRef = React.useRef<FlatList<LiveStatusStep>>(null);
   const [pageIndex, setPageIndex] = React.useState(milestone);
+  const hapticPageRef = React.useRef(milestone);
+  const isProgrammaticScrollRef = React.useRef(false);
 
-  React.useEffect(() => {
-    setPageIndex(milestone);
-  }, [milestone, status]);
+  const safePageW = Math.max(1, pageW > 0 ? pageW : PixelRatio.roundToNearestPixel(winW));
 
-  const safePageW = Math.max(1, pageW);
+  const fireStepHaptic = React.useCallback(() => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft);
+  }, []);
 
-  React.useEffect(() => {
-    const off = milestone * safePageW;
-    const t = setTimeout(() => {
-      listRef.current?.scrollToOffset({ offset: off, animated: false });
-    }, 60);
-    return () => clearTimeout(t);
-  }, [milestone, safePageW]);
-
-  const onMomentumEnd = React.useCallback(
-    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const x = e.nativeEvent.contentOffset.x;
-      const clamped = Math.max(0, Math.min(steps.length - 1, Math.round(x / safePageW)));
-      setPageIndex((prev) => {
-        if (clamped !== prev) void Haptics.selectionAsync();
-        return clamped;
-      });
+  const scrollToPage = React.useCallback(
+    (index: number, animated: boolean) => {
+      const clamped = Math.max(0, Math.min(steps.length - 1, index));
+      const offset = clamped * safePageW;
+      isProgrammaticScrollRef.current = true;
+      listRef.current?.scrollToOffset({ offset, animated });
+      hapticPageRef.current = clamped;
+      setPageIndex(clamped);
+      if (!animated) isProgrammaticScrollRef.current = false;
     },
     [safePageW, steps.length]
   );
 
   React.useEffect(() => {
-    setPageW(winW);
-  }, [winW]);
+    setPageIndex(milestone);
+    hapticPageRef.current = milestone;
+  }, [milestone, status]);
+
+  const onScrollLive = React.useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (isProgrammaticScrollRef.current) return;
+      const x = e.nativeEvent.contentOffset.x;
+      const idx = resolvePageIndex(x, 0, safePageW, steps.length);
+      if (idx !== hapticPageRef.current) {
+        hapticPageRef.current = idx;
+        fireStepHaptic();
+        setPageIndex(idx);
+      }
+    },
+    [fireStepHaptic, safePageW, steps.length]
+  );
+
+  const finalizeScroll = React.useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (isProgrammaticScrollRef.current) {
+        isProgrammaticScrollRef.current = false;
+        return;
+      }
+      const { contentOffset, velocity } = e.nativeEvent;
+      const nearest = resolvePageIndex(contentOffset.x, velocity?.x ?? 0, safePageW, steps.length);
+      const targetOffset = nearest * safePageW;
+      const drift = Math.abs(contentOffset.x - targetOffset);
+      if (drift > safePageW * 0.02) {
+        scrollToPage(nearest, true);
+      } else {
+        hapticPageRef.current = nearest;
+        setPageIndex(nearest);
+      }
+    },
+    [safePageW, scrollToPage, steps.length]
+  );
 
   const onListLayout = React.useCallback((e: LayoutChangeEvent) => {
-    const w = Math.round(e.nativeEvent.layout.width);
+    const w = PixelRatio.roundToNearestPixel(e.nativeEvent.layout.width);
     if (w <= 0) return;
-    setPageW((prev) => (w === prev ? prev : w));
+    setPageW((prev) => {
+      if (prev === w) return prev;
+      return w;
+    });
   }, []);
+
+  /** Re-align to the live step when status or measured width changes. */
+  React.useEffect(() => {
+    if (safePageW <= 1) return;
+    scrollToPage(milestone, false);
+  }, [milestone, safePageW, pageW, scrollToPage]);
 
   const renderItem = React.useCallback(
     ({ item, index: i }: ListRenderItemInfo<LiveStatusStep>) => {
-      const active = i === milestone;
-      const totalWindowMs = status === "READY" && milestone === 2 ? 25 * 60 * 1000 : 45 * 60 * 1000;
-      const remaining = Math.max(0, deadlineMs - nowMs);
-      const liveProgress = totalWindowMs > 0 ? clamp01(1 - remaining / totalWindowMs) : 0;
-      const progress = i < milestone ? 1 : i > milestone ? 0 : liveProgress;
+      const isCurrentStep = i === milestone;
+      const progress = stepProgressForCard(i, milestone, status, createdAt, updatedAt, nowMs);
+      const stepRemMs = stepRemainingMsForCard(i, milestone, status, createdAt, updatedAt, nowMs);
+      const stepTimeLabel = i < milestone ? null : formatStepRemainingShort(stepRemMs);
       return (
-        <View style={[styles.page, { width: safePageW, paddingHorizontal: pagePad }]}>
-          <View style={styles.pageCard}>
-            <BlinkingLiveRing active={active}>
+        <View style={[styles.page, { width: safePageW }]}>
+          <View style={[styles.pageCard, { paddingHorizontal: pagePad }]}>
+            <BlinkingLiveRing active={isCurrentStep}>
               <ClockBlock
                 stepIndex={i}
                 milestone={milestone}
@@ -296,15 +408,19 @@ export function OrderLiveStatusView(props: Props) {
               <View style={styles.iconBadge}>
                 <Image source={item.icon} style={styles.stepIcon} resizeMode="contain" accessibilityIgnoresInvertColors />
               </View>
-              <Text style={styles.stepTitle}>{item.title}</Text>
+              <Text style={[styles.stepTitle, isCurrentStep && styles.stepTitleLive]}>{item.title}</Text>
               <Text style={styles.stepSubtitle}>{item.subtitle}</Text>
-              <LiveLineLoader progress={progress} active={active} />
+              <LiveStatusEnergyLine
+                progress={progress}
+                active={isCurrentStep}
+                stepTimeLabel={stepTimeLabel}
+              />
             </BlinkingLiveRing>
           </View>
         </View>
       );
     },
-    [deadlineMs, milestone, nowMs, pagePad, safePageW, status]
+    [createdAt, milestone, nowMs, pagePad, safePageW, status, updatedAt]
   );
 
   const keyExtractor = React.useCallback((it: LiveStatusStep) => it.key, []);
@@ -329,13 +445,21 @@ export function OrderLiveStatusView(props: Props) {
         ref={listRef}
         data={steps}
         horizontal
-        pagingEnabled
         style={styles.listTransparent}
         keyExtractor={keyExtractor}
+        extraData={{ safePageW, milestone, nowMs }}
         showsHorizontalScrollIndicator={false}
-        decelerationRate="fast"
+        nestedScrollEnabled
+        directionalLockEnabled
+        decelerationRate="normal"
+        snapToInterval={safePageW}
+        snapToAlignment="start"
+        disableIntervalMomentum={false}
+        scrollEventThrottle={16}
+        onScroll={onScrollLive}
         onLayout={onListLayout}
-        onMomentumScrollEnd={onMomentumEnd}
+        onMomentumScrollEnd={finalizeScroll}
+        onScrollEndDrag={finalizeScroll}
         getItemLayout={(_, i) => ({
           length: safePageW,
           offset: safePageW * i,
@@ -362,9 +486,11 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
     backgroundColor: "transparent",
     alignSelf: "stretch",
-    width: "100%"
+    width: "100%",
+    flex: 1,
+    justifyContent: "center"
   },
-  listTransparent: { backgroundColor: "transparent", alignSelf: "stretch" },
+  listTransparent: { backgroundColor: "transparent", alignSelf: "stretch", width: "100%" },
   headerRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -412,20 +538,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingTop: 4,
-    backgroundColor: "transparent"
+    backgroundColor: "transparent",
+    overflow: "visible"
   },
   pageCard: {
     width: "100%",
-    maxWidth: "100%",
-    alignSelf: "center"
+    alignSelf: "center",
+    alignItems: "center"
   },
   liveCardShell: {
     width: "100%",
+    maxWidth: "100%",
     borderRadius: 20,
     backgroundColor: "transparent",
     paddingVertical: 18,
     paddingHorizontal: 16,
     alignItems: "center",
+    alignSelf: "center",
     overflow: "visible"
   },
   liveCardShellActive: {
@@ -444,15 +573,43 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
     marginBottom: 4
   },
-  clockDigits: {
+  remainingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "center",
+    maxWidth: "100%",
+    paddingHorizontal: 4
+  },
+  remainingPhraseRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    maxWidth: "100%"
+  },
+  approxIcon: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: R.textMuted,
+    marginRight: 6,
+    marginTop: 2
+  },
+  remainingValue: {
     fontSize: 28,
     fontVariant: ["tabular-nums"],
     fontWeight: "900",
-    letterSpacing: 1,
+    letterSpacing: -0.5,
     color: R.textSecondary
   },
-  clockDigitsLive: {
+  remainingValueLive: {
     color: R.text
+  },
+  remainingMeta: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#64748B",
+    letterSpacing: -0.1
   },
   clockMuted: {
     fontSize: 22,
@@ -467,8 +624,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "rgba(148, 163, 184, 0.45)",
     flexShrink: 0
   },
   stepIcon: { width: 64, height: 64, flexShrink: 0 },
@@ -478,6 +633,11 @@ const styles = StyleSheet.create({
     color: R.text,
     textAlign: "center",
     letterSpacing: -0.3
+  },
+  stepTitleLive: {
+    color: R.accentBlue,
+    fontSize: 24,
+    fontWeight: "900"
   },
   stepSubtitle: {
     marginTop: 6,
@@ -489,33 +649,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     marginBottom: 14
   },
-  lineLoaderWrap: {
-    width: "100%",
-    height: 18,
-    justifyContent: "center",
-    position: "relative"
-  },
-  lineTrack: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    height: 6,
-    borderRadius: 999,
-    backgroundColor: R.border
-  },
-  lineFill: {
-    position: "absolute",
-    left: 0,
-    height: 6,
-    borderRadius: 999,
-    backgroundColor: R.accentBlue
-  },
-  lineArrow: {
-    position: "absolute",
-    top: -2,
-    transform: [{ translateX: -8 }]
-  },
-  lineArrowGlyph: { fontSize: 14, fontWeight: "900", color: R.accentBlue },
   dotsRow: {
     flexDirection: "row",
     justifyContent: "center",

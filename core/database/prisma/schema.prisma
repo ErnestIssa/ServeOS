@@ -193,6 +193,11 @@ model ChatRoom {
   restaurantId   String
   orderId        String?      @unique
   customerUserId String?
+  lastMessageAt          DateTime?
+  lastMessagePreview     String?
+  lastMessageSenderRole  String?
+  customerLastReadAt     DateTime?
+  restaurantLastReadAt   DateTime?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
@@ -213,6 +218,7 @@ model ChatMessage {
   senderRole   String
   content      String
   type         ChatMessageType @default(TEXT)
+  deliveredToVenueAt DateTime?
   createdAt    DateTime        @default(now())
 
   chatRoom ChatRoom @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)

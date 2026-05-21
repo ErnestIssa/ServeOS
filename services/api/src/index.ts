@@ -9,11 +9,14 @@ import { PrismaClient } from "@prisma/client";
 import { authPlugin } from "./plugins/auth.js";
 import { registerAuthRoutes } from "./routes/authRoutes.js";
 import { registerRestaurantRoutes } from "./routes/restaurantRoutes.js";
+import { registerRestaurantChatRoutes } from "./routes/restaurantChatRoutes.js";
 import { registerOrderRoutes } from "./routes/orderRoutes.js";
 import { registerCartRoutes } from "./routes/cartRoutes.js";
 import { registerBusinessRoutes } from "./routes/businessRoutes.js";
 import { registerCustomerRoutes } from "./routes/customerRoutes.js";
 import { registerCustomerChatRoutes } from "./routes/customerChatRoutes.js";
+import { registerCustomerChatRealtime } from "./routes/customerChatRealtime.js";
+import { registerRestaurantChatRealtime } from "./routes/restaurantChatRealtime.js";
 
 const port = Number(process.env.PORT ?? process.env.API_GATEWAY_PORT ?? 3000);
 /** Render / Docker: set `HOST=0.0.0.0` so the service accepts external connections. */
@@ -23,6 +26,8 @@ const app = Fastify({ logger: true });
 const prisma = new PrismaClient();
 const orderBus = new EventEmitter();
 orderBus.setMaxListeners(0);
+const chatBus = new EventEmitter();
+chatBus.setMaxListeners(0);
 
 app.setErrorHandler((err: unknown, _req, reply) => {
   const e = err as { name?: string; statusCode?: number; status?: number; message?: string };
@@ -65,9 +70,12 @@ async function main() {
 
   registerAuthRoutes(app, prisma);
   registerRestaurantRoutes(app, prisma);
+  registerRestaurantChatRoutes(app, prisma, chatBus);
   registerCustomerRoutes(app, prisma);
-  registerCustomerChatRoutes(app, prisma);
-  await registerOrderRoutes(app, prisma, orderBus);
+  registerCustomerChatRoutes(app, prisma, chatBus);
+  await registerOrderRoutes(app, prisma, orderBus, chatBus);
+  registerCustomerChatRealtime(app, prisma, chatBus);
+  registerRestaurantChatRealtime(app, prisma, chatBus);
   registerCartRoutes(app, prisma);
   registerBusinessRoutes(app);
 

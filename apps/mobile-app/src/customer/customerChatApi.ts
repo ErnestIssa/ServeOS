@@ -15,12 +15,31 @@ export type CustomerChatQuickActionId =
   | "browse_menu"
   | "contact_support";
 
-export type CustomerChatHubMessage = {
-  id: string;
-  senderRole: string;
-  content: string;
-  type: string;
-  createdAt: string;
+export type ThreadFeedItem =
+  | { kind: "system"; id: string; content: string; at: string }
+  | {
+      kind: "message";
+      id: string;
+      chatRoomId: string;
+      senderUserId: string | null;
+      senderRole: string;
+      content: string;
+      type: string;
+      createdAt: string;
+      deliveryStatus?: "sent" | "delivered" | "read";
+      isMine?: boolean;
+    };
+
+export type CustomerChatHubMessage = Extract<ThreadFeedItem, { kind: "message" }>;
+
+export type VenueHoursState = "open" | "closing_soon" | "closed";
+
+export type CustomerChatVenueStatus = {
+  restaurantOnline: boolean;
+  isOpen: boolean;
+  hoursState: VenueHoursState;
+  minutesUntilClose: number | null;
+  closingSoon: boolean;
 };
 
 export type CustomerChatHubResponse = {
@@ -59,7 +78,10 @@ export type CustomerChatHubResponse = {
   }>;
   timeline?: Array<{ key: string; content: string; kind: string }>;
   messages?: CustomerChatHubMessage[];
+  threadFeed?: ThreadFeedItem[];
   chatRoomId?: string | null;
+  venueTyping?: boolean;
+  venueStatus?: CustomerChatVenueStatus;
 };
 
 export async function fetchCustomerChatHub(token: string, restaurantId?: string): Promise<CustomerChatHubResponse> {

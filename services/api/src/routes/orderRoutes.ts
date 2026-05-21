@@ -10,6 +10,7 @@ import {
 } from "@serveos/core-upstash";
 import { priceMenuItemLineInput, type ModifierSnap } from "../lib/menuItemLinePricing.js";
 import { autoTerminateStaleActiveOrdersForCustomer } from "../lib/autoTerminateStaleActiveOrders.js";
+import { markCustomerMessagesDeliveredForOrder } from "../lib/chatReceipts.js";
 
 export type { OrderEventPayload };
 
@@ -26,7 +27,8 @@ function roomCustomer(id: string) {
 export async function registerOrderRoutes(
   app: FastifyInstance,
   prisma: PrismaClient,
-  orderBus: EventEmitter
+  orderBus: EventEmitter,
+  chatBus: EventEmitter
 ) {
   async function publishOrderEvent(orderId: string) {
     const order = await prisma.order.findUnique({
@@ -417,6 +419,13 @@ export async function registerOrderRoutes(
       data: { status: body.status },
       include: { lines: true }
     });
+    if (
+      existing.status === "PENDING" &&
+      body.status !== "PENDING" &&
+      body.status !== "CANCELLED"
+    ) {
+      await markCustomerMessagesDeliveredForOrder(prisma, chatBus, order.id);
+    }
     await publishOrderEvent(order.id);
     return { ok: true, order };
   });

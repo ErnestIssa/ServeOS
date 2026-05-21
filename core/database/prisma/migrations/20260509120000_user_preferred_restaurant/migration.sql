@@ -1,0 +1,2 @@
+-- Customer preferred venue lives in User.signupProfile (JSON key preferredRestaurantId).
+-- No relational column required; this migration unblocks the migration chain.
