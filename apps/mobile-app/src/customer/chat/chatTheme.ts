@@ -5,8 +5,9 @@ export const CHAT = {
   brand: R.accentPurple,
   brandSoft: "rgba(139, 92, 246, 0.14)",
   mineText: "#FFFFFF",
-  theirsBg: R.bgSubtle,
-  theirsUnreadBg: "rgba(139, 92, 246, 0.1)",
+  theirsBg: "#FFFFFF",
+  theirsUnreadBg: "#FFFFFF",
+  unreadAccent: R.accentPurple,
   systemBg: "rgba(59, 130, 246, 0.08)",
   systemBorder: "rgba(59, 130, 246, 0.18)",
   /** Receipt ticks on purple bubbles (WhatsApp-style). */

@@ -1,5 +1,6 @@
 import React from "react";
-import { Animated, StyleSheet, Text, View } from "react-native";
+import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
+import { R } from "../../theme";
 import type { CustomerChatVenueStatus } from "../customerChatApi";
 import { computeVenueHoursState, isVenueOpenNow, useVenueClockTick } from "../venueOpenNow";
 
@@ -34,9 +35,33 @@ function useLazyPartialBlink(active: boolean): Animated.Value {
 type Props = {
   openingHours: string | null | undefined;
   venueStatus?: CustomerChatVenueStatus | null;
+  onInfoPress?: () => void;
 };
 
-export function ChatVenueStatusRow({ openingHours, venueStatus }: Props) {
+function HoursStatusText({
+  label,
+  color,
+  blink
+}: {
+  label: string;
+  color: string;
+  blink: Animated.Value | null;
+}) {
+  if (blink) {
+    return (
+      <Animated.Text style={[styles.small, { color, opacity: blink }]} numberOfLines={1}>
+        {label}
+      </Animated.Text>
+    );
+  }
+  return (
+    <Text style={[styles.small, { color }]} numberOfLines={1}>
+      {label}
+    </Text>
+  );
+}
+
+export function ChatVenueStatusRow({ openingHours, venueStatus, onInfoPress }: Props) {
   const now = useVenueClockTick(30000);
   const hoursState = computeVenueHoursState(openingHours, now);
   const withinHours = isVenueOpenNow(openingHours, now);
@@ -63,13 +88,24 @@ export function ChatVenueStatusRow({ openingHours, venueStatus }: Props) {
   return (
     <View style={styles.row}>
       <Text style={[styles.small, { color: presenceColor }]}>{presenceLabel}</Text>
-      {hoursBlinkOn ? (
-        <Animated.Text style={[styles.small, styles.right, { color: hoursColor, opacity: hoursBlink }]}>
-          {hoursLabel}
-        </Animated.Text>
-      ) : (
-        <Text style={[styles.small, styles.right, { color: hoursColor }]}>{hoursLabel}</Text>
-      )}
+      <View style={styles.hoursCluster}>
+        <HoursStatusText
+          label={hoursLabel}
+          color={hoursColor}
+          blink={hoursBlinkOn ? hoursBlink : null}
+        />
+        {onInfoPress ? (
+          <Pressable
+            style={({ pressed }) => [styles.infoBtn, pressed && styles.infoBtnPressed]}
+            onPress={onInfoPress}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Restaurant help and menu"
+          >
+            <Text style={styles.infoGlyph}>i</Text>
+          </Pressable>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -82,5 +118,29 @@ const styles = StyleSheet.create({
     marginTop: 2
   },
   small: { fontSize: 11, fontWeight: "700", letterSpacing: 0.2 },
-  right: { textAlign: "right" }
+  hoursCluster: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    maxWidth: "58%"
+  },
+  infoBtn: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: R.accentPurple,
+    borderWidth: 1.5,
+    borderColor: "#5B21B6",
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  infoBtnPressed: { opacity: 0.88 },
+  infoGlyph: {
+    fontSize: 11,
+    fontWeight: "900",
+    color: "#FFFFFF",
+    fontStyle: "italic",
+    lineHeight: 13,
+    marginTop: -1
+  }
 });

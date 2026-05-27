@@ -13,7 +13,10 @@ import {
   UIManager,
   View
 } from "react-native";
-import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import Animated, { Easing, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+
+const MODAL_OPEN_MS = 520;
+const MODAL_CLOSE_MS = 420;
 import { patchCustomerPreferredRestaurant, type CustomerRestaurantRow } from "../api";
 import { R } from "../theme";
 import { VenueChangeRestartConfirmOverlay } from "./VenueChangeRestartConfirmModal";
@@ -42,27 +45,48 @@ type Props = {
 export function CustomerVenueActionsModal(props: Props) {
   const { visible, onDismiss, userDisplayName, active, restaurants, token, onVenueHydrated, changeDisabled } = props;
   const clock = useVenueClockTick(30000);
-  const p = useSharedValue(0);
-  const [changeExpanded, setChangeExpanded] = React.useState(false);
+  const progress = useSharedValue(0);
+  const [mounted, setMounted] = React.useState(visible);
+  const [moreActionsExpanded, setMoreActionsExpanded] = React.useState(false);
+  const [venuesExpanded, setVenuesExpanded] = React.useState(false);
   const [pendingSwitch, setPendingSwitch] = React.useState<{ id: string; name: string } | null>(null);
   const [confirmLoading, setConfirmLoading] = React.useState(false);
 
-  React.useEffect(() => {
-    p.value = withTiming(visible ? 1 : 0, { duration: visible ? 240 : 160, easing: Easing.out(Easing.cubic) });
-  }, [visible, p]);
+  const finishClose = React.useCallback(() => {
+    setMounted(false);
+    setMoreActionsExpanded(false);
+    setVenuesExpanded(false);
+    setPendingSwitch(null);
+    setConfirmLoading(false);
+  }, []);
 
   React.useEffect(() => {
-    if (!visible) {
-      setChangeExpanded(false);
-      setPendingSwitch(null);
-      setConfirmLoading(false);
+    if (visible) {
+      setMounted(true);
+      progress.value = withTiming(1, {
+        duration: MODAL_OPEN_MS,
+        easing: Easing.out(Easing.cubic)
+      });
+      return;
     }
-  }, [visible]);
+    if (!mounted) return;
+    progress.value = withTiming(
+      0,
+      { duration: MODAL_CLOSE_MS, easing: Easing.in(Easing.cubic) },
+      (finished) => {
+        if (finished) runOnJS(finishClose)();
+      }
+    );
+  }, [visible, mounted, progress, finishClose]);
 
-  const backdropStyle = useAnimatedStyle(() => ({ opacity: p.value }));
+  const requestDismiss = React.useCallback(() => {
+    onDismiss();
+  }, [onDismiss]);
+
+  const backdropStyle = useAnimatedStyle(() => ({ opacity: progress.value }));
   const cardStyle = useAnimatedStyle(() => ({
-    opacity: p.value,
-    transform: [{ translateY: (1 - p.value) * 12 }, { scale: 0.98 + p.value * 0.02 }]
+    opacity: progress.value,
+    transform: [{ translateY: (1 - progress.value) * 48 }, { scale: 0.96 + progress.value * 0.04 }]
   }));
 
   const alternatives = React.useMemo(
@@ -102,26 +126,46 @@ export function CustomerVenueActionsModal(props: Props) {
     }
   }
 
-  function toggleChange() {
-    if (changeDisabled) return;
+  function animateSections() {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setChangeExpanded((e) => !e);
+  }
+
+  function toggleMoreActions() {
+    animateSections();
+    setMoreActionsExpanded((e) => !e);
     void Haptics.selectionAsync();
+  }
+
+  function toggleVenuesSection() {
+    if (changeDisabled || alternatives.length === 0) return;
+    animateSections();
+    setVenuesExpanded((e) => !e);
+    void Haptics.selectionAsync();
+  }
+
+  function openVenuesFromChangeCta() {
+    if (changeDisabled || alternatives.length === 0) return;
+    animateSections();
+    setMoreActionsExpanded(false);
+    setVenuesExpanded(true);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }
 
   function handleRequestClose() {
     if (pendingSwitch) cancelRestart();
-    else onDismiss();
+    else requestDismiss();
   }
 
+  if (!mounted) return null;
+
   return (
-    <Modal transparent visible={visible} animationType="none" onRequestClose={handleRequestClose} statusBarTranslucent>
+    <Modal transparent visible animationType="none" onRequestClose={handleRequestClose} statusBarTranslucent>
       <View style={styles.modalRoot}>
         <Animated.View style={[styles.backdrop, backdropStyle]}>
           <BlurView intensity={70} tint="dark" style={StyleSheet.absoluteFill} />
           <Pressable
             style={StyleSheet.absoluteFill}
-            onPress={pendingSwitch ? undefined : onDismiss}
+            onPress={pendingSwitch ? undefined : requestDismiss}
             accessibilityRole="button"
             accessibilityLabel={pendingSwitch ? undefined : "Dismiss"}
           />
@@ -152,26 +196,43 @@ export function CustomerVenueActionsModal(props: Props) {
 
               <View style={styles.divider} />
 
-              <Text style={styles.sectionLabel}>More actions</Text>
-              <GhostActionRow label="Edit venue nickname" hint="Soon" onPress={() => void Haptics.selectionAsync()} />
-              <GhostActionRow label="Mark as favorite" hint="Soon" onPress={() => void Haptics.selectionAsync()} />
-              <GhostActionRow label="Notifications for this venue" hint="Soon" onPress={() => void Haptics.selectionAsync()} />
+              <CollapsibleSection
+                title="More actions"
+                expanded={moreActionsExpanded}
+                onToggle={toggleMoreActions}
+                accessibilityHint="Shows optional venue actions"
+              >
+                <GhostActionRow label="Edit venue nickname" hint="Soon" onPress={() => void Haptics.selectionAsync()} />
+                <GhostActionRow label="Mark as favorite" hint="Soon" onPress={() => void Haptics.selectionAsync()} />
+                <GhostActionRow
+                  label="Notifications for this venue"
+                  hint="Soon"
+                  onPress={() => void Haptics.selectionAsync()}
+                  last
+                />
+              </CollapsibleSection>
 
               <Pressable
-                onPress={toggleChange}
+                onPress={openVenuesFromChangeCta}
                 disabled={changeDisabled || alternatives.length === 0}
                 style={({ pressed }) => [
                   styles.changeCta,
                   (changeDisabled || alternatives.length === 0) && styles.changeCtaDisabled,
-                  pressed && !changeDisabled && styles.pressed
+                  pressed && !changeDisabled && alternatives.length > 0 && styles.pressed
                 ]}
               >
                 <Text style={styles.changeCtaText}>Change restaurant</Text>
               </Pressable>
 
-              {changeExpanded && alternatives.length > 0 ? (
-                <View style={styles.altBlock}>
-                  <Text style={styles.altHead}>Other venues</Text>
+              {alternatives.length > 0 ? (
+                <CollapsibleSection
+                  title="Other venues"
+                  expanded={venuesExpanded}
+                  onToggle={toggleVenuesSection}
+                  disabled={changeDisabled}
+                  accessibilityHint="Shows restaurants you can switch to"
+                  style={styles.venuesSection}
+                >
                   {alternatives.map((r) => {
                     const lines = formatOpeningHoursLines(r.openingHours);
                     const rowOpen = isVenueOpenNow(r.openingHours, clock);
@@ -203,10 +264,10 @@ export function CustomerVenueActionsModal(props: Props) {
                       </Pressable>
                     );
                   })}
-                </View>
+                </CollapsibleSection>
               ) : null}
 
-              <Pressable onPress={onDismiss} style={({ pressed }) => [styles.closeBtn, pressed && styles.pressed]}>
+              <Pressable onPress={requestDismiss} style={({ pressed }) => [styles.closeBtn, pressed && styles.pressed]}>
                 <Text style={styles.closeText}>Close</Text>
               </Pressable>
             </ScrollView>
@@ -228,9 +289,45 @@ export function CustomerVenueActionsModal(props: Props) {
   );
 }
 
-function GhostActionRow(props: { label: string; hint: string; onPress: () => void }) {
+function CollapsibleSection(props: {
+  title: string;
+  expanded: boolean;
+  onToggle: () => void;
+  disabled?: boolean;
+  accessibilityHint?: string;
+  style?: object;
+  children: React.ReactNode;
+}) {
+  const { title, expanded, onToggle, disabled, accessibilityHint, style, children } = props;
   return (
-    <Pressable onPress={props.onPress} style={({ pressed }) => [styles.ghostRow, pressed && styles.pressed]}>
+    <View style={[styles.foldSection, style]}>
+      <Pressable
+        onPress={disabled ? undefined : onToggle}
+        disabled={disabled}
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        accessibilityHint={accessibilityHint}
+        style={({ pressed }) => [
+          styles.foldHeader,
+          expanded && styles.foldHeaderExpanded,
+          disabled && styles.foldHeaderDisabled,
+          pressed && !disabled && styles.pressed
+        ]}
+      >
+        <Text style={styles.foldTitle}>{title}</Text>
+        <Text style={[styles.foldChevron, expanded && styles.foldChevronExpanded]}>{expanded ? "▲" : "▼"}</Text>
+      </Pressable>
+      {expanded ? <View style={styles.foldBody}>{children}</View> : null}
+    </View>
+  );
+}
+
+function GhostActionRow(props: { label: string; hint: string; onPress: () => void; last?: boolean }) {
+  return (
+    <Pressable
+      onPress={props.onPress}
+      style={({ pressed }) => [styles.ghostRow, !props.last && styles.ghostRowGap, pressed && styles.pressed]}
+    >
       <View style={styles.ghostRowInner}>
         <Text style={styles.ghostLabel}>{props.label}</Text>
         <Text style={styles.ghostHint}>{props.hint}</Text>
@@ -296,27 +393,74 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     backgroundColor: R.border
   },
-  sectionLabel: {
-    marginTop: 16,
-    marginBottom: 8,
+  foldSection: {
+    marginTop: 16
+  },
+  venuesSection: {
+    marginTop: 10
+  },
+  foldHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: R.border,
+    backgroundColor: "rgba(249,250,251,0.95)"
+  },
+  foldHeaderExpanded: {
+    borderBottomLeftRadius: 8,
+    borderBottomRightRadius: 8,
+    borderBottomWidth: 0,
+    backgroundColor: "rgba(243,244,246,0.98)"
+  },
+  foldHeaderDisabled: {
+    opacity: 0.45
+  },
+  foldTitle: {
     fontSize: 11,
     fontWeight: "800",
     color: R.textMuted,
     textTransform: "uppercase",
     letterSpacing: 0.6
   },
+  foldChevron: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: R.textMuted,
+    marginLeft: 10
+  },
+  foldChevronExpanded: {
+    color: R.accentPurple
+  },
+  foldBody: {
+    marginTop: 0,
+    paddingTop: 8,
+    paddingHorizontal: 2,
+    paddingBottom: 4,
+    borderWidth: 1,
+    borderTopWidth: 0,
+    borderColor: R.border,
+    borderBottomLeftRadius: 14,
+    borderBottomRightRadius: 14,
+    backgroundColor: "rgba(249,250,251,0.72)"
+  },
   ghostRow: {
     borderRadius: 14,
-    backgroundColor: "rgba(249,250,251,0.95)",
+    backgroundColor: "rgba(255,255,255,0.9)",
     borderWidth: 1,
-    borderColor: R.border,
+    borderColor: R.border
+  },
+  ghostRowGap: {
     marginBottom: 8
   },
   ghostRowInner: { paddingVertical: 12, paddingHorizontal: 14 },
   ghostLabel: { fontSize: 15, fontWeight: "700", color: R.text },
   ghostHint: { marginTop: 2, fontSize: 12, fontWeight: "600", color: R.textMuted },
   changeCta: {
-    marginTop: 6,
+    marginTop: 10,
     borderRadius: 16,
     paddingVertical: 16,
     alignItems: "center",
@@ -325,15 +469,6 @@ const styles = StyleSheet.create({
   },
   changeCtaDisabled: { opacity: 0.38 },
   changeCtaText: { color: "#fff", fontSize: 16, fontWeight: "900" },
-  altBlock: { marginTop: 12 },
-  altHead: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: R.textMuted,
-    marginBottom: 8,
-    textTransform: "uppercase",
-    letterSpacing: 0.5
-  },
   altRow: {
     flexDirection: "row",
     alignItems: "center",

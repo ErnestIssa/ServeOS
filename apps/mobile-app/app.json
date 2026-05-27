@@ -23,6 +23,22 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#7C3AED"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow ServeOS to attach photos in chat with the restaurant.",
+          "cameraPermission": "Allow ServeOS to take photos to send in chat."
+        }
+      ]
+    ],
     "web": {
       "favicon": "./assets/favicon.png"
     }

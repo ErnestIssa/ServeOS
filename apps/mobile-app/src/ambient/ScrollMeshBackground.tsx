@@ -2,6 +2,7 @@ import { ambientNativePalettes, type AmbientNativeTab } from "@serveos/core-ambi
 import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
 import { Animated, StyleSheet, View } from "react-native";
+import { useAppTheme } from "../theme/AppThemeContext";
 
 type Props = {
   tab: AmbientNativeTab;
@@ -13,13 +14,18 @@ type Props = {
  * surface uniformly — no patchy blobs or mixed light/dark spots.
  */
 export function ScrollMeshBackground({ tab, scrollY }: Props) {
-  const { top, bottom } = ambientNativePalettes[tab];
+  const { isDark, colors: theme } = useAppTheme();
+  const ambient = ambientNativePalettes[tab];
+  const top = isDark ? theme.meshTop : ambient.top;
+  const bottom = isDark ? theme.meshBottom : ambient.bottom;
 
   const scrollDepth = scrollY.interpolate({
     inputRange: [0, 480],
-    outputRange: [0, 0.22],
+    outputRange: [0, isDark ? 0.12 : 0.22],
     extrapolate: "clamp"
   });
+
+  const overlayColor = isDark ? "#020617" : "#0f172a";
 
   return (
     <View style={[StyleSheet.absoluteFill, { zIndex: 0 }]} pointerEvents="none">
@@ -36,7 +42,7 @@ export function ScrollMeshBackground({ tab, scrollY }: Props) {
         style={[
           StyleSheet.absoluteFill,
           {
-            backgroundColor: "#0f172a",
+            backgroundColor: overlayColor,
             opacity: scrollDepth
           }
         ]}

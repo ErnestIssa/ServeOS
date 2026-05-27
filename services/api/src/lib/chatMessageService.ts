@@ -16,6 +16,10 @@ export type SerializedChatMessage = {
 };
 
 function displayContent(raw: string, type: ChatMessageType): string {
+  const marker = raw.split("|")[0] ?? "";
+  if (raw.includes("|") && /^status:[A-Z_]+$/.test(marker)) {
+    return raw.split("|").slice(1).join("|").trim() || raw;
+  }
   if (type === "SYSTEM" && raw.includes("|")) {
     const parts = raw.split("|");
     return parts.slice(1).join("|").trim() || parts[0];
@@ -52,7 +56,7 @@ export function serializeMessage(
     createdAt: row.createdAt.toISOString()
   };
 
-  if (isMine && row.type === "TEXT" && viewer.role === "CUSTOMER") {
+  if (isMine && (row.type === "TEXT" || row.type === "IMAGE") && viewer.role === "CUSTOMER") {
     out.isMine = true;
     out.deliveryStatus = computeOutgoingDeliveryStatus({
       messageCreatedAt: row.createdAt,
@@ -100,6 +104,47 @@ export async function createChatTextMessage(
   return row;
 }
 
+export async function createChatImageMessages(
+  prisma: PrismaClient,
+  input: {
+    chatRoomId: string;
+    senderUserId: string;
+    senderRole: string;
+    dataUris: string[];
+  }
+) {
+  if (!input.dataUris.length) throw Object.assign(new Error("no_images"), { statusCode: 400 });
+
+  const now = new Date();
+  const preview = input.dataUris.length > 1 ? `📷 ${input.dataUris.length} photos` : "📷 Photo";
+
+  return prisma.$transaction(async (tx) => {
+    const rows = [];
+    for (const content of input.dataUris) {
+      const msg = await tx.chatMessage.create({
+        data: {
+          chatRoomId: input.chatRoomId,
+          senderUserId: input.senderUserId,
+          senderRole: input.senderRole,
+          content,
+          type: "IMAGE"
+        }
+      });
+      rows.push(msg);
+    }
+    await tx.chatRoom.update({
+      where: { id: input.chatRoomId },
+      data: {
+        lastMessageAt: now,
+        lastMessagePreview: preview,
+        lastMessageSenderRole: input.senderRole,
+        updatedAt: now
+      }
+    });
+    return rows;
+  });
+}
+
 async function assertCustomerRoomAccess(
   prisma: PrismaClient,
   chatRoomId: string,
@@ -139,7 +184,7 @@ export async function listRoomMessages(
   if (!room) return [];
 
   const rows = await prisma.chatMessage.findMany({
-    where: { chatRoomId },
+    where: { chatRoomId, NOT: { type: "SYSTEM" } },
     orderBy: { createdAt: "asc" },
     take: 100
   });

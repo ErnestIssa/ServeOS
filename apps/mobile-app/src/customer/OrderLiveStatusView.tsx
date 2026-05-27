@@ -104,34 +104,23 @@ function parseMs(iso?: string | null): number | null {
   return Number.isFinite(t) ? t : null;
 }
 
-function useOrderCountdownDeadlineMs(status: string, createdAt?: string | null, updatedAt?: string | null): number {
-  return React.useMemo(() => {
-    const created = parseMs(createdAt) ?? Date.now();
-    const updated = parseMs(updatedAt) ?? created;
-    if (status === "READY") {
-      return updated + 25 * 60 * 1000;
-    }
-    return created + 45 * 60 * 1000;
-  }, [status, createdAt, updatedAt]);
-}
-
-/** Budget for each live-status phase (not the whole-order ETA shown above the title). */
+/** Budget for each live-status phase (matches the countdown above the step title). */
 const STEP_PHASE_MS = [10 * 60 * 1000, 30 * 60 * 1000, 25 * 60 * 1000] as const;
 
 function stepBudgetMs(stepIndex: number): number {
   return STEP_PHASE_MS[Math.max(0, Math.min(2, stepIndex))] ?? STEP_PHASE_MS[2];
 }
 
-function stepPhaseStartMs(milestone: number, status: string, created: number, updated: number): number {
-  if (milestone === 0) return created;
-  if (milestone === 1) return created + stepBudgetMs(0);
+function stepPhaseStartMs(focusedStep: number, status: string, created: number, updated: number): number {
+  if (focusedStep === 0) return created;
+  if (focusedStep === 1) return created + stepBudgetMs(0);
   return status === "READY" ? updated : created + stepBudgetMs(0) + stepBudgetMs(1);
 }
 
 /** Time left in the current swipe card's phase only. */
 export function stepRemainingMsForCard(
   stepIndex: number,
-  milestone: number,
+  focusedStep: number,
   status: string,
   createdAt: string | null | undefined,
   updatedAt: string | null | undefined,
@@ -140,26 +129,41 @@ export function stepRemainingMsForCard(
   const created = parseMs(createdAt) ?? nowMs;
   const updated = parseMs(updatedAt) ?? created;
   const budget = stepBudgetMs(stepIndex);
-  if (stepIndex < milestone) return 0;
-  if (stepIndex > milestone) return budget;
-  const start = stepPhaseStartMs(milestone, status, created, updated);
+  if (stepIndex < focusedStep) return 0;
+  if (stepIndex > focusedStep) return budget;
+  const start = stepPhaseStartMs(focusedStep, status, created, updated);
   return Math.max(0, budget - (nowMs - start));
 }
 
 export function stepProgressForCard(
   stepIndex: number,
-  milestone: number,
+  focusedStep: number,
   status: string,
   createdAt: string | null | undefined,
   updatedAt: string | null | undefined,
   nowMs: number
 ): number {
-  if (stepIndex < milestone) return 1;
-  if (stepIndex > milestone) return 0;
+  if (stepIndex < focusedStep) return 1;
+  if (stepIndex > focusedStep) return 0;
   const budget = stepBudgetMs(stepIndex);
   if (budget <= 0) return 0;
-  const rem = stepRemainingMsForCard(stepIndex, milestone, status, createdAt, updatedAt, nowMs);
+  const rem = stepRemainingMsForCard(stepIndex, focusedStep, status, createdAt, updatedAt, nowMs);
   return clamp01(1 - rem / budget);
+}
+
+/** First step whose phase still has time left; otherwise the last step. */
+function resolveTimedFocusedStep(
+  status: string,
+  createdAt: string | null | undefined,
+  updatedAt: string | null | undefined,
+  nowMs: number,
+  stepCount: number
+): number {
+  for (let s = 0; s < stepCount; s += 1) {
+    const rem = stepRemainingMsForCard(s, s, status, createdAt, updatedAt, nowMs);
+    if (rem > 0) return s;
+  }
+  return Math.max(0, stepCount - 1);
 }
 
 /** Short label for the energy line: `3 sec`, `17 mins`, `1hr`, `4hrs`. */
@@ -228,37 +232,26 @@ function BlinkingLiveRing(props: { active: boolean; children: React.ReactNode })
 
 function ClockBlock(props: {
   stepIndex: number;
-  milestone: number;
+  focusedStep: number;
   status: string;
-  deadlineMs: number;
+  createdAt?: string | null;
+  updatedAt?: string | null;
   nowMs: number;
 }) {
-  const { stepIndex, milestone, status, deadlineMs, nowMs } = props;
-  if (stepIndex < milestone) {
-    return (
-      <View style={styles.clockBlock}>
-        <Text style={styles.clockLabel}>Step complete</Text>
-        <Text style={styles.clockMuted}>—</Text>
-      </View>
-    );
+  if (props.stepIndex !== props.focusedStep) {
+    return <View style={styles.clockBlockPlaceholder} />;
   }
-  if (stepIndex > milestone) {
-    return (
-      <View style={styles.clockBlock}>
-        <Text style={styles.clockLabel}>Up next</Text>
-        <Text style={styles.clockMuted}>—</Text>
-      </View>
-    );
-  }
-
-  const orderRemainingMs = Math.max(0, deadlineMs - nowMs);
-  const orderLabel =
-    status === "READY" && milestone === 2 ? "Est. pickup window (whole order)" : "Est. order ready (whole order)";
-
+  const stepRemainingMs = stepRemainingMsForCard(
+    props.focusedStep,
+    props.focusedStep,
+    props.status,
+    props.createdAt,
+    props.updatedAt,
+    props.nowMs
+  );
   return (
     <View style={styles.clockBlock}>
-      <Text style={styles.clockLabel}>{orderLabel}</Text>
-      <RemainingCountdown remainingMs={orderRemainingMs} live />
+      <RemainingCountdown remainingMs={stepRemainingMs} live />
     </View>
   );
 }
@@ -299,45 +292,53 @@ type Props = {
 };
 
 export function OrderLiveStatusView(props: Props) {
-  const { milestone, status, venueName, createdAt, updatedAt } = props;
+  const orderMilestone = props.milestone;
+  const { status, venueName, createdAt, updatedAt } = props;
   const { width: winW } = useWindowDimensions();
   const steps = React.useMemo(() => buildSteps(venueName ?? ""), [venueName]);
-  const deadlineMs = useOrderCountdownDeadlineMs(status, createdAt, updatedAt);
   const nowMs = useTickMs();
   const variant = props.variant ?? "section";
+
+  const timedStep = React.useMemo(
+    () => resolveTimedFocusedStep(status, createdAt, updatedAt, nowMs, steps.length),
+    [status, createdAt, updatedAt, nowMs, steps.length]
+  );
+  /** Never behind kitchen status; auto-advance when a phase timer elapses. */
+  const focusedStep = Math.max(orderMilestone, timedStep);
 
   /** Measured FlatList width — each page slot matches this exactly for centering + snap. */
   const [pageW, setPageW] = React.useState(0);
   const pagePad = 16;
 
   const listRef = React.useRef<FlatList<LiveStatusStep>>(null);
-  const [pageIndex, setPageIndex] = React.useState(milestone);
-  const hapticPageRef = React.useRef(milestone);
+  /** Which card the user is looking at (free swipe). */
+  const [viewIndex, setViewIndex] = React.useState(focusedStep);
+  const viewIndexRef = React.useRef(viewIndex);
+  viewIndexRef.current = viewIndex;
+  const hapticPageRef = React.useRef(viewIndex);
+  const prevFocusedRef = React.useRef<number | null>(null);
+  const listLaidOutRef = React.useRef(false);
   const isProgrammaticScrollRef = React.useRef(false);
-
   const safePageW = Math.max(1, pageW > 0 ? pageW : PixelRatio.roundToNearestPixel(winW));
-
-  const fireStepHaptic = React.useCallback(() => {
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft);
-  }, []);
 
   const scrollToPage = React.useCallback(
     (index: number, animated: boolean) => {
       const clamped = Math.max(0, Math.min(steps.length - 1, index));
       const offset = clamped * safePageW;
-      isProgrammaticScrollRef.current = true;
-      listRef.current?.scrollToOffset({ offset, animated });
+      isProgrammaticScrollRef.current = animated;
       hapticPageRef.current = clamped;
-      setPageIndex(clamped);
-      if (!animated) isProgrammaticScrollRef.current = false;
+      setViewIndex(clamped);
+      listRef.current?.scrollToOffset({ offset, animated });
+      if (!animated) {
+        isProgrammaticScrollRef.current = false;
+        return;
+      }
+      setTimeout(() => {
+        isProgrammaticScrollRef.current = false;
+      }, 450);
     },
     [safePageW, steps.length]
   );
-
-  React.useEffect(() => {
-    setPageIndex(milestone);
-    hapticPageRef.current = milestone;
-  }, [milestone, status]);
 
   const onScrollLive = React.useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -346,31 +347,24 @@ export function OrderLiveStatusView(props: Props) {
       const idx = resolvePageIndex(x, 0, safePageW, steps.length);
       if (idx !== hapticPageRef.current) {
         hapticPageRef.current = idx;
-        fireStepHaptic();
-        setPageIndex(idx);
+        void Haptics.selectionAsync();
       }
+      setViewIndex((prev) => (prev === idx ? prev : idx));
     },
-    [fireStepHaptic, safePageW, steps.length]
+    [safePageW, steps.length]
   );
 
-  const finalizeScroll = React.useCallback(
+  const onScrollSettled = React.useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       if (isProgrammaticScrollRef.current) {
         isProgrammaticScrollRef.current = false;
-        return;
       }
       const { contentOffset, velocity } = e.nativeEvent;
       const nearest = resolvePageIndex(contentOffset.x, velocity?.x ?? 0, safePageW, steps.length);
-      const targetOffset = nearest * safePageW;
-      const drift = Math.abs(contentOffset.x - targetOffset);
-      if (drift > safePageW * 0.02) {
-        scrollToPage(nearest, true);
-      } else {
-        hapticPageRef.current = nearest;
-        setPageIndex(nearest);
-      }
+      hapticPageRef.current = nearest;
+      setViewIndex((prev) => (prev === nearest ? prev : nearest));
     },
-    [safePageW, scrollToPage, steps.length]
+    [safePageW, steps.length]
   );
 
   const onListLayout = React.useCallback((e: LayoutChangeEvent) => {
@@ -382,27 +376,45 @@ export function OrderLiveStatusView(props: Props) {
     });
   }, []);
 
-  /** Re-align to the live step when status or measured width changes. */
+  /** First layout: align to live step. After that: only scroll when the live step advances. */
   React.useEffect(() => {
     if (safePageW <= 1) return;
-    scrollToPage(milestone, false);
-  }, [milestone, safePageW, pageW, scrollToPage]);
+    if (!listLaidOutRef.current) {
+      listLaidOutRef.current = true;
+      prevFocusedRef.current = focusedStep;
+      scrollToPage(focusedStep, false);
+      return;
+    }
+    const prev = prevFocusedRef.current;
+    if (prev != null && focusedStep > prev) {
+      scrollToPage(focusedStep, true);
+    }
+    prevFocusedRef.current = focusedStep;
+  }, [focusedStep, safePageW, scrollToPage]);
+
+  /** Width changed (rotation): keep the same viewed card without fighting an in-progress swipe. */
+  React.useEffect(() => {
+    if (safePageW <= 1 || !listLaidOutRef.current) return;
+    const offset = viewIndexRef.current * safePageW;
+    listRef.current?.scrollToOffset({ offset, animated: false });
+  }, [safePageW]);
 
   const renderItem = React.useCallback(
     ({ item, index: i }: ListRenderItemInfo<LiveStatusStep>) => {
-      const isCurrentStep = i === milestone;
-      const progress = stepProgressForCard(i, milestone, status, createdAt, updatedAt, nowMs);
-      const stepRemMs = stepRemainingMsForCard(i, milestone, status, createdAt, updatedAt, nowMs);
-      const stepTimeLabel = i < milestone ? null : formatStepRemainingShort(stepRemMs);
+      const isCurrentStep = i === focusedStep;
+      const progress = stepProgressForCard(i, focusedStep, status, createdAt, updatedAt, nowMs);
+      const stepRemMs = stepRemainingMsForCard(i, focusedStep, status, createdAt, updatedAt, nowMs);
+      const stepTimeLabel = i < focusedStep ? null : formatStepRemainingShort(stepRemMs);
       return (
         <View style={[styles.page, { width: safePageW }]}>
           <View style={[styles.pageCard, { paddingHorizontal: pagePad }]}>
             <BlinkingLiveRing active={isCurrentStep}>
               <ClockBlock
                 stepIndex={i}
-                milestone={milestone}
+                focusedStep={focusedStep}
                 status={status}
-                deadlineMs={deadlineMs}
+                createdAt={createdAt}
+                updatedAt={updatedAt}
                 nowMs={nowMs}
               />
               <View style={styles.iconBadge}>
@@ -420,7 +432,7 @@ export function OrderLiveStatusView(props: Props) {
         </View>
       );
     },
-    [createdAt, milestone, nowMs, pagePad, safePageW, status, updatedAt]
+    [createdAt, focusedStep, nowMs, pagePad, safePageW, status, updatedAt]
   );
 
   const keyExtractor = React.useCallback((it: LiveStatusStep) => it.key, []);
@@ -437,7 +449,7 @@ export function OrderLiveStatusView(props: Props) {
             </View>
           </View>
           <Text style={styles.hint}>
-            Swipe sideways to see all steps. You are on step {milestone + 1} of {steps.length}.
+            Swipe sideways to see all steps. You are on step {focusedStep + 1} of {steps.length}.
           </Text>
         </>
       ) : null}
@@ -447,19 +459,19 @@ export function OrderLiveStatusView(props: Props) {
         horizontal
         style={styles.listTransparent}
         keyExtractor={keyExtractor}
-        extraData={{ safePageW, milestone, nowMs }}
+        extraData={{ safePageW, focusedStep, nowMs }}
         showsHorizontalScrollIndicator={false}
         nestedScrollEnabled
         directionalLockEnabled
-        decelerationRate="normal"
-        snapToInterval={safePageW}
-        snapToAlignment="start"
-        disableIntervalMomentum={false}
+        pagingEnabled
+        bounces={false}
+        overScrollMode="never"
+        decelerationRate="fast"
         scrollEventThrottle={16}
         onScroll={onScrollLive}
         onLayout={onListLayout}
-        onMomentumScrollEnd={finalizeScroll}
-        onScrollEndDrag={finalizeScroll}
+        onScrollEndDrag={onScrollSettled}
+        onMomentumScrollEnd={onScrollSettled}
         getItemLayout={(_, i) => ({
           length: safePageW,
           offset: safePageW * i,
@@ -471,7 +483,7 @@ export function OrderLiveStatusView(props: Props) {
       />
       <View style={[styles.dotsRow, variant === "hero" && styles.dotsRowHero]}>
         {steps.map((s, i) => (
-          <View key={s.key} style={[styles.pageDot, i === pageIndex && styles.pageDotActive]} />
+          <View key={s.key} style={[styles.pageDot, i === viewIndex && styles.pageDotActive]} />
         ))}
       </View>
     </View>
@@ -565,13 +577,10 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     width: "100%"
   },
-  clockLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: R.textMuted,
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
-    marginBottom: 4
+  clockBlockPlaceholder: {
+    marginBottom: 12,
+    width: "100%",
+    minHeight: 40
   },
   remainingRow: {
     flexDirection: "row",
@@ -610,11 +619,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#64748B",
     letterSpacing: -0.1
-  },
-  clockMuted: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: R.textMuted
   },
   iconBadge: {
     width: 88,

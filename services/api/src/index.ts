@@ -14,6 +14,7 @@ import { registerOrderRoutes } from "./routes/orderRoutes.js";
 import { registerCartRoutes } from "./routes/cartRoutes.js";
 import { registerBusinessRoutes } from "./routes/businessRoutes.js";
 import { registerCustomerRoutes } from "./routes/customerRoutes.js";
+import { registerCustomerReservationRoutes } from "./routes/customerReservationRoutes.js";
 import { registerCustomerChatRoutes } from "./routes/customerChatRoutes.js";
 import { registerCustomerChatRealtime } from "./routes/customerChatRealtime.js";
 import { registerRestaurantChatRealtime } from "./routes/restaurantChatRealtime.js";
@@ -72,6 +73,7 @@ async function main() {
   registerRestaurantRoutes(app, prisma);
   registerRestaurantChatRoutes(app, prisma, chatBus);
   registerCustomerRoutes(app, prisma);
+  registerCustomerReservationRoutes(app, prisma);
   registerCustomerChatRoutes(app, prisma, chatBus);
   await registerOrderRoutes(app, prisma, orderBus, chatBus);
   registerCustomerChatRealtime(app, prisma, chatBus);

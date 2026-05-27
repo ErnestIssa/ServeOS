@@ -2,7 +2,7 @@ import { BlurView } from "expo-blur";
 import React from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
-import { R } from "../theme";
+import { useAppTheme } from "../theme/AppThemeContext";
 
 type Props = {
   visible: boolean;
@@ -11,7 +11,39 @@ type Props = {
 };
 
 export function NutritionInfoModal({ visible, title = "Order info", onDismiss }: Props) {
+  const { colors: t, isDark } = useAppTheme();
   const p = useSharedValue(0);
+
+  const styles = React.useMemo(
+    () =>
+      StyleSheet.create({
+        backdrop: {
+          ...StyleSheet.absoluteFillObject,
+          backgroundColor: isDark ? "rgba(0,0,0,0.65)" : "rgba(2,6,23,0.45)"
+        },
+        center: { flex: 1, justifyContent: "flex-end", padding: 16 },
+        card: {
+          borderRadius: 22,
+          backgroundColor: t.bg,
+          borderWidth: 1,
+          borderColor: t.border,
+          padding: 16
+        },
+        title: { fontSize: 18, fontWeight: "900", color: t.text, letterSpacing: -0.2 },
+        body: { marginTop: 10, fontSize: 14, lineHeight: 20, color: t.textSecondary, fontWeight: "600" },
+        closeBtn: {
+          marginTop: 14,
+          borderRadius: 16,
+          paddingVertical: 12,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: t.accentPurple
+        },
+        closeText: { color: "#fff", fontSize: 14, fontWeight: "900" },
+        pressed: { opacity: 0.9 }
+      }),
+    [t, isDark]
+  );
 
   React.useEffect(() => {
     p.value = withTiming(visible ? 1 : 0, { duration: visible ? 240 : 160, easing: Easing.out(Easing.cubic) });
@@ -45,35 +77,4 @@ export function NutritionInfoModal({ visible, title = "Order info", onDismiss }:
     </Modal>
   );
 }
-
-const styles = StyleSheet.create({
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(2,6,23,0.45)"
-  },
-  center: {
-    flex: 1,
-    justifyContent: "flex-end",
-    padding: 16
-  },
-  card: {
-    borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,0.92)",
-    borderWidth: 1,
-    borderColor: "rgba(226,232,240,0.9)",
-    padding: 16
-  },
-  title: { fontSize: 18, fontWeight: "900", color: R.text, letterSpacing: -0.2 },
-  body: { marginTop: 10, fontSize: 14, lineHeight: 20, color: R.textSecondary, fontWeight: "600" },
-  closeBtn: {
-    marginTop: 14,
-    borderRadius: 16,
-    paddingVertical: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(15,23,42,0.92)"
-  },
-  closeText: { color: "#fff", fontSize: 14, fontWeight: "900" },
-  pressed: { opacity: 0.9 }
-});
 

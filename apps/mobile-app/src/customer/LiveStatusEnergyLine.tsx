@@ -77,7 +77,13 @@ export function LiveStatusEnergyLine(props: Props) {
         </Animated.View>
         <Animated.View style={[styles.sweep, sweepStyle]} pointerEvents="none">
           <LinearGradient
-            colors={["rgba(255,255,255,0)", "rgba(255,255,255,0.55)", "rgba(255,255,255,1)", "rgba(255,255,255,0.55)", "rgba(255,255,255,0)"]}
+            colors={[
+              "rgba(34, 197, 94, 0)",
+              "rgba(34, 197, 94, 0.45)",
+              "rgba(74, 222, 128, 1)",
+              "rgba(34, 197, 94, 0.45)",
+              "rgba(34, 197, 94, 0)"
+            ]}
             start={{ x: 0, y: 0.5 }}
             end={{ x: 1, y: 0.5 }}
             style={styles.sweepGradient}

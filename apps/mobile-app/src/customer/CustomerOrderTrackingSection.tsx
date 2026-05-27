@@ -11,9 +11,19 @@ import {
   View,
   useWindowDimensions
 } from "react-native";
+import Animated, {
+  Easing,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming
+} from "react-native-reanimated";
 import { R } from "../theme";
 import { menuImageSourceForKey } from "../menu/menuCardAssets";
 import { OrderLiveStatusView } from "./OrderLiveStatusView";
+
+const SHEET_OPEN_MS = 520;
+const SHEET_CLOSE_MS = 420;
 
 export type CustomerMineOrderLine = {
   menuItemId?: string;
@@ -35,11 +45,15 @@ export type CustomerMineOrder = {
 
 const ACTIVE_STATUSES = new Set(["PENDING", "CONFIRMED", "PREPARING", "READY"]);
 
-function isActiveStatus(status: string): boolean {
+export function isActiveOrderStatus(status: string): boolean {
   return ACTIVE_STATUSES.has(status);
 }
 
-function milestoneIndex(status: string): number {
+export function countActiveCustomerOrders(orders: CustomerMineOrder[]): number {
+  return orders.filter((o) => isActiveOrderStatus(o.status)).length;
+}
+
+export function orderStatusMilestone(status: string): number {
   switch (status) {
     case "PENDING":
     case "CONFIRMED":
@@ -54,7 +68,7 @@ function milestoneIndex(status: string): number {
 }
 
 export function pickActiveOrder(orders: CustomerMineOrder[], venueId: string): CustomerMineOrder | null {
-  const active = orders.filter((o) => isActiveStatus(o.status));
+  const active = orders.filter((o) => isActiveOrderStatus(o.status));
   if (!active.length) return null;
   const vid = venueId.trim();
   if (vid) {
@@ -62,32 +76,6 @@ export function pickActiveOrder(orders: CustomerMineOrder[], venueId: string): C
     if (atVenue) return atVenue;
   }
   return active[0] ?? null;
-}
-
-function activityLines(order: CustomerMineOrder): string[] {
-  const venue = order.restaurant?.name?.trim() || "the restaurant";
-  const lines: string[] = [];
-  switch (order.status) {
-    case "PENDING":
-      lines.push("Order sent to the kitchen");
-      lines.push(`Preparing at ${venue}`);
-      break;
-    case "CONFIRMED":
-      lines.push("Kitchen accepted your order");
-      lines.push("Cooking will start shortly");
-      break;
-    case "PREPARING":
-      lines.push("Kitchen is working on your items");
-      lines.push("We will notify you when it is ready");
-      break;
-    case "READY":
-      lines.push("Your order is bagged and waiting");
-      lines.push("Head to the pickup area");
-      break;
-    default:
-      lines.push("Thanks for ordering with ServeOS");
-  }
-  return lines;
 }
 
 function heroDishSource(order: CustomerMineOrder) {
@@ -120,14 +108,63 @@ function OrderDetailsSheet(props: {
   const { visible, onClose, order, money } = props;
   const { height } = useWindowDimensions();
   const maxH = Math.min(height * 0.72, 520);
+  const progress = useSharedValue(0);
+  const [mounted, setMounted] = React.useState(visible);
+
+  const finishClose = React.useCallback(() => {
+    setMounted(false);
+  }, []);
+
+  React.useEffect(() => {
+    if (visible) {
+      setMounted(true);
+      progress.value = withTiming(1, {
+        duration: SHEET_OPEN_MS,
+        easing: Easing.out(Easing.cubic)
+      });
+      return;
+    }
+    if (!mounted) return;
+    progress.value = withTiming(
+      0,
+      { duration: SHEET_CLOSE_MS, easing: Easing.in(Easing.cubic) },
+      (finished) => {
+        if (finished) runOnJS(finishClose)();
+      }
+    );
+  }, [visible, mounted, progress, finishClose]);
+
+  const requestClose = React.useCallback(() => {
+    onClose();
+  }, [onClose]);
+
+  const backdropStyle = useAnimatedStyle(() => ({
+    opacity: progress.value * 0.52
+  }));
+
+  const cardStyle = useAnimatedStyle(() => ({
+    opacity: progress.value,
+    transform: [{ translateY: (1 - progress.value) * 48 }]
+  }));
+
+  if (!mounted) return null;
 
   return (
-    <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose} statusBarTranslucent>
-      <Pressable style={styles.sheetBackdrop} onPress={onClose} accessibilityLabel="Close order details" />
-      <View style={[styles.sheetCard, { maxHeight: maxH }]}>
+    <Modal transparent visible animationType="none" onRequestClose={requestClose} statusBarTranslucent>
+      <Pressable style={StyleSheet.absoluteFill} onPress={requestClose} accessibilityLabel="Close order details">
+        <Animated.View style={[styles.sheetBackdrop, backdropStyle]} pointerEvents="none" />
+      </Pressable>
+      <Animated.View style={[styles.sheetCard, { maxHeight: maxH }, cardStyle]}>
         <View style={styles.sheetGrab} />
         <Text style={styles.sheetTitle}>Order #{shortOrderLabel(order.id)}</Text>
         <Text style={styles.sheetVenue}>{order.restaurant?.name ?? "Venue"}</Text>
+        <Image
+          source={heroDishSource(order)}
+          style={styles.sheetHeroImage}
+          resizeMode="cover"
+          accessibilityIgnoresInvertColors
+          accessibilityLabel="Order item"
+        />
         <ScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>
           {(order.lines ?? []).map((line, i) => (
             <View key={`${line.name}-${i}`} style={styles.sheetLineRow}>
@@ -155,12 +192,12 @@ function OrderDetailsSheet(props: {
           style={({ pressed }) => [styles.sheetDoneBtn, pressed && styles.pressed]}
           onPress={() => {
             void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            onClose();
+            requestClose();
           }}
         >
           <Text style={styles.sheetDoneText}>Done</Text>
         </Pressable>
-      </View>
+      </Animated.View>
     </Modal>
   );
 }
@@ -176,14 +213,12 @@ export function CustomerOrderTrackingSection(props: Props) {
     [winH, winW]
   );
 
-  const milestone = order ? milestoneIndex(order.status) : 0;
+  const milestone = order ? orderStatusMilestone(order.status) : 0;
   if (!order) {
     return null;
   }
 
-  const bullets = activityLines(order);
   const activeOrder = order;
-  const thumbSize = Math.max(44, Math.round(heroStripHeight / 6));
 
   function contextualPrimary() {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -206,6 +241,7 @@ export function CustomerOrderTrackingSection(props: Props) {
     <View style={styles.block}>
       <View style={[styles.heroStrip, { height: heroStripHeight }]}>
         <OrderLiveStatusView
+          key={activeOrder.id}
           milestone={milestone}
           status={activeOrder.status}
           venueName={activeOrder.restaurant?.name}
@@ -213,31 +249,6 @@ export function CustomerOrderTrackingSection(props: Props) {
           updatedAt={activeOrder.updatedAt}
           variant="hero"
         />
-      </View>
-
-      <View style={[styles.section, styles.thumbRow]}>
-        <Image
-          source={heroDishSource(order)}
-          style={[styles.thumbImage, { width: thumbSize, height: thumbSize, borderRadius: Math.round(thumbSize / 4) }]}
-          resizeMode="cover"
-          accessibilityIgnoresInvertColors
-        />
-        <View style={styles.thumbMeta}>
-          <Text style={styles.thumbMetaTitle}>Order #{shortOrderLabel(order.id)}</Text>
-          <Text style={styles.thumbMetaSub} numberOfLines={1}>
-            {order.restaurant?.name ?? "Venue"}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionLabel}>Live updates</Text>
-        {bullets.map((t) => (
-          <View key={t} style={styles.bulletRow}>
-            <Text style={styles.bulletDot}>•</Text>
-            <Text style={styles.bulletText}>{t}</Text>
-          </View>
-        ))}
       </View>
 
       <Pressable
@@ -272,28 +283,17 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
     justifyContent: "center"
   },
-  section: {
-    marginTop: 22,
-    paddingHorizontal: 2
+  sheetHeroImage: {
+    width: "100%",
+    height: 200,
+    borderRadius: 16,
+    marginTop: 14,
+    backgroundColor: R.bgSubtle,
+    borderWidth: 1,
+    borderColor: R.border
   },
-  thumbRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  thumbImage: { backgroundColor: "transparent", borderWidth: 1, borderColor: R.border },
-  thumbMeta: { flex: 1, minHeight: 40, justifyContent: "center" },
-  thumbMetaTitle: { fontSize: 15, fontWeight: "800", color: R.text, letterSpacing: -0.2 },
-  thumbMetaSub: { marginTop: 3, fontSize: 13, fontWeight: "700", color: R.textMuted },
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: R.textMuted,
-    textTransform: "uppercase",
-    letterSpacing: 0.7,
-    marginBottom: 12
-  },
-  bulletRow: { flexDirection: "row", alignItems: "flex-start", marginBottom: 10 },
-  bulletDot: { width: 18, fontSize: 16, color: R.accentPurple, fontWeight: "800", marginTop: -1 },
-  bulletText: { flex: 1, fontSize: 15, lineHeight: 22, color: R.textSecondary, fontWeight: "600" },
   expandPlain: {
-    marginTop: 18,
+    marginTop: 22,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -313,7 +313,7 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.9 },
   sheetBackdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(2,6,23,0.5)"
+    backgroundColor: "rgba(2,6,23,0.52)"
   },
   sheetCard: {
     position: "absolute",

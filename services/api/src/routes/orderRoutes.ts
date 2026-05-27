@@ -11,6 +11,9 @@ import {
 import { priceMenuItemLineInput, type ModifierSnap } from "../lib/menuItemLinePricing.js";
 import { autoTerminateStaleActiveOrdersForCustomer } from "../lib/autoTerminateStaleActiveOrders.js";
 import { markCustomerMessagesDeliveredForOrder } from "../lib/chatReceipts.js";
+import { emitChatEvent } from "../lib/chatRealtime.js";
+import { syncOrderRoomSystemMessage } from "../lib/customerChatHub.js";
+import { serializeMessage } from "../lib/chatMessageService.js";
 
 export type { OrderEventPayload };
 
@@ -417,7 +420,7 @@ export async function registerOrderRoutes(
     const order = await prisma.order.update({
       where: { id: orderId },
       data: { status: body.status },
-      include: { lines: true }
+      include: { lines: true, restaurant: { select: { name: true } } }
     });
     if (
       existing.status === "PENDING" &&
@@ -425,6 +428,27 @@ export async function registerOrderRoutes(
       body.status !== "CANCELLED"
     ) {
       await markCustomerMessagesDeliveredForOrder(prisma, chatBus, order.id);
+    }
+    const chatRoom = await prisma.chatRoom.findUnique({ where: { orderId: order.id } });
+    if (chatRoom && order.customerUserId) {
+      const seeded = await syncOrderRoomSystemMessage(
+        prisma,
+        chatRoom.id,
+        body.status,
+        order.restaurant.name
+      );
+      if (seeded) {
+        const room = await prisma.chatRoom.findUnique({ where: { id: chatRoom.id } });
+        const message = serializeMessage(
+          seeded,
+          { userId: order.customerUserId, role: "CUSTOMER" },
+          {
+            restaurantLastReadAt: room?.restaurantLastReadAt ?? null,
+            customerLastReadAt: room?.customerLastReadAt ?? null
+          }
+        );
+        emitChatEvent(chatBus, chatRoom.id, order.customerUserId, { type: "new_message", message });
+      }
     }
     await publishOrderEvent(order.id);
     return { ok: true, order };

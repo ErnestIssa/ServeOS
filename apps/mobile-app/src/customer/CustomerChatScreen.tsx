@@ -5,6 +5,7 @@ import {
   Alert,
   Animated,
   FlatList,
+  type ViewToken,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -14,10 +15,18 @@ import {
   TextInput,
   View
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { chatComposerBottomInset, FLOAT_MARGIN_SIDE } from "../shell/navBottomMetrics";
 import { R } from "../theme";
-import { formatOpeningHoursLines } from "./venueHoursDisplay";
+import {
+  mergeThreadFeed,
+  readChatSnapshot,
+  refreshChatHubSilent,
+  writeChatSnapshot
+} from "../data/customerDataCache";
 import {
   fetchCustomerChatHub,
+  postCustomerChatImages,
   postCustomerChatMessage,
   type CustomerChatHubResponse,
   type CustomerChatQuickActionId,
@@ -25,30 +34,30 @@ import {
 } from "./customerChatApi";
 import { ChatComposerBar } from "./chat/ChatComposerBar";
 import { ChatMessageBubble } from "./chat/ChatMessageBubble";
-import { ChatThreadHeader } from "./chat/ChatThreadHeader";
-import { ChatVenueStatusRow } from "./chat/ChatVenueStatusRow";
+import { ChatVenueInfoModal } from "./chat/ChatVenueInfoModal";
+import { ChatCollapsingHeader, chatListTopInset } from "./chat/ChatCollapsingHeader";
+import { playCartAddCue } from "./cartCueSound";
+import { confirmSendChatImages, pickChatImages, type PreparedChatImage } from "./chat/chatImageAttach";
 import { ChatTypingDots } from "./chat/ChatTypingDots";
-import {
-  connectCustomerChatSocket,
-  disconnectCustomerChatSocket,
-  joinChatRoom,
-  sendChatRead,
-  sendChatTyping,
-  subscribeChatRelay
-} from "./chat/customerChatSocket";
+import { isIncomingMessage, isMessageUnread } from "./chat/chatUnreadHelpers";
+import { joinChatRoom, sendChatRead, sendChatTyping, subscribeChatRelay } from "./chat/customerChatSocket";
 
 const TYPING_EMIT_MS = 400;
 const TYPING_IDLE_MS = 2800;
 const TYPING_CLEAR_MS = 6500;
+const NEW_LABEL_DISMISS_MS = 10_000;
 
 type Props = {
   token: string;
   restaurantId: string;
   money: (cents: number) => string;
+  scrollY: Animated.Value;
   onScroll: ReturnType<typeof Animated.event>;
   scrollTopPad: number;
   scrollBottom: number;
-  refreshKey: number;
+  userId?: string | null;
+  chatFocused: boolean;
+  onUnreadCountChange?: (count: number) => void;
   onViewMenu: () => void;
   onPopularItems: () => void;
   onOpenCart: () => void;
@@ -82,10 +91,13 @@ export function CustomerChatScreen(props: Props) {
     token,
     restaurantId,
     money,
+    scrollY,
     onScroll,
     scrollTopPad,
     scrollBottom,
-    refreshKey,
+    userId,
+    chatFocused,
+    onUnreadCountChange,
     onViewMenu,
     onPopularItems,
     onOpenCart,
@@ -97,66 +109,197 @@ export function CustomerChatScreen(props: Props) {
   const [hub, setHub] = React.useState<CustomerChatHubResponse | null>(null);
   const [feed, setFeed] = React.useState<ThreadFeedItem[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [revalidating, setRevalidating] = React.useState(false);
   const [loadErr, setLoadErr] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState("");
   const [sending, setSending] = React.useState(false);
+  const [pickingImage, setPickingImage] = React.useState(false);
   const [venueTyping, setVenueTyping] = React.useState(false);
   const [keyboardOpen, setKeyboardOpen] = React.useState(false);
+  const [venueInfoOpen, setVenueInfoOpen] = React.useState(false);
   const inputRef = React.useRef<TextInput>(null);
   const listRef = React.useRef<FlatList<ThreadFeedItem>>(null);
   const typingStopRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingClearRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingEmitRef = React.useRef(0);
   const roomIdRef = React.useRef<string | null>(null);
+  const customerLastReadAtRef = React.useRef<string | null>(null);
+  const dismissedNewRef = React.useRef<Set<string>>(new Set());
+  const newDismissTimersRef = React.useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const [newDismissTick, setNewDismissTick] = React.useState(0);
+  const insets = useSafeAreaInsets();
+
+  const feedMessagesOnly = React.useCallback((items: ThreadFeedItem[]) => {
+    return items.filter((x) => x.kind === "message");
+  }, []);
+
+  const syncUnreadBadge = React.useCallback(
+    (count: number) => {
+      onUnreadCountChange?.(count);
+    },
+    [onUnreadCountChange]
+  );
 
   const dismissKeyboard = React.useCallback(() => {
     Keyboard.dismiss();
     inputRef.current?.blur();
   }, []);
 
-  const loadHub = React.useCallback(async () => {
-    setLoading(true);
-    setLoadErr(null);
-    const res = await fetchCustomerChatHub(token, restaurantId.trim() || undefined);
-    if (!res.ok) {
-      const raw = typeof res.error === "string" ? res.error : "";
-      const friendly =
-        /ChatRoom|does not exist|migration/i.test(raw)
-          ? "The server database is still updating. Pull to refresh in a minute, or redeploy the API if this persists."
-          : raw || "Could not load assistance.";
-      setLoadErr(friendly);
-      setHub(null);
-      setFeed([]);
-      setLoading(false);
-      return;
-    }
-    setHub(res);
-    setFeed(res.threadFeed ?? []);
-    roomIdRef.current = res.chatRoomId ?? null;
-    if (res.chatRoomId) {
-      joinChatRoom(res.chatRoomId);
-      sendChatRead(res.chatRoomId);
-    }
-    setLoading(false);
-    setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), 80);
-  }, [token, restaurantId]);
+  const applyHubResponse = React.useCallback(
+    (res: CustomerChatHubResponse, nextFeed: ThreadFeedItem[], resetNewLabels: boolean) => {
+      if (!res.ok) return false;
+      setHub(res);
+      customerLastReadAtRef.current = res.customerLastReadAt ?? null;
+      if (resetNewLabels) {
+        dismissedNewRef.current = new Set();
+        for (const t of newDismissTimersRef.current.values()) clearTimeout(t);
+        newDismissTimersRef.current.clear();
+      }
+      setFeed(nextFeed);
+      roomIdRef.current = res.chatRoomId ?? null;
+      if (res.chatRoomId) joinChatRoom(res.chatRoomId);
+      syncUnreadBadge(res.roomUnreadCount ?? 0);
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), 80);
+      return true;
+    },
+    [syncUnreadBadge]
+  );
 
-  React.useEffect(() => {
-    connectCustomerChatSocket(token);
-    return () => disconnectCustomerChatSocket();
-  }, [token]);
+  const loadHub = React.useCallback(
+    async (opts?: { force?: boolean }) => {
+      const force = opts?.force === true;
+      const rid = restaurantId.trim();
+      setLoadErr(null);
+
+      const cached = !force ? await readChatSnapshot(userId, rid) : null;
+      if (cached?.hub.ok) {
+        applyHubResponse(cached.hub, cached.feed, false);
+        setLoading(false);
+        setRevalidating(true);
+        refreshChatHubSilent(token, rid, userId, (hub) => {
+          setRevalidating(false);
+          if (!hub.ok) return;
+          const serverFeed = feedMessagesOnly(hub.threadFeed ?? []);
+          setFeed((prev) => {
+            const merged = mergeThreadFeed(prev, serverFeed);
+            void writeChatSnapshot(userId, rid, hub, merged);
+            return merged;
+          });
+          setHub((h) => (h ? { ...h, ...hub } : hub));
+          if (hub.customerLastReadAt !== undefined) {
+            customerLastReadAtRef.current = hub.customerLastReadAt;
+          }
+          if (hub.chatRoomId) {
+            roomIdRef.current = hub.chatRoomId;
+            joinChatRoom(hub.chatRoomId);
+          }
+          if (hub.roomUnreadCount != null) syncUnreadBadge(hub.roomUnreadCount);
+        });
+        return;
+      }
+
+      setLoading(true);
+      const res = await fetchCustomerChatHub(token, rid || undefined);
+      setLoading(false);
+
+      if (!res.ok) {
+        const raw = typeof res.error === "string" ? res.error : "";
+        const friendly =
+          /ChatRoom|does not exist|migration/i.test(raw)
+            ? "The server database is still updating. Pull to refresh in a minute, or redeploy the API if this persists."
+            : raw || "Could not load assistance.";
+        setLoadErr(friendly);
+        setHub(null);
+        setFeed([]);
+        return;
+      }
+
+      const serverFeed = feedMessagesOnly(res.threadFeed ?? []);
+      applyHubResponse(res, serverFeed, true);
+      void writeChatSnapshot(userId, rid, res, serverFeed);
+    },
+    [token, restaurantId, userId, feedMessagesOnly, applyHubResponse]
+  );
+
+  const tryMarkThreadRead = React.useCallback(() => {
+    const roomId = roomIdRef.current;
+    if (!roomId || !chatFocused) return;
+    const readAt = customerLastReadAtRef.current;
+    const unreadIncoming = feed.filter((m) => isMessageUnread(m, readAt));
+    if (unreadIncoming.length === 0) return;
+    const allDismissed = unreadIncoming.every((m) => dismissedNewRef.current.has(m.id));
+    if (!allDismissed) return;
+    sendChatRead(roomId);
+    const nowIso = new Date().toISOString();
+    customerLastReadAtRef.current = nowIso;
+    setHub((h) => (h ? { ...h, customerLastReadAt: nowIso, roomUnreadCount: 0 } : h));
+    syncUnreadBadge(0);
+  }, [chatFocused, feed, syncUnreadBadge]);
+
+  const scheduleNewDismiss = React.useCallback(
+    (messageId: string) => {
+      if (dismissedNewRef.current.has(messageId)) return;
+      if (newDismissTimersRef.current.has(messageId)) return;
+      const t = setTimeout(() => {
+        dismissedNewRef.current.add(messageId);
+        newDismissTimersRef.current.delete(messageId);
+        setNewDismissTick((n) => n + 1);
+        tryMarkThreadRead();
+      }, NEW_LABEL_DISMISS_MS);
+      newDismissTimersRef.current.set(messageId, t);
+    },
+    [tryMarkThreadRead]
+  );
+
+  const onViewableItemsChanged = React.useCallback(
+    ({ viewableItems }: { viewableItems: Array<ViewToken> }) => {
+      if (!chatFocused) return;
+      const readAt = customerLastReadAtRef.current;
+      for (const v of viewableItems) {
+        const item = v.item as ThreadFeedItem | undefined;
+        if (!item || !isMessageUnread(item, readAt)) continue;
+        scheduleNewDismiss(item.id);
+      }
+    },
+    [chatFocused, scheduleNewDismiss]
+  );
+
+  const viewabilityConfig = React.useRef({ itemVisiblePercentThreshold: 55 }).current;
 
   React.useEffect(() => {
     void loadHub();
-  }, [loadHub, refreshKey]);
+  }, [loadHub]);
+
+  React.useEffect(() => {
+    if (!hub?.ok) return;
+    const rid = restaurantId.trim();
+    if (!rid) return;
+    const t = setTimeout(() => {
+      void writeChatSnapshot(userId, rid, hub, feed);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [hub, feed, userId, restaurantId]);
 
   const refreshPresence = React.useCallback(async () => {
     if (!restaurantId.trim()) return;
     const res = await fetchCustomerChatHub(token, restaurantId.trim());
-    if (res.ok && res.venueStatus) {
-      setHub((h) => (h ? { ...h, venueStatus: res.venueStatus } : h));
+    if (res.ok) {
+      setHub((h) =>
+        h
+          ? {
+              ...h,
+              venueStatus: res.venueStatus ?? h.venueStatus,
+              roomUnreadCount: res.roomUnreadCount ?? h.roomUnreadCount,
+              customerLastReadAt: res.customerLastReadAt ?? h.customerLastReadAt
+            }
+          : h
+      );
+      if (res.customerLastReadAt !== undefined) {
+        customerLastReadAtRef.current = res.customerLastReadAt;
+      }
+      if (res.roomUnreadCount != null) syncUnreadBadge(res.roomUnreadCount);
     }
-  }, [token, restaurantId]);
+  }, [token, restaurantId, syncUnreadBadge]);
 
   React.useEffect(() => {
     if (!hub?.restaurant?.id) return;
@@ -194,8 +337,8 @@ export function CustomerChatScreen(props: Props) {
         setFeed((prev) => {
           if (prev.some((x) => x.kind === "message" && x.id === payload.message.id)) return prev;
           const msg: ThreadFeedItem = {
-            kind: "message",
             ...payload.message,
+            kind: "message",
             deliveryStatus:
               payload.message.senderRole === "CUSTOMER"
                 ? payload.message.deliveryStatus ?? "sent"
@@ -205,6 +348,12 @@ export function CustomerChatScreen(props: Props) {
         });
         if (payload.message.senderRole !== "CUSTOMER") {
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          setHub((h) => {
+            if (!h) return h;
+            const next = (h.roomUnreadCount ?? 0) + 1;
+            syncUnreadBadge(next);
+            return { ...h, roomUnreadCount: next };
+          });
         }
         setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60);
         return;
@@ -233,21 +382,6 @@ export function CustomerChatScreen(props: Props) {
     typingStopRef.current = setTimeout(() => sendChatTyping(roomId, false), TYPING_IDLE_MS);
   }, []);
 
-  function showOpeningHours() {
-    const lines = formatOpeningHoursLines(hub?.restaurant?.openingHours);
-    const name = hub?.restaurant?.name?.trim() || "This venue";
-    Alert.alert(`${name} — hours`, lines.join("\n"), [{ text: "OK" }]);
-  }
-
-  function showCallStaff() {
-    const name = hub?.restaurant?.name?.trim() || "the restaurant";
-    Alert.alert(
-      "Call staff",
-      `Visit the counter or service area at ${name}. Your messages here reach the team when they are online.`,
-      [{ text: "OK" }]
-    );
-  }
-
   function focusComposer(hint?: string) {
     if (hint) setDraft((d) => (d.trim().length ? d : hint));
     setTimeout(() => inputRef.current?.focus(), 80);
@@ -264,10 +398,7 @@ export function CustomerChatScreen(props: Props) {
         onPopularItems();
         break;
       case "opening_hours":
-        showOpeningHours();
-        break;
       case "call_staff":
-        showCallStaff();
         break;
       case "ask_ingredients":
         focusComposer("Hi — can you confirm ingredients for ");
@@ -292,6 +423,64 @@ export function CustomerChatScreen(props: Props) {
     }
   }
 
+  async function uploadChatImages(images: PreparedChatImage[]) {
+    const rid = hub?.restaurant?.id ?? restaurantId.trim();
+    if (!rid || !images.length) return;
+    setPickingImage(true);
+    const res = await postCustomerChatImages(token, {
+      restaurantId: rid,
+      orderId: hub?.activeOrder?.id,
+      images
+    });
+    setPickingImage(false);
+    if (!res.ok) {
+      const msg =
+        res.error === "image_quota_exceeded"
+          ? "You have reached the photo limit for this chat."
+          : typeof res.error === "string"
+            ? res.error
+            : "Could not send photos.";
+      Alert.alert("Photos not sent", msg);
+      return;
+    }
+    void playCartAddCue();
+    if (res.messages?.length) {
+      setFeed((prev) => {
+        const ids = new Set(prev.filter((x) => x.kind === "message").map((x) => x.id));
+        const added = res.messages!
+          .filter((m) => !ids.has(m.id))
+          .map((m) => ({
+            ...m,
+            kind: "message" as const,
+            isMine: true,
+            deliveryStatus: m.deliveryStatus ?? "sent"
+          }));
+        return [...prev, ...added];
+      });
+    }
+    if (res.chatImageQuota) {
+      setHub((h) => (h ? { ...h, chatImageQuota: res.chatImageQuota } : h));
+    }
+    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
+  }
+
+  function pickAndSendImages() {
+    const rid = hub?.restaurant?.id ?? restaurantId.trim();
+    if (!rid || pickingImage || sending) return;
+    const quota = hub?.chatImageQuota ?? { used: 0, max: 10, perSend: 3 };
+    const remaining = Math.max(0, quota.max - quota.used);
+    void (async () => {
+      setPickingImage(true);
+      const picked = await pickChatImages(remaining);
+      setPickingImage(false);
+      if (!picked?.length) return;
+      const venue = hub?.restaurant?.name ?? "Restaurant";
+      confirmSendChatImages(picked.length, venue, remaining - picked.length, () => {
+        void uploadChatImages(picked);
+      });
+    })();
+  }
+
   async function sendMessage() {
     const rid = hub?.restaurant?.id ?? restaurantId.trim();
     if (!rid || !draft.trim() || sending) return;
@@ -308,14 +497,15 @@ export function CustomerChatScreen(props: Props) {
       Alert.alert("Message not sent", typeof res.error === "string" ? res.error : "Try again.");
       return;
     }
+    void playCartAddCue();
     if (res.message) {
       setFeed((prev) => {
         if (prev.some((x) => x.kind === "message" && x.id === res.message!.id)) return prev;
         return [
           ...prev,
           {
-            kind: "message",
             ...res.message!,
+            kind: "message",
             isMine: true,
             deliveryStatus: res.message!.deliveryStatus ?? "sent"
           }
@@ -332,60 +522,64 @@ export function CustomerChatScreen(props: Props) {
 
   const needsVenue = hub?.needsVenue === true;
 
-  const listHeader = hub?.ok ? (
-    <ChatThreadHeader hub={hub} venueTyping={venueTyping} money={money} onQuickAction={(id) => runQuickAction(id as CustomerChatQuickActionId)} />
+  const listFooter = venueTyping ? (
+    <View style={styles.footerPad}>
+      <View style={styles.typingRow}>
+        <ChatTypingDots />
+        <Text style={styles.typingLabel}>Restaurant is typing</Text>
+      </View>
+    </View>
   ) : null;
 
-  const listFooter = (
-    <View style={styles.footerPad}>
-      {venueTyping ? (
-        <View style={styles.typingRow}>
-          <ChatTypingDots />
-          <Text style={styles.typingLabel}>Restaurant is typing</Text>
-        </View>
-      ) : null}
-      {hub?.scene === "completed_only" && (hub.recentOrders?.length ?? 0) > 0 ? (
-        <View style={styles.recentCard}>
-          <Text style={styles.recentTitle}>Recent orders</Text>
-          {hub.recentOrders!.map((o) => (
-            <Text key={o.id} style={styles.recentLine}>
-              #{o.id.slice(-6).toUpperCase()} · {o.status} · {money(o.totalCents)}
-            </Text>
-          ))}
-        </View>
-      ) : null}
-    </View>
-  );
+  /** Just above floating tab bar when keyboard closed; flush when open. */
+  const composerBottomPad = keyboardOpen ? 0 : chatComposerBottomInset(insets.bottom);
 
-  /** Tab-bar clearance only when keyboard is closed; flush to keyboard when open. */
-  const composerBottomPad = keyboardOpen ? 0 : scrollBottom;
+  const listTopInset = chatListTopInset(scrollTopPad);
+  const showVenueStatus = Boolean(hub?.ok && !needsVenue);
 
   return (
     <KeyboardAvoidingView
-      style={[styles.root, { paddingTop: scrollTopPad }]}
+      style={styles.root}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={0}
     >
-      <Pressable style={styles.titleRow} onPress={dismissKeyboard} accessibilityRole="button">
-        <Text style={styles.pageTitle}>Chat</Text>
-        <ChatVenueStatusRow
-          openingHours={hub?.restaurant?.openingHours}
-          venueStatus={hub?.venueStatus}
-        />
-      </Pressable>
+      <ChatCollapsingHeader
+        scrollY={scrollY}
+        topInset={scrollTopPad}
+        showStatus={showVenueStatus}
+        openingHours={hub?.restaurant?.openingHours}
+        venueStatus={hub?.venueStatus}
+        onInfoPress={showVenueStatus ? () => setVenueInfoOpen(true) : undefined}
+      />
 
-      {loading ? (
+      <ChatVenueInfoModal
+        visible={venueInfoOpen}
+        onClose={() => setVenueInfoOpen(false)}
+        venueName={hub?.restaurant?.name ?? "Restaurant"}
+        openingHours={hub?.restaurant?.openingHours}
+        onAddItems={() => runQuickAction("view_menu")}
+      />
+
+      {loading && !hub?.ok ? (
         <Pressable style={styles.loadingRow} onPress={dismissKeyboard}>
           <ActivityIndicator color={R.accentPurple} />
           <Text style={styles.loadingText}>Loading thread…</Text>
         </Pressable>
+      ) : null}
+      {revalidating && hub?.ok ? (
+        <View style={[styles.syncDotRow, { top: listTopInset - 28 }]} pointerEvents="none">
+          <ActivityIndicator size="small" color={R.accentPurple} />
+        </View>
       ) : null}
 
       {loadErr ? (
         <Pressable style={[styles.errCard, { marginHorizontal: R.space.sm }]} onPress={dismissKeyboard}>
           <Text style={styles.errTitle}>Could not connect</Text>
           <Text style={styles.errBody}>{loadErr}</Text>
-          <Pressable style={({ pressed }) => [styles.retryBtn, pressed && styles.pressed]} onPress={() => void loadHub()}>
+          <Pressable
+            style={({ pressed }) => [styles.retryBtn, pressed && styles.pressed]}
+            onPress={() => void loadHub({ force: true })}
+          >
             <Text style={styles.retryText}>Try again</Text>
           </Pressable>
         </Pressable>
@@ -398,29 +592,37 @@ export function CustomerChatScreen(props: Props) {
             data={feed}
             keyExtractor={(item) => item.id}
             style={styles.list}
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[styles.listContent, { paddingTop: listTopInset }]}
             onScroll={onScroll}
             scrollEventThrottle={16}
             keyboardShouldPersistTaps="never"
             keyboardDismissMode="on-drag"
-            ListHeaderComponent={listHeader}
             ListFooterComponent={listFooter}
             onScrollBeginDrag={dismissKeyboard}
             onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+            onViewableItemsChanged={onViewableItemsChanged}
+            viewabilityConfig={viewabilityConfig}
             renderItem={({ item, index }) => {
               const prev = feed[index - 1];
               const next = feed[index + 1];
-              const showNew =
-                item.kind === "message" &&
-                item.senderRole !== "CUSTOMER" &&
-                !sameGroup(item, prev) &&
-                index === feed.findIndex((x) => x.kind === "message" && x.senderRole !== "CUSTOMER");
+              void newDismissTick;
+              const readAt = customerLastReadAtRef.current;
+              const itemUnread =
+                isMessageUnread(item, readAt) && !dismissedNewRef.current.has(item.id);
+              const prevUnreadIncoming =
+                !!prev &&
+                isIncomingMessage(prev) &&
+                isMessageUnread(prev, readAt) &&
+                !dismissedNewRef.current.has(prev.id);
+              const incomingUnread = itemUnread && isIncomingMessage(item);
+              const showNew = incomingUnread && !prevUnreadIncoming;
               return (
                 <ChatMessageBubble
                   item={item}
                   groupWithPrev={sameGroup(item, prev)}
                   groupWithNext={sameGroup(item, next)}
                   showNewLabel={showNew}
+                  timeUnread={incomingUnread}
                 />
               );
             }}
@@ -446,7 +648,9 @@ export function CustomerChatScreen(props: Props) {
                 value={draft}
                 onChange={onDraftChange}
                 onSend={() => void sendMessage()}
+                onPickImages={pickAndSendImages}
                 sending={sending}
+                pickingImage={pickingImage}
                 inputRef={inputRef}
               />
             </View>
@@ -461,15 +665,14 @@ const styles = StyleSheet.create({
   root: { flex: 1, zIndex: 1, backgroundColor: "transparent" },
   threadColumn: { flex: 1, minHeight: 0 },
   composerDock: {
-    paddingTop: 6,
-    paddingHorizontal: 0,
+    paddingTop: 2,
+    paddingHorizontal: FLOAT_MARGIN_SIDE,
     backgroundColor: "transparent"
   },
-  titleRow: { paddingHorizontal: R.space.sm, paddingBottom: 6 },
-  pageTitle: { fontSize: 26, fontWeight: "800", color: R.text, letterSpacing: -0.35 },
   list: { flex: 1 },
   listContent: { paddingBottom: 12, flexGrow: 1 },
   loadingRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 24 },
+  syncDotRow: { position: "absolute", right: 16, zIndex: 14 },
   loadingText: { fontSize: R.type.label, color: R.textSecondary, fontWeight: "600" },
   errCard: {
     backgroundColor: "rgba(255,255,255,0.9)",
@@ -492,16 +695,6 @@ const styles = StyleSheet.create({
   footerPad: { paddingHorizontal: 8, paddingTop: 8 },
   typingRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8, paddingLeft: 8 },
   typingLabel: { fontSize: 13, fontWeight: "700", color: R.accentPurple },
-  recentCard: {
-    marginTop: 8,
-    padding: 12,
-    borderRadius: R.radius.card,
-    backgroundColor: "rgba(255,255,255,0.88)",
-    borderWidth: 1,
-    borderColor: R.border
-  },
-  recentTitle: { fontSize: 11, fontWeight: "800", color: R.textMuted, textTransform: "uppercase", letterSpacing: 0.6 },
-  recentLine: { marginTop: 8, fontSize: 14, fontWeight: "600", color: R.textSecondary },
   emptyHint: { padding: 24, alignItems: "center" },
   emptyText: { textAlign: "center", fontSize: 15, lineHeight: 22, color: R.textSecondary, fontWeight: "600" },
   pressed: { opacity: 0.88 }

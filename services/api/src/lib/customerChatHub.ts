@@ -223,30 +223,47 @@ export async function ensureCustomerChatRoom(
   return created.id;
 }
 
-/** Seed or refresh the latest system line for an order room (idempotent per status). */
+/** Seed order-status copy as a restaurant (staff) chat message — idempotent per status. */
 export async function syncOrderRoomSystemMessage(
   prisma: PrismaClient,
   chatRoomId: string,
   status: OrderStatus,
   restaurantName: string
-): Promise<void> {
+): Promise<{ id: string; content: string; createdAt: Date } | null> {
   const timeline = buildOrderTimeline(status, restaurantName);
   const primary = timeline[0]?.content ?? "Order update";
   const marker = `status:${status}`;
+  const stored = `${marker}|${primary}`;
   const recent = await prisma.chatMessage.findMany({
-    where: { chatRoomId, type: "SYSTEM" },
+    where: { chatRoomId },
     orderBy: { createdAt: "desc" },
-    take: 8
+    take: 12
   });
-  if (recent.some((m) => m.content === marker || m.content.startsWith(marker + "|"))) return;
+  if (recent.some((m) => m.content === stored || m.content.startsWith(`${marker}|`))) return null;
 
-  await prisma.chatMessage.create({
-    data: {
-      chatRoomId,
-      senderRole: "SYSTEM",
-      content: `${marker}|${primary}`,
-      type: "SYSTEM"
-    }
+  const preview = primary.length > 120 ? `${primary.slice(0, 117)}…` : primary;
+  const now = new Date();
+
+  return prisma.$transaction(async (tx) => {
+    const msg = await tx.chatMessage.create({
+      data: {
+        chatRoomId,
+        senderRole: "STAFF",
+        senderUserId: null,
+        content: stored,
+        type: "TEXT"
+      }
+    });
+    await tx.chatRoom.update({
+      where: { id: chatRoomId },
+      data: {
+        lastMessageAt: now,
+        lastMessagePreview: preview,
+        lastMessageSenderRole: "STAFF",
+        updatedAt: now
+      }
+    });
+    return msg;
   });
 }
 
@@ -265,17 +282,7 @@ export type ThreadFeedItem =
       isMine?: boolean;
     };
 
-export function buildThreadFeed(
-  timeline: Array<{ key: string; content: string }>,
-  messages: ThreadFeedItem[],
-  orderUpdatedAt?: string
-): ThreadFeedItem[] {
-  const systemItems: ThreadFeedItem[] = timeline.map((t) => ({
-    kind: "system",
-    id: `sys-${t.key}`,
-    content: t.content,
-    at: orderUpdatedAt ?? new Date().toISOString()
-  }));
-  const msgItems = messages.filter((m): m is Extract<ThreadFeedItem, { kind: "message" }> => m.kind === "message");
-  return [...systemItems, ...msgItems];
+/** Thread is chat messages only (no inline system timeline). */
+export function buildThreadFeed(messages: ThreadFeedItem[]): ThreadFeedItem[] {
+  return messages.filter((m): m is Extract<ThreadFeedItem, { kind: "message" }> => m.kind === "message");
 }

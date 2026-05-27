@@ -183,6 +183,7 @@ enum ChatRoomType {
 
 enum ChatMessageType {
   TEXT
+  IMAGE
   SYSTEM
   ACTION
 }

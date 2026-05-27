@@ -21,10 +21,38 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Easing, runOnJS, useAnimatedReaction, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
 import { ScrollMeshBackground } from "./src/ambient/ScrollMeshBackground";
+import { useAppTheme } from "./src/theme/AppThemeContext";
 import { apiFetch, apiHttpToWsBase, authMe, API_URL, type AuthUser } from "./src/api";
+import {
+  loadMyOrdersCached,
+  prefetchCustomerSession,
+  refreshMyOrdersSilent,
+  TTL
+} from "./src/data/customerDataCache";
+import { authScope, myOrdersKey } from "./src/data/cache/cacheKeys";
+import { cacheInvalidate, cacheWrite } from "./src/data/cache/appCache";
 import { CustomerChatScreen } from "./src/customer/CustomerChatScreen";
+import { fetchCustomerChatUnreadCount } from "./src/customer/customerChatApi";
+import {
+  ensureChatNotificationPermissions,
+  notifyIncomingChatMessage,
+  setChatBadgeCount
+} from "./src/customer/chat/chatMessageNotification";
+import {
+  connectCustomerChatSocket,
+  disconnectCustomerChatSocket,
+  subscribeChatRelay
+} from "./src/customer/chat/customerChatSocket";
 import { CustomerOrdersVenueScreen } from "./src/customer/CustomerOrdersVenueScreen";
-import { pickActiveOrder, type CustomerMineOrder } from "./src/customer/CustomerOrderTrackingSection";
+import { CustomerReservationFlow } from "./src/customer/reservations/CustomerReservationFlow";
+import {
+  countActiveCustomerOrders,
+  isActiveOrderStatus,
+  orderStatusMilestone,
+  pickActiveOrder,
+  type CustomerMineOrder
+} from "./src/customer/CustomerOrderTrackingSection";
+import { clearOrderStatusCue, syncOrderStatusCue } from "./src/customer/orderStatusCue";
 import { AuthFlowScreen } from "./src/auth/AuthFlowScreen";
 import { deleteCartLine, fetchCustomerCart, patchCartLineQuantity, postCartAddItem, type CartLineApi } from "./src/customer/cartApi";
 import { playCartAddCue } from "./src/customer/cartCueSound";
@@ -55,7 +83,11 @@ import {
   type TabId
 } from "./src/shell/FloatingGlassTabBar";
 import { computeNavSheetSnapDims, SHEET_SPRING_CONFIG } from "./src/shell/NavExpandSheet";
+import { CustomerMeStack } from "./src/customer/profile/CustomerMeStack";
+import { loadProfileAvatarUri } from "./src/customer/profile/profileAvatarStorage";
+import { CustomerNavMenuPage } from "./src/shell/CustomerNavMenuPage";
 import { FloatingTopBar, FLOATING_TOP_BAR_HEIGHT } from "./src/shell/FloatingTopBar";
+import { createAppStyles } from "./src/theme/createAppStyles";
 import { R } from "./src/theme";
 
 const AUTH_TOKEN_KEY = "serveos.auth.jwt";
@@ -69,6 +101,8 @@ const SCROLL_KEYBOARD_DISMISS_MODE = Platform.OS === "ios" ? ("interactive" as c
 
 export default function App() {
   const insets = useSafeAreaInsets();
+  const { colors: themeColors, isDark } = useAppTheme();
+  const styles = React.useMemo(() => createAppStyles(themeColors, isDark), [themeColors, isDark]);
 
   const [showSplash, setShowSplash] = React.useState(true);
   const [appReady, setAppReady] = React.useState(false);
@@ -93,6 +127,8 @@ export default function App() {
   const [restaurantName, setRestaurantName] = React.useState("My Restaurant");
   const [status, setStatus] = React.useState("");
   const [customerSearchQuery, setCustomerSearchQuery] = React.useState("");
+  /** Full-screen page from customer top-bar menu (hamburger); back restores prior tab/screen. */
+  const [customerNavMenuOpen, setCustomerNavMenuOpen] = React.useState(false);
   const [menuRid, setMenuRid] = React.useState("");
   const [menuPreview, setMenuPreview] = React.useState<any>(null);
   const [localCart, setLocalCart] = React.useState<Array<{ menuItemId: string; quantity: number; modifierOptionIds: string[] }>>(
@@ -142,7 +178,54 @@ export default function App() {
   const [menuPrefsSeq, setMenuPrefsSeq] = React.useState(0);
   const [ordersEmptySessionVisitCount, setOrdersEmptySessionVisitCount] = React.useState(0);
   const ordersEmptyVisitLatchRef = React.useRef(false);
-  const [customerChatRefreshTick, setCustomerChatRefreshTick] = React.useState(0);
+  const [chatUnreadCount, setChatUnreadCount] = React.useState(0);
+  const [meAvatarUri, setMeAvatarUri] = React.useState<string | null>(null);
+  /** ME tab inner stack: only the hub root keeps the floating top search bar visible. */
+  const [meStackAtRoot, setMeStackAtRoot] = React.useState(true);
+
+  React.useEffect(() => {
+    if (tab !== "account") setMeStackAtRoot(true);
+  }, [tab]);
+
+  const activeOrderCount = React.useMemo(() => {
+    if (!isCustomerSession) return 0;
+    return countActiveCustomerOrders(myOrders as CustomerMineOrder[]);
+  }, [myOrders, isCustomerSession]);
+
+  const ordersTabBadgeCount = tab === "orders" ? 0 : activeOrderCount;
+
+  const customerVenueDisplayName =
+    menuPreview?.ok && menuPreview.restaurant?.name
+      ? String(menuPreview.restaurant.name)
+      : restaurantName.trim() || "Your restaurant";
+
+  React.useEffect(() => {
+    if (!token || !isCustomerSession) {
+      setMeAvatarUri(null);
+      return;
+    }
+    let cancelled = false;
+    void loadProfileAvatarUri().then((uri) => {
+      if (!cancelled) setMeAvatarUri(uri);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, isCustomerSession, sessionUser?.id]);
+
+  const customerSignOut = React.useCallback(async () => {
+    disconnectCustomerChatSocket();
+    await cacheInvalidate(authScope(sessionUser?.id));
+    await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
+    await AsyncStorage.removeItem(CUSTOMER_VENUE_KEY);
+    setToken(null);
+    setUserRole(null);
+    setSessionUser(null);
+    setRestaurants([]);
+    setMyOrders([]);
+    setMeAvatarUri(null);
+    setCustomerNavMenuOpen(false);
+  }, [sessionUser?.id]);
 
   const customerHomeScrollRef = React.useRef<ScrollView | null>(null);
   const [customerMenuTopY, setCustomerMenuTopY] = React.useState(320);
@@ -393,7 +476,9 @@ export default function App() {
     if (!ordersRes.ok) {
       throw new Error(ordersRes.error ?? "failed_to_fetch_orders");
     }
-    setMyOrders(ordersRes.orders ?? []);
+    const orders = ordersRes.orders ?? [];
+    setMyOrders(orders);
+    await cacheWrite(myOrdersKey(authScope(me.user.id)), orders, TTL.myOrders);
     setSessionUser(me.user);
     return me.user;
   }, []);
@@ -789,24 +874,93 @@ export default function App() {
     setTrackResult(res);
   }
 
-  async function fetchMyOrders() {
-    if (!token || !isCustomerSession) return;
-    const res = await apiFetch<Record<string, unknown> & { ok?: boolean; orders?: unknown[] }>("/orders/mine", {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    if (res.ok) setMyOrders(res.orders ?? []);
-  }
+  const fetchMyOrders = React.useCallback(
+    async (opts?: { force?: boolean }) => {
+      if (!token || !isCustomerSession) return;
+      try {
+        const orders = await loadMyOrdersCached(token, sessionUser?.id, (cached) => setMyOrders(cached as CustomerMineOrder[]), {
+          force: opts?.force
+        });
+        setMyOrders(orders as CustomerMineOrder[]);
+      } catch {
+        /* Keep last cached list visible. */
+      }
+    },
+    [token, isCustomerSession, sessionUser?.id]
+  );
 
   React.useEffect(() => {
     if (tab === "orders" && token && isCustomerSession) void fetchMyOrders();
-  }, [tab, token, isCustomerSession]);
+  }, [tab, token, isCustomerSession, fetchMyOrders]);
+
+  React.useEffect(() => {
+    if (!isCustomerSession) return;
+    const list = myOrders as CustomerMineOrder[];
+    for (const o of list) {
+      if (!isActiveOrderStatus(o.status)) {
+        clearOrderStatusCue(o.id);
+        continue;
+      }
+      syncOrderStatusCue(o.id, orderStatusMilestone(o.status));
+    }
+  }, [myOrders, isCustomerSession]);
+
+  React.useEffect(() => {
+    if (!token || !isCustomerSession) return;
+    const rid = activeRestaurantId().trim();
+    if (!rid) return;
+    prefetchCustomerSession(token, sessionUser?.id, rid, {
+      onOrders: (orders) => setMyOrders(orders as CustomerMineOrder[])
+    });
+  }, [token, isCustomerSession, sessionUser?.id, menuRid, sessionUser?.preferredRestaurantId, activeRestaurantId]);
 
   React.useEffect(() => {
     if (tab === "messages" && token && isCustomerSession) {
-      void fetchMyOrders();
-      setCustomerChatRefreshTick((n) => n + 1);
+      refreshMyOrdersSilent(token, sessionUser?.id, (orders) => setMyOrders(orders as CustomerMineOrder[]));
     }
-  }, [tab, token, isCustomerSession]);
+  }, [tab, token, isCustomerSession, sessionUser?.id]);
+
+  const refreshChatUnreadCount = React.useCallback(async () => {
+    if (!token || !isCustomerSession) return;
+    const res = await fetchCustomerChatUnreadCount(token);
+    if (res.ok && typeof res.unreadCount === "number") {
+      setChatUnreadCount(res.unreadCount);
+      void setChatBadgeCount(res.unreadCount);
+    }
+  }, [token, isCustomerSession]);
+
+  React.useEffect(() => {
+    if (!token || !isCustomerSession) {
+      setChatUnreadCount(0);
+      void setChatBadgeCount(0);
+      disconnectCustomerChatSocket();
+      return;
+    }
+    void ensureChatNotificationPermissions();
+    connectCustomerChatSocket(token);
+    void refreshChatUnreadCount();
+    const poll = setInterval(() => void refreshChatUnreadCount(), 45_000);
+    return () => {
+      clearInterval(poll);
+      disconnectCustomerChatSocket();
+    };
+  }, [token, isCustomerSession, refreshChatUnreadCount]);
+
+  React.useEffect(() => {
+    if (!token || !isCustomerSession) return;
+    const off = subscribeChatRelay((payload) => {
+      if (payload.type !== "new_message") return;
+      if (payload.message.senderRole === "CUSTOMER") return;
+      void refreshChatUnreadCount();
+      if (tabRef.current !== "messages") {
+        const name = restaurantName.trim() || "Restaurant";
+        const preview = payload.message.content?.trim() || "New message";
+        void notifyIncomingChatMessage(name, preview);
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    });
+    return off;
+  }, [token, isCustomerSession, refreshChatUnreadCount, restaurantName]);
 
   React.useEffect(() => {
     const emptyCustomerOrders =
@@ -859,11 +1013,10 @@ export default function App() {
     const url = `${apiHttpToWsBase(API_URL)}/orders/events?${new URLSearchParams({ mine: "1", token }).toString()}`;
     const ws = new WebSocket(url);
     ws.onmessage = () => {
-      void fetchMyOrders();
-      setCustomerChatRefreshTick((n) => n + 1);
+      void fetchMyOrders({ force: true });
     };
     return () => ws.close();
-  }, [token, isCustomerSession, API_URL]);
+  }, [token, isCustomerSession, API_URL, fetchMyOrders]);
 
   function money(cents: number) {
     return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(cents / 100);
@@ -959,6 +1112,8 @@ export default function App() {
 
   const scrollBottom = contentBottomInset(insets.bottom);
   const scrollTopPad = R.space.sm + insets.top + FLOATING_TOP_BAR_HEIGHT + 18;
+  const meCompactTopPad = insets.top + 8;
+  const hideCustomerTopNav = isCustomerSession && tab === "account" && !meStackAtRoot;
 
   const pageTitle =
     tab === "home"
@@ -1032,13 +1187,16 @@ export default function App() {
 
   return (
     <Animated.View style={[styles.shell, { opacity: screenEnter, transform: [{ translateY: screenEnterY }] }]}>
-      {Platform.OS === "ios" ? <StatusBar style="dark" /> : null}
-      {Platform.OS === "android" ? <RNStatusBar translucent backgroundColor="transparent" barStyle="dark-content" /> : null}
+      {Platform.OS === "ios" ? <StatusBar style={isDark ? "light" : "dark"} /> : null}
+      {Platform.OS === "android" ? (
+        <RNStatusBar translucent backgroundColor="transparent" barStyle={isDark ? "light-content" : "dark-content"} />
+      ) : null}
 
       <View style={styles.main}>
         <ScrollMeshBackground tab={tab} scrollY={scrollY} />
-        <TopNavContentDimmer scrollY={scrollY} topInset={insets.top} />
+        {!hideCustomerTopNav ? <TopNavContentDimmer scrollY={scrollY} topInset={insets.top} /> : null}
         {isCustomerSession ? (
+          !hideCustomerTopNav ? (
           <FloatingTopBar
             variant="customer"
             topInset={insets.top}
@@ -1052,9 +1210,11 @@ export default function App() {
             onSearchSubmit={() => void appendNavSearchRecent(customerSearchQuery.trim())}
             onMenu={() => {
               Keyboard.dismiss();
-              setStatus("menu");
+              if (sheetBackdropActive) closeSheetFromBackdrop();
+              setCustomerNavMenuOpen(true);
             }}
           />
+          ) : null
         ) : (
           <FloatingTopBar
             topInset={insets.top}
@@ -1097,7 +1257,9 @@ export default function App() {
                       style={({ pressed }) => [pressed && styles.pressed, { alignSelf: "center" }]}
                       onPress={customerPopularPicks}
                     >
-                      <Text style={styles.customerSecondaryCta}>{menuPreview?.ok && menuPreview.restaurant ? "Popular picks" : "Choose venue in Orders"}</Text>
+                      <Text style={styles.customerSecondaryCta}>
+                        {menuPreview?.ok && menuPreview.restaurant ? "Popular picks" : "Choose venue in Orders"}
+                      </Text>
                     </Pressable>
                   </View>
 
@@ -1184,7 +1346,26 @@ export default function App() {
           </Animated.ScrollView>
         )}
 
-        {tab === "bookings" && (
+        {tab === "bookings" && token && isCustomerSession ? (
+          <CustomerReservationFlow
+            restaurantId={activeRestaurantId()}
+            restaurantName={
+              menuPreview?.ok && menuPreview.restaurant?.name
+                ? String(menuPreview.restaurant.name)
+                : restaurantName.trim() || "Your restaurant"
+            }
+            userDisplayName={customerDisplayName(sessionUser?.signupProfile, sessionUser?.email ?? undefined)}
+            hasVenue={Boolean(activeRestaurantId().trim())}
+            authToken={token}
+            scrollY={scrollY}
+            onScroll={onScroll}
+            scrollTopPad={scrollTopPad}
+            scrollBottom={scrollBottom}
+            onChooseVenue={() => setTab("orders")}
+            onOpenChat={() => setTab("messages")}
+            onExitToHome={() => setTab("home")}
+          />
+        ) : tab === "bookings" ? (
           <Animated.ScrollView
             style={styles.scrollLayer}
             onScroll={onScroll}
@@ -1194,25 +1375,19 @@ export default function App() {
             showsVerticalScrollIndicator={false}
           >
             <Text style={styles.pageTitle}>Bookings</Text>
-            <Text style={styles.pageSub}>Reserve tables and manage upcoming visits — one calm place for hospitality.</Text>
+            <Text style={styles.pageSub}>Reserve tables and manage upcoming visits — staff & owner tools.</Text>
             <View style={[styles.cardShell, styles.surfaceCard]}>
               <View style={styles.premiumBadgeRow}>
-                <Text style={styles.premiumBadge}>Coming soon</Text>
+                <Text style={styles.premiumBadge}>Staff</Text>
               </View>
               <Text style={styles.cardHeadline}>Table & event bookings</Text>
               <Text style={styles.cardBodyMuted}>
-                You’ll soon be able to hold tables, special events, and guest preferences here — aligned with your venue
-                rules.
-              </Text>
-            </View>
-            <View style={[styles.cardShell, styles.surfaceCard, styles.mtSm]}>
-              <Text style={styles.inputLabel}>Venue</Text>
-              <Text style={styles.cardBodyMuted}>
-                Connect a restaurant from Account, then return here to see availability when booking opens.
+                Reservation list, walk-ins, and capacity rules live in the web admin and staff workflows. Customer booking
+                uses the Book tab when signed in as a guest.
               </Text>
             </View>
           </Animated.ScrollView>
-        )}
+        ) : null}
 
         {tab === "orders" &&
           token &&
@@ -1227,6 +1402,7 @@ export default function App() {
           >
             <CustomerOrdersVenueScreen
               token={token}
+              userId={sessionUser?.id}
               userDisplayName={customerDisplayName(sessionUser?.signupProfile, sessionUser?.email ?? undefined)}
               activeId={activeRestaurantId()}
               activeName={
@@ -1302,7 +1478,7 @@ export default function App() {
                     value={menuRid}
                     onChangeText={setMenuRid}
                     placeholder="Paste venue ID"
-                    placeholderTextColor={R.textMuted}
+                    placeholderTextColor={themeColors.textMuted}
                     style={styles.input}
                     autoCapitalize="none"
                   />
@@ -1339,7 +1515,7 @@ export default function App() {
                     value={orderNote}
                     onChangeText={setOrderNote}
                     placeholder="Optional"
-                    placeholderTextColor={R.textMuted}
+                    placeholderTextColor={themeColors.textMuted}
                     style={styles.input}
                   />
                   <Pressable style={({ pressed }) => [styles.pillPrimary, styles.mtSm, pressed && styles.pressed]} onPress={() => void submitOrder()}>
@@ -1354,7 +1530,7 @@ export default function App() {
                     value={trackId}
                     onChangeText={setTrackId}
                     placeholder="Paste order id"
-                    placeholderTextColor={R.textMuted}
+                    placeholderTextColor={themeColors.textMuted}
                     style={styles.input}
                     autoCapitalize="none"
                   />
@@ -1393,15 +1569,25 @@ export default function App() {
           </Animated.ScrollView>
         ) : null}
 
-        {tab === "messages" && token && isCustomerSession ? (
+        {token && isCustomerSession ? (
+          <View
+            style={[styles.scrollLayer, tab !== "messages" ? { display: "none" } : null]}
+            pointerEvents={tab === "messages" ? "auto" : "none"}
+          >
           <CustomerChatScreen
             token={token}
             restaurantId={activeRestaurantId()}
+            userId={sessionUser?.id}
             money={money}
+            scrollY={scrollY}
             onScroll={onScroll}
             scrollTopPad={scrollTopPad}
             scrollBottom={scrollBottom}
-            refreshKey={customerChatRefreshTick}
+            chatFocused={tab === "messages"}
+            onUnreadCountChange={(n) => {
+              setChatUnreadCount(n);
+              void setChatBadgeCount(n);
+            }}
             onViewMenu={() => {
               setTab("home");
               setTimeout(() => customerScrollToMenu(0), 400);
@@ -1421,6 +1607,7 @@ export default function App() {
               setTimeout(() => customerScrollToMenu(0), 400);
             }}
           />
+          </View>
         ) : tab === "messages" ? (
           <Animated.ScrollView
             style={styles.scrollLayer}
@@ -1445,7 +1632,24 @@ export default function App() {
           </Animated.ScrollView>
         ) : null}
 
-        {tab === "account" && (
+        {tab === "account" && token && isCustomerSession ? (
+          <View style={styles.scrollLayer}>
+            <CustomerMeStack
+              topInset={scrollTopPad}
+              compactTopInset={meCompactTopPad}
+              bottomInset={scrollBottom}
+              user={sessionUser}
+              venueName={customerVenueDisplayName}
+              activeOrderCount={activeOrderCount}
+              onOpenBookings={() => setTab("bookings")}
+              onOpenOrders={() => setTab("orders")}
+              onOpenSupport={() => setTab("messages")}
+              onSignOut={() => void customerSignOut()}
+              onAvatarSaved={setMeAvatarUri}
+              onAtRootChange={setMeStackAtRoot}
+            />
+          </View>
+        ) : tab === "account" ? (
           <Animated.ScrollView
             style={styles.scrollLayer}
             onScroll={onScroll}
@@ -1455,68 +1659,48 @@ export default function App() {
             showsVerticalScrollIndicator={false}
           >
             <Text style={styles.pageTitle}>Account</Text>
-            <Text style={styles.pageSub}>
-              {isCustomerSession ? "Your go-to venue, session, and preferences." : "Venues, session, and business tools."}
-            </Text>
+            <Text style={styles.pageSub}>Venues, session, and business tools.</Text>
 
-            {isCustomerSession ? (
-              <View style={[styles.cardShell, styles.fieldCard]}>
-                <Text style={styles.sectionLabelSmall}>Your restaurant</Text>
-                <Text style={styles.cardBodyMuted}>
-                  Venue choice is tied to your account on the server. Use the Orders tab to see every venue and switch — the app
-                  then reloads menus and your cart for that place only.
-                </Text>
-                <Pressable
-                  style={({ pressed }) => [styles.pillPrimary, styles.mtSm, pressed && styles.pressed]}
-                  onPress={() => setTab("orders")}
-                >
-                  <Text style={styles.pillPrimaryText}>Choose or change venue</Text>
-                </Pressable>
+            <View style={[styles.cardShell, styles.fieldCard]}>
+              <Text style={styles.inputLabel}>Add another venue (same company)</Text>
+              <TextInput
+                value={restaurantName}
+                onChangeText={setRestaurantName}
+                placeholder="Name"
+                placeholderTextColor={themeColors.textMuted}
+                style={styles.input}
+              />
+              <Pressable
+                style={({ pressed }) => [styles.pillPrimary, styles.mtSm, pressed && styles.pressed, !token && styles.disabled]}
+                disabled={!token}
+                onPress={async () => {
+                  if (!token) return;
+                  const companyId = restaurants.map((r) => r.companyId).find((x) => typeof x === "string" && x.length > 0);
+                  const res = await apiFetch<Record<string, unknown> & { ok?: boolean; error?: string }>("/restaurants/restaurants", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({
+                      name: restaurantName.trim(),
+                      ...(companyId ? { companyId } : {})
+                    })
+                  });
+                  if (!res.ok) return setStatus(res.error ?? "create_failed");
+                  await refreshRestaurants(token);
+                  setStatus("Venue created");
+                }}
+              >
+                <Text style={styles.pillPrimaryText}>Create venue</Text>
+              </Pressable>
+            </View>
+
+            <Text style={styles.sectionLabel}>Your venues</Text>
+            {restaurants.map((r) => (
+              <View key={r.id} style={[styles.cardShell, styles.venueCard]}>
+                <Text style={styles.itemName}>{r.name}</Text>
+                <Text style={styles.mono}>{r.id}</Text>
+                <Text style={styles.itemDesc}>Role: {r.role}</Text>
               </View>
-            ) : (
-              <>
-                <View style={[styles.cardShell, styles.fieldCard]}>
-                  <Text style={styles.inputLabel}>Add another venue (same company)</Text>
-                  <TextInput
-                    value={restaurantName}
-                    onChangeText={setRestaurantName}
-                    placeholder="Name"
-                    placeholderTextColor={R.textMuted}
-                    style={styles.input}
-                  />
-                  <Pressable
-                    style={({ pressed }) => [styles.pillPrimary, styles.mtSm, pressed && styles.pressed, !token && styles.disabled]}
-                    disabled={!token}
-                    onPress={async () => {
-                      if (!token) return;
-                      const companyId = restaurants.map((r) => r.companyId).find((x) => typeof x === "string" && x.length > 0);
-                      const res = await apiFetch<Record<string, unknown> & { ok?: boolean; error?: string }>("/restaurants/restaurants", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                        body: JSON.stringify({
-                          name: restaurantName.trim(),
-                          ...(companyId ? { companyId } : {})
-                        })
-                      });
-                      if (!res.ok) return setStatus(res.error ?? "create_failed");
-                      await refreshRestaurants(token);
-                      setStatus("Venue created");
-                    }}
-                  >
-                    <Text style={styles.pillPrimaryText}>Create venue</Text>
-                  </Pressable>
-                </View>
-
-                <Text style={styles.sectionLabel}>Your venues</Text>
-                {restaurants.map((r) => (
-                  <View key={r.id} style={[styles.cardShell, styles.venueCard]}>
-                    <Text style={styles.itemName}>{r.name}</Text>
-                    <Text style={styles.mono}>{r.id}</Text>
-                    <Text style={styles.itemDesc}>Role: {r.role}</Text>
-                  </View>
-                ))}
-              </>
-            )}
+            ))}
 
             <View style={[styles.cardShell, styles.fieldCard]}>
               <Text style={styles.inputLabel}>API</Text>
@@ -1537,7 +1721,7 @@ export default function App() {
               </Pressable>
             </View>
           </Animated.ScrollView>
-        )}
+        ) : null}
         <BottomNavContentDimmer scrollY={scrollY} bottomInset={insets.bottom} />
       </View>
 
@@ -1579,10 +1763,26 @@ export default function App() {
 
       <NutritionInfoModal visible={nutritionOpen} onDismiss={() => setNutritionOpen(false)} />
 
+      {token && isCustomerSession ? (
+        <CustomerNavMenuPage
+          visible={customerNavMenuOpen}
+          ambientTab={tab}
+          topInset={insets.top}
+          bottomInset={contentBottomInset(insets.bottom)}
+          user={sessionUser}
+          onBack={() => setCustomerNavMenuOpen(false)}
+          onChooseVenue={() => {
+            setCustomerNavMenuOpen(false);
+            setTab("orders");
+          }}
+        />
+      ) : null}
+
       <FloatingGlassTabBar
         tab={tab}
         onChange={(next) => {
           Keyboard.dismiss();
+          setCustomerNavMenuOpen(false);
           setTab(next);
         }}
         insets={insets}
@@ -1592,205 +1792,11 @@ export default function App() {
         sheetContent={sheetCartPanel ?? sheetSearchPanel ?? undefined}
         onSheetDragOpenFromCollapsed={onSheetDragOpenFromCollapsed}
         sheetFullOnly={navSheetSearchMode}
+        messagesUnreadCount={chatUnreadCount}
+        ordersActiveCount={ordersTabBadgeCount}
+        meAvatarUri={isCustomerSession ? meAvatarUri : null}
       />
     </Animated.View>
   );
 }
 
-const styles = StyleSheet.create({
-  sheetBackdropTapClose: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 19
-  },
-  cartFabPortal: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 13,
-    elevation: 0
-  },
-  splashOnly: { flex: 1, backgroundColor: "#8B5CF6" },
-  sessionLoading: { flex: 1, backgroundColor: "#8B5CF6", alignItems: "center", justifyContent: "center" },
-  sessionHint: { marginTop: 16, textAlign: "center", color: "rgba(255,255,255,0.88)", fontSize: 14, fontWeight: "600" },
-  shell: { flex: 1, backgroundColor: "transparent" },
-  main: { flex: 1, position: "relative" },
-  scrollLayer: { flex: 1, zIndex: 1 },
-  scrollPad: { paddingHorizontal: R.space.sm },
-  /** Customer home: menu carousels + grids bleed to screen edges */
-  scrollPadHomeBleed: { paddingHorizontal: 0 },
-  customerHomeCopyInset: { paddingHorizontal: R.space.sm },
-
-  customerHeroGreeting: {
-    fontSize: 26,
-    fontWeight: "800",
-    color: R.text,
-    letterSpacing: -0.35,
-    lineHeight: 32
-  },
-  customerHeroSub: {
-    fontSize: R.type.body,
-    color: R.textSecondary,
-    marginTop: R.space.sm,
-    lineHeight: 22,
-    fontWeight: "500"
-  },
-  customerCtaColumn: {
-    marginTop: R.space.md,
-    alignItems: "stretch",
-    gap: R.space.sm
-  },
-  customerPrimaryCta: { alignSelf: "stretch" },
-  customerSecondaryCta: {
-    textAlign: "center",
-    fontSize: R.type.label,
-    fontWeight: "700",
-    color: R.accentPurple,
-    paddingVertical: 8
-  },
-
-  heroGreeting: { fontSize: R.type.label, color: R.textSecondary, fontWeight: "500" },
-  heroTitle: { fontSize: R.type.hero, fontWeight: "800", color: R.text, letterSpacing: -0.5, marginTop: 4 },
-  heroSub: { fontSize: R.type.body, color: R.textSecondary, marginTop: R.space.xs, lineHeight: 22 },
-
-  cardShell: {
-    backgroundColor: "rgba(255,255,255,0.84)",
-    borderRadius: R.radius.card,
-    borderWidth: 1,
-    borderColor: "rgba(226,232,240,0.92)",
-    ...Platform.select({
-      ios: { shadowColor: "#0f172a", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.06, shadowRadius: 16 },
-      android: { elevation: 3 }
-    })
-  },
-  heroCard: {
-    marginTop: R.space.md,
-    padding: R.space.md
-  },
-  heroAccent: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 4,
-    borderTopLeftRadius: R.radius.card,
-    borderTopRightRadius: R.radius.card,
-    backgroundColor: R.accentPurple
-  },
-  cardLabel: { fontSize: R.type.caption, color: R.textSecondary, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.6 },
-  heroMetric: { fontSize: 40, fontWeight: "800", color: R.text, marginTop: 8, letterSpacing: -1 },
-  cardCaption: { fontSize: R.type.label, color: R.textMuted, marginTop: 4 },
-  heroActions: { flexDirection: "row", gap: R.space.xs, marginTop: R.space.md, flexWrap: "wrap" },
-
-  pillPrimary: {
-    backgroundColor: R.accentPurple,
-    paddingVertical: 14,
-    paddingHorizontal: R.space.md,
-    borderRadius: R.radius.pill,
-    alignItems: "center",
-    minWidth: 120
-  },
-  pillPrimaryText: { color: "#FFFFFF", fontSize: R.type.label, fontWeight: "700" },
-  pillGhost: {
-    borderWidth: 1,
-    borderColor: "rgba(226,232,240,0.95)",
-    paddingVertical: 14,
-    paddingHorizontal: R.space.md,
-    borderRadius: R.radius.pill,
-    alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.65)"
-  },
-  pillGhostText: { color: R.text, fontSize: R.type.label, fontWeight: "600" },
-  pillSecondary: {
-    borderWidth: 1.5,
-    borderColor: R.accentBlue,
-    paddingVertical: 12,
-    borderRadius: R.radius.pill,
-    alignItems: "center"
-  },
-  pillSecondaryText: { color: R.accentBlue, fontSize: R.type.label, fontWeight: "700" },
-  pressed: { opacity: 0.88 },
-  disabled: { opacity: 0.4 },
-
-  sectionLabel: { fontSize: R.type.label, fontWeight: "700", color: R.text, marginTop: R.space.lg, marginBottom: R.space.xs },
-  sectionLabelSmall: {
-    fontSize: R.type.label,
-    fontWeight: "800",
-    color: R.text,
-    marginBottom: R.space.xs,
-    letterSpacing: 0.2
-  },
-  premiumBadgeRow: { marginBottom: R.space.sm },
-  premiumBadge: {
-    alignSelf: "flex-start",
-    fontSize: 11,
-    fontWeight: "800",
-    color: R.accentPurple,
-    textTransform: "uppercase",
-    letterSpacing: 1.1,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 999,
-    backgroundColor: "rgba(139,92,246,0.12)",
-    overflow: "hidden"
-  },
-  cardHeadline: { fontSize: R.type.title, fontWeight: "800", color: R.text, letterSpacing: -0.3 },
-  cardBodyMuted: { fontSize: R.type.body, color: R.textSecondary, marginTop: R.space.xs, lineHeight: 22 },
-  tileRow: { flexDirection: "row", gap: R.space.sm, marginTop: R.space.xs },
-  tile: {
-    flex: 1,
-    borderRadius: R.radius.tile,
-    padding: R.space.sm
-  },
-  tileEmoji: { fontSize: 22, marginBottom: 4 },
-  tileTitle: { fontSize: R.type.label, fontWeight: "700", color: R.text },
-  tileSub: { fontSize: R.type.caption, color: R.textSecondary, marginTop: 4 },
-
-  banner: { marginTop: R.space.md, fontSize: R.type.caption, color: R.danger },
-
-  pageTitle: { fontSize: R.type.title, fontWeight: "800", color: R.text },
-  pageSub: { fontSize: R.type.label, color: R.textSecondary, marginTop: 6, marginBottom: R.space.md, lineHeight: 20 },
-
-  fieldCard: {
-    padding: R.space.sm,
-    marginBottom: R.space.sm
-  },
-  surfaceCard: {
-    padding: R.space.md,
-    marginBottom: R.space.sm
-  },
-  inputLabel: { fontSize: R.type.caption, fontWeight: "600", color: R.textSecondary, marginBottom: 6 },
-  input: {
-    borderWidth: 1,
-    borderColor: R.border,
-    borderRadius: R.radius.input,
-    paddingHorizontal: 14,
-    paddingVertical: Platform.OS === "ios" ? 14 : 10,
-    fontSize: R.type.body,
-    color: R.text,
-    backgroundColor: "rgba(255,255,255,0.85)"
-  },
-  mtSm: { marginTop: R.space.sm },
-
-  itemName: { fontSize: R.type.body, fontWeight: "600", color: R.text },
-  itemDesc: { fontSize: R.type.caption, color: R.textSecondary, marginTop: 2 },
-  itemPrice: { fontSize: R.type.body, fontWeight: "700", color: R.text },
-
-  trackBox: {
-    marginTop: R.space.sm,
-    padding: R.space.sm,
-    backgroundColor: "rgba(248,250,252,0.96)",
-    borderRadius: R.radius.tile,
-    borderWidth: 1,
-    borderColor: "rgba(226,232,240,0.85)"
-  },
-  trackVenue: { fontSize: R.type.body, fontWeight: "700", color: R.text },
-  trackLine: { fontSize: R.type.label, color: R.textSecondary, marginTop: 4 },
-  orderRow: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: R.border },
-  hint: { fontSize: R.type.caption, color: R.textMuted, marginTop: R.space.sm },
-
-  venueCard: {
-    padding: R.space.sm,
-    borderRadius: R.radius.tile,
-    marginBottom: R.space.xs
-  },
-  mono: { fontSize: 11, color: R.textMuted, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
-
-});

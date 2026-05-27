@@ -46,11 +46,11 @@ function formatMinutes12h(totalMin: number): string {
   return `${hr12}:${min.toString().padStart(2, "0")} ${period}`;
 }
 
-/**
- * When the venue is open now, returns the closing time for today’s applicable range (e.g. `"9:00 PM"`).
- * Otherwise `null` (no hint while closed or hours not parseable).
- */
-export function formatTodaysClosingHint(openingHours: string | null | undefined, now: Date = new Date()): string | null {
+/** Today’s first parseable open–close range from hours text, or `null`. */
+export function getTodaysHoursRange(
+  openingHours: string | null | undefined,
+  now: Date = new Date()
+): { open: number; close: number } | null {
   const lines = formatOpeningHoursLines(openingHours);
   if (lines.length === 0) return null;
   const dayIx = now.getDay();
@@ -59,6 +59,32 @@ export function formatTodaysClosingHint(openingHours: string | null | undefined,
   if (!r) {
     r = parseTimeRange(lines[0]);
   }
+  return r;
+}
+
+/** Closing minute-of-day (0–1440) for today’s schedule, even when currently closed. */
+export function getTodaysClosingMinutesOfDay(
+  openingHours: string | null | undefined,
+  now: Date = new Date()
+): number | null {
+  const r = getTodaysHoursRange(openingHours, now);
+  return r?.close ?? null;
+}
+
+/** 24-hour wheel label e.g. `"21:00"`. */
+export function minutesOfDayTo24hLabel(totalMin: number): string {
+  const m = ((totalMin % (24 * 60)) + 24 * 60) % (24 * 60);
+  const h = Math.floor(m / 60);
+  const min = m % 60;
+  return `${h.toString().padStart(2, "0")}:${min.toString().padStart(2, "0")}`;
+}
+
+/**
+ * When the venue is open now, returns the closing time for today’s applicable range (e.g. `"9:00 PM"`).
+ * Otherwise `null` (no hint while closed or hours not parseable).
+ */
+export function formatTodaysClosingHint(openingHours: string | null | undefined, now: Date = new Date()): string | null {
+  const r = getTodaysHoursRange(openingHours, now);
   if (!r) return null;
   const nowMin = minutesOfDay(now);
   if (!isWithin(nowMin, r.open, r.close)) return null;
@@ -73,14 +99,7 @@ const CLOSING_SOON_MINUTES = 60;
  * Whole minutes until closing for the **current** open session, or `null` if closed / unparseable.
  */
 export function minutesUntilClosingIfOpen(openingHours: string | null | undefined, now: Date = new Date()): number | null {
-  const lines = formatOpeningHoursLines(openingHours);
-  if (lines.length === 0) return null;
-  const dayIx = now.getDay();
-  const line = pickLineForWeekday(lines, dayIx);
-  let r = parseTimeRange(line);
-  if (!r) {
-    r = parseTimeRange(lines[0]);
-  }
+  const r = getTodaysHoursRange(openingHours, now);
   if (!r) return null;
   const nowMin = minutesOfDay(now);
   if (!isWithin(nowMin, r.open, r.close)) return null;

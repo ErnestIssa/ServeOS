@@ -21,7 +21,8 @@ import {
   contentBottomInset
 } from "./navBottomMetrics";
 import {
-  NavIconAccount,
+  NavTabMeAvatar,
+  NavTabMeLabel,
   NavIconBookings,
   NavIconHome,
   NavIconMessages,
@@ -30,6 +31,7 @@ import {
 import { FLOATING_TOP_BAR_HEIGHT, FLOATING_TOP_GAP } from "./FloatingTopBar";
 import { computeNavSheetSnapDims, useNavSheetPanGestures } from "./NavExpandSheet";
 import { R } from "../theme";
+import { useAppTheme } from "../theme/AppThemeContext";
 
 export type TabId = "home" | "bookings" | "orders" | "messages" | "account";
 
@@ -38,7 +40,7 @@ const TABS: ReadonlyArray<{ id: TabId; label: string }> = [
   { id: "bookings", label: "Book" },
   { id: "orders", label: "Orders" },
   { id: "messages", label: "Chat" },
-  { id: "account", label: "Profile" }
+  { id: "account", label: "ME" }
 ];
 
 const SPRING = { damping: 24, stiffness: 340, mass: 0.82 };
@@ -70,9 +72,15 @@ type Props = {
   onSheetDragOpenFromCollapsed?: () => void;
   /** When true, sheet is in search/discovery mode and must only settle at full or closed (no half detent). */
   sheetFullOnly?: boolean;
+  /** Unread incoming chat messages (customer). */
+  messagesUnreadCount?: number;
+  /** Active (in-progress) orders — hidden while Orders tab is open. */
+  ordersActiveCount?: number;
+  /** When set, ME tab shows the user's photo instead of the ME label. */
+  meAvatarUri?: string | null;
 };
 
-function TabGlyph({ id, color }: { id: TabId; color: string }) {
+function TabGlyph({ id, color, meAvatarUri }: { id: TabId; color: string; meAvatarUri?: string | null }) {
   switch (id) {
     case "home":
       return <NavIconHome size={ICON_SIZE} color={color} />;
@@ -83,7 +91,10 @@ function TabGlyph({ id, color }: { id: TabId; color: string }) {
     case "messages":
       return <NavIconMessages size={ICON_SIZE} color={color} />;
     case "account":
-      return <NavIconAccount size={ICON_SIZE} color={color} />;
+      if (meAvatarUri?.trim()) {
+        return <NavTabMeAvatar size={ICON_SIZE} uri={meAvatarUri.trim()} />;
+      }
+      return <NavTabMeLabel size={ICON_SIZE} color={color} />;
     default:
       return null;
   }
@@ -98,9 +109,20 @@ export function FloatingGlassTabBar({
   snapImpactArmedSV,
   sheetContent,
   onSheetDragOpenFromCollapsed,
-  sheetFullOnly
+  sheetFullOnly,
+  messagesUnreadCount = 0,
+  ordersActiveCount = 0,
+  meAvatarUri = null
 }: Props) {
   const { height: screenH } = useWindowDimensions();
+  const { isDark, colors: theme } = useAppTheme();
+  const androidGlassFill = React.useMemo(
+    () => ({
+      ...styles.androidFallbackFill,
+      backgroundColor: isDark ? "rgba(26, 35, 50, 0.9)" : "rgba(255,255,255,0.82)"
+    }),
+    [isDark]
+  );
 
   const { panVerticalOnSheetBody, panVerticalSeamGrab, panVerticalWithTabsDuplicate, sheetPanDragSessionSV } =
     useNavSheetPanGestures(insets, sheetHeightSV, {
@@ -289,17 +311,17 @@ export function FloatingGlassTabBar({
     void Haptics.selectionAsync();
   };
 
-  const colorsFor = (t: (typeof TABS)[number], selected: boolean) => {
-    if (t.id === "orders") {
+  const colorsFor = (tabItem: (typeof TABS)[number], selected: boolean) => {
+    if (tabItem.id === "orders") {
       return {
-        icon: selected ? R.ordersNavPurpleBright : R.ordersNavPurple,
-        label: selected ? R.ordersNavPurpleBright : R.ordersNavPurple
+        icon: selected ? theme.ordersNavPurpleBright : theme.ordersNavPurple,
+        label: selected ? theme.ordersNavPurpleBright : theme.ordersNavPurple
       };
     }
     if (selected) {
-      return { icon: R.accentPurple, label: R.text };
+      return { icon: theme.accentPurple, label: theme.text };
     }
-    return { icon: R.navIconIdle, label: R.navLabelIdle };
+    return { icon: theme.navIconIdle, label: theme.navLabelIdle };
   };
 
   return (
@@ -308,12 +330,12 @@ export function FloatingGlassTabBar({
         <BlurView
           pointerEvents="box-none"
           intensity={Platform.OS === "ios" ? 92 : Platform.OS === "android" ? 50 : 70}
-          tint={Platform.OS === "ios" ? "systemChromeMaterialLight" : "light"}
+          tint={isDark ? "dark" : Platform.OS === "ios" ? "systemChromeMaterialLight" : "light"}
           blurReductionFactor={Platform.OS === "android" ? 3.2 : undefined}
           style={styles.blurFill}
           {...(Platform.OS === "android" ? ({ experimentalBlurMethod: "dimezisBlurView" } as const) : {})}
         >
-          {Platform.OS === "android" ? <View style={styles.androidFallbackFill} pointerEvents="none" /> : null}
+          {Platform.OS === "android" ? <View style={androidGlassFill} pointerEvents="none" /> : null}
 
           <View style={styles.chromeColumn} accessibilityRole="adjustable" accessibilityLabel="Bottom navigation and panels">
             <GestureDetector gesture={panVerticalOnSheetBody}>
@@ -381,7 +403,21 @@ export function FloatingGlassTabBar({
                             onPress={() => onTabPress(t.id, index)}
                           >
                             <View style={styles.tabGlyphWrap}>
-                              <TabGlyph id={t.id} color={icon} />
+                              <TabGlyph id={t.id} color={icon} meAvatarUri={meAvatarUri} />
+                              {t.id === "messages" && messagesUnreadCount > 0 ? (
+                                <View style={styles.tabBadge}>
+                                  <Text style={styles.tabBadgeText}>
+                                    {messagesUnreadCount > 99 ? "99+" : String(messagesUnreadCount)}
+                                  </Text>
+                                </View>
+                              ) : null}
+                              {t.id === "orders" && ordersActiveCount > 0 ? (
+                                <View style={styles.tabBadge}>
+                                  <Text style={styles.tabBadgeText}>
+                                    {ordersActiveCount > 99 ? "99+" : String(ordersActiveCount)}
+                                  </Text>
+                                </View>
+                              ) : null}
                             </View>
                             <Text
                               style={[styles.tabLabel, { color: labelColor, fontWeight: labelWeight }]}
@@ -603,6 +639,26 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 3
+  },
+  tabBadge: {
+    position: "absolute",
+    top: -5,
+    right: -10,
+    minWidth: 17,
+    height: 17,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    backgroundColor: "#DC2626",
+    borderWidth: 1.5,
+    borderColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  tabBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 9,
+    fontWeight: "900",
+    lineHeight: 11
   },
   tabLabel: {
     fontSize: 13,

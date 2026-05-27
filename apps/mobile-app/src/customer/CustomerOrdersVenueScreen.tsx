@@ -2,7 +2,8 @@ import * as Haptics from "expo-haptics";
 import React from "react";
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { fetchCustomerRestaurantDirectory, type CustomerRestaurantRow } from "../api";
+import { type CustomerRestaurantRow } from "../api";
+import { loadRestaurantDirectoryCached } from "../data/customerDataCache";
 import { R } from "../theme";
 import { FLOATING_TOP_BAR_HEIGHT } from "../shell/FloatingTopBar";
 import { contentBottomInset } from "../shell/navBottomMetrics";
@@ -15,6 +16,7 @@ import { isVenueOpenNow, useVenueClockTick } from "./venueOpenNow";
 
 type Props = {
   token: string;
+  userId?: string | null;
   userDisplayName: string;
   /** Venue currently driving menus & cart across the app. */
   activeId: string;
@@ -41,6 +43,7 @@ type Props = {
 export function CustomerOrdersVenueScreen(props: Props) {
   const {
     token,
+    userId,
     userDisplayName,
     activeId,
     activeName,
@@ -74,19 +77,22 @@ export function CustomerOrdersVenueScreen(props: Props) {
     let cancelled = false;
     setLoadErr(null);
     void (async () => {
-      const res = await fetchCustomerRestaurantDirectory(token);
-      if (cancelled) return;
-      if (!res.ok) {
-        setRows([]);
-        setLoadErr(typeof res.error === "string" ? res.error : "directory_failed");
-        return;
+      try {
+        const list = await loadRestaurantDirectoryCached(token, userId, (cached) => {
+          if (!cancelled) setRows(cached);
+        });
+        if (!cancelled) setRows(list);
+      } catch {
+        if (!cancelled) {
+          setRows([]);
+          setLoadErr("directory_failed");
+        }
       }
-      setRows(res.restaurants);
     })();
     return () => {
       cancelled = true;
     };
-  }, [token, activeOrderForPage]);
+  }, [token, userId, activeOrderForPage]);
 
   const currentRow = React.useMemo(
     () => (rows && activeId ? rows.find((r) => r.id === activeId.trim()) : undefined),

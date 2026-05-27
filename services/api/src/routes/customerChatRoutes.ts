@@ -5,6 +5,16 @@ import { z } from "zod";
 import { readPreferredRestaurantIdFromProfile } from "../lib/customerPreferredVenue.js";
 import { autoTerminateStaleActiveOrdersForCustomer } from "../lib/autoTerminateStaleActiveOrders.js";
 import {
+  buildImageDataUri,
+  CHAT_ALLOWED_IMAGE_MIMES,
+  CHAT_IMAGE_MAX_BASE64_CHARS,
+  CHAT_MAX_IMAGES_PER_ROOM,
+  CHAT_MAX_IMAGES_PER_SEND,
+  parseImageDataUri,
+  type ChatImageMime
+} from "../lib/chatImageLimits.js";
+import {
+  createChatImageMessages,
   createChatTextMessage,
   listRoomMessages,
   markCustomerRead,
@@ -12,7 +22,6 @@ import {
 } from "../lib/chatMessageService.js";
 import { emitChatEvent } from "../lib/chatRealtime.js";
 import {
-  buildOrderTimeline,
   buildThreadFeed,
   ensureCustomerChatRoom,
   estimateOrderMinutesRemaining,
@@ -27,6 +36,7 @@ import {
 } from "../lib/customerChatHub.js";
 import { isRestaurantStaffOnline } from "../lib/restaurantPresence.js";
 import { buildVenueStatusPayload } from "../lib/venueHoursStatus.js";
+import { countCustomerChatUnread, countRoomUnreadForCustomer } from "../lib/chatUnread.js";
 
 function bearerToken(headers: { authorization?: string }): string | null {
   const auth = headers.authorization;
@@ -44,7 +54,32 @@ const postMessageSchema = z.object({
   orderId: z.string().min(1).optional()
 });
 
+const postImagesSchema = z.object({
+  restaurantId: z.string().min(1),
+  orderId: z.string().min(1).optional(),
+  images: z
+    .array(
+      z.object({
+        mimeType: z.enum(CHAT_ALLOWED_IMAGE_MIMES),
+        dataBase64: z.string().min(32).max(CHAT_IMAGE_MAX_BASE64_CHARS)
+      })
+    )
+    .min(1)
+    .max(CHAT_MAX_IMAGES_PER_SEND)
+});
+
 export function registerCustomerChatRoutes(app: FastifyInstance, prisma: PrismaClient, chatBus: EventEmitter) {
+  app.get("/customer/chat/unread-count", async (req, reply) => {
+    const tok = bearerToken(req.headers as { authorization?: string });
+    if (!tok) return reply.status(401).send({ ok: false, error: "missing_token" });
+    const pl = app.verifyJwt(tok);
+    if (pl.role !== "CUSTOMER") {
+      return reply.status(403).send({ ok: false, error: "customer_only" });
+    }
+    const unreadCount = await countCustomerChatUnread(prisma, pl.sub);
+    return { ok: true, unreadCount };
+  });
+
   app.get("/customer/chat/hub", async (req, reply) => {
     const tok = bearerToken(req.headers as { authorization?: string });
     if (!tok) return reply.status(401).send({ ok: false, error: "missing_token" });
@@ -180,22 +215,37 @@ export function registerCustomerChatRoutes(app: FastifyInstance, prisma: PrismaC
     });
 
     if (scene === "active_order" && activeOrder) {
-      await syncOrderRoomSystemMessage(prisma, chatRoomId, activeOrder.status, activeOrder.restaurant.name);
+      const seeded = await syncOrderRoomSystemMessage(
+        prisma,
+        chatRoomId,
+        activeOrder.status,
+        activeOrder.restaurant.name
+      );
+      if (seeded) {
+        const room = await prisma.chatRoom.findUnique({ where: { id: chatRoomId } });
+        const serializedSeed = serializeMessage(
+          seeded,
+          { userId: pl.sub, role: "CUSTOMER" },
+          {
+            restaurantLastReadAt: room?.restaurantLastReadAt ?? null,
+            customerLastReadAt: room?.customerLastReadAt ?? null
+          }
+        );
+        emitChatEvent(chatBus, chatRoomId, pl.sub, {
+          type: "new_message",
+          message: serializedSeed
+        });
+      }
     }
 
-    await markCustomerRead(prisma, chatRoomId, pl.sub).catch(() => undefined);
-
+    const roomRow = await prisma.chatRoom.findUnique({ where: { id: chatRoomId } });
     const serialized = await listRoomMessages(prisma, chatRoomId, { userId: pl.sub, role: "CUSTOMER" });
     const messages: ThreadFeedItem[] = serialized.map((m) => ({ kind: "message" as const, ...m }));
-    const timeline =
-      scene === "active_order" && activeOrder
-        ? buildOrderTimeline(activeOrder.status, activeOrder.restaurant.name)
-        : [];
-    const threadFeed = buildThreadFeed(
-      timeline,
-      messages,
-      activeOrder?.updatedAt.toISOString()
-    );
+    const threadFeed = buildThreadFeed(messages);
+    const roomUnreadCount = await countRoomUnreadForCustomer(prisma, chatRoomId, pl.sub);
+    const customerImageCount = await prisma.chatMessage.count({
+      where: { chatRoomId, senderRole: "CUSTOMER", type: "IMAGE" }
+    });
 
     const recentOrders = orderRows
       .filter((o) => o.restaurantId === restaurantId && (o.status === "COMPLETED" || o.status === "CANCELLED"))
@@ -262,10 +312,17 @@ export function registerCustomerChatRoutes(app: FastifyInstance, prisma: PrismaC
       cart: cartPayload,
       activeOrder: activeOrderPayload,
       recentOrders,
-      timeline: timeline.map((t) => ({ key: t.key, content: t.content, kind: "system" as const })),
+      timeline: [],
       messages,
       threadFeed,
       chatRoomId,
+      customerLastReadAt: roomRow?.customerLastReadAt?.toISOString() ?? null,
+      roomUnreadCount,
+      chatImageQuota: {
+        used: customerImageCount,
+        max: CHAT_MAX_IMAGES_PER_ROOM,
+        perSend: CHAT_MAX_IMAGES_PER_SEND
+      },
       venueTyping: false,
       venueStatus: buildVenueStatusPayload(
         restaurant.openingHours,
@@ -365,5 +422,129 @@ export function registerCustomerChatRoutes(app: FastifyInstance, prisma: PrismaC
     emitChatEvent(chatBus, chatRoomId, pl.sub, { type: "new_message", message });
 
     return { ok: true, message };
+  });
+
+  app.post("/customer/chat/messages/images", async (req, reply) => {
+    const tok = bearerToken(req.headers as { authorization?: string });
+    if (!tok) return reply.status(401).send({ ok: false, error: "missing_token" });
+    const pl = app.verifyJwt(tok);
+    if (pl.role !== "CUSTOMER") {
+      return reply.status(403).send({ ok: false, error: "customer_only" });
+    }
+
+    const parsed = postImagesSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ ok: false, error: "validation_error" });
+    }
+
+    const { restaurantId, orderId, images } = parsed.data;
+    const restaurant = await prisma.restaurant.findUnique({ where: { id: restaurantId } });
+    if (!restaurant) return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
+
+    let scene: CustomerChatScene = "new";
+    let resolvedOrderId: string | undefined;
+
+    if (orderId) {
+      const order = await prisma.order.findUnique({ where: { id: orderId } });
+      if (!order || order.customerUserId !== pl.sub) {
+        return reply.status(404).send({ ok: false, error: "order_not_found" });
+      }
+      if (order.restaurantId !== restaurantId) {
+        return reply.status(400).send({ ok: false, error: "order_venue_mismatch" });
+      }
+      scene = "active_order";
+      resolvedOrderId = order.id;
+    } else {
+      const orders = await prisma.order.findMany({
+        where: { customerUserId: pl.sub, restaurantId },
+        orderBy: { createdAt: "desc" },
+        take: 20,
+        include: { restaurant: { select: { id: true, name: true } }, lines: true }
+      });
+      const orderRows = orders.map((o) => ({
+        id: o.id,
+        restaurantId: o.restaurantId,
+        status: o.status,
+        totalCents: o.totalCents,
+        createdAt: o.createdAt,
+        updatedAt: o.updatedAt,
+        note: o.note ?? null,
+        restaurant: o.restaurant,
+        lines: o.lines.map((l) => ({
+          menuItemId: l.menuItemId,
+          nameSnapshot: l.nameSnapshot,
+          quantity: l.quantity,
+          lineTotalCents: l.lineTotalCents
+        }))
+      }));
+      const active = pickActiveOrderForVenue(orderRows, restaurantId);
+      const cart = await prisma.shoppingCart.findUnique({
+        where: { userId_restaurantId: { userId: pl.sub, restaurantId } },
+        include: { lines: true }
+      });
+      const hasCompleted = orderRows.some((o) => o.status === "COMPLETED" || o.status === "CANCELLED");
+      scene = resolveCustomerChatScene({
+        cartLineCount: cart?.lines.length ?? 0,
+        activeOrder: active,
+        hasCompletedOrders: hasCompleted
+      });
+      resolvedOrderId = active?.id;
+    }
+
+    const chatRoomId = await ensureCustomerChatRoom(prisma, {
+      scene,
+      restaurantId,
+      customerUserId: pl.sub,
+      orderId: resolvedOrderId
+    });
+
+    const used = await prisma.chatMessage.count({
+      where: { chatRoomId, senderRole: "CUSTOMER", type: "IMAGE" }
+    });
+    if (used + images.length > CHAT_MAX_IMAGES_PER_ROOM) {
+      return reply.status(400).send({
+        ok: false,
+        error: "image_quota_exceeded",
+        quota: { used, max: CHAT_MAX_IMAGES_PER_ROOM, perSend: CHAT_MAX_IMAGES_PER_SEND }
+      });
+    }
+
+    const dataUris: string[] = [];
+    for (const img of images) {
+      const uri = buildImageDataUri(img.mimeType as ChatImageMime, img.dataBase64.trim());
+      if (!parseImageDataUri(uri)) {
+        return reply.status(400).send({ ok: false, error: "invalid_image" });
+      }
+      dataUris.push(uri);
+    }
+
+    const rows = await createChatImageMessages(prisma, {
+      chatRoomId,
+      senderUserId: pl.sub,
+      senderRole: "CUSTOMER",
+      dataUris
+    });
+
+    const room = await prisma.chatRoom.findUnique({ where: { id: chatRoomId } });
+    const readCtx = {
+      restaurantLastReadAt: room?.restaurantLastReadAt ?? null,
+      customerLastReadAt: room?.customerLastReadAt ?? null
+    };
+    const messages = rows.map((row) =>
+      serializeMessage(row, { userId: pl.sub, role: "CUSTOMER" }, readCtx)
+    );
+    for (const message of messages) {
+      emitChatEvent(chatBus, chatRoomId, pl.sub, { type: "new_message", message });
+    }
+
+    return {
+      ok: true,
+      messages,
+      chatImageQuota: {
+        used: used + messages.length,
+        max: CHAT_MAX_IMAGES_PER_ROOM,
+        perSend: CHAT_MAX_IMAGES_PER_SEND
+      }
+    };
   });
 }

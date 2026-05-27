@@ -2,7 +2,7 @@ import { BlurView } from "expo-blur";
 import React from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
-import { R } from "../theme";
+import { useAppTheme } from "../theme/AppThemeContext";
 
 export type VenueChangeRestartConfirmOverlayProps = {
   userFirstName: string;
@@ -18,7 +18,76 @@ export type VenueChangeRestartConfirmOverlayProps = {
  */
 export function VenueChangeRestartConfirmOverlay(props: VenueChangeRestartConfirmOverlayProps) {
   const { userFirstName, currentVenueName, nextVenueName, onCancel, onConfirm, loading } = props;
+  const { colors: t, isDark } = useAppTheme();
   const p = useSharedValue(0);
+
+  const styles = React.useMemo(
+    () =>
+      StyleSheet.create({
+        root: { ...StyleSheet.absoluteFillObject, zIndex: 99999, elevation: 100 },
+        backdrop: {
+          ...StyleSheet.absoluteFillObject,
+          backgroundColor: isDark ? "rgba(0,0,0,0.72)" : "rgba(2,6,23,0.55)"
+        },
+        centerWrap: {
+          ...StyleSheet.absoluteFillObject,
+          justifyContent: "center",
+          alignItems: "center",
+          padding: 22
+        },
+        card: {
+          width: "100%",
+          maxWidth: 380,
+          borderRadius: 22,
+          backgroundColor: t.bg,
+          borderWidth: 2,
+          borderColor: isDark ? t.danger : "rgba(239,68,68,0.55)",
+          padding: 20,
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 12 },
+          shadowOpacity: 0.2,
+          shadowRadius: 24,
+          elevation: 24
+        },
+        badge: {
+          alignSelf: "flex-start",
+          fontSize: 11,
+          fontWeight: "900",
+          color: t.danger,
+          textTransform: "uppercase",
+          letterSpacing: 0.8,
+          marginBottom: 8
+        },
+        title: { fontSize: 20, fontWeight: "900", color: t.text, letterSpacing: -0.35 },
+        body: { marginTop: 12, fontSize: 15, lineHeight: 22, color: t.textSecondary, fontWeight: "600" },
+        emphasis: { fontWeight: "900", color: t.text },
+        subtle: { marginTop: 12, fontSize: 13, lineHeight: 19, color: t.textMuted, fontWeight: "600" },
+        actions: { marginTop: 20, flexDirection: "row", alignItems: "stretch" },
+        cancelBtn: {
+          flex: 1,
+          borderRadius: 16,
+          paddingVertical: 14,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: t.bgElevated,
+          borderWidth: 1,
+          borderColor: t.border
+        },
+        cancelText: { fontSize: 15, fontWeight: "800", color: t.text },
+        confirmBtn: {
+          flex: 1,
+          marginLeft: 10,
+          borderRadius: 16,
+          paddingVertical: 14,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: t.danger
+        },
+        confirmText: { fontSize: 15, fontWeight: "900", color: "#fff" },
+        pressed: { opacity: 0.88 }
+      }),
+    [t, isDark]
+  );
 
   React.useEffect(() => {
     p.value = withTiming(1, { duration: 220, easing: Easing.out(Easing.cubic) });
@@ -78,81 +147,3 @@ export function VenueChangeRestartConfirmOverlay(props: VenueChangeRestartConfir
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  root: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 99999,
-    elevation: 100
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(2,6,23,0.55)"
-  },
-  centerWrap: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 22
-  },
-  card: {
-    width: "100%",
-    maxWidth: 380,
-    borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,0.97)",
-    borderWidth: 2,
-    borderColor: "rgba(239,68,68,0.55)",
-    padding: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.2,
-    shadowRadius: 24,
-    elevation: 24
-  },
-  badge: {
-    alignSelf: "flex-start",
-    fontSize: 11,
-    fontWeight: "900",
-    color: R.danger,
-    textTransform: "uppercase",
-    letterSpacing: 0.8,
-    marginBottom: 8
-  },
-  title: { fontSize: 20, fontWeight: "900", color: R.text, letterSpacing: -0.35 },
-  body: {
-    marginTop: 12,
-    fontSize: 15,
-    lineHeight: 22,
-    color: R.textSecondary,
-    fontWeight: "600"
-  },
-  emphasis: { fontWeight: "900", color: R.text },
-  subtle: { marginTop: 12, fontSize: 13, lineHeight: 19, color: R.textMuted, fontWeight: "600" },
-  actions: {
-    marginTop: 20,
-    flexDirection: "row",
-    alignItems: "stretch"
-  },
-  cancelBtn: {
-    flex: 1,
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: R.bgSubtle,
-    borderWidth: 1,
-    borderColor: R.border
-  },
-  cancelText: { fontSize: 15, fontWeight: "800", color: R.text },
-  confirmBtn: {
-    flex: 1,
-    marginLeft: 10,
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: R.danger
-  },
-  confirmText: { fontSize: 15, fontWeight: "900", color: "#fff" },
-  pressed: { opacity: 0.88 }
-});

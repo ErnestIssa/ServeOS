@@ -82,7 +82,18 @@ export type CustomerChatHubResponse = {
   chatRoomId?: string | null;
   venueTyping?: boolean;
   venueStatus?: CustomerChatVenueStatus;
+  customerLastReadAt?: string | null;
+  roomUnreadCount?: number;
+  chatImageQuota?: { used: number; max: number; perSend: number };
 };
+
+export type CustomerChatUnreadResponse = { ok: boolean; unreadCount?: number; error?: string };
+
+export async function fetchCustomerChatUnreadCount(token: string): Promise<CustomerChatUnreadResponse> {
+  return apiFetch<CustomerChatUnreadResponse>("/customer/chat/unread-count", {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
 
 export async function fetchCustomerChatHub(token: string, restaurantId?: string): Promise<CustomerChatHubResponse> {
   const q = restaurantId?.trim() ? `?restaurantId=${encodeURIComponent(restaurantId.trim())}` : "";
@@ -96,6 +107,26 @@ export async function postCustomerChatMessage(
   body: { restaurantId: string; content: string; orderId?: string }
 ): Promise<{ ok: boolean; error?: string; message?: CustomerChatHubMessage }> {
   return apiFetch(`/customer/chat/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+}
+
+export async function postCustomerChatImages(
+  token: string,
+  body: {
+    restaurantId: string;
+    orderId?: string;
+    images: Array<{ mimeType: "image/jpeg" | "image/png" | "image/webp"; dataBase64: string }>;
+  }
+): Promise<{
+  ok: boolean;
+  error?: string;
+  messages?: CustomerChatHubMessage[];
+  chatImageQuota?: { used: number; max: number; perSend: number };
+}> {
+  return apiFetch(`/customer/chat/messages/images`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify(body)
