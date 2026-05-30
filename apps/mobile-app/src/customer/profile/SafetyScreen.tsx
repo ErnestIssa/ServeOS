@@ -3,16 +3,19 @@ import { StyleSheet, Text } from "react-native";
 import { useAppTheme } from "../../theme/AppThemeContext";
 import { loadAppSettings, saveAppSettings } from "./profilePrefsStorage";
 import type { AppSettings } from "./profilePrefsStorage";
+import type { AppHubSubscreenScrollProps } from "./profileHubScreenStyle";
 import {
   BoolRow,
   FadeSection,
   ProfileCard,
   ProfilePrimaryButton,
-  ProfileScreenContainer
+  ProfileScreenContainer,
+  SectionLabel
 } from "./ProfileUi";
 
 type Props = {
   bottomInset: number;
+  scrollProps: AppHubSubscreenScrollProps;
 };
 
 export function SafetyScreen(props: Props) {
@@ -34,15 +37,18 @@ export function SafetyScreen(props: Props) {
 
   if (!settings) {
     return (
-      <ProfileScreenContainer topInset={0} bottomInset={props.bottomInset}>
+      <ProfileScreenContainer bottomInset={props.bottomInset} {...props.scrollProps}>
         <Text style={styles.loading}>Loading…</Text>
       </ProfileScreenContainer>
     );
   }
 
   return (
-    <ProfileScreenContainer topInset={0} bottomInset={props.bottomInset}>
+    <ProfileScreenContainer bottomInset={props.bottomInset} {...props.scrollProps}>
       <FadeSection>
+        <SectionLabel variant="me" flushTop>
+          Safety & privacy
+        </SectionLabel>
         <ProfileCard>
           <Text style={styles.intro}>Trip and check-in preferences for visits and pickups.</Text>
           <BoolRow

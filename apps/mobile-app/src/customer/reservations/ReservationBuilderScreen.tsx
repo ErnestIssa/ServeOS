@@ -4,22 +4,20 @@ import {
   OCCASION_OPTIONS,
   SEATING_OPTIONS
 } from "./reservationPresets";
+import { ReservationImmersiveStepShell } from "./ReservationImmersiveStepShell";
+import { immersiveShellPassThrough, type ReservationImmersiveShellProps } from "./reservationImmersiveShellProps";
+import { ReservationStepHeader } from "./ReservationStepHeader";
 import {
   ReservationPrimaryButton,
   ReservationSection,
   TapPillRow,
   TapTile
 } from "./ReservationUi";
-import { ReservationScreenShell } from "./ReservationScreenShell";
 import type { ReservationDraft } from "./reservationTypes";
 
-type Props = {
+type Props = ReservationImmersiveShellProps & {
   draft: ReservationDraft;
   onChange: (patch: Partial<ReservationDraft>) => void;
-  onScroll: ReturnType<typeof import("react-native").Animated.event>;
-  scrollTopPad: number;
-  scrollBottom: number;
-  onBack: () => void;
   onContinue: () => void;
 };
 
@@ -27,15 +25,18 @@ export function ReservationBuilderScreen(props: Props) {
   const { draft, onChange } = props;
 
   return (
-    <ReservationScreenShell
-      title="Build your visit"
-      stepLabel="Step 1 · Preferences"
-      onBack={props.onBack}
-      onScroll={props.onScroll}
-      scrollTopPad={props.scrollTopPad}
-      scrollBottom={props.scrollBottom}
-      footer={<ReservationPrimaryButton label="Check availability" onPress={props.onContinue} />}
+    <ReservationImmersiveStepShell
+      {...immersiveShellPassThrough(props)}
+      footer={
+        <ReservationPrimaryButton variant="purple" label="Check availability" onPress={props.onContinue} />
+      }
     >
+      <ReservationStepHeader
+        stepLabel="Step 1 · Preferences"
+        title="Build your visit"
+        subtitle={`${draft.guests} guests · ${draft.dateLabel} · ${draft.timeLabel}`}
+      />
+
       <ReservationSection title="Seating">
         <TapPillRow
           options={[...SEATING_OPTIONS]}
@@ -62,6 +63,6 @@ export function ReservationBuilderScreen(props: Props) {
           onSelect={(occasion) => onChange({ occasion })}
         />
       </ReservationSection>
-    </ReservationScreenShell>
+    </ReservationImmersiveStepShell>
   );
 }

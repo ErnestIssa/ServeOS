@@ -156,15 +156,21 @@ function VerticalSnapWheelInner(props: Props) {
     [maxIndex, scrollToOffset]
   );
 
-  React.useEffect(() => {
+  /** Keep native offset + animated scrollY aligned with `selectedIndex` (restored drafts mount at y=0). */
+  const syncToSelectedIndex = React.useCallback(() => {
     if (draggingRef.current || settlingRef.current) return;
     const next = clampIndex(selectedIndex, maxIndex);
-    if (next === lastCommittedIndex.current) return;
-    lastCommittedIndex.current = next;
+    const y = offsetForIndex(next);
+    scrollRef.current?.scrollTo({ y, animated: false });
+    scrollY.setValue(y);
     lastHapticIndex.current = next;
+    lastCommittedIndex.current = next;
     setCenterIndex(next);
-    scrollToIndex(next, false);
-  }, [selectedIndex, maxIndex, scrollToIndex]);
+  }, [maxIndex, scrollY, selectedIndex]);
+
+  React.useEffect(() => {
+    syncToSelectedIndex();
+  }, [syncToSelectedIndex]);
 
   const onScrollOffset = React.useCallback(
     (y: number) => {
@@ -268,6 +274,8 @@ function VerticalSnapWheelInner(props: Props) {
           snapToAlignment="start"
           decelerationRate="fast"
           scrollEventThrottle={1}
+          onLayout={syncToSelectedIndex}
+          onContentSizeChange={syncToSelectedIndex}
           onScroll={onScroll}
           onScrollBeginDrag={() => {
             draggingRef.current = true;

@@ -29,6 +29,7 @@ model User {
   customerOrders Order[] @relation("CustomerOrders")
   shoppingCarts ShoppingCart[]
   customerChatRooms ChatRoom[] @relation("CustomerChatRooms")
+  reservationDrafts CustomerReservationDraft[]
 }
 
 model Company {
@@ -63,8 +64,27 @@ model Restaurant {
   orders         Order[]
   shoppingCarts  ShoppingCart[]
   chatRooms      ChatRoom[]
+  reservationDrafts CustomerReservationDraft[]
 
   @@index([companyId])
+}
+
+/// In-progress customer table booking per venue (mobile Book tab); server source of truth.
+model CustomerReservationDraft {
+  id                 String   @id @default(cuid())
+  userId             String
+  restaurantId       String
+  screenId           String   @default("landing")
+  draft              Json
+  confirmationCode   String?
+  updatedAt          DateTime @updatedAt
+  createdAt          DateTime @default(now())
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, restaurantId])
+  @@index([restaurantId])
 }
 
 model Membership {

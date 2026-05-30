@@ -10,6 +10,7 @@ import {
   View,
   useWindowDimensions
 } from "react-native";
+import { ambientNativePalettes } from "@serveos/core-ambient/themes";
 import { useAppTheme } from "../../theme/AppThemeContext";
 import { R } from "../../theme";
 
@@ -34,6 +35,9 @@ type Props = {
 export function ReservationImmersiveHero(props: Props) {
   const { width: screenW, height: screenH } = useWindowDimensions();
   const { isDark, colors: theme } = useAppTheme();
+  const ambient = ambientNativePalettes.bookings;
+  /** Same top tint as the scrolling sheet card — rounded lip at hero seam. */
+  const sheetFill = isDark ? theme.meshTop : ambient.top;
   const heroPurple = theme.ordersNavPurpleBright;
   const heroH = Math.round(Math.min(screenH * 0.54, 440));
   const [activeIndex, setActiveIndex] = React.useState(0);
@@ -214,7 +218,7 @@ export function ReservationImmersiveHero(props: Props) {
         </Animated.Text>
       </Animated.View>
 
-      {/* sheetCurve removed — the scroll sheet card provides rounded corners now */}
+      <View style={[styles.sheetCurve, { backgroundColor: sheetFill }]} pointerEvents="none" />
     </View>
   );
 }
@@ -283,6 +287,7 @@ const styles = StyleSheet.create({
     bottom: -1,
     height: 28,
     borderTopLeftRadius: 24,
-    borderTopRightRadius: 24
+    borderTopRightRadius: 24,
+    zIndex: 5
   }
 });

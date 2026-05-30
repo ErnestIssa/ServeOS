@@ -18,6 +18,7 @@ import { registerCustomerReservationRoutes } from "./routes/customerReservationR
 import { registerCustomerChatRoutes } from "./routes/customerChatRoutes.js";
 import { registerCustomerChatRealtime } from "./routes/customerChatRealtime.js";
 import { registerRestaurantChatRealtime } from "./routes/restaurantChatRealtime.js";
+import { ensureChatMessageImageEnum } from "./lib/chatImageEnum.js";
 
 const port = Number(process.env.PORT ?? process.env.API_GATEWAY_PORT ?? 3000);
 /** Render / Docker: set `HOST=0.0.0.0` so the service accepts external connections. */
@@ -49,6 +50,21 @@ async function main() {
   });
 
   await app.register(authPlugin);
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await ensureChatMessageImageEnum(prisma);
+      app.log.info("ChatMessageType.IMAGE enum ready");
+      break;
+    } catch (err) {
+      app.log.error({ err, attempt }, "chat_image_enum_ensure_failed");
+      if (attempt === 3) {
+        app.log.warn("Chat routes will retry enum ensure per request; run prisma migrate deploy on the database");
+      } else {
+        await new Promise((r) => setTimeout(r, 400 * attempt));
+      }
+    }
+  }
 
   app.get("/health", async () => {
     const redis = await upstashRedisHealth();

@@ -1,4 +1,5 @@
--- Customer chat photo messages (enum value must exist before Prisma uses type IMAGE).
+-- Enum ADD VALUE must run outside a transaction (Prisma: disable-transaction).
+-- Fixes chat hub when 20260511120000 did not apply on hosted Postgres.
 -- prisma-migrate:disable-transaction
 
 DO $$ BEGIN

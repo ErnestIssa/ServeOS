@@ -4,6 +4,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { StyleSheet } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import App from "./App";
+import { AppErrorHost } from "./src/errors/AppErrorHost";
 import { AppThemeProvider } from "./src/theme/AppThemeContext";
 
 function Root() {
@@ -11,7 +12,9 @@ function Root() {
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
         <AppThemeProvider>
-          <App />
+          <AppErrorHost>
+            <App />
+          </AppErrorHost>
         </AppThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

@@ -1,23 +1,20 @@
 import React from "react";
 import { TABLE_OPTIONS, TIME_OPTIONS } from "./reservationPresets";
+import { ReservationImmersiveStepShell } from "./ReservationImmersiveStepShell";
+import { immersiveShellPassThrough, type ReservationImmersiveShellProps } from "./reservationImmersiveShellProps";
+import { ReservationStepHeader } from "./ReservationStepHeader";
 import {
-  ReservationGhostButton,
   ReservationMapPlaceholder,
   ReservationPrimaryButton,
   ReservationSection,
   TapGrid,
   TapTile
 } from "./ReservationUi";
-import { ReservationScreenShell } from "./ReservationScreenShell";
 import type { ReservationDraft } from "./reservationTypes";
 
-type Props = {
+type Props = ReservationImmersiveShellProps & {
   draft: ReservationDraft;
   onChange: (patch: Partial<ReservationDraft>) => void;
-  onScroll: ReturnType<typeof import("react-native").Animated.event>;
-  scrollTopPad: number;
-  scrollBottom: number;
-  onBack: () => void;
   onContinue: () => void;
   onWaitlist: () => void;
 };
@@ -32,21 +29,19 @@ export function ReservationAvailabilityScreen(props: Props) {
   const selectedSlot = slotId(draft.slotLabel ?? draft.timeLabel);
 
   return (
-    <ReservationScreenShell
-      title="Pick a time & table"
-      stepLabel="Step 2 · Availability"
-      onBack={props.onBack}
-      onScroll={props.onScroll}
-      scrollTopPad={props.scrollTopPad}
-      scrollBottom={props.scrollBottom}
+    <ReservationImmersiveStepShell
+      {...immersiveShellPassThrough(props)}
       footer={
-        <>
-          <ReservationPrimaryButton label="Continue" onPress={props.onContinue} />
-          <ReservationGhostButton label="Join waitlist" onPress={props.onWaitlist} />
-        </>
+        <ReservationPrimaryButton variant="purple" label="Continue" onPress={props.onContinue} />
       }
     >
-      <ReservationSection title="Available times" subtitle={`${draft.guests} guests · ${draft.dateLabel}`}>
+      <ReservationStepHeader
+        stepLabel="Step 2 · Availability"
+        title="Pick a time & table"
+        subtitle={`${draft.guests} guests · ${draft.dateLabel}`}
+      />
+
+      <ReservationSection title="Available times">
         <TapGrid
           columns={3}
           options={TIME_OPTIONS}
@@ -81,6 +76,6 @@ export function ReservationAvailabilityScreen(props: Props) {
         selected={draft.slotLabel === "Waitlist"}
         onPress={props.onWaitlist}
       />
-    </ReservationScreenShell>
+    </ReservationImmersiveStepShell>
   );
 }

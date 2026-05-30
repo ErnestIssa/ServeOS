@@ -44,6 +44,12 @@ type Props = {
   scrollBottom: number;
   /** Optional external ref so parent can programmatically scroll the sheet. */
   scrollRefExternal?: React.RefObject<ScrollView | null>;
+  /** When set, scroll the sheet to this offset (e.g. returning from a later step). */
+  restoreScrollY?: number;
+  /** Bumps when `restoreScrollY` should be re-applied after remount. */
+  scrollRestoreToken?: number;
+  /** Back control overlaps top-left of the gradient card (post-landing steps). */
+  cardOverlayBack?: boolean;
   children: React.ReactNode;
   footer?: React.ReactNode;
 };
@@ -53,6 +59,7 @@ export function ReservationScreenShell(props: Props) {
   const hasFixedHero = immersive && props.sheetTopOffset != null;
   const internalScrollRef = React.useRef<ScrollView | null>(null);
   const scrollRef = props.scrollRefExternal ?? internalScrollRef;
+  const backBlink = React.useRef(new Animated.Value(1)).current;
   const maxScrollYRef = React.useRef(0);
   const bounceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const bouncingRef = React.useRef(false);
@@ -65,6 +72,29 @@ export function ReservationScreenShell(props: Props) {
   React.useEffect(() => {
     maxScrollYRef.current = Math.max(0, contentH - viewportH);
   }, [contentH, viewportH]);
+
+  /** Cold start / tab return only — not used for in-flow back (screens stay mounted). */
+  const applyRestoredScroll = React.useCallback(() => {
+    if (props.restoreScrollY == null || props.scrollRestoreToken == null) return;
+    const y = Math.max(0, props.restoreScrollY);
+    scrollRef.current?.scrollTo({ y, animated: false });
+  }, [props.restoreScrollY, props.scrollRestoreToken, scrollRef]);
+
+  React.useEffect(() => {
+    applyRestoredScroll();
+  }, [applyRestoredScroll]);
+
+  const onShellLayout = React.useCallback(() => {
+    if (props.scrollRestoreToken != null) applyRestoredScroll();
+  }, [applyRestoredScroll, props.scrollRestoreToken]);
+
+  const flashOverlayBack = React.useCallback(() => {
+    backBlink.setValue(1);
+    Animated.sequence([
+      Animated.timing(backBlink, { toValue: 0.52, duration: 85, useNativeDriver: true }),
+      Animated.timing(backBlink, { toValue: 1, duration: 130, useNativeDriver: true })
+    ]).start();
+  }, [backBlink]);
 
   React.useEffect(
     () => () => {
@@ -195,6 +225,7 @@ export function ReservationScreenShell(props: Props) {
         hasFixedHero
           ? (e) => {
               setViewportH(e.nativeEvent.layout.height);
+              if (props.scrollRestoreToken != null) onShellLayout();
             }
           : undefined
       }
@@ -211,7 +242,7 @@ export function ReservationScreenShell(props: Props) {
         hasFixedHero ? { paddingBottom: 0 } : { paddingBottom: props.scrollBottom }
       ]}
     >
-      {props.onBack ? (
+      {props.onBack && !props.cardOverlayBack ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Go back"
@@ -244,6 +275,23 @@ export function ReservationScreenShell(props: Props) {
             }
           ]}
         >
+          {props.cardOverlayBack && props.onBack ? (
+            <Animated.View style={[styles.cardOverlayBackWrap, { opacity: backBlink }]}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Go back"
+                onPress={() => {
+                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  flashOverlayBack();
+                  props.onBack?.();
+                }}
+                style={({ pressed }) => [styles.cardOverlayBackBtn, pressed && styles.pressed]}
+              >
+                <Text style={styles.cardOverlayBackChevron}>‹</Text>
+                <Text style={styles.cardOverlayBackText}>Back</Text>
+              </Pressable>
+            </Animated.View>
+          ) : null}
           {props.sheetGradient ? (
             <LinearGradient
               colors={props.sheetGradient}
@@ -288,6 +336,33 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     overflow: "hidden"
+  },
+  cardOverlayBackWrap: {
+    position: "absolute",
+    zIndex: 12,
+    left: R.space.sm,
+    top: 10
+  },
+  cardOverlayBackBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 8,
+    paddingRight: 12,
+    paddingLeft: 4,
+    borderRadius: R.radius.pill,
+    backgroundColor: "rgba(15, 23, 42, 0.42)"
+  },
+  cardOverlayBackChevron: {
+    fontSize: 26,
+    fontWeight: "300",
+    color: "#FFFFFF",
+    marginRight: 2,
+    marginTop: -2
+  },
+  cardOverlayBackText: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#FFFFFF"
   },
   immersiveBody: {
     paddingHorizontal: R.space.sm,

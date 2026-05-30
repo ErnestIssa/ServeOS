@@ -38,6 +38,8 @@ type Props = ReservationFlowContext & {
   onManageBookings: () => void;
   onGroupEvent: () => void;
   onChooseVenue: () => void;
+  restoreScrollY?: number;
+  scrollRestoreToken?: number;
 };
 
 export function ReservationLandingScreen(props: Props) {
@@ -131,14 +133,20 @@ export function ReservationLandingScreen(props: Props) {
           sheetTopOffset={sheetTopOffset}
           sheetGradient={sheetGradient}
           scrollRefExternal={scrollRef}
+          restoreScrollY={props.restoreScrollY}
+          scrollRestoreToken={props.scrollRestoreToken}
           footer={
             <ReservationPrimaryButton
               variant="purple"
               label={props.hasVenue ? "Reserve a table" : "Choose venue"}
               loading={props.hasVenue ? props.startBookingLoading : false}
               onPress={() => {
-                if (!props.hasVenue) props.onChooseVenue();
-                else props.onStartBooking();
+                if (!props.hasVenue) {
+                  props.onChooseVenue();
+                  return;
+                }
+                scrollToExperienceSection();
+                props.onStartBooking();
               }}
               disabled={!props.hasVenue}
             />

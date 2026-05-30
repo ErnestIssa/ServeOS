@@ -5,73 +5,44 @@ import {
   PACKAGE_OPTIONS,
   VIP_REQUEST_OPTIONS
 } from "./reservationPresets";
-import {
-  ReservationGhostButton,
-  ReservationPrimaryButton,
-  ReservationSection,
-  TapGrid,
-  TapTile
-} from "./ReservationUi";
-import { ReservationScreenShell } from "./ReservationScreenShell";
-import type { ReservationFlowContext } from "./reservationTypes";
+import { ReservationImmersiveStepShell } from "./ReservationImmersiveStepShell";
+import { immersiveShellPassThrough, type ReservationImmersiveShellProps } from "./reservationImmersiveShellProps";
+import { ReservationStepHeader } from "./ReservationStepHeader";
+import { ReservationPrimaryButton, ReservationSection, TapGrid, TapTile } from "./ReservationUi";
 
-type Props = ReservationFlowContext & {
-  onScroll: ReturnType<typeof import("react-native").Animated.event>;
-  scrollTopPad: number;
-  scrollBottom: number;
-  onBack: () => void;
+type Props = ReservationImmersiveShellProps & {
+  eventTypeId: string;
+  sizeId: string | null;
+  pkgId: string | null;
+  vipIds: Set<string>;
+  onEventTypeId: (id: string) => void;
+  onSizeId: (id: string) => void;
+  onPkgId: (id: string) => void;
+  onToggleVip: (id: string) => void;
   onSubmit: () => void;
 };
 
 export function GroupEventBookingScreen(props: Props) {
-  const [eventTypeId, setEventTypeId] = React.useState<string>(EVENT_TYPE_OPTIONS[0].id);
-  const [sizeId, setSizeId] = React.useState<string | null>(null);
-  const [pkgId, setPkgId] = React.useState<string | null>(null);
-  const [vipIds, setVipIds] = React.useState<Set<string>>(new Set());
-
-  const toggleVip = (id: string) => {
-    setVipIds((prev) => {
-      const next = new Set(prev);
-      if (id === "none") return new Set(["none"]);
-      next.delete("none");
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
   return (
-    <ReservationScreenShell
-      title="Group & events"
-      stepLabel="Large party"
-      onBack={props.onBack}
-      onScroll={props.onScroll}
-      scrollTopPad={props.scrollTopPad}
-      scrollBottom={props.scrollBottom}
-      footer={
-        <>
-          <ReservationPrimaryButton label="Send request" onPress={props.onSubmit} disabled={!sizeId} />
-          <ReservationGhostButton label="Standard table booking" onPress={props.onBack} />
-        </>
-      }
+    <ReservationImmersiveStepShell
+      {...immersiveShellPassThrough(props)}
+      footer={<ReservationPrimaryButton variant="purple" label="Send request" onPress={props.onSubmit} />}
     >
+      <ReservationStepHeader stepLabel="Large party" title="Group & events" />
+
       <ReservationSection title="Event type">
         {EVENT_TYPE_OPTIONS.map((e) => (
           <TapTile
             key={e.id}
             label={e.label}
-            selected={eventTypeId === e.id}
-            onPress={() => setEventTypeId(e.id)}
+            selected={props.eventTypeId === e.id}
+            onPress={() => props.onEventTypeId(e.id)}
           />
         ))}
       </ReservationSection>
 
       <ReservationSection title="How many guests?">
-        <TapGrid
-          options={GROUP_SIZE_OPTIONS}
-          selectedId={sizeId}
-          onSelect={(id) => setSizeId(id)}
-        />
+        <TapGrid options={GROUP_SIZE_OPTIONS} selectedId={props.sizeId} onSelect={(id) => props.onSizeId(id)} />
       </ReservationSection>
 
       <ReservationSection title="Package">
@@ -79,8 +50,8 @@ export function GroupEventBookingScreen(props: Props) {
           <TapTile
             key={p.id}
             label={p.label}
-            selected={pkgId === p.id}
-            onPress={() => setPkgId(p.id)}
+            selected={props.pkgId === p.id}
+            onPress={() => props.onPkgId(p.id)}
           />
         ))}
       </ReservationSection>
@@ -90,11 +61,11 @@ export function GroupEventBookingScreen(props: Props) {
           <TapTile
             key={v.id}
             label={v.label}
-            selected={vipIds.has(v.id)}
-            onPress={() => toggleVip(v.id)}
+            selected={props.vipIds.has(v.id)}
+            onPress={() => props.onToggleVip(v.id)}
           />
         ))}
       </ReservationSection>
-    </ReservationScreenShell>
+    </ReservationImmersiveStepShell>
   );
 }

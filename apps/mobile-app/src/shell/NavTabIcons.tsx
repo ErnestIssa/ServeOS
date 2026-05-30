@@ -82,8 +82,9 @@ export function NavTabMeLabel({ size = 24, color }: IconProps) {
   );
 }
 
-/** Profile photo in the tab icon slot (same size as other tab glyphs). */
+/** Profile photo in the ME tab (typically larger than other tab glyphs). */
 export function NavTabMeAvatar({ size = 24, uri }: { size?: number; uri: string }) {
+  const ring = Math.max(1.5, Math.round(size * 0.07));
   return (
     <View
       style={{
@@ -92,7 +93,10 @@ export function NavTabMeAvatar({ size = 24, uri }: { size?: number; uri: string 
         borderRadius: size / 2,
         overflow: "hidden",
         alignItems: "center",
-        justifyContent: "center"
+        justifyContent: "center",
+        borderWidth: ring,
+        borderColor: "rgba(124,58,237,0.38)",
+        backgroundColor: "rgba(255,255,255,0.5)"
       }}
     >
       <Image source={{ uri }} style={{ width: size, height: size }} resizeMode="cover" />

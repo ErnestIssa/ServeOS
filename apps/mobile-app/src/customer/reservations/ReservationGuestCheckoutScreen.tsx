@@ -1,59 +1,44 @@
 import React from "react";
-import {
-  ReservationPrimaryButton,
-  ReservationSection,
-  TapTile,
-  TapToggleCard
-} from "./ReservationUi";
-import { ReservationScreenShell } from "./ReservationScreenShell";
-import type { ReservationFlowContext } from "./reservationTypes";
+import { ReservationImmersiveStepShell } from "./ReservationImmersiveStepShell";
+import { immersiveShellPassThrough, type ReservationImmersiveShellProps } from "./reservationImmersiveShellProps";
+import { ReservationStepHeader } from "./ReservationStepHeader";
+import { ReservationPrimaryButton, ReservationSection, TapTile, TapToggleCard } from "./ReservationUi";
+import type { ReservationDraft, ReservationFlowContext } from "./reservationTypes";
 
-type Props = ReservationFlowContext & {
-  onScroll: ReturnType<typeof import("react-native").Animated.event>;
-  scrollTopPad: number;
-  scrollBottom: number;
-  onBack: () => void;
-  onConfirm: () => void;
-};
+type Props = ReservationFlowContext &
+  ReservationImmersiveShellProps & {
+    draft: ReservationDraft;
+    onChange: (patch: Partial<ReservationDraft>) => void;
+    onConfirm: () => void;
+  };
 
 export function ReservationGuestCheckoutScreen(props: Props) {
-  const [useProfile, setUseProfile] = React.useState(true);
-  const [deposit, setDeposit] = React.useState(false);
-  const [sms, setSms] = React.useState(true);
-  const [emailPref, setEmailPref] = React.useState(true);
-
+  const { draft, onChange } = props;
   const displayName = props.userDisplayName.trim() || "Guest";
 
   return (
-    <ReservationScreenShell
-      title="Almost done"
-      stepLabel="Step 3 · Confirm you"
-      onBack={props.onBack}
-      onScroll={props.onScroll}
-      scrollTopPad={props.scrollTopPad}
-      scrollBottom={props.scrollBottom}
+    <ReservationImmersiveStepShell
+      {...immersiveShellPassThrough(props)}
       footer={
-        <ReservationPrimaryButton
-          label="Confirm reservation"
-          onPress={props.onConfirm}
-          disabled={!useProfile}
-        />
+        <ReservationPrimaryButton variant="purple" label="Confirm booking" onPress={props.onConfirm} />
       }
     >
+      <ReservationStepHeader stepLabel="Step 3 · Confirm you" title="Almost done" />
+
       <ReservationSection title="Your details">
         <TapTile
-          label={`Use my profile`}
+          label="Use my profile"
           sublabel={displayName}
-          selected={useProfile}
+          selected={draft.checkoutUseProfile}
           accent="success"
-          onPress={() => setUseProfile(true)}
+          onPress={() => onChange({ checkoutUseProfile: true })}
         />
         <TapTile
           label="Different guest"
           sublabel="Coming soon — use profile for now"
-          selected={!useProfile}
+          selected={!draft.checkoutUseProfile}
           accent="muted"
-          onPress={() => setUseProfile(false)}
+          onPress={() => onChange({ checkoutUseProfile: false })}
         />
       </ReservationSection>
 
@@ -61,15 +46,23 @@ export function ReservationGuestCheckoutScreen(props: Props) {
         <TapToggleCard
           label="Pay deposit now"
           sublabel="Optional hold for peak times"
-          on={deposit}
-          onPress={() => setDeposit((v) => !v)}
+          on={draft.checkoutDeposit}
+          onPress={() => onChange({ checkoutDeposit: !draft.checkoutDeposit })}
         />
       </ReservationSection>
 
       <ReservationSection title="How should we reach you?">
-        <TapToggleCard label="SMS reminders" on={sms} onPress={() => setSms((v) => !v)} />
-        <TapToggleCard label="Email updates" on={emailPref} onPress={() => setEmailPref((v) => !v)} />
+        <TapToggleCard
+          label="SMS reminders"
+          on={draft.checkoutSms}
+          onPress={() => onChange({ checkoutSms: !draft.checkoutSms })}
+        />
+        <TapToggleCard
+          label="Email updates"
+          on={draft.checkoutEmail}
+          onPress={() => onChange({ checkoutEmail: !draft.checkoutEmail })}
+        />
       </ReservationSection>
-    </ReservationScreenShell>
+    </ReservationImmersiveStepShell>
   );
 }

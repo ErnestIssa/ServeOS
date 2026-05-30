@@ -21,8 +21,8 @@ import {
   contentBottomInset
 } from "./navBottomMetrics";
 import {
+  NavIconAccount,
   NavTabMeAvatar,
-  NavTabMeLabel,
   NavIconBookings,
   NavIconHome,
   NavIconMessages,
@@ -46,6 +46,8 @@ const TABS: ReadonlyArray<{ id: TabId; label: string }> = [
 const SPRING = { damping: 24, stiffness: 340, mass: 0.82 };
 const PILL_INSET = 3;
 const ICON_SIZE = 24;
+/** ME tab profile photo — larger circle, no label underneath. */
+const ME_AVATAR_TAB_SIZE = 36;
 /** Keeps tab press ripple / hit area inset from outer purple chrome (horizontal padding on strip). */
 const TAB_EDGE_INSET_H = 10;
 /** Space between seam dash zone and interactive row (ripple must not creep into dash). */
@@ -80,7 +82,15 @@ type Props = {
   meAvatarUri?: string | null;
 };
 
-function TabGlyph({ id, color, meAvatarUri }: { id: TabId; color: string; meAvatarUri?: string | null }) {
+function TabGlyph({
+  id,
+  color,
+  meAvatarUri
+}: {
+  id: TabId;
+  color: string;
+  meAvatarUri?: string | null;
+}) {
   switch (id) {
     case "home":
       return <NavIconHome size={ICON_SIZE} color={color} />;
@@ -92,9 +102,9 @@ function TabGlyph({ id, color, meAvatarUri }: { id: TabId; color: string; meAvat
       return <NavIconMessages size={ICON_SIZE} color={color} />;
     case "account":
       if (meAvatarUri?.trim()) {
-        return <NavTabMeAvatar size={ICON_SIZE} uri={meAvatarUri.trim()} />;
+        return <NavTabMeAvatar size={ME_AVATAR_TAB_SIZE} uri={meAvatarUri.trim()} />;
       }
-      return <NavTabMeLabel size={ICON_SIZE} color={color} />;
+      return <NavIconAccount size={ICON_SIZE} color={color} />;
     default:
       return null;
   }
@@ -383,6 +393,7 @@ export function FloatingGlassTabBar({
                         const { icon, label: labelColor } = colorsFor(t, selected);
                         const labelWeight: "600" | "800" | "900" =
                           t.id === "orders" ? "900" : selected ? "800" : "600";
+                        const meHasPhoto = t.id === "account" && Boolean(meAvatarUri?.trim());
                         return (
                           <Pressable
                             key={t.id}
@@ -402,7 +413,12 @@ export function FloatingGlassTabBar({
                             }
                             onPress={() => onTabPress(t.id, index)}
                           >
-                            <View style={styles.tabGlyphWrap}>
+                            <View
+                              style={[
+                                styles.tabGlyphWrap,
+                                meHasPhoto && styles.tabGlyphWrapMePhoto
+                              ]}
+                            >
                               <TabGlyph id={t.id} color={icon} meAvatarUri={meAvatarUri} />
                               {t.id === "messages" && messagesUnreadCount > 0 ? (
                                 <View style={styles.tabBadge}>
@@ -419,12 +435,14 @@ export function FloatingGlassTabBar({
                                 </View>
                               ) : null}
                             </View>
-                            <Text
-                              style={[styles.tabLabel, { color: labelColor, fontWeight: labelWeight }]}
-                              numberOfLines={1}
-                            >
-                              {t.label}
-                            </Text>
+                            {meHasPhoto ? null : (
+                              <Text
+                                style={[styles.tabLabel, { color: labelColor, fontWeight: labelWeight }]}
+                                numberOfLines={1}
+                              >
+                                {t.label}
+                              </Text>
+                            )}
                           </Pressable>
                         );
                       })}
@@ -639,6 +657,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 3
+  },
+  tabGlyphWrapMePhoto: {
+    height: ME_AVATAR_TAB_SIZE,
+    marginBottom: 0
   },
   tabBadge: {
     position: "absolute",

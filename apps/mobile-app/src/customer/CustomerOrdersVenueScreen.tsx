@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-na
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { type CustomerRestaurantRow } from "../api";
 import { loadRestaurantDirectoryCached } from "../data/customerDataCache";
+import { ScreenErrorState, formatAppError } from "../errors";
 import { R } from "../theme";
 import { FLOATING_TOP_BAR_HEIGHT } from "../shell/FloatingTopBar";
 import { contentBottomInset } from "../shell/navBottomMetrics";
@@ -63,6 +64,7 @@ export function CustomerOrdersVenueScreen(props: Props) {
   const insets = useSafeAreaInsets();
   const [rows, setRows] = React.useState<CustomerRestaurantRow[] | null>(null);
   const [loadErr, setLoadErr] = React.useState<string | null>(null);
+  const [directoryRetryTick, setDirectoryRetryTick] = React.useState(0);
   const [venueModalOpen, setVenueModalOpen] = React.useState(false);
   const [phraseLandTick, setPhraseLandTick] = React.useState(0);
 
@@ -92,7 +94,7 @@ export function CustomerOrdersVenueScreen(props: Props) {
     return () => {
       cancelled = true;
     };
-  }, [token, userId, activeOrderForPage]);
+  }, [token, userId, activeOrderForPage, directoryRetryTick]);
 
   const currentRow = React.useMemo(
     () => (rows && activeId ? rows.find((r) => r.id === activeId.trim()) : undefined),
@@ -195,7 +197,17 @@ export function CustomerOrdersVenueScreen(props: Props) {
         <Text style={styles.pageSub}>Demo menu mode — venue switching is turned off while previewing this build.</Text>
       ) : null}
 
-      {loadErr ? <Text style={styles.warn}>{loadErr}</Text> : null}
+      {loadErr ? (
+        <ScreenErrorState
+          title="Venues unavailable"
+          message={formatAppError(loadErr)}
+          onRetry={() => {
+            setLoadErr(null);
+            setDirectoryRetryTick((n) => n + 1);
+          }}
+          style={styles.screenError}
+        />
+      ) : null}
 
       <CustomerOrderTrackingSection
         orders={customerOrders}
@@ -263,6 +275,11 @@ const styles = StyleSheet.create({
     color: R.textSecondary,
     marginLeft: 2,
     marginTop: -1
+  },
+  screenError: {
+    marginTop: 8,
+    marginBottom: 4,
+    minHeight: 160
   },
   pageSub: {
     marginTop: 18,

@@ -36,6 +36,7 @@ import {
 } from "../lib/customerChatHub.js";
 import { isRestaurantStaffOnline } from "../lib/restaurantPresence.js";
 import { buildVenueStatusPayload } from "../lib/venueHoursStatus.js";
+import { countCustomerChatImagesInRoom, ensureChatMessageImageEnum } from "../lib/chatImageEnum.js";
 import { countCustomerChatUnread, countRoomUnreadForCustomer } from "../lib/chatUnread.js";
 
 function bearerToken(headers: { authorization?: string }): string | null {
@@ -69,6 +70,19 @@ const postImagesSchema = z.object({
 });
 
 export function registerCustomerChatRoutes(app: FastifyInstance, prisma: PrismaClient, chatBus: EventEmitter) {
+  app.addHook("preHandler", async (req, reply) => {
+    if (!req.url.startsWith("/customer/chat")) return;
+    try {
+      await ensureChatMessageImageEnum(prisma);
+    } catch {
+      return reply.status(503).send({
+        ok: false,
+        error: "chat_schema_not_ready",
+        message: "Chat photo support is still initializing. Retry in a moment."
+      });
+    }
+  });
+
   app.get("/customer/chat/unread-count", async (req, reply) => {
     const tok = bearerToken(req.headers as { authorization?: string });
     if (!tok) return reply.status(401).send({ ok: false, error: "missing_token" });
@@ -243,9 +257,7 @@ export function registerCustomerChatRoutes(app: FastifyInstance, prisma: PrismaC
     const messages: ThreadFeedItem[] = serialized.map((m) => ({ kind: "message" as const, ...m }));
     const threadFeed = buildThreadFeed(messages);
     const roomUnreadCount = await countRoomUnreadForCustomer(prisma, chatRoomId, pl.sub);
-    const customerImageCount = await prisma.chatMessage.count({
-      where: { chatRoomId, senderRole: "CUSTOMER", type: "IMAGE" }
-    });
+    const customerImageCount = await countCustomerChatImagesInRoom(prisma, chatRoomId);
 
     const recentOrders = orderRows
       .filter((o) => o.restaurantId === restaurantId && (o.status === "COMPLETED" || o.status === "CANCELLED"))
@@ -498,9 +510,7 @@ export function registerCustomerChatRoutes(app: FastifyInstance, prisma: PrismaC
       orderId: resolvedOrderId
     });
 
-    const used = await prisma.chatMessage.count({
-      where: { chatRoomId, senderRole: "CUSTOMER", type: "IMAGE" }
-    });
+    const used = await countCustomerChatImagesInRoom(prisma, chatRoomId);
     if (used + images.length > CHAT_MAX_IMAGES_PER_ROOM) {
       return reply.status(400).send({
         ok: false,

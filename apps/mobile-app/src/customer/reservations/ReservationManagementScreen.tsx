@@ -1,57 +1,45 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { R } from "../../theme";
+import { useAppTheme } from "../../theme/AppThemeContext";
+import { ReservationImmersiveStepShell } from "./ReservationImmersiveStepShell";
+import { immersiveShellPassThrough, type ReservationImmersiveShellProps } from "./reservationImmersiveShellProps";
+import { ReservationStepHeader } from "./ReservationStepHeader";
 import {
   ReservationGhostButton,
   ReservationPrimaryButton,
   ReservationSection,
   TapTile
 } from "./ReservationUi";
-import { ReservationScreenShell } from "./ReservationScreenShell";
 import type { ReservationFlowContext } from "./reservationTypes";
 
-type Props = ReservationFlowContext & {
-  confirmationCode: string;
-  onScroll: ReturnType<typeof import("react-native").Animated.event>;
-  scrollTopPad: number;
-  scrollBottom: number;
-  onBack: () => void;
-  onModify: () => void;
-  onCancel: () => void;
-  onCheckIn: () => void;
-};
-
-const DEMO_BOOKING = {
-  when: "Fri · 19:30",
-  party: "4 guests",
-  table: "Table 8 · Booth",
-  status: "Confirmed"
-} as const;
+type Props = ReservationFlowContext &
+  ReservationImmersiveShellProps & {
+    confirmationCode: string;
+    onModify: () => void;
+    onCancel: () => void;
+    onCheckIn: () => void;
+  };
 
 export function ReservationManagementScreen(props: Props) {
+  const { colors: t } = useAppTheme();
+
   return (
-    <ReservationScreenShell
-      title="Your booking"
-      onBack={props.onBack}
-      onScroll={props.onScroll}
-      scrollTopPad={props.scrollTopPad}
-      scrollBottom={props.scrollBottom}
+    <ReservationImmersiveStepShell
+      {...immersiveShellPassThrough(props)}
       footer={
         <>
-          <ReservationPrimaryButton label="Change reservation" onPress={props.onModify} />
-          <ReservationGhostButton label="Check in" onPress={props.onCheckIn} />
+          <ReservationPrimaryButton variant="purple" label="Modify booking" onPress={props.onModify} />
           <ReservationGhostButton label="Cancel booking" onPress={props.onCancel} danger />
         </>
       }
     >
-      <View style={styles.card}>
-        <Text style={styles.ref}>{props.confirmationCode}</Text>
-        <Text style={styles.venue}>{props.restaurantName}</Text>
-        <Text style={styles.line}>{DEMO_BOOKING.when}</Text>
-        <Text style={styles.line}>{DEMO_BOOKING.party}</Text>
-        <Text style={styles.line}>{DEMO_BOOKING.table}</Text>
-        <View style={styles.statusPill}>
-          <Text style={styles.statusText}>{DEMO_BOOKING.status}</Text>
+      <ReservationStepHeader title="Your booking" subtitle={props.restaurantName} />
+
+      <View style={[styles.card, { borderColor: t.border, backgroundColor: t.bgElevated }]}>
+        <Text style={[styles.ref, { color: t.textMuted }]}>{props.confirmationCode}</Text>
+        <Text style={[styles.venue, { color: t.text }]}>{props.restaurantName}</Text>
+        <View style={[styles.statusPill, { backgroundColor: `${t.ordersNavPurpleBright}22` }]}>
+          <Text style={[styles.statusText, { color: t.ordersNavPurpleBright }]}>Confirmed</Text>
         </View>
       </View>
 
@@ -63,29 +51,26 @@ export function ReservationManagementScreen(props: Props) {
       <ReservationSection title="Queue">
         <TapTile label="Not in queue yet" sublabel="Tap when you arrive" accent="muted" onPress={() => {}} />
       </ReservationSection>
-    </ReservationScreenShell>
+    </ReservationImmersiveStepShell>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: R.radius.card,
+    borderRadius: 20,
     borderWidth: 2,
-    borderColor: R.border,
-    backgroundColor: R.bg,
-    padding: R.space.sm,
-    marginTop: 4
+    padding: 16,
+    marginTop: 4,
+    marginBottom: 8
   },
-  ref: { fontSize: 12, fontWeight: "800", color: R.textMuted, letterSpacing: 1 },
-  venue: { fontSize: 24, fontWeight: "900", color: R.text, marginTop: 6 },
-  line: { marginTop: 6, fontSize: 17, fontWeight: "600", color: R.textSecondary },
+  ref: { fontSize: 12, fontWeight: "800", letterSpacing: 1 },
+  venue: { fontSize: 24, fontWeight: "900", marginTop: 6 },
   statusPill: {
     alignSelf: "flex-start",
     marginTop: 14,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: R.radius.pill,
-    backgroundColor: "rgba(59, 130, 246, 0.12)"
+    borderRadius: 999
   },
-  statusText: { fontSize: R.type.label, fontWeight: "800", color: R.accentBlue }
+  statusText: { fontSize: 13, fontWeight: "800" }
 });

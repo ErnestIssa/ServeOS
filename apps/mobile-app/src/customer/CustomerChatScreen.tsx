@@ -41,6 +41,7 @@ import { confirmSendChatImages, pickChatImages, type PreparedChatImage } from ".
 import { ChatTypingDots } from "./chat/ChatTypingDots";
 import { isIncomingMessage, isMessageUnread } from "./chat/chatUnreadHelpers";
 import { joinChatRoom, sendChatRead, sendChatTyping, subscribeChatRelay } from "./chat/customerChatSocket";
+import { ScreenErrorState } from "../errors";
 
 const TYPING_EMIT_MS = 400;
 const TYPING_IDLE_MS = 2800;
@@ -572,17 +573,13 @@ export function CustomerChatScreen(props: Props) {
         </View>
       ) : null}
 
-      {loadErr ? (
-        <Pressable style={[styles.errCard, { marginHorizontal: R.space.sm }]} onPress={dismissKeyboard}>
-          <Text style={styles.errTitle}>Could not connect</Text>
-          <Text style={styles.errBody}>{loadErr}</Text>
-          <Pressable
-            style={({ pressed }) => [styles.retryBtn, pressed && styles.pressed]}
-            onPress={() => void loadHub({ force: true })}
-          >
-            <Text style={styles.retryText}>Try again</Text>
-          </Pressable>
-        </Pressable>
+      {loadErr && !loading ? (
+        <ScreenErrorState
+          style={{ flex: 1, marginTop: listTopInset }}
+          title="Could not connect"
+          message={loadErr}
+          onRetry={() => void loadHub({ force: true })}
+        />
       ) : null}
 
       {!loading && hub?.ok && !loadErr ? (
@@ -674,18 +671,9 @@ const styles = StyleSheet.create({
   loadingRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 24 },
   syncDotRow: { position: "absolute", right: 16, zIndex: 14 },
   loadingText: { fontSize: R.type.label, color: R.textSecondary, fontWeight: "600" },
-  errCard: {
-    backgroundColor: "rgba(255,255,255,0.9)",
-    borderRadius: R.radius.card,
-    borderWidth: 1,
-    borderColor: R.border,
-    padding: R.space.sm
-  },
-  errTitle: { fontSize: 17, fontWeight: "800", color: R.text },
-  errBody: { marginTop: 6, fontSize: 15, lineHeight: 22, color: R.textSecondary },
   retryBtn: {
     marginTop: 12,
-    alignSelf: "flex-start",
+    alignSelf: "center",
     backgroundColor: R.accentPurple,
     borderRadius: R.radius.pill,
     paddingHorizontal: 18,

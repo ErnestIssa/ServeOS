@@ -2,7 +2,21 @@ import * as Haptics from "expo-haptics";
 import React from "react";
 import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 import { R } from "../../theme";
+import { useAppTheme } from "../../theme/AppThemeContext";
 import { ReservationThreeDotLoader } from "./ReservationThreeDotLoader";
+
+function useThemedTap() {
+  const { colors: t, isDark } = useAppTheme();
+  return {
+    accent: t.ordersNavPurpleBright,
+    selectedBg: isDark ? "rgba(167,139,250,0.22)" : "rgba(167,139,250,0.14)",
+    border: isDark ? "rgba(148,163,184,0.26)" : R.border,
+    bg: isDark ? "rgba(15,23,42,0.52)" : R.bg,
+    bgElevated: isDark ? "rgba(30,41,59,0.55)" : R.bgElevated,
+    text: t.text,
+    textMuted: t.textSecondary
+  };
+}
 
 function tapHaptic() {
   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -14,10 +28,13 @@ export function ReservationSection(props: {
   children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
 }) {
+  const themed = useThemedTap();
   return (
     <View style={[styles.section, props.style]}>
-      <Text style={styles.sectionTitle}>{props.title}</Text>
-      {props.subtitle ? <Text style={styles.sectionSub}>{props.subtitle}</Text> : null}
+      <Text style={[styles.sectionTitle, { color: themed.accent }]}>{props.title}</Text>
+      {props.subtitle ? (
+        <Text style={[styles.sectionSub, { color: themed.textMuted }]}>{props.subtitle}</Text>
+      ) : null}
       {props.children}
     </View>
   );
@@ -32,6 +49,7 @@ export function TapTile(props: {
   accent?: "default" | "success" | "muted";
 }) {
   const accent = props.accent ?? "default";
+  const themed = useThemedTap();
   return (
     <Pressable
       onPress={() => {
@@ -40,15 +58,21 @@ export function TapTile(props: {
       }}
       style={({ pressed }) => [
         styles.tapTile,
+        {
+          borderColor: props.selected ? themed.accent : themed.border,
+          backgroundColor: props.selected ? themed.selectedBg : accent === "muted" ? themed.bgElevated : themed.bg
+        },
         accent === "success" && styles.tapTileSuccess,
-        accent === "muted" && styles.tapTileMuted,
-        props.selected && styles.tapTileSelected,
         pressed && styles.tapPressed
       ]}
     >
-      <Text style={[styles.tapTileLabel, props.selected && styles.tapTileLabelSelected]}>{props.label}</Text>
+      <Text style={[styles.tapTileLabel, { color: props.selected ? themed.accent : themed.text }]}>
+        {props.label}
+      </Text>
       {props.sublabel ? (
-        <Text style={[styles.tapTileSub, props.selected && styles.tapTileSubSelected]}>{props.sublabel}</Text>
+        <Text style={[styles.tapTileSub, { color: props.selected ? themed.accent : themed.textMuted }]}>
+          {props.sublabel}
+        </Text>
       ) : null}
     </Pressable>
   );
@@ -62,29 +86,36 @@ export function TapGrid(props: {
   columns?: 2 | 3;
 }) {
   const cols = props.columns ?? 2;
+  const themed = useThemedTap();
   return (
     <View style={styles.tapGrid}>
-      {props.options.map((opt) => (
-        <Pressable
-          key={opt.id}
-          onPress={() => {
-            tapHaptic();
-            props.onSelect(opt.id, opt.label);
-          }}
-          style={({ pressed }) => [
-            cols === 3 ? styles.tapGridCell3 : styles.tapGridCell2,
-            props.selectedId === opt.id && styles.tapGridCellSelected,
-            pressed && styles.tapPressed
-          ]}
-        >
-          <Text style={[styles.tapGridLabel, props.selectedId === opt.id && styles.tapGridLabelSelected]}>
-            {opt.label}
-          </Text>
-          {opt.sublabel ? (
-            <Text style={[styles.tapGridSub, props.selectedId === opt.id && styles.tapGridSubSelected]}>{opt.sublabel}</Text>
-          ) : null}
-        </Pressable>
-      ))}
+      {props.options.map((opt) => {
+        const selected = props.selectedId === opt.id;
+        return (
+          <Pressable
+            key={opt.id}
+            onPress={() => {
+              tapHaptic();
+              props.onSelect(opt.id, opt.label);
+            }}
+            style={({ pressed }) => [
+              cols === 3 ? styles.tapGridCell3 : styles.tapGridCell2,
+              {
+                borderColor: selected ? themed.accent : themed.border,
+                backgroundColor: selected ? themed.selectedBg : themed.bg
+              },
+              pressed && styles.tapPressed
+            ]}
+          >
+            <Text style={[styles.tapGridLabel, { color: selected ? themed.accent : themed.text }]}>{opt.label}</Text>
+            {opt.sublabel ? (
+              <Text style={[styles.tapGridSub, { color: selected ? themed.accent : themed.textMuted }]}>
+                {opt.sublabel}
+              </Text>
+            ) : null}
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -95,46 +126,61 @@ export function TapPillRow(props: {
   selected: string | null;
   onSelect: (value: string) => void;
 }) {
+  const themed = useThemedTap();
   return (
     <View style={styles.pillRow}>
-      {props.options.map((opt) => (
-        <Pressable
-          key={opt}
-          onPress={() => {
-            tapHaptic();
-            props.onSelect(opt);
-          }}
-          style={({ pressed }) => [
-            styles.tapPill,
-            props.selected === opt && styles.tapPillSelected,
-            pressed && styles.tapPressed
-          ]}
-        >
-          <Text style={[styles.tapPillText, props.selected === opt && styles.tapPillTextSelected]}>{opt}</Text>
-        </Pressable>
-      ))}
+      {props.options.map((opt) => {
+        const selected = props.selected === opt;
+        return (
+          <Pressable
+            key={opt}
+            onPress={() => {
+              tapHaptic();
+              props.onSelect(opt);
+            }}
+            style={({ pressed }) => [
+              styles.tapPill,
+              {
+                borderColor: selected ? themed.accent : themed.border,
+                backgroundColor: selected ? themed.selectedBg : themed.bg
+              },
+              pressed && styles.tapPressed
+            ]}
+          >
+            <Text style={[styles.tapPillText, { color: selected ? themed.accent : themed.textMuted }]}>{opt}</Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
 
 /** On/off as a big card (replaces small switches). */
 export function TapToggleCard(props: { label: string; sublabel?: string; on: boolean; onPress: () => void }) {
+  const themed = useThemedTap();
   return (
     <Pressable
       onPress={() => {
         tapHaptic();
         props.onPress();
       }}
-      style={({ pressed }) => [styles.toggleCard, props.on && styles.toggleCardOn, pressed && styles.tapPressed]}
+      style={({ pressed }) => [
+        styles.toggleCard,
+        {
+          borderColor: props.on ? themed.accent : themed.border,
+          backgroundColor: props.on ? themed.selectedBg : themed.bgElevated
+        },
+        pressed && styles.tapPressed
+      ]}
     >
       <View style={styles.toggleCardInner}>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.toggleLabel, props.on && styles.toggleLabelOn]}>{props.label}</Text>
+          <Text style={[styles.toggleLabel, { color: props.on ? themed.accent : themed.text }]}>{props.label}</Text>
           {props.sublabel ? (
-            <Text style={[styles.toggleSub, props.on && styles.toggleSubOn]}>{props.sublabel}</Text>
+            <Text style={[styles.toggleSub, { color: themed.textMuted }]}>{props.sublabel}</Text>
           ) : null}
         </View>
-        <View style={[styles.toggleDot, props.on && styles.toggleDotOn]}>
+        <View style={[styles.toggleDot, { backgroundColor: props.on ? themed.accent : themed.border }]}>
           <Text style={styles.toggleDotText}>{props.on ? "On" : "Off"}</Text>
         </View>
       </View>
@@ -176,6 +222,7 @@ export function ReservationPrimaryButton(props: {
 }
 
 export function ReservationGhostButton(props: { label: string; onPress: () => void; danger?: boolean }) {
+  const themed = useThemedTap();
   return (
     <Pressable
       onPress={() => {
@@ -184,36 +231,44 @@ export function ReservationGhostButton(props: { label: string; onPress: () => vo
       }}
       style={({ pressed }) => [
         styles.ghostBtn,
+        { borderColor: props.danger ? "rgba(239, 68, 68, 0.45)" : themed.border, backgroundColor: themed.bg },
         props.danger && styles.ghostBtnDanger,
         pressed && styles.tapPressed
       ]}
     >
-      <Text style={[styles.ghostBtnText, props.danger && styles.ghostBtnTextDanger]}>{props.label}</Text>
+      <Text style={[styles.ghostBtnText, { color: props.danger ? R.danger : themed.text }]}>{props.label}</Text>
     </Pressable>
   );
 }
 
 export function ReservationMapPlaceholder(props: { onSelectTable: (id: string, label: string) => void; selectedId: string | null }) {
+  const themed = useThemedTap();
   return (
-    <View style={styles.mapBox}>
-      <Text style={styles.mapHint}>Tap a zone</Text>
+    <View style={[styles.mapBox, { borderColor: themed.border, backgroundColor: themed.bgElevated }]}>
+      <Text style={[styles.mapHint, { color: themed.textMuted }]}>Tap a zone</Text>
       <View style={styles.mapRow}>
-        {["Window", "Booth", "Bar"].map((zone) => (
-          <Pressable
-            key={zone}
-            onPress={() => {
-              tapHaptic();
-              props.onSelectTable(zone.toLowerCase(), zone);
-            }}
-            style={({ pressed }) => [
-              styles.mapZone,
-              props.selectedId === zone.toLowerCase() && styles.mapZoneSelected,
-              pressed && styles.tapPressed
-            ]}
-          >
-            <Text style={styles.mapZoneText}>{zone}</Text>
-          </Pressable>
-        ))}
+        {["Window", "Booth", "Bar"].map((zone) => {
+          const selected = props.selectedId === zone.toLowerCase();
+          return (
+            <Pressable
+              key={zone}
+              onPress={() => {
+                tapHaptic();
+                props.onSelectTable(zone.toLowerCase(), zone);
+              }}
+              style={({ pressed }) => [
+                styles.mapZone,
+                {
+                  borderColor: selected ? themed.accent : themed.border,
+                  backgroundColor: selected ? themed.selectedBg : themed.bg
+                },
+                pressed && styles.tapPressed
+              ]}
+            >
+              <Text style={[styles.mapZoneText, { color: selected ? themed.accent : themed.text }]}>{zone}</Text>
+            </Pressable>
+          );
+        })}
       </View>
     </View>
   );
@@ -225,12 +280,11 @@ const BTN_MIN = 56;
 const styles = StyleSheet.create({
   section: { marginTop: R.space.md },
   sectionTitle: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: R.textMuted,
+    fontSize: 13,
+    fontWeight: "700",
     textTransform: "uppercase",
-    letterSpacing: 0.7,
-    marginBottom: 8
+    letterSpacing: 0.35,
+    marginBottom: 12
   },
   sectionSub: {
     fontSize: R.type.caption,

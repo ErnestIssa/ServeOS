@@ -21,6 +21,10 @@ export type ReservationDraft = {
   accessibilityNotes: string;
   tableId: string | null;
   slotLabel: string | null;
+  checkoutUseProfile: boolean;
+  checkoutDeposit: boolean;
+  checkoutSms: boolean;
+  checkoutEmail: boolean;
 };
 
 export const EMPTY_RESERVATION_DRAFT: ReservationDraft = {
@@ -34,7 +38,11 @@ export const EMPTY_RESERVATION_DRAFT: ReservationDraft = {
   occasion: null,
   accessibilityNotes: "",
   tableId: null,
-  slotLabel: null
+  slotLabel: null,
+  checkoutUseProfile: true,
+  checkoutDeposit: false,
+  checkoutSms: true,
+  checkoutEmail: false
 };
 
 export type ReservationFlowContext = {

@@ -1,4 +1,5 @@
 import type { ChatMessageType, PrismaClient } from "@prisma/client";
+import { ensureChatMessageImageEnum } from "./chatImageEnum.js";
 import { computeOutgoingDeliveryStatus, type OutgoingDeliveryStatus } from "./chatReadStatus.js";
 
 export type { OutgoingDeliveryStatus };
@@ -114,6 +115,12 @@ export async function createChatImageMessages(
   }
 ) {
   if (!input.dataUris.length) throw Object.assign(new Error("no_images"), { statusCode: 400 });
+
+  try {
+    await ensureChatMessageImageEnum(prisma);
+  } catch {
+    throw Object.assign(new Error("chat_schema_not_ready"), { statusCode: 503 });
+  }
 
   const now = new Date();
   const preview = input.dataUris.length > 1 ? `📷 ${input.dataUris.length} photos` : "📷 Photo";

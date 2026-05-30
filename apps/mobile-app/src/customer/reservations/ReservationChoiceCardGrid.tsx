@@ -1,5 +1,4 @@
 import * as Haptics from "expo-haptics";
-import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import type { ThemeColors } from "../../theme/AppThemeContext";
@@ -22,8 +21,9 @@ export function ReservationChoiceCardGrid(props: {
   onToggle: (id: string) => void;
 }) {
   const { isDark, t } = props;
-  const baseBg = isDark ? "rgba(15,23,42,0.62)" : "rgba(255,255,255,0.94)";
+  const idleBg = isDark ? "rgba(15,23,42,0.62)" : "rgba(255,255,255,0.94)";
   const idleBorder = isDark ? "rgba(148,163,184,0.26)" : "rgba(226,232,240,0.94)";
+  const purple = t.ordersNavPurpleBright;
 
   return (
     <View style={styles.grid} collapsable={false}>
@@ -45,38 +45,29 @@ export function ReservationChoiceCardGrid(props: {
               style={[
                 styles.cellClip,
                 selected && styles.cellClipSelected,
-                { borderColor: selected ? t.ordersNavPurpleBright : idleBorder }
+                {
+                  borderColor: selected ? purple : idleBorder,
+                  backgroundColor: selected ? purple : idleBg
+                }
               ]}
             >
-              {selected ? (
-                <LinearGradient
-                  colors={
-                    isDark
-                      ? ["rgba(167,139,250,0.26)", "rgba(124,58,237,0.06)", "transparent"]
-                      : ["rgba(167,139,250,0.14)", "rgba(255,255,255,0.55)", "transparent"]
-                  }
-                  locations={[0, 0.42, 1]}
-                  start={{ x: 0.5, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={StyleSheet.absoluteFill}
-                  pointerEvents="none"
-                />
-              ) : null}
-
-              <View pointerEvents="none" style={[styles.face, { backgroundColor: baseBg }]}>
-                <View style={[styles.accentCap, { backgroundColor: t.ordersNavPurpleBright, opacity: selected ? 1 : 0.34 }]} />
-                <Text style={[styles.cardTitle, { color: t.text }]} numberOfLines={2}>
-                  {opt.label}
+              <Text
+                style={[styles.cardTitle, { color: selected ? "#FFFFFF" : t.text }]}
+                numberOfLines={2}
+              >
+                {opt.label}
+              </Text>
+              {opt.sublabel ? (
+                <Text
+                  style={[
+                    styles.cardSub,
+                    { color: selected ? "rgba(255,255,255,0.88)" : t.textSecondary }
+                  ]}
+                  numberOfLines={2}
+                >
+                  {opt.sublabel}
                 </Text>
-                {opt.sublabel ? (
-                  <Text
-                    style={[styles.cardSub, { color: selected ? t.ordersNavPurpleBright : t.textSecondary }]}
-                    numberOfLines={2}
-                  >
-                    {opt.sublabel}
-                  </Text>
-                ) : null}
-              </View>
+              ) : null}
             </View>
           </Pressable>
         );
@@ -98,7 +89,6 @@ const styles = StyleSheet.create({
     width: "48%",
     borderRadius: 20
   },
-  cellOuterSelected: {},
   cellOuterPressed: {
     transform: [{ scale: 0.987 }],
     opacity: 0.96
@@ -106,7 +96,11 @@ const styles = StyleSheet.create({
   cellClip: {
     borderRadius: 20,
     borderWidth: 2,
-    overflow: "hidden",
+    minHeight: 100,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 14,
+    justifyContent: "center",
     ...Platform.select({
       ios: {
         shadowColor: "#1e1b4b",
@@ -121,26 +115,13 @@ const styles = StyleSheet.create({
   cellClipSelected: Platform.select({
     ios: {
       shadowColor: "#7C3AED",
-      shadowOpacity: 0.22,
+      shadowOpacity: 0.28,
       shadowRadius: 22
     },
     android: { elevation: 8 },
     default: {}
   }),
-  face: {
-    minHeight: 100,
-    paddingHorizontal: 14,
-    paddingTop: 13,
-    paddingBottom: 14
-  },
-  accentCap: {
-    width: "100%",
-    height: 4,
-    borderRadius: 3,
-    marginBottom: 2
-  },
   cardTitle: {
-    marginTop: 4,
     fontSize: 15,
     fontWeight: "900",
     letterSpacing: -0.28,

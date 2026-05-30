@@ -89,6 +89,7 @@ import { CustomerNavMenuPage } from "./src/shell/CustomerNavMenuPage";
 import { FloatingTopBar, FLOATING_TOP_BAR_HEIGHT } from "./src/shell/FloatingTopBar";
 import { createAppStyles } from "./src/theme/createAppStyles";
 import { R } from "./src/theme";
+import { isLikelyErrorStatus, useAppErrors } from "./src/errors";
 
 const AUTH_TOKEN_KEY = "serveos.auth.jwt";
 const CUSTOMER_VENUE_KEY = "serveos.customer.preferredRestaurantId";
@@ -102,7 +103,9 @@ const SCROLL_KEYBOARD_DISMISS_MODE = Platform.OS === "ios" ? ("interactive" as c
 export default function App() {
   const insets = useSafeAreaInsets();
   const { colors: themeColors, isDark } = useAppTheme();
+  const { showErrorModal } = useAppErrors();
   const styles = React.useMemo(() => createAppStyles(themeColors, isDark), [themeColors, isDark]);
+  const lastStatusErrorRef = React.useRef("");
 
   const [showSplash, setShowSplash] = React.useState(true);
   const [appReady, setAppReady] = React.useState(false);
@@ -126,6 +129,21 @@ export default function App() {
   const [restaurants, setRestaurants] = React.useState<Array<{ id: string; name: string; role: string; companyId?: string | null }>>([]);
   const [restaurantName, setRestaurantName] = React.useState("My Restaurant");
   const [status, setStatus] = React.useState("");
+  React.useEffect(() => {
+    if (!status || !isLikelyErrorStatus(status)) {
+      lastStatusErrorRef.current = "";
+      return;
+    }
+    if (lastStatusErrorRef.current === status) return;
+    lastStatusErrorRef.current = status;
+    showErrorModal(status, {
+      title: "Could not complete",
+      onClosed: () => {
+        setStatus("");
+        lastStatusErrorRef.current = "";
+      }
+    });
+  }, [status, showErrorModal]);
   const [customerSearchQuery, setCustomerSearchQuery] = React.useState("");
   /** Full-screen page from customer top-bar menu (hamburger); back restores prior tab/screen. */
   const [customerNavMenuOpen, setCustomerNavMenuOpen] = React.useState(false);
@@ -231,6 +249,15 @@ export default function App() {
   const [customerMenuTopY, setCustomerMenuTopY] = React.useState(320);
 
   const scrollY = React.useRef(new Animated.Value(0)).current;
+  const resetBookingsScroll = React.useCallback(() => {
+    scrollY.setValue(0);
+  }, [scrollY]);
+  const restoreBookingsScroll = React.useCallback(
+    (y: number) => {
+      scrollY.setValue(Math.max(0, y));
+    },
+    [scrollY]
+  );
   const onScroll = React.useMemo(
     () =>
       Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
@@ -1131,7 +1158,10 @@ export default function App() {
     (restaurants[0]?.name ? String(restaurants[0]?.name) : null) ??
     "ServeOS";
 
-  const navGradient = nativeNavBoldGradient(tab as AmbientNativeTab);
+  /** One nav capsule look for all customer tabs (matches Home glass chrome). */
+  const navGradient = isCustomerSession
+    ? nativeNavBoldGradient("home")
+    : nativeNavBoldGradient(tab as AmbientNativeTab);
   /** Home only: full-width menu rails. Orders keeps normal horizontal padding so layout matches other tabs. */
   const customerScreenEdgeBleed = isCustomerSession && tab === "home";
   /** Empty Orders: pause cart bounce + CTA rotation while customer search sheet is open. */
@@ -1194,7 +1224,7 @@ export default function App() {
 
       <View style={styles.main}>
         <ScrollMeshBackground tab={tab} scrollY={scrollY} />
-        {!hideCustomerTopNav ? <TopNavContentDimmer scrollY={scrollY} topInset={insets.top} /> : null}
+        {!hideCustomerTopNav ? <TopNavContentDimmer topInset={insets.top} /> : null}
         {isCustomerSession ? (
           !hideCustomerTopNav ? (
           <FloatingTopBar
@@ -1357,6 +1387,7 @@ export default function App() {
             userDisplayName={customerDisplayName(sessionUser?.signupProfile, sessionUser?.email ?? undefined)}
             hasVenue={Boolean(activeRestaurantId().trim())}
             authToken={token}
+            userId={sessionUser?.id}
             scrollY={scrollY}
             onScroll={onScroll}
             scrollTopPad={scrollTopPad}
@@ -1364,6 +1395,8 @@ export default function App() {
             onChooseVenue={() => setTab("orders")}
             onOpenChat={() => setTab("messages")}
             onExitToHome={() => setTab("home")}
+            onResetScroll={resetBookingsScroll}
+            onRestoreScroll={restoreBookingsScroll}
           />
         ) : tab === "bookings" ? (
           <Animated.ScrollView
@@ -1722,7 +1755,7 @@ export default function App() {
             </View>
           </Animated.ScrollView>
         ) : null}
-        <BottomNavContentDimmer scrollY={scrollY} bottomInset={insets.bottom} />
+        <BottomNavContentDimmer bottomInset={insets.bottom} />
       </View>
 
       {sheetBackdropActive ? (

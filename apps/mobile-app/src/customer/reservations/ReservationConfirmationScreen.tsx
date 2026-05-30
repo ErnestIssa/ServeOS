@@ -1,62 +1,64 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { R } from "../../theme";
+import { useAppTheme } from "../../theme/AppThemeContext";
 import { ADDON_OPTIONS } from "./reservationPresets";
+import { ReservationImmersiveStepShell } from "./ReservationImmersiveStepShell";
+import { immersiveShellPassThrough, type ReservationImmersiveShellProps } from "./reservationImmersiveShellProps";
+import { ReservationStepHeader } from "./ReservationStepHeader";
 import {
   ReservationGhostButton,
   ReservationPrimaryButton,
   ReservationSection,
   TapTile
 } from "./ReservationUi";
-import { ReservationScreenShell } from "./ReservationScreenShell";
 import type { ReservationDraft, ReservationFlowContext } from "./reservationTypes";
 
-type Props = ReservationFlowContext & {
-  draft: ReservationDraft;
-  confirmationCode: string;
-  onScroll: ReturnType<typeof import("react-native").Animated.event>;
-  scrollTopPad: number;
-  scrollBottom: number;
-  onManage: () => void;
-  onOpenChat: () => void;
-  onDone: () => void;
-};
-
-export function ReservationConfirmationScreen(props: Props) {
-  const { draft, confirmationCode } = props;
-  const [addons, setAddons] = React.useState<Set<string>>(new Set());
-
-  const toggleAddon = (id: string) => {
-    setAddons((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+type Props = ReservationFlowContext &
+  ReservationImmersiveShellProps & {
+    draft: ReservationDraft;
+    confirmationCode: string;
+    addonIds: string[];
+    onToggleAddon: (id: string) => void;
+    onManage: () => void;
+    onOpenChat: () => void;
+    onDone: () => void;
   };
 
+export function ReservationConfirmationScreen(props: Props) {
+  const { colors: t } = useAppTheme();
+  const { draft, confirmationCode } = props;
+
   return (
-    <ReservationScreenShell
-      title="You're booked"
-      stepLabel="Confirmed"
-      onScroll={props.onScroll}
-      scrollTopPad={props.scrollTopPad}
-      scrollBottom={props.scrollBottom}
+    <ReservationImmersiveStepShell
+      {...immersiveShellPassThrough(props)}
       footer={
         <>
-          <ReservationPrimaryButton label="View booking" onPress={props.onManage} />
-          <ReservationGhostButton label="Message restaurant" onPress={props.onOpenChat} />
-          <ReservationGhostButton label="Done" onPress={props.onDone} />
+          <ReservationPrimaryButton variant="purple" label="Done" onPress={props.onDone} />
+          <ReservationGhostButton label="Manage booking" onPress={props.onManage} />
+          <ReservationGhostButton label="Message the restaurant" onPress={props.onOpenChat} />
         </>
       }
     >
-      <View style={styles.successCard}>
-        <Text style={styles.successEmoji}>✓</Text>
-        <Text style={styles.code}>{confirmationCode}</Text>
-        <Text style={styles.summary}>
-          {props.restaurantName} · {draft.guests} guests · {draft.dateLabel} · {draft.timeLabel || draft.slotLabel}
+      <ReservationStepHeader stepLabel="Confirmed" title="You're booked" />
+
+      <View
+        style={[
+          styles.successCard,
+          {
+            borderColor: `${t.success}66`,
+            backgroundColor: `${t.success}18`
+          }
+        ]}
+      >
+        <Text style={[styles.successEmoji, { color: t.success }]}>✓</Text>
+        <Text style={[styles.code, { color: t.text }]}>{confirmationCode}</Text>
+        <Text style={[styles.summary, { color: t.textSecondary }]}>
+          {props.restaurantName} · {draft.guests} guests · {draft.dateLabel} ·{" "}
+          {draft.timeLabel || draft.slotLabel}
         </Text>
-        {draft.tableId ? <Text style={styles.table}>{draft.tableId}</Text> : null}
+        {draft.tableId ? (
+          <Text style={[styles.table, { color: t.ordersNavPurpleBright }]}>{draft.tableId}</Text>
+        ) : null}
       </View>
 
       <ReservationSection title="While you wait">
@@ -70,40 +72,37 @@ export function ReservationConfirmationScreen(props: Props) {
           <TapTile
             key={a.id}
             label={a.label}
-            selected={addons.has(a.id)}
-            onPress={() => toggleAddon(a.id)}
+            selected={props.addonIds.includes(a.id)}
+            onPress={() => props.onToggleAddon(a.id)}
           />
         ))}
       </ReservationSection>
-    </ReservationScreenShell>
+    </ReservationImmersiveStepShell>
   );
 }
 
 const styles = StyleSheet.create({
   successCard: {
-    borderRadius: R.radius.card,
+    borderRadius: 20,
     borderWidth: 2,
-    borderColor: "rgba(16, 185, 129, 0.4)",
-    backgroundColor: "rgba(16, 185, 129, 0.1)",
-    padding: R.space.sm,
+    padding: 16,
     alignItems: "center",
-    marginTop: 4
+    marginTop: 4,
+    marginBottom: 8
   },
-  successEmoji: { fontSize: 40, fontWeight: "800", color: R.success },
+  successEmoji: { fontSize: 40, fontWeight: "800" },
   code: {
     fontSize: 28,
     fontWeight: "900",
-    color: R.text,
     letterSpacing: 2,
     marginTop: 8
   },
   summary: {
     marginTop: 10,
-    fontSize: R.type.label,
+    fontSize: 14,
     fontWeight: "600",
-    color: R.textSecondary,
     textAlign: "center",
     lineHeight: 20
   },
-  table: { marginTop: 8, fontSize: 17, fontWeight: "800", color: R.accentBlue }
+  table: { marginTop: 8, fontSize: 17, fontWeight: "800" }
 });
