@@ -4,6 +4,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { defaultBookingTimeLabel } from "./reservationDefaults";
+import { useBookingBarScrollLock } from "./bookingBarScrollLock";
 import { GUEST_COUNTS, TIME_OPTIONS } from "./reservationPresets";
 import { buildQuickDateOptions, quickDateIdFromLabel } from "./reservationQuickDates";
 import { VerticalSnapWheel, WHEEL_VIEW_HEIGHT, type WheelOption } from "./VerticalSnapWheel";
@@ -18,6 +19,8 @@ type Props = {
   onTimeChange: (timeLabel: string) => void;
   onReserve: () => void;
   disabled?: boolean;
+  /** While any wheel is active, parent immersive sheet must not scroll. */
+  onWheelDragActiveChange?: (active: boolean) => void;
 };
 
 /** Guest count for display/commit — never below 1. */
@@ -109,6 +112,78 @@ function ReservationQuickBookingBarInner(props: Props) {
     [props.timeLabel, props.onTimeChange]
   );
 
+  const scrollLock = useBookingBarScrollLock(props.onWheelDragActiveChange);
+
+  const wheelRow = (
+    <View style={styles.row} collapsable={false}>
+      <View style={styles.wheelCol}>
+        <VerticalSnapWheel
+          accessibilityLabel="Guests"
+          options={GUEST_OPTIONS}
+          selectedIndex={guestIndex}
+          disabled={props.disabled}
+          isDark={isDark}
+          accentColor={t.ordersNavPurpleBright}
+          textColor={t.textMuted}
+          onIndexChange={onGuestsIndex}
+          onDragActiveChange={scrollLock.onGuestsDrag}
+        />
+      </View>
+
+      <View style={[styles.wheelCol, styles.wheelColWide]}>
+        <VerticalSnapWheel
+          accessibilityLabel="Date"
+          options={dateWheelOptions}
+          selectedIndex={dateIndex}
+          disabled={props.disabled}
+          isDark={isDark}
+          accentColor={t.ordersNavPurpleBright}
+          textColor={t.textMuted}
+          onIndexChange={onDateIndex}
+          onDragActiveChange={scrollLock.onDateDrag}
+        />
+      </View>
+
+      <View style={styles.wheelCol}>
+        <VerticalSnapWheel
+          accessibilityLabel="Time"
+          options={timeOptions}
+          selectedIndex={timeIndex}
+          disabled={props.disabled}
+          isDark={isDark}
+          accentColor={t.ordersNavPurpleBright}
+          textColor={t.textMuted}
+          onIndexChange={onTimeIndex}
+          onDragActiveChange={scrollLock.onTimeDrag}
+        />
+      </View>
+
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Reserve"
+        disabled={props.disabled}
+        onPress={() => {
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          props.onReserve();
+        }}
+        style={({ pressed }) => [
+          styles.reserveBtn,
+          props.disabled && styles.reserveDisabled,
+          pressed && styles.pressed
+        ]}
+      >
+        <LinearGradient
+          colors={[t.ordersNavPurpleBright, t.ordersNavPurple]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={styles.reserveGradient}
+        >
+          <Text style={styles.reserveText}>Reserve</Text>
+        </LinearGradient>
+      </Pressable>
+    </View>
+  );
+
   return (
     <View style={styles.outer} collapsable={false}>
       <View
@@ -138,70 +213,7 @@ function ReservationQuickBookingBarInner(props: Props) {
           pointerEvents="none"
         />
 
-        <View style={styles.row} collapsable={false}>
-          <View style={styles.wheelCol}>
-            <VerticalSnapWheel
-              accessibilityLabel="Guests"
-              options={GUEST_OPTIONS}
-              selectedIndex={guestIndex}
-              disabled={props.disabled}
-              isDark={isDark}
-              accentColor={t.ordersNavPurpleBright}
-              textColor={t.textMuted}
-              onIndexChange={onGuestsIndex}
-            />
-          </View>
-
-          <View style={[styles.wheelCol, styles.wheelColWide]}>
-            <VerticalSnapWheel
-              accessibilityLabel="Date"
-              options={dateWheelOptions}
-              selectedIndex={dateIndex}
-              disabled={props.disabled}
-              isDark={isDark}
-              accentColor={t.ordersNavPurpleBright}
-              textColor={t.textMuted}
-              onIndexChange={onDateIndex}
-            />
-          </View>
-
-          <View style={styles.wheelCol}>
-            <VerticalSnapWheel
-              accessibilityLabel="Time"
-              options={timeOptions}
-              selectedIndex={timeIndex}
-              disabled={props.disabled}
-              isDark={isDark}
-              accentColor={t.ordersNavPurpleBright}
-              textColor={t.textMuted}
-              onIndexChange={onTimeIndex}
-            />
-          </View>
-
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Reserve"
-            disabled={props.disabled}
-            onPress={() => {
-              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              props.onReserve();
-            }}
-            style={({ pressed }) => [
-              styles.reserveBtn,
-              props.disabled && styles.reserveDisabled,
-              pressed && styles.pressed
-            ]}
-          >
-            <LinearGradient
-              colors={[t.ordersNavPurpleBright, t.ordersNavPurple]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0, y: 1 }}
-              style={styles.reserveGradient}
-            >
-              <Text style={styles.reserveText}>Reserve</Text>
-            </LinearGradient>
-          </Pressable>
-        </View>
+        {wheelRow}
       </View>
     </View>
   );

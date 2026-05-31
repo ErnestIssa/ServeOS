@@ -285,6 +285,8 @@ export function ProfileScreenContainer(props: {
   topInset: number;
   bottomInset: number;
   scrollEnabled?: boolean;
+  scrollRefExternal?: React.RefObject<ScrollView | null>;
+  onScrollOffset?: (y: number) => void;
   /** App control center: blur + sharp multi-stop glass scrims on scroll edges. */
   frostedScrollEdges?: boolean;
   /** Height of chrome above scroll body (top bar) — top glass extends upward by this amount. */
@@ -296,6 +298,8 @@ export function ProfileScreenContainer(props: {
   const styles = useProfileStyles();
   const { colors: t, isDark } = useAppTheme();
   const frostedBase = t.menuGradient[0];
+  const internalScrollRef = React.useRef<ScrollView | null>(null);
+  const scrollRef = props.scrollRefExternal ?? internalScrollRef;
   const [atTop, setAtTop] = React.useState(true);
   const [atBottom, setAtBottom] = React.useState(false);
 
@@ -308,8 +312,9 @@ export function ProfileScreenContainer(props: {
     const nextBottom = bottomGap <= 2;
     setAtTop(nextTop);
     setAtBottom(nextBottom);
+    props.onScrollOffset?.(y);
     props.onScrollEdges?.({ atTop: nextTop, atBottom: nextBottom });
-  }, [props.onScrollEdges]);
+  }, [props.onScrollEdges, props.onScrollOffset]);
 
   const topFadeOpacity = React.useRef(new Animated.Value(0)).current;
   const bottomFadeOpacity = React.useRef(new Animated.Value(0)).current;
@@ -340,6 +345,7 @@ export function ProfileScreenContainer(props: {
   return (
     <View style={{ flex: 1, overflow: props.frostedScrollEdges ? "visible" : "hidden" }}>
       <ScrollView
+        ref={scrollRef}
         scrollEnabled={props.scrollEnabled !== false}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"

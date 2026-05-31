@@ -6,6 +6,7 @@ export type MeNavHighlightKey =
   | "me:reservations"
   | "me:active_orders"
   | "me:order_history"
+  | "me:review"
   | "me:favorites"
   | "me:payments"
   | "me:addresses"
@@ -37,6 +38,8 @@ type Ctx = {
   highlightKey: ProfileNavHighlightKey | null;
   armHighlight: (key: ProfileNavHighlightKey) => void;
   navigate: (key: ProfileNavHighlightKey, go: () => void) => void;
+  /** Drop armed highlight without flashing (e.g. Review overlay closed). */
+  clearPendingHighlight: () => void;
   onReturnedToMeHome: () => void;
   onReturnedToAppHome: () => void;
   onReturnedToAppSettings: () => void;
@@ -66,6 +69,10 @@ export function ProfileNavHighlightProvider(props: { children: React.ReactNode }
     },
     [armHighlight]
   );
+
+  const clearPendingHighlight = React.useCallback(() => {
+    pendingRef.current = null;
+  }, []);
 
   const onReturnedToMeHome = React.useCallback(() => {
     const key = pendingRef.current;
@@ -100,11 +107,20 @@ export function ProfileNavHighlightProvider(props: { children: React.ReactNode }
       highlightKey,
       armHighlight,
       navigate,
+      clearPendingHighlight,
       onReturnedToMeHome,
       onReturnedToAppHome,
       onReturnedToAppSettings
     }),
-    [highlightKey, armHighlight, navigate, onReturnedToMeHome, onReturnedToAppHome, onReturnedToAppSettings]
+    [
+      highlightKey,
+      armHighlight,
+      navigate,
+      clearPendingHighlight,
+      onReturnedToMeHome,
+      onReturnedToAppHome,
+      onReturnedToAppSettings
+    ]
   );
 
   return <ProfileNavHighlightContext.Provider value={value}>{props.children}</ProfileNavHighlightContext.Provider>;

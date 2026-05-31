@@ -1,7 +1,10 @@
 import type { SettingsDetailKey } from "./profilePrefsStorage";
 
 /** Bottom nav ME tab — personal customer space. */
-export type MeStackRoute = { name: "home" } | { name: "section"; title: string; subtitle?: string };
+export type MeStackRoute =
+  | { name: "home" }
+  | { name: "review" }
+  | { name: "section"; title: string; subtitle?: string };
 
 /** Hamburger menu — system / app control space. */
 export type AppStackRoute =

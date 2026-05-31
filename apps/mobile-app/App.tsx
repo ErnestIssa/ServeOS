@@ -1219,7 +1219,11 @@ export default function App() {
     <Animated.View style={[styles.shell, { opacity: screenEnter, transform: [{ translateY: screenEnterY }] }]}>
       {Platform.OS === "ios" ? <StatusBar style={isDark ? "light" : "dark"} /> : null}
       {Platform.OS === "android" ? (
-        <RNStatusBar translucent backgroundColor="transparent" barStyle={isDark ? "light-content" : "dark-content"} />
+        <RNStatusBar
+          translucent
+          backgroundColor="transparent"
+          barStyle={isDark ? "light-content" : "dark-content"}
+        />
       ) : null}
 
       <View style={styles.main}>

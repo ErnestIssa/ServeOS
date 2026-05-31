@@ -42,6 +42,8 @@ type Props = {
   textColor: string;
   accessibilityLabel: string;
   isDark?: boolean;
+  /** True while the user is dragging/snapping this wheel — parent sheet scroll should pause. */
+  onDragActiveChange?: (active: boolean) => void;
 };
 
 const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
@@ -69,11 +71,7 @@ function centerIndexFromOffset(y: number, maxIndex: number): number {
 
 function fireHapticsForIndexPassage(fromIdx: number, toIdx: number) {
   if (fromIdx === toIdx) return;
-  const step = toIdx > fromIdx ? 1 : -1;
-  for (let i = fromIdx + step; ; i += step) {
-    void Haptics.selectionAsync();
-    if (i === toIdx) break;
-  }
+  void Haptics.selectionAsync();
 }
 
 const WheelRow = React.memo(function WheelRow({
@@ -125,11 +123,46 @@ function VerticalSnapWheelInner(props: Props) {
   const draggingRef = React.useRef(false);
   const settlingRef = React.useRef(false);
   const settledOnDragEndRef = React.useRef(false);
+  const dragSessionRef = React.useRef(0);
+  const releaseTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastHapticIndex = React.useRef(props.selectedIndex);
   const lastCommittedIndex = React.useRef(props.selectedIndex);
   const [centerIndex, setCenterIndex] = React.useState(props.selectedIndex);
 
-  const { selectedIndex, onIndexChange, disabled, isDark = false } = props;
+  const { selectedIndex, onIndexChange, disabled, isDark = false, onDragActiveChange } = props;
+
+  const clearReleaseTimer = React.useCallback(() => {
+    if (releaseTimerRef.current) {
+      clearTimeout(releaseTimerRef.current);
+      releaseTimerRef.current = null;
+    }
+  }, []);
+
+  const endDragSession = React.useCallback(
+    (force = false) => {
+      if (!force && draggingRef.current) return;
+      clearReleaseTimer();
+      draggingRef.current = false;
+      settlingRef.current = false;
+      onDragActiveChange?.(false);
+    },
+    [clearReleaseTimer, onDragActiveChange]
+  );
+
+  const beginDragSession = React.useCallback(() => {
+    dragSessionRef.current += 1;
+    draggingRef.current = true;
+    settlingRef.current = false;
+    clearReleaseTimer();
+    onDragActiveChange?.(true);
+    const session = dragSessionRef.current;
+    releaseTimerRef.current = setTimeout(() => {
+      if (dragSessionRef.current !== session) return;
+      endDragSession(true);
+    }, 750);
+  }, [clearReleaseTimer, endDragSession, onDragActiveChange]);
+
+  React.useEffect(() => () => clearReleaseTimer(), [clearReleaseTimer]);
   const mutedColor = isDark ? "rgba(148,163,184,0.45)" : "rgba(100,116,139,0.4)";
 
   const canGoUp = centerIndex > 0;
@@ -198,17 +231,18 @@ function VerticalSnapWheelInner(props: Props) {
 
   const settleAt = React.useCallback(
     (y: number, velocityY: number | undefined) => {
-      if (settlingRef.current) return;
       settlingRef.current = true;
       const idx = settleIndexFromOffset(y, count, velocityY);
       scrollToOffset(offsetForIndex(idx), true);
       commitIndex(idx);
-      requestAnimationFrame(() => {
-        settlingRef.current = false;
-        draggingRef.current = false;
-      });
+      clearReleaseTimer();
+      const session = dragSessionRef.current;
+      releaseTimerRef.current = setTimeout(() => {
+        if (dragSessionRef.current !== session) return;
+        endDragSession(true);
+      }, 300);
     },
-    [commitIndex, count, scrollToOffset]
+    [clearReleaseTimer, commitIndex, count, endDragSession, scrollToOffset]
   );
 
   const onScroll = Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
@@ -234,13 +268,15 @@ function VerticalSnapWheelInner(props: Props) {
 
   const onMomentumScrollEnd = React.useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      draggingRef.current = false;
       if (settledOnDragEndRef.current) {
         settledOnDragEndRef.current = false;
+        endDragSession(true);
         return;
       }
       settleAt(e.nativeEvent.contentOffset.y, 0);
     },
-    [settleAt]
+    [endDragSession, settleAt]
   );
 
   const nudgeIndex = React.useCallback(
@@ -248,15 +284,17 @@ function VerticalSnapWheelInner(props: Props) {
       if (disabled) return;
       const next = clampIndex(centerIndex + delta, maxIndex);
       if (next === centerIndex) return;
-      draggingRef.current = false;
-      settlingRef.current = true;
+      beginDragSession();
       scrollToIndex(next, true);
       commitIndex(next);
-      requestAnimationFrame(() => {
-        settlingRef.current = false;
-      });
+      clearReleaseTimer();
+      const session = dragSessionRef.current;
+      releaseTimerRef.current = setTimeout(() => {
+        if (dragSessionRef.current !== session) return;
+        endDragSession(true);
+      }, 320);
     },
-    [centerIndex, commitIndex, disabled, maxIndex, scrollToIndex]
+    [beginDragSession, centerIndex, clearReleaseTimer, commitIndex, disabled, endDragSession, maxIndex, scrollToIndex]
   );
 
   return (
@@ -277,10 +315,7 @@ function VerticalSnapWheelInner(props: Props) {
           onLayout={syncToSelectedIndex}
           onContentSizeChange={syncToSelectedIndex}
           onScroll={onScroll}
-          onScrollBeginDrag={() => {
-            draggingRef.current = true;
-            settlingRef.current = false;
-          }}
+          onScrollBeginDrag={beginDragSession}
           onScrollEndDrag={onScrollEndDrag}
           onMomentumScrollEnd={onMomentumScrollEnd}
           contentContainerStyle={styles.scrollContent}

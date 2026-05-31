@@ -25,11 +25,15 @@ type Props = {
   bottomInset: number;
   activeOrderCount: number;
   onNavigateSection: (title: string, subtitle: string | undefined, key: MeNavHighlightKey) => void;
+  onNavigateReview: () => void;
   onOpenBookings: () => void;
   onOpenOrders: () => void;
   onOpenSupport: () => void;
   onSignOut: () => void;
   onAvatarSaved?: (uri: string) => void;
+  scrollRefExternal?: React.RefObject<import("react-native").ScrollView | null>;
+  scrollEnabled?: boolean;
+  onScrollCapture?: (y: number) => void;
 };
 
 export function CustomerMeHub(props: Props) {
@@ -77,7 +81,13 @@ export function CustomerMeHub(props: Props) {
 
   return (
     <>
-      <ProfileScreenContainer topInset={props.topInset} bottomInset={props.bottomInset}>
+      <ProfileScreenContainer
+        topInset={props.topInset}
+        bottomInset={props.bottomInset}
+        scrollRefExternal={props.scrollRefExternal}
+        scrollEnabled={props.scrollEnabled}
+        onScrollOffset={props.onScrollCapture}
+      >
         <FadeSection>
           <ProfileHeader
             user={props.user}
@@ -108,6 +118,12 @@ export function CustomerMeHub(props: Props) {
               }
               highlightKey="me:active_orders"
               onPress={props.onOpenOrders}
+            />
+            <SectionRow
+              title="Review"
+              subtitle="Rate your visits and share feedback"
+              highlightKey="me:review"
+              onPress={() => props.onNavigateReview()}
             />
             <SectionRow
               title="Order history"

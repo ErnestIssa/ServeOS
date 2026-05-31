@@ -55,6 +55,13 @@ export function ReservationLandingScreen(props: Props) {
   const quickDateOptions = React.useMemo(() => buildQuickDateOptions(10), []);
   const [experienceSectionY, setExperienceSectionY] = React.useState<number | null>(null);
   const pendingExperienceScrollRef = React.useRef(false);
+  const [quickBarScrollLock, setQuickBarScrollLock] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!quickBarScrollLock) return;
+    const id = setTimeout(() => setQuickBarScrollLock(false), 1200);
+    return () => clearTimeout(id);
+  }, [quickBarScrollLock]);
 
   /** Matches `ReservationScreenShell` immersiveBody.paddingTop. */
   const IMMERSIVE_BODY_TOP_PAD = 4;
@@ -135,6 +142,7 @@ export function ReservationLandingScreen(props: Props) {
           scrollRefExternal={scrollRef}
           restoreScrollY={props.restoreScrollY}
           scrollRestoreToken={props.scrollRestoreToken}
+          sheetScrollEnabled={!quickBarScrollLock}
           footer={
             <ReservationPrimaryButton
               variant="purple"
@@ -169,6 +177,7 @@ export function ReservationLandingScreen(props: Props) {
               }
               scrollToExperienceSection();
             }}
+            onWheelDragActiveChange={setQuickBarScrollLock}
           />
 
           <Text style={{ marginTop: 2, marginBottom: 8, fontSize: 12, fontWeight: "800", color: availabilityColor }}>

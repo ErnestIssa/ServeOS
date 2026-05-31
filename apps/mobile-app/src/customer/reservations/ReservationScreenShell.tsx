@@ -50,6 +50,8 @@ type Props = {
   scrollRestoreToken?: number;
   /** Back control overlaps top-left of the gradient card (post-landing steps). */
   cardOverlayBack?: boolean;
+  /** When false, the immersive sheet does not scroll (e.g. quick-booking wheels are active). */
+  sheetScrollEnabled?: boolean;
   children: React.ReactNode;
   footer?: React.ReactNode;
 };
@@ -211,6 +213,7 @@ export function ReservationScreenShell(props: Props) {
     <Animated.ScrollView
       ref={scrollRef as React.RefObject<ScrollView>}
       style={styles.scroll}
+      scrollEnabled={props.sheetScrollEnabled !== false}
       onScroll={handleScroll}
       onScrollBeginDrag={hasFixedHero ? handleScrollBeginDrag : undefined}
       onScrollEndDrag={hasFixedHero ? handleScrollEnd : undefined}
