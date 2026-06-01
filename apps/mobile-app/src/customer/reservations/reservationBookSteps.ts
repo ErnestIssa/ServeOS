@@ -1,7 +1,7 @@
 import type { ReservationScreenId } from "./reservationTypes";
 
-/** Reserve-a-table linear flow (landing is step 1 — no label on card). */
-export const RESERVATION_BOOK_STEP_TOTAL = 4;
+/** Interactive book steps only (landing + confirmation are not counted). */
+export const RESERVATION_BOOK_STEP_TOTAL = 3;
 
 export const RESERVATION_BOOK_FLOW: readonly ReservationScreenId[] = [
   "landing",
@@ -23,21 +23,14 @@ export function reservationBookFlowIndex(id: ReservationScreenId): number {
   return RESERVATION_BOOK_FLOW.indexOf(id);
 }
 
-/** Display index per screen (landing = 1 is never shown on the card). */
+/** Display index per interactive screen (landing + confirmation have no step chrome). */
 export const RESERVATION_BOOK_STEP_NUMBER = {
   builder: 2,
-  availability: 3,
-  confirmation: 4
+  availability: 3
 } as const;
 
 export function reservationBookStepNumber(screen: ReservationScreenId): number | null {
-  const n =
-    screen === "builder"
-      ? 2
-      : screen === "availability"
-        ? 3
-        : screen === "confirmation"
-          ? 4
-          : null;
-  return n;
+  if (screen === "builder") return 2;
+  if (screen === "availability") return 3;
+  return null;
 }

@@ -1775,9 +1775,9 @@ export default function App() {
               compactTopInset={meCompactTopPad}
               bottomInset={scrollBottom}
               user={sessionUser}
+              authToken={token}
               venueName={customerVenueDisplayName}
               activeOrderCount={activeOrderCount}
-              onOpenBookings={() => setTab("bookings")}
               onOpenOrders={() => setTab("orders")}
               onOpenSupport={() => setTab("messages")}
               onSignOut={() => void customerSignOut()}

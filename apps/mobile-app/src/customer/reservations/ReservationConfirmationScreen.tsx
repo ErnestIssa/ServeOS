@@ -1,11 +1,16 @@
+import * as Haptics from "expo-haptics";
 import React from "react";
-import { StyleSheet, Text, View } from "react-native";
-import { buildBookRecapParts } from "./reservationBookRecap";
-import { ADDON_OPTIONS, BOOK_AGAIN_CARD_OPTION, CONFIRMATION_EXTRA_CARD_OPTIONS } from "./reservationPresets";
+import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { ReservationManageModal } from "../profile/ReservationManageModal";
+import { buildBookingConfirmationDetailRows } from "./bookingConfirmationDetails";
+import {
+  cancelCustomerReservation,
+  patchCustomerReservation,
+  type CustomerReservationApi
+} from "./reservationApi";
 import { RESERVATION_BOOK_STEP_NUMBER } from "./reservationBookSteps";
-import { ReservationBookSection, ReservationBookStepShell } from "./ReservationBookStepShell";
-import { ReservationChoiceCardGrid } from "./ReservationChoiceCardGrid";
-import { ReservationPrimaryButton } from "./ReservationUi";
+import { ReservationBookingHelpLink } from "./ReservationBookingHelpLink";
+import { ReservationBookStepShell } from "./ReservationBookStepShell";
 import { immersiveShellPassThrough, type ReservationImmersiveShellProps } from "./reservationImmersiveShellProps";
 import { useAppTheme } from "../../theme/AppThemeContext";
 import type { ReservationDraft, ReservationFlowContext } from "./reservationTypes";
@@ -14,133 +19,218 @@ type Props = ReservationFlowContext &
   ReservationImmersiveShellProps & {
     draft: ReservationDraft;
     confirmationCode: string;
-    addonIds: string[];
-    onToggleAddon: (id: string) => void;
-    onManage: () => void;
-    onOpenChat: () => void;
-    onDone: () => void;
-    onBookAgain: () => void;
-    doneLoading?: boolean;
+    reservation: CustomerReservationApi | null;
+    authToken: string | null;
+    onNeedHelp: () => void;
+    onReservationUpdated: (reservation: CustomerReservationApi) => void;
+    onReservationCancelled: () => void;
+    manageLoading?: boolean;
     hasVenue: boolean;
   };
 
 export function ReservationConfirmationScreen(props: Props) {
-  const { colors: t, isDark } = useAppTheme();
-  const { draft, confirmationCode } = props;
-  const recapLine = React.useMemo(() => buildBookRecapParts(draft, 3).join(" · "), [draft]);
+  const { colors: t } = useAppTheme();
+  const { draft, confirmationCode, reservation } = props;
+  const detailRows = React.useMemo(() => buildBookingConfirmationDetailRows(draft), [draft]);
+  const [manageOpen, setManageOpen] = React.useState(false);
+  const [cancelLoading, setCancelLoading] = React.useState(false);
+  const [saveLoading, setSaveLoading] = React.useState(false);
+
+  const styles = React.useMemo(
+    () =>
+      StyleSheet.create({
+        body: {
+          alignItems: "center",
+          paddingTop: 8,
+          paddingBottom: 12
+        },
+        tick: {
+          fontSize: 48,
+          fontWeight: "800",
+          color: t.success,
+          lineHeight: 52
+        },
+        headline: {
+          marginTop: 12,
+          fontSize: 40,
+          fontWeight: "700",
+          letterSpacing: -0.6,
+          lineHeight: 46,
+          color: t.text,
+          textAlign: "center"
+        },
+        code: {
+          marginTop: 10,
+          fontSize: 32,
+          fontWeight: "900",
+          letterSpacing: 1.5,
+          color: t.text,
+          textAlign: "center"
+        },
+        venue: {
+          marginTop: 10,
+          fontSize: 28,
+          fontWeight: "900",
+          letterSpacing: -0.5,
+          color: t.text,
+          textAlign: "center"
+        },
+        status: {
+          marginTop: 14,
+          fontSize: 13,
+          fontWeight: "800",
+          color: t.ordersNavPurpleBright,
+          textAlign: "center"
+        },
+        detailBlock: {
+          width: "100%",
+          maxWidth: 420,
+          marginTop: 28,
+          alignSelf: "center"
+        },
+        rowLabel: {
+          fontSize: 12,
+          fontWeight: "800",
+          letterSpacing: 0.35,
+          textTransform: "uppercase",
+          color: t.textMuted
+        },
+        rowValue: {
+          marginTop: 6,
+          fontSize: 17,
+          fontWeight: "800",
+          lineHeight: 24,
+          color: t.text
+        },
+        rowGap: {
+          marginTop: 20
+        },
+        manageBtn: {
+          width: "100%",
+          minHeight: 64,
+          borderRadius: 20,
+          borderWidth: 2,
+          alignItems: "center",
+          justifyContent: "center",
+          paddingHorizontal: 16,
+          paddingVertical: 16,
+          backgroundColor: t.accentBlue,
+          borderColor: "#1D4ED8"
+        },
+        manageBtnPressed: {
+          opacity: 0.88,
+          transform: [{ scale: 0.98 }]
+        },
+        manageBtnLabel: {
+          fontSize: 17,
+          fontWeight: "900",
+          color: "#FFFFFF",
+          textAlign: "center"
+        }
+      }),
+    [t]
+  );
+
+  async function handleCancel() {
+    const token = props.authToken?.trim();
+    const id = reservation?.id;
+    if (!token || !id) {
+      Alert.alert("Can't cancel", "This booking isn't available to cancel yet.");
+      return;
+    }
+    setCancelLoading(true);
+    try {
+      const res = await cancelCustomerReservation(token, id);
+      if (!res.ok) throw new Error("cancel_failed");
+      setManageOpen(false);
+      props.onReservationCancelled();
+    } catch {
+      Alert.alert("Couldn't cancel", "Please try again.");
+    } finally {
+      setCancelLoading(false);
+    }
+  }
+
+  async function handleSaveEdit(patch: { dateLabel: string; quickDateId: string; timeLabel: string }) {
+    const token = props.authToken?.trim();
+    const id = reservation?.id;
+    if (!token || !id) return;
+    setSaveLoading(true);
+    try {
+      const res = await patchCustomerReservation(token, id, patch);
+      if (!res.ok) {
+        Alert.alert("Couldn't update", "Please pick a valid date and time.");
+        throw new Error("patch_failed");
+      }
+      props.onReservationUpdated(res.reservation);
+      setManageOpen(false);
+    } finally {
+      setSaveLoading(false);
+    }
+  }
+
+  const openManage = React.useCallback(() => {
+    if (!reservation) {
+      Alert.alert("Booking not ready", "Your reservation is still syncing. Try again in a moment.");
+      return;
+    }
+    void Haptics.selectionAsync();
+    setManageOpen(true);
+  }, [reservation]);
 
   return (
-    <ReservationBookStepShell
-      {...immersiveShellPassThrough(props)}
-      bookStep={RESERVATION_BOOK_STEP_NUMBER.confirmation}
-      draft={draft}
-      onDraftChange={() => {}}
-      hasVenue={props.hasVenue}
-      sectionTitle="You're booked"
-      footerLabel="Done"
-      footerLoading={props.doneLoading}
-      onFooterPress={props.onDone}
-      footer={
-        <ReservationPrimaryButton
-          variant="purple"
-          label="Done"
-          loading={props.doneLoading}
-          onPress={props.onDone}
-        />
-      }
-    >
-      <View
-        style={[
-          styles.successCard,
-          {
-            borderColor: t.ordersNavPurpleBright,
-            backgroundColor: isDark ? "rgba(15,23,42,0.62)" : "rgba(255,255,255,0.94)"
-          }
-        ]}
+    <>
+      <ReservationBookStepShell
+        {...immersiveShellPassThrough(props)}
+        bookStep={RESERVATION_BOOK_STEP_NUMBER.confirmation}
+        draft={draft}
+        onDraftChange={() => {}}
+        hasVenue={props.hasVenue}
+        sectionTitle=""
+        footerLabel="Manage Reservation"
+        footerLoading={props.manageLoading}
+        onFooterPress={openManage}
+        footer={
+          <Pressable
+            style={({ pressed }) => [styles.manageBtn, pressed && styles.manageBtnPressed]}
+            onPress={openManage}
+            disabled={props.manageLoading}
+            accessibilityRole="button"
+            accessibilityLabel="Manage Reservation"
+          >
+            <Text style={styles.manageBtnLabel}>Manage Reservation</Text>
+          </Pressable>
+        }
       >
-        <Text style={[styles.successEmoji, { color: t.success }]}>✓</Text>
-        <Text style={[styles.code, { color: t.text }]}>{confirmationCode}</Text>
-        <Text style={[styles.summary, { color: t.textSecondary }]}>
-          {props.restaurantName}
-          {recapLine ? ` · ${recapLine}` : null}
-        </Text>
-      </View>
+        <View style={styles.body}>
+          <Text style={styles.tick}>✓</Text>
+          <Text style={styles.headline}>You're booked</Text>
+          <Text style={styles.code}>{confirmationCode}</Text>
+          <Text style={styles.venue}>{props.restaurantName.trim() || "Your restaurant"}</Text>
+          <Text style={styles.status}>Confirmed</Text>
 
-      <ReservationBookSection title="While you wait" first>
-        <ReservationChoiceCardGrid
-          options={CONFIRMATION_EXTRA_CARD_OPTIONS}
-          isDark={isDark}
-          t={t}
-          selectedId={() => false}
-          onToggle={() => {}}
-        />
-      </ReservationBookSection>
+          <View style={styles.detailBlock}>
+            {detailRows.map((row, index) => (
+              <View key={row.label} style={index > 0 ? styles.rowGap : undefined}>
+                <Text style={styles.rowLabel}>{row.label}</Text>
+                <Text style={styles.rowValue}>{row.value}</Text>
+              </View>
+            ))}
+          </View>
 
-      <ReservationBookSection title="Add-ons">
-        <ReservationChoiceCardGrid
-          options={ADDON_OPTIONS}
-          isDark={isDark}
-          t={t}
-          selectedId={(id) => props.addonIds.includes(id)}
-          onToggle={props.onToggleAddon}
-        />
-      </ReservationBookSection>
+          <ReservationBookingHelpLink onPress={props.onNeedHelp} />
+        </View>
+      </ReservationBookStepShell>
 
-      <ReservationBookSection title="More">
-        <ReservationChoiceCardGrid
-          options={[
-            { id: "manage", label: "Manage booking", sublabel: "Change or cancel" },
-            { id: "chat", label: "Message the restaurant", sublabel: "Open chat" }
-          ]}
-          isDark={isDark}
-          t={t}
-          selectedId={() => false}
-          onToggle={(id) => {
-            if (id === "manage") props.onManage();
-            if (id === "chat") props.onOpenChat();
-          }}
-        />
-      </ReservationBookSection>
-
-      <ReservationBookSection title="Another visit">
-        <ReservationChoiceCardGrid
-          options={[BOOK_AGAIN_CARD_OPTION]}
-          isDark={isDark}
-          t={t}
-          selectedId={() => false}
-          onToggle={(id) => {
-            if (id === BOOK_AGAIN_CARD_OPTION.id) props.onBookAgain();
-          }}
-        />
-      </ReservationBookSection>
-    </ReservationBookStepShell>
+      <ReservationManageModal
+        visible={manageOpen}
+        reservation={reservation}
+        onClose={() => setManageOpen(false)}
+        onCancel={handleCancel}
+        onSaveEdit={handleSaveEdit}
+        cancelLoading={cancelLoading}
+        saveLoading={saveLoading}
+      />
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  successCard: {
-    borderRadius: 20,
-    borderWidth: 2,
-    minHeight: 100,
-    paddingHorizontal: 14,
-    paddingVertical: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 4
-  },
-  successEmoji: { fontSize: 36, fontWeight: "800" },
-  code: {
-    fontSize: 26,
-    fontWeight: "900",
-    letterSpacing: 1.5,
-    marginTop: 6
-  },
-  summary: {
-    marginTop: 8,
-    fontSize: 13,
-    fontWeight: "600",
-    textAlign: "center",
-    lineHeight: 18
-  },
-  table: { marginTop: 6, fontSize: 15, fontWeight: "800" }
-});

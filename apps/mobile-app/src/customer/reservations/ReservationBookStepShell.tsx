@@ -26,7 +26,8 @@ export function ReservationBookSection(props: { title: string; first?: boolean; 
 }
 
 type Props = ReservationImmersiveShellProps & {
-  bookStep: number;
+  /** Omitted on confirmation (read-only — no step indicator). */
+  bookStep?: number;
   draft: ReservationDraft;
   onDraftChange: (patch: Partial<ReservationDraft>) => void;
   hasVenue: boolean;
@@ -65,7 +66,9 @@ export function ReservationBookStepShell(props: Props) {
       footerScrollRevealKeyboardOnly={props.footerScrollRevealKeyboardOnly}
     >
       <View>
-        <Text style={[styles.sectionTitle, { color: t.text }]}>{props.sectionTitle}</Text>
+        {props.sectionTitle.trim() ? (
+          <Text style={[styles.sectionTitle, { color: t.text }]}>{props.sectionTitle}</Text>
+        ) : null}
         {props.children}
       </View>
     </ReservationImmersiveStepShell>

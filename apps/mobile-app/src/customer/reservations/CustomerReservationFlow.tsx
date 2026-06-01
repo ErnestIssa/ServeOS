@@ -29,9 +29,13 @@ import {
   type ReservationScrollByScreen
 } from "./reservationDraftStorage";
 import {
+  cancelCustomerReservation,
+  confirmCustomerReservation,
   mergeValidatedDraft,
+  patchCustomerReservation,
   reservationStartErrorMessage,
-  validateReservationStart
+  validateReservationStart,
+  type CustomerReservationApi
 } from "./reservationApi";
 import {
   type ReservationDraft,
@@ -68,11 +72,6 @@ function readAnimatedScrollY(scrollY: Animated.Value): number {
   return typeof v.__getValue === "function" ? Math.max(0, v.__getValue()) : 0;
 }
 
-function makeConfirmationCode(): string {
-  const n = Math.floor(100000 + Math.random() * 900000);
-  return `SRV-${n}`;
-}
-
 type BookFlowSlidePair = {
   exiting: ReservationScreenId;
   entering: ReservationScreenId;
@@ -99,10 +98,11 @@ export function CustomerReservationFlow(props: Props) {
   const screenRef = React.useRef(screen);
   screenRef.current = screen;
   const [confirmationCode, setConfirmationCode] = React.useState("SRV-000000");
+  const [confirmedReservation, setConfirmedReservation] = React.useState<CustomerReservationApi | null>(null);
+  const confirmedReservationId = confirmedReservation?.id ?? null;
   const [startBookingLoading, setStartBookingLoading] = React.useState(false);
   const [continueBookingLoading, setContinueBookingLoading] = React.useState(false);
   const [confirmBookingLoading, setConfirmBookingLoading] = React.useState(false);
-  const [addonIds, setAddonIds] = React.useState<string[]>([]);
   const [groupEventTypeId, setGroupEventTypeId] = React.useState("corporate");
   const [groupSizeId, setGroupSizeId] = React.useState<string | null>(null);
   const [groupPkgId, setGroupPkgId] = React.useState<string | null>(null);
@@ -473,10 +473,6 @@ export function CustomerReservationFlow(props: Props) {
     });
   }, []);
 
-  const toggleAddon = React.useCallback((id: string) => {
-    setAddonIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  }, []);
-
   const handleContinueFromBuilder = React.useCallback(async () => {
     setContinueBookingLoading(true);
     try {
@@ -490,29 +486,33 @@ export function CustomerReservationFlow(props: Props) {
   }, [navigateBookFlow]);
 
   const handleConfirmFromAvailability = React.useCallback(async () => {
+    const token = props.authToken?.trim();
+    if (!token) {
+      Alert.alert("Sign in required", "Sign in as a customer to confirm your booking.");
+      return;
+    }
     setConfirmBookingLoading(true);
     try {
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => resolve());
-      });
-      setConfirmationCode(makeConfirmationCode());
+      const existingId = confirmedReservationId;
+      const res = existingId
+        ? await patchCustomerReservation(token, existingId, draftRef.current)
+        : await confirmCustomerReservation(token, props.restaurantId, draftRef.current);
+      if (!res.ok) {
+        Alert.alert(
+          "Can't confirm yet",
+          reservationStartErrorMessage("fields" in res ? res.fields : undefined)
+        );
+        return;
+      }
+      setConfirmationCode(res.reservation.confirmationCode);
+      setConfirmedReservation(res.reservation);
       navigateBookFlow("confirmation");
+    } catch {
+      Alert.alert("Connection issue", "We couldn't reach the server. Check your connection and try again.");
     } finally {
       setConfirmBookingLoading(false);
     }
-  }, [navigateBookFlow]);
-
-  const handleBookAgain = React.useCallback(() => {
-    void Haptics.selectionAsync();
-    const fresh = createDefaultReservationDraft(resolvedHours ?? null);
-    setAddonIds([]);
-    setDraft(fresh);
-    draftRef.current = fresh;
-    const landingY = screenScrollYRef.current.landing ?? 0;
-    screenScrollYRef.current = { landing: landingY };
-    persistFlow(fresh, "builder");
-    navigateBookFlow("builder");
-  }, [navigateBookFlow, persistFlow, resolvedHours]);
+  }, [confirmedReservationId, navigateBookFlow, props.authToken, props.restaurantId]);
 
   return (
     <View style={styles.flowRoot}>
@@ -587,12 +587,19 @@ export function CustomerReservationFlow(props: Props) {
             hasVenue={props.hasVenue}
             draft={draft}
             confirmationCode={confirmationCode}
-            addonIds={addonIds}
-            onToggleAddon={toggleAddon}
-            onManage={() => goForward("management")}
-            onOpenChat={props.onOpenChat}
-            onBookAgain={handleBookAgain}
-            onDone={() => {
+            reservation={confirmedReservation}
+            authToken={props.authToken}
+            onNeedHelp={props.onOpenChat}
+            onReservationUpdated={(next) => {
+              setConfirmedReservation(next);
+              setConfirmationCode(next.confirmationCode);
+              setDraft(next.draft);
+              draftRef.current = next.draft;
+              persistFlow(next.draft, "confirmation");
+            }}
+            onReservationCancelled={() => {
+              setConfirmedReservation(null);
+              setConfirmationCode("SRV-000000");
               setScreen("landing");
               props.onExitToHome();
             }}
@@ -610,8 +617,33 @@ export function CustomerReservationFlow(props: Props) {
             onBack={() => goBack("landing")}
             onModify={() => goForward("builder")}
             onCancel={() => {
-              Alert.alert("Cancel booking", "Cancellation will connect to the API later. For now this is a UI preview.", [
-                { text: "OK" }
+              const token = props.authToken?.trim();
+              const id = confirmedReservationId;
+              if (!token || !id) {
+                Alert.alert("No active booking", "Confirm a booking first.");
+                return;
+              }
+              Alert.alert("Cancel booking?", "This cannot be undone.", [
+                { text: "Keep booking", style: "cancel" },
+                {
+                  text: "Cancel booking",
+                  style: "destructive",
+                  onPress: () => {
+                    void (async () => {
+                      try {
+                        const res = await cancelCustomerReservation(token, id);
+                        if (!res.ok) {
+                          Alert.alert("Couldn't cancel", "Please try again.");
+                          return;
+                        }
+                        setConfirmedReservationId(null);
+                        goBack("landing");
+                      } catch {
+                        Alert.alert("Connection issue", "We couldn't reach the server.");
+                      }
+                    })();
+                  }
+                }
               ]);
             }}
             onCheckIn={() => {

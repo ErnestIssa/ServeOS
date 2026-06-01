@@ -93,3 +93,83 @@ export function mergeValidatedDraft(
     quickPickIds
   };
 }
+
+export type CustomerReservationApi = {
+  id: string;
+  restaurantId: string;
+  restaurantName: string;
+  confirmationCode: string;
+  status: "CONFIRMED" | "CANCELLED" | "COMPLETED";
+  startsAt: string;
+  createdAt: string;
+  updatedAt: string;
+  draft: ReservationDraft;
+};
+
+export async function fetchUpcomingReservations(token: string) {
+  return apiFetch<{ ok: true; reservations: CustomerReservationApi[] } | { ok: false; error?: string }>(
+    "/customer/reservations/upcoming",
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function fetchCustomerReservation(token: string, reservationId: string) {
+  return apiFetch<{ ok: true; reservation: CustomerReservationApi } | { ok: false; error?: string }>(
+    `/customer/reservations/${encodeURIComponent(reservationId)}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function confirmCustomerReservation(
+  token: string,
+  restaurantId: string,
+  draft: ReservationDraft
+) {
+  return apiFetch<{ ok: true; reservation: CustomerReservationApi } | { ok: false; error?: string; fields?: ReservationStartFieldErrors }>(
+    `/customer/restaurants/${encodeURIComponent(restaurantId)}/reservations`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        ...reservationStartPayload(draft),
+        seatingPreference: draft.seatingPreference,
+        occasion: draft.occasion,
+        accessibilityNoteIds: draft.accessibilityNoteIds,
+        restaurantNote: draft.restaurantNote,
+        tableId: draft.tableId,
+        slotLabel: draft.slotLabel
+      })
+    }
+  );
+}
+
+export async function patchCustomerReservation(
+  token: string,
+  reservationId: string,
+  patch: Partial<ReservationDraft>
+) {
+  return apiFetch<{ ok: true; reservation: CustomerReservationApi } | { ok: false; error?: string; fields?: ReservationStartFieldErrors }>(
+    `/customer/reservations/${encodeURIComponent(reservationId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(patch)
+    }
+  );
+}
+
+export async function cancelCustomerReservation(token: string, reservationId: string) {
+  return apiFetch<{ ok: true; reservation: CustomerReservationApi } | { ok: false; error?: string }>(
+    `/customer/reservations/${encodeURIComponent(reservationId)}/cancel`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` }
+    }
+  );
+}

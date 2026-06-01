@@ -23,13 +23,24 @@ const CARD_MIN_W = 196;
 const CARD_MAX_W = 236;
 const CARD_ASPECT = 1.68;
 
-type Props = {
-  options: readonly DetailCardOption[];
-  selectedIds: string[];
-  onSelect: (option: DetailCardOption) => void;
-};
+type Props =
+  | {
+      options: readonly DetailCardOption[];
+      readOnly?: false;
+      selectedIds: string[];
+      onSelect: (option: DetailCardOption) => void;
+    }
+  | {
+      options: readonly DetailCardOption[];
+      readOnly: true;
+      selectedIds?: never;
+      onSelect?: never;
+    };
 
-export function ReservationDetailCardCarousel({ options, selectedIds, onSelect }: Props) {
+export function ReservationDetailCardCarousel(props: Props) {
+  const { options, readOnly = false } = props;
+  const selectedIds = readOnly ? [] : props.selectedIds;
+  const onSelect = readOnly ? undefined : props.onSelect;
   const { colors: t, isDark } = useAppTheme();
   const listRef = React.useRef<FlatList<DetailCardOption>>(null);
   const onSelectRef = React.useRef(onSelect);
@@ -42,7 +53,7 @@ export function ReservationDetailCardCarousel({ options, selectedIds, onSelect }
   const selectedIdSet = React.useMemo(() => new Set(selectedIds), [selectedIds]);
   const syncedScrollIndexRef = React.useRef<number | null>(null);
 
-  const selectedIndex = firstDetailCardScrollIndex(selectedIds, options);
+  const selectedIndex = readOnly ? null : firstDetailCardScrollIndex(selectedIds, options);
   const cardW =
     pageW > 0 ? Math.round(Math.min(CARD_MAX_W, Math.max(CARD_MIN_W, pageW * CARD_WIDTH_RATIO))) : CARD_MIN_W;
   const cardH = Math.round(cardW * CARD_ASPECT);
@@ -128,62 +139,84 @@ export function ReservationDetailCardCarousel({ options, selectedIds, onSelect }
 
   const renderItem = React.useCallback(
     ({ item, index }: ListRenderItemInfo<DetailCardOption>) => {
-      const selected = selectedIdSet.has(item.id);
+      const selected = !readOnly && selectedIdSet.has(item.id);
+      const cardPurple = selected;
+      const cardBody = (
+        <View
+          style={[
+            styles.card,
+            cardPurple && styles.cardSelected,
+            {
+              borderColor: cardPurple ? purple : idleBorder,
+              backgroundColor: cardPurple ? purple : idleBg
+            }
+          ]}
+        >
+          {cardPurple && Platform.OS !== "web" ? (
+            <View style={styles.selectedWhiteRing} pointerEvents="none" />
+          ) : null}
+          <Text style={[styles.cardTitle, { color: cardPurple ? "#FFFFFF" : t.text }]} numberOfLines={2}>
+            {item.title}
+          </Text>
+          <View style={styles.bulletList}>
+            {item.bullets.map((line) => (
+              <View key={line} style={styles.bulletRow}>
+                <Text style={[styles.bulletDot, { color: cardPurple ? "#FFFFFF" : t.ordersNavPurpleBright }]}>
+                  •
+                </Text>
+                <Text
+                  style={[styles.bulletText, { color: cardPurple ? "rgba(255,255,255,0.9)" : t.textSecondary }]}
+                >
+                  {line}
+                </Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      );
+
       return (
         <View style={[styles.page, { width: pageW, height: pageH }]}>
-          <Pressable
-            onPress={() => {
-              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              emitSelection(index);
-            }}
-            style={({ pressed }) => [
-              styles.cardPress,
-              { width: cardW, height: cardH },
-              pressed && styles.cardPressOn
-            ]}
-            accessibilityRole="button"
-            accessibilityState={{ selected }}
-            accessibilityLabel={item.title}
-          >
-            <View
-              style={[
-                styles.card,
-                selected && styles.cardSelected,
-                {
-                  borderColor: selected ? purple : idleBorder,
-                  backgroundColor: selected ? purple : idleBg
-                }
-              ]}
-            >
-              {selected && Platform.OS !== "web" ? (
-                <View style={styles.selectedWhiteRing} pointerEvents="none" />
-              ) : null}
-              <Text style={[styles.cardTitle, { color: selected ? "#FFFFFF" : t.text }]} numberOfLines={2}>
-                {item.title}
-              </Text>
-              <View style={styles.bulletList}>
-                {item.bullets.map((line) => (
-                  <View key={line} style={styles.bulletRow}>
-                    <Text style={[styles.bulletDot, { color: selected ? "#FFFFFF" : t.ordersNavPurpleBright }]}>
-                      •
-                    </Text>
-                    <Text
-                      style={[
-                        styles.bulletText,
-                        { color: selected ? "rgba(255,255,255,0.9)" : t.textSecondary }
-                      ]}
-                    >
-                      {line}
-                    </Text>
-                  </View>
-                ))}
-              </View>
+          {readOnly ? (
+            <View style={[styles.cardPress, { width: cardW, height: cardH }]} accessibilityLabel={item.title}>
+              {cardBody}
             </View>
-          </Pressable>
+          ) : (
+            <Pressable
+              onPress={() => {
+                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                emitSelection(index);
+              }}
+              style={({ pressed }) => [
+                styles.cardPress,
+                { width: cardW, height: cardH },
+                pressed && styles.cardPressOn
+              ]}
+              accessibilityRole="button"
+              accessibilityState={{ selected }}
+              accessibilityLabel={item.title}
+            >
+              {cardBody}
+            </Pressable>
+          )}
         </View>
       );
     },
-    [cardH, cardW, emitSelection, idleBg, idleBorder, pageH, pageW, purple, selectedIdSet, t.ordersNavPurpleBright, t.text, t.textSecondary]
+    [
+      cardH,
+      cardW,
+      emitSelection,
+      idleBg,
+      idleBorder,
+      pageH,
+      pageW,
+      purple,
+      readOnly,
+      selectedIdSet,
+      t.ordersNavPurpleBright,
+      t.text,
+      t.textSecondary
+    ]
   );
 
   return (

@@ -5,10 +5,14 @@ import Svg, { Path } from "react-native-svg";
 import type { AuthUser } from "../../api";
 import { useAppTheme } from "../../theme/AppThemeContext";
 import { CustomerMeHub } from "./CustomerMeHub";
+import { MeReservationConfirmationScreen } from "./MeReservationConfirmationScreen";
+import { ProfileHubSubpageOverlay } from "./ProfileHubSubpageOverlay";
 import { ProfilePlaceholderScreen } from "./ProfilePlaceholderScreen";
 import { ProfileReviewScreen } from "./ProfileReviewScreen";
+import { UpcomingReservationsScreen } from "./UpcomingReservationsScreen";
 import type { MeStackRoute } from "./profileHubRoutes";
 import { ProfileNavHighlightProvider, useProfileNavHighlight } from "./profileNavHighlight";
+import { useProfileSubpageMotion } from "./useProfileSubpageMotion";
 import {
   REVIEW_CLOSE_FADE_MS,
   REVIEW_CLOSE_Y_MS,
@@ -24,9 +28,9 @@ type Props = {
   compactTopInset: number;
   bottomInset: number;
   user: AuthUser | null;
+  authToken: string | null;
   venueName: string;
   activeOrderCount: number;
-  onOpenBookings: () => void;
   onOpenOrders: () => void;
   onOpenSupport: () => void;
   onSignOut: () => void;
@@ -54,7 +58,17 @@ function CustomerMeStackInner(props: Props) {
   const route = stack[stack.length - 1]!;
   const atRoot = stack.length <= 1;
   const isReviewRoute = route.name === "review";
+  const isReservationOverlay =
+    route.name === "upcoming_reservations" || route.name === "reservation_details";
+  const reservationOverlayTitle =
+    route.name === "upcoming_reservations"
+      ? "Upcoming reservations"
+      : route.name === "reservation_details"
+        ? "Booking details"
+        : null;
   const title = route.name === "section" ? route.title : null;
+  const reservationExitInFlightRef = React.useRef(false);
+  const { motionStyle, scrimStyle, runClose } = useProfileSubpageMotion(isReservationOverlay);
   const reviewFade = React.useRef(new Animated.Value(0)).current;
   const reviewY = React.useRef(new Animated.Value(REVIEW_OPEN_Y_FROM)).current;
   const reviewExitInFlightRef = React.useRef(false);
@@ -120,10 +134,10 @@ function CustomerMeStackInner(props: Props) {
     if (!props.user) setStack([{ name: "home" }]);
   }, [props.user?.id]);
 
-  /** Review is an overlay — app chrome + hub layout stay on the ME root. */
+  /** Review keeps app top nav; reservation overlays hide it like app control centre subpages. */
   React.useEffect(() => {
-    props.onAtRootChange?.(atRoot || isReviewRoute);
-  }, [atRoot, isReviewRoute, props.onAtRootChange]);
+    props.onAtRootChange?.((atRoot || isReviewRoute) && !isReservationOverlay);
+  }, [atRoot, isReservationOverlay, isReviewRoute, props.onAtRootChange]);
 
   const closeReview = React.useCallback(() => {
     if (reviewExitInFlightRef.current) return;
@@ -157,6 +171,27 @@ function CustomerMeStackInner(props: Props) {
     push({ name: "review" });
   }, [push]);
 
+  const openUpcomingReservations = React.useCallback(() => {
+    void Haptics.selectionAsync();
+    if (!props.authToken?.trim()) return;
+    navigate("me:reservations", () => push({ name: "upcoming_reservations" }));
+  }, [navigate, props.authToken, push]);
+
+  const closeReservationOverlay = React.useCallback(() => {
+    if (reservationExitInFlightRef.current || !isReservationOverlay) return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (route.name === "reservation_details") {
+      pop();
+      return;
+    }
+    reservationExitInFlightRef.current = true;
+    runClose(() => {
+      reservationExitInFlightRef.current = false;
+      pop();
+      restoreHubScroll();
+    });
+  }, [isReservationOverlay, pop, restoreHubScroll, route.name, runClose]);
+
   const meHub = (
     <CustomerMeHub
       user={props.user}
@@ -170,7 +205,7 @@ function CustomerMeStackInner(props: Props) {
         navigate(key, () => push({ name: "section", title: sectionTitle, subtitle }))
       }
       onNavigateReview={openReview}
-      onOpenBookings={props.onOpenBookings}
+      onOpenBookings={openUpcomingReservations}
       onOpenOrders={props.onOpenOrders}
       onOpenSupport={props.onOpenSupport}
       onSignOut={props.onSignOut}
@@ -179,17 +214,35 @@ function CustomerMeStackInner(props: Props) {
     />
   );
 
+  const reservationOverlayContent =
+    route.name === "upcoming_reservations" && props.authToken?.trim() ? (
+      <UpcomingReservationsScreen
+        authToken={props.authToken.trim()}
+        topInset={0}
+        bottomInset={props.bottomInset}
+        onOpenBookingDetails={(reservation) =>
+          navigate("me:reservations", () => push({ name: "reservation_details", reservation }))
+        }
+      />
+    ) : route.name === "reservation_details" ? (
+      <MeReservationConfirmationScreen
+        reservation={route.reservation}
+        topInset={0}
+        bottomInset={props.bottomInset}
+      />
+    ) : null;
+
   const content =
-    route.name === "home" || route.name === "review" ? (
+    route.name === "home" || route.name === "review" || isReservationOverlay ? (
       meHub
-    ) : (
+    ) : route.name === "section" ? (
       <ProfilePlaceholderScreen
         title={route.title}
         subtitle={route.subtitle}
         topInset={hubTopInset}
         bottomInset={props.bottomInset}
       />
-    );
+    ) : null;
 
   const styles = React.useMemo(
     () =>
@@ -221,7 +274,7 @@ function CustomerMeStackInner(props: Props) {
 
   return (
     <View style={styles.fill}>
-      {!atRoot && !isReviewRoute ? (
+      {!atRoot && !isReviewRoute && !isReservationOverlay ? (
         <View style={[styles.topBar, { paddingTop: props.compactTopInset }]}>
           <Pressable
             onPress={handleBack}
@@ -236,9 +289,34 @@ function CustomerMeStackInner(props: Props) {
           {title ? <Text style={styles.title}>{title}</Text> : null}
         </View>
       ) : null}
-      <View style={styles.content} pointerEvents={isReviewRoute ? "none" : "auto"}>
+      <View
+        style={styles.content}
+        pointerEvents={isReviewRoute || isReservationOverlay ? "box-none" : "auto"}
+      >
         {content}
       </View>
+
+      <Modal
+        visible={isReservationOverlay}
+        animationType="none"
+        transparent
+        statusBarTranslucent
+        onRequestClose={closeReservationOverlay}
+      >
+        {isReservationOverlay && reservationOverlayContent ? (
+          <ProfileHubSubpageOverlay
+            visible
+            presentation="modal"
+            title={reservationOverlayTitle}
+            topInset={props.compactTopInset}
+            motionStyle={motionStyle}
+            scrimStyle={scrimStyle}
+            onBack={closeReservationOverlay}
+          >
+            {reservationOverlayContent}
+          </ProfileHubSubpageOverlay>
+        ) : null}
+      </Modal>
 
       <Modal
         visible={isReviewRoute}
