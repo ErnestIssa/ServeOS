@@ -26,21 +26,114 @@ export const TIME_OPTIONS: TapOption[] = [
 
 export const SEATING_OPTIONS = ["Any", "Window", "Booth", "Bar", "Quiet corner"] as const;
 
+export const SEATING_CARD_OPTIONS = [
+  { id: "Any", label: "Any", sublabel: "Best available" },
+  { id: "Window", label: "Window", sublabel: "Scenic" },
+  { id: "Booth", label: "Booth", sublabel: "Cozy" },
+  { id: "Bar", label: "Bar", sublabel: "Casual" },
+  { id: "Quiet corner", label: "Quiet corner", sublabel: "Low noise" }
+] as const;
+
 export const OCCASION_OPTIONS = ["Casual", "Date night", "Business", "Celebration", "Birthday"] as const;
 
-export const ACCESSIBILITY_OPTIONS = [
-  { id: "none", label: "No special needs" },
-  { id: "step_free", label: "Step-free access" },
-  { id: "high_chair", label: "High chair" },
-  { id: "wheelchair", label: "Wheelchair space" },
-  { id: "quiet", label: "Quiet table" }
+export const OCCASION_CARD_OPTIONS = [
+  { id: "Casual", label: "Casual", sublabel: "Everyday dining" },
+  { id: "Date night", label: "Date night", sublabel: "Table for two" },
+  { id: "Business", label: "Business", sublabel: "Meetings" },
+  { id: "Celebration", label: "Celebration", sublabel: "Special night" },
+  { id: "Birthday", label: "Birthday", sublabel: "Cake friendly" }
 ] as const;
+
+/** Swipeable accessibility cards (step 2) — auth signup–style tones with detail bullets. */
+export const ACCESSIBILITY_CARD_OPTIONS = [
+  {
+    id: "none",
+    label: "No special needs",
+    title: "Standard visit",
+    bullets: ["No extra setup needed", "Flexible seating assignment", "Works for most bookings"]
+  },
+  {
+    id: "step_free",
+    label: "Step-free access",
+    title: "Step-free access",
+    bullets: ["Ramp or level entry", "No stairs to your table", "Host notified before arrival"]
+  },
+  {
+    id: "high_chair",
+    label: "High chair",
+    title: "High chair",
+    bullets: ["Secure seat for little ones", "Placed near your table", "Set up before you sit"]
+  },
+  {
+    id: "wheelchair",
+    label: "Wheelchair space",
+    title: "Wheelchair space",
+    bullets: ["Room to manoeuvre", "Accessible route to table", "Staff ready to assist"]
+  },
+  {
+    id: "quiet",
+    label: "Quiet table",
+    title: "Quiet table",
+    bullets: ["Lower noise area", "Away from speakers & kitchen", "Better for conversation"]
+  }
+] as const;
+
+export type AccessibilityCardOption = (typeof ACCESSIBILITY_CARD_OPTIONS)[number];
+
+export const ACCESSIBILITY_OPTIONS = ACCESSIBILITY_CARD_OPTIONS.map((o) => ({
+  id: o.id,
+  label: o.label
+}));
 
 export const BRANCH_OPTIONS = [
   { id: "main", label: "Main dining room", sublabel: "Full menu" },
   { id: "terrace", label: "Terrace", sublabel: "Weather permitting" },
   { id: "lounge", label: "Private lounge", sublabel: "Groups 6+" }
 ] as const;
+
+/** Step 1 experience carousel — branches + quick picks (portrait cards, multi-select). */
+export const EXPERIENCE_CARD_OPTIONS = [
+  {
+    id: "main",
+    label: "Main dining room",
+    title: "Main dining room",
+    bullets: ["Full menu available", "Classic dining room", "Best for most visits"]
+  },
+  {
+    id: "terrace",
+    label: "Terrace",
+    title: "Terrace",
+    bullets: ["Outdoor seating", "Weather permitting", "Fresh-air dining"]
+  },
+  {
+    id: "lounge",
+    label: "Private lounge",
+    title: "Private lounge",
+    bullets: ["Groups of 6 or more", "More private setting", "Host will confirm layout"]
+  },
+  {
+    id: "quiet",
+    label: "Quiet table",
+    title: "Quiet table",
+    bullets: ["Best for two guests", "Lower noise area", "Away from speakers"]
+  },
+  {
+    id: "early",
+    label: "Earlier slot",
+    title: "Earlier slot",
+    bullets: ["18:00–18:30 seating", "Often easier to book", "Great before the rush"]
+  },
+  {
+    id: "booth",
+    label: "Booth",
+    title: "Booth",
+    bullets: ["Cozy booth seating", "Comfortable for groups", "Popular choice"]
+  }
+] as const;
+
+export type ExperienceCardOption = (typeof EXPERIENCE_CARD_OPTIONS)[number];
+
+export const EXPERIENCE_BRANCH_IDS = new Set<string>(BRANCH_OPTIONS.map((b) => b.id));
 
 export const EXPERIENCE_OPTIONS = [
   { id: "standard", label: "Standard table" },
@@ -60,6 +153,31 @@ export const TABLE_OPTIONS = [
   { id: "t08", label: "Table 8", sublabel: "Booth" },
   { id: "t04", label: "Table 4", sublabel: "Main floor" }
 ] as const;
+
+export const FLOOR_ZONE_CARD_OPTIONS = [
+  { id: "main", label: "Main floor", sublabel: "Full dining room" },
+  { id: "terrace", label: "Terrace", sublabel: "Outdoor seating" },
+  { id: "bar", label: "Bar area", sublabel: "High tops" },
+  { id: "lounge", label: "Lounge", sublabel: "Quiet corner" }
+] as const;
+
+export const WAITLIST_CARD_OPTION = {
+  id: "waitlist",
+  label: "Join waitlist",
+  sublabel: "We'll text when a table opens"
+} as const;
+
+export const CONFIRMATION_EXTRA_CARD_OPTIONS = [
+  { id: "remind", label: "Remind me before", sublabel: "1 hr & 15 min" },
+  { id: "late", label: "Running late", sublabel: "Notify the host" },
+  { id: "calendar", label: "Add to calendar", sublabel: "Apple / Google" }
+] as const;
+
+export const BOOK_AGAIN_CARD_OPTION = {
+  id: "book_again",
+  label: "Make another booking",
+  sublabel: "New date, time & preferences"
+} as const;
 
 export const GROUP_SIZE_OPTIONS = [
   { id: "12", label: "12 guests" },

@@ -18,6 +18,8 @@ export type CartMeOk = {
   subtotalCents: number;
   lineCount: number;
   totalQuantity: number;
+  /** SST: menu item ids in cart or on active orders at this restaurant (show ✓ on menu). */
+  markedMenuItemIds: string[];
 };
 
 export async function fetchCustomerCart(restaurantId: string, jwt: string) {

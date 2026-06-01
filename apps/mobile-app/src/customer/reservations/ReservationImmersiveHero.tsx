@@ -30,6 +30,8 @@ type Props = {
   topInset: number;
   sheetTopOffset: number;
   scrollY: Animated.Value;
+  /** When false, photo + title stay fixed; only the sheet card scrolls over the hero. */
+  scrollLinked?: boolean;
 };
 
 export function ReservationImmersiveHero(props: Props) {
@@ -93,6 +95,8 @@ export function ReservationImmersiveHero(props: Props) {
   }, [crossfadeTo, runKenBurns]);
 
   const displayName = props.hasVenue ? props.venueName : "Choose your venue";
+  const scrollLinked = props.scrollLinked !== false;
+  const navTitleTop = props.topInset + 10;
 
   const collapseDistance = Math.min(148, Math.max(80, Math.round(props.sheetTopOffset * 0.52)));
   const collapse = props.scrollY.interpolate({
@@ -100,44 +104,59 @@ export function ReservationImmersiveHero(props: Props) {
     outputRange: [0, 1],
     extrapolate: "clamp"
   });
-  const largeOpacity = collapse.interpolate({
-    inputRange: [0, 0.72, 1],
-    outputRange: [1, 0.22, 0],
-    extrapolate: "clamp"
-  });
-  const compactOpacity = collapse.interpolate({
-    inputRange: [0, 0.28, 1],
-    outputRange: [0, 0.55, 1],
-    extrapolate: "clamp"
-  });
-  const eyebrowOpacity = collapse.interpolate({
-    inputRange: [0, 0.45],
-    outputRange: [1, 0],
-    extrapolate: "clamp"
-  });
-  const taglineOpacity = collapse.interpolate({
-    inputRange: [0, 0.5],
-    outputRange: [1, 0],
-    extrapolate: "clamp"
-  });
-  const largeTranslateY = collapse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, -18]
-  });
-  const largeScale = collapse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 0.92]
-  });
-  const headlineSize = props.scrollY.interpolate({
-    inputRange: [0, collapseDistance],
-    outputRange: [34, 18],
-    extrapolate: "clamp"
-  });
-  const compactScale = collapse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.9, 1]
-  });
-  const navTitleTop = props.topInset + 10;
+  const largeOpacity = scrollLinked
+    ? collapse.interpolate({
+        inputRange: [0, 0.72, 1],
+        outputRange: [1, 0.22, 0],
+        extrapolate: "clamp"
+      })
+    : 1;
+  const compactOpacity = scrollLinked
+    ? collapse.interpolate({
+        inputRange: [0, 0.28, 1],
+        outputRange: [0, 0.55, 1],
+        extrapolate: "clamp"
+      })
+    : 0;
+  const eyebrowOpacity = scrollLinked
+    ? collapse.interpolate({
+        inputRange: [0, 0.45],
+        outputRange: [1, 0],
+        extrapolate: "clamp"
+      })
+    : 1;
+  const taglineOpacity = scrollLinked
+    ? collapse.interpolate({
+        inputRange: [0, 0.5],
+        outputRange: [1, 0],
+        extrapolate: "clamp"
+      })
+    : 1;
+  const largeTranslateY = scrollLinked
+    ? collapse.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0, -18]
+      })
+    : 0;
+  const largeScale = scrollLinked
+    ? collapse.interpolate({
+        inputRange: [0, 1],
+        outputRange: [1, 0.92]
+      })
+    : 1;
+  const headlineSize = scrollLinked
+    ? props.scrollY.interpolate({
+        inputRange: [0, collapseDistance],
+        outputRange: [34, 18],
+        extrapolate: "clamp"
+      })
+    : 34;
+  const compactScale = scrollLinked
+    ? collapse.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0.9, 1]
+      })
+    : 1;
 
   return (
     <View style={[styles.wrap, { width: screenW, height: heroH }]}>

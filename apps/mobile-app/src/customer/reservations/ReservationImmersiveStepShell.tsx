@@ -1,14 +1,16 @@
 import React from "react";
 import { Animated, ScrollView, View, useWindowDimensions } from "react-native";
+import { ambientNativePalettes } from "@serveos/core-ambient/themes";
+import { ReservationImmersiveHero } from "./ReservationImmersiveHero";
+import { ReservationScreenShell } from "./ReservationScreenShell";
+import { useAppTheme } from "../../theme/AppThemeContext";
+import { ReservationBookStepChrome } from "./ReservationBookStepChrome";
+import { immersiveSheetTopOffset } from "./reservationImmersiveMetrics";
 
 function readAnimatedScrollY(scrollY: Animated.Value): number {
   const v = scrollY as Animated.Value & { __getValue?: () => number };
   return typeof v.__getValue === "function" ? Math.max(0, v.__getValue()) : 0;
 }
-import { ambientNativePalettes } from "@serveos/core-ambient/themes";
-import { ReservationImmersiveHero } from "./ReservationImmersiveHero";
-import { ReservationScreenShell } from "./ReservationScreenShell";
-import { useAppTheme } from "../../theme/AppThemeContext";
 
 type Props = {
   restaurantName: string;
@@ -22,7 +24,19 @@ type Props = {
   scrollRestoreToken?: number;
   presentationActive?: boolean;
   enterScrollToken?: number;
+  /** When set with `enterScrollToken`, native scroll animates to this offset (Reserve → builder). */
+  enterScrollTargetY?: number;
+  sheetScrollEnabled?: boolean;
+  /** When false, matches step 1 (no pill on card corner). */
+  cardOverlayBack?: boolean;
+  scrollRefExternal?: React.RefObject<ScrollView | null>;
+  /** 2+ shows centred “N of total” (step 1 / landing has no indicator). */
+  bookStep?: number;
+  /** When false, hero is rendered once at flow root (stays still across steps). */
+  embedHero?: boolean;
   footer?: React.ReactNode;
+  footerScrollRevealGap?: number;
+  footerScrollRevealKeyboardOnly?: boolean;
   children: React.ReactNode;
 };
 
@@ -30,41 +44,41 @@ type Props = {
 export function ReservationImmersiveStepShell(props: Props) {
   const { height: screenH } = useWindowDimensions();
   const { colors: t, isDark } = useAppTheme();
-  const heroH = Math.round(Math.min(screenH * 0.54, 440));
-  const sheetTopOffset = heroH - 20;
+  const sheetTopOffset = immersiveSheetTopOffset(screenH);
   const ambient = ambientNativePalettes.bookings;
   const sheetGradient: [string, string] = isDark ? [t.meshTop, t.meshBottom] : [ambient.top, ambient.bottom];
-  const scrollRef = React.useRef<ScrollView | null>(null);
+  const internalScrollRef = React.useRef<ScrollView | null>(null);
+  const scrollRef = props.scrollRefExternal ?? internalScrollRef;
   const lastEnterScrollTokenRef = React.useRef(0);
 
-  /** Match landing “Reserve” scroll position when Build your visit opens. */
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     if (!props.presentationActive) return;
-    const y = readAnimatedScrollY(props.scrollY);
-    const animateEnter =
+    const raisedEnter =
       props.enterScrollToken != null &&
       props.enterScrollToken !== lastEnterScrollTokenRef.current &&
-      y > 8;
+      props.enterScrollTargetY != null;
     if (props.enterScrollToken != null) {
       lastEnterScrollTokenRef.current = props.enterScrollToken;
     }
-    const id = requestAnimationFrame(() => {
-      scrollRef.current?.scrollTo({ y, animated: animateEnter });
-    });
-    return () => cancelAnimationFrame(id);
-  }, [props.presentationActive, props.enterScrollToken]);
+    const y = raisedEnter ? props.enterScrollTargetY! : readAnimatedScrollY(props.scrollY);
+    scrollRef.current?.scrollTo({ y, animated: raisedEnter });
+  }, [props.presentationActive, props.enterScrollToken, props.enterScrollTargetY, props.scrollY, scrollRef]);
+
+  const embedHero = props.embedHero !== false;
 
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ position: "absolute", left: 0, right: 0, top: 0, zIndex: 0 }} pointerEvents="none">
-        <ReservationImmersiveHero
-          venueName={props.restaurantName}
-          hasVenue={props.hasVenue}
-          topInset={props.scrollTopPad}
-          sheetTopOffset={sheetTopOffset}
-          scrollY={props.scrollY}
-        />
-      </View>
+      {embedHero ? (
+        <View style={{ position: "absolute", left: 0, right: 0, top: 0, zIndex: 0 }} pointerEvents="none">
+          <ReservationImmersiveHero
+            venueName={props.restaurantName}
+            hasVenue={props.hasVenue}
+            topInset={props.scrollTopPad}
+            sheetTopOffset={sheetTopOffset}
+            scrollY={props.scrollY}
+          />
+        </View>
+      ) : null}
 
       <View style={{ flex: 1, zIndex: 2 }}>
         <ReservationScreenShell
@@ -78,10 +92,16 @@ export function ReservationImmersiveStepShell(props: Props) {
           scrollRefExternal={scrollRef}
           restoreScrollY={props.restoreScrollY}
           scrollRestoreToken={props.scrollRestoreToken}
+          sheetScrollEnabled={props.sheetScrollEnabled}
           onBack={props.onBack}
-          cardOverlayBack={Boolean(props.onBack)}
+          cardOverlayBack={props.cardOverlayBack === true}
           footer={props.footer}
+          footerScrollRevealGap={props.footerScrollRevealGap}
+          footerScrollRevealKeyboardOnly={props.footerScrollRevealKeyboardOnly}
         >
+          {props.bookStep != null && props.bookStep >= 2 ? (
+            <ReservationBookStepChrome step={props.bookStep} onBack={props.onBack} />
+          ) : null}
           {props.children}
         </ReservationScreenShell>
       </View>

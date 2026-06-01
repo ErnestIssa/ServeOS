@@ -1,13 +1,23 @@
 import * as Haptics from "expo-haptics";
 import React from "react";
-import { Alert, Animated, StyleSheet, View } from "react-native";
+import { Alert, Animated, Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 import { fetchCustomerRestaurantDirectory } from "../../api";
 import { GroupEventBookingScreen } from "./GroupEventBookingScreen";
 import { ReservationAvailabilityScreen } from "./ReservationAvailabilityScreen";
 import { ReservationBuilderScreen } from "./ReservationBuilderScreen";
 import { ReservationConfirmationScreen } from "./ReservationConfirmationScreen";
-import { ReservationGuestCheckoutScreen } from "./ReservationGuestCheckoutScreen";
-import { ReservationFlowScreenLayer } from "./ReservationFlowScreenLayer";
+import {
+  ReservationFlowScreenLayer,
+  RESERVATION_SLIDE_ENTER_MS,
+  type ReservationSlideDirection
+} from "./ReservationFlowScreenLayer";
+import { ReservationImmersiveHero } from "./ReservationImmersiveHero";
+import {
+  isReservationBookFlowScreen,
+  normalizeReservationScreen,
+  reservationBookFlowIndex
+} from "./reservationBookSteps";
+import { immersiveRaisedScrollY, immersiveSheetTopOffset } from "./reservationImmersiveMetrics";
 import { ReservationLandingScreen } from "./ReservationLandingScreen";
 import { ReservationManagementScreen } from "./ReservationManagementScreen";
 import { createDefaultReservationDraft } from "./reservationDefaults";
@@ -63,11 +73,17 @@ function makeConfirmationCode(): string {
   return `SRV-${n}`;
 }
 
+type BookFlowSlidePair = {
+  exiting: ReservationScreenId;
+  entering: ReservationScreenId;
+  direction: ReservationSlideDirection;
+};
+
 export function CustomerReservationFlow(props: Props) {
   const restaurantId = props.restaurantId.trim();
   const cached = readReservationFlowMemory(props.userId, restaurantId);
 
-  const initialScreen = cached?.screen ?? "landing";
+  const initialScreen = normalizeReservationScreen(cached?.screen ?? "landing");
   const [screen, setScreen] = React.useState<ReservationScreenId>(initialScreen);
   const [visitedScreens, setVisitedScreens] = React.useState<Set<ReservationScreenId>>(
     () => new Set<ReservationScreenId>(["landing", initialScreen])
@@ -84,6 +100,8 @@ export function CustomerReservationFlow(props: Props) {
   screenRef.current = screen;
   const [confirmationCode, setConfirmationCode] = React.useState("SRV-000000");
   const [startBookingLoading, setStartBookingLoading] = React.useState(false);
+  const [continueBookingLoading, setContinueBookingLoading] = React.useState(false);
+  const [confirmBookingLoading, setConfirmBookingLoading] = React.useState(false);
   const [addonIds, setAddonIds] = React.useState<string[]>([]);
   const [groupEventTypeId, setGroupEventTypeId] = React.useState("corporate");
   const [groupSizeId, setGroupSizeId] = React.useState<string | null>(null);
@@ -93,7 +111,10 @@ export function CustomerReservationFlow(props: Props) {
   const screenScrollYRef = React.useRef<ReservationScrollByScreen>(
     cached?.scrollByScreen ? { ...cached.scrollByScreen } : {}
   );
-  const [builderEnterToken, setBuilderEnterToken] = React.useState(0);
+  const [stepEnterToken, setStepEnterToken] = React.useState(0);
+  const [stepEnterScrollY, setStepEnterScrollY] = React.useState<number | undefined>();
+  const [bookFlowSlide, setBookFlowSlide] = React.useState<BookFlowSlidePair | null>(null);
+  const { height: screenH } = useWindowDimensions();
   const [scrollRestore, setScrollRestore] = React.useState<ScrollRestore | null>(() => {
     const y = cached?.scrollByScreen?.[cached.screen ?? "landing"];
     if (y == null) return null;
@@ -268,33 +289,122 @@ export function CustomerReservationFlow(props: Props) {
     [persistFlow]
   );
 
+  const applyRaisedScrollFor = React.useCallback(
+    (target: ReservationScreenId) => {
+      const y = immersiveRaisedScrollY(screenH, props.scrollTopPad);
+      screenScrollYRef.current[target] = y;
+      props.scrollY.setValue(y);
+      setStepEnterScrollY(y);
+      setStepEnterToken((n) => n + 1);
+      return y;
+    },
+    [screenH, props.scrollTopPad, props.scrollY]
+  );
+
+  const slidePropsFor = React.useCallback(
+    (id: ReservationScreenId) => ({
+      slidePhase:
+        bookFlowSlide?.exiting === id ? ("exit" as const) : bookFlowSlide?.entering === id ? ("enter" as const) : null,
+      slideDirection: bookFlowSlide?.direction ?? null
+    }),
+    [bookFlowSlide]
+  );
+
+  const bookStepPresentationProps = React.useCallback(
+    (id: ReservationScreenId) => ({
+      presentationActive: screen === id,
+      enterScrollToken: stepEnterToken > 0 ? stepEnterToken : undefined,
+      enterScrollTargetY: stepEnterScrollY
+    }),
+    [screen, stepEnterScrollY, stepEnterToken]
+  );
+
+  /** Linear book flow — vertical slide + raised card (steps 2+). */
+  const navigateBookFlow = React.useCallback(
+    (to: ReservationScreenId) => {
+      const from = screenRef.current;
+      if (from === to) return;
+
+      const fromIdx = reservationBookFlowIndex(from);
+      const toIdx = reservationBookFlowIndex(to);
+
+      if (fromIdx >= 0 && toIdx >= 0) {
+        void Haptics.selectionAsync();
+        captureScrollNow();
+        const forward = toIdx > fromIdx;
+        markVisited(to);
+
+        if (to === "landing") {
+          const y = screenScrollYRef.current.landing ?? 0;
+          props.scrollY.setValue(y);
+        } else {
+          const saved = screenScrollYRef.current[to];
+          if (forward || saved == null) {
+            applyRaisedScrollFor(to);
+          } else {
+            // Back: snap shared offset only — previous step stays mounted at its saved scroll.
+            props.scrollY.setValue(saved);
+          }
+        }
+
+        screenRef.current = to;
+        setScreen(to);
+        persistFlow(draftRef.current, to);
+
+        if (Platform.OS === "web") {
+          setBookFlowSlide(null);
+          return;
+        }
+
+        setBookFlowSlide({
+          exiting: from,
+          entering: to,
+          direction: forward ? "forward" : "back"
+        });
+        setTimeout(() => setBookFlowSlide(null), RESERVATION_SLIDE_ENTER_MS + 48);
+        return;
+      }
+
+      void Haptics.selectionAsync();
+      captureScrollNow();
+      activateScreen(to);
+      persistFlow(draftRef.current, to);
+    },
+    [applyRaisedScrollFor, activateScreen, captureScrollNow, markVisited, persistFlow, props.scrollY]
+  );
+
   const goBack = React.useCallback(
     (target: ReservationScreenId) => {
+      if (isReservationBookFlowScreen(screenRef.current) && isReservationBookFlowScreen(target)) {
+        navigateBookFlow(target);
+        return;
+      }
       void Haptics.selectionAsync();
       captureScrollNow();
       activateScreen(target);
       persistFlow(draftRef.current, target);
     },
-    [activateScreen, captureScrollNow, persistFlow]
+    [activateScreen, captureScrollNow, navigateBookFlow, persistFlow]
   );
 
   const goForward = React.useCallback(
     (target: ReservationScreenId, opts?: { resetScroll?: boolean }) => {
+      if (isReservationBookFlowScreen(screenRef.current) && isReservationBookFlowScreen(target)) {
+        if (opts?.resetScroll) {
+          screenScrollYRef.current[target] = 0;
+        }
+        navigateBookFlow(target);
+        return;
+      }
       void Haptics.selectionAsync();
       captureScrollNow();
-      if (target === "builder" && !opts?.resetScroll) {
-        const landingY = screenScrollYRef.current.landing ?? readAnimatedScrollY(props.scrollY);
-        screenScrollYRef.current.builder = landingY;
-        if (screenRef.current === "landing") {
-          setBuilderEnterToken((n) => n + 1);
-        }
-      } else if (opts?.resetScroll) {
+      if (opts?.resetScroll) {
         screenScrollYRef.current[target] = 0;
       }
       activateScreen(target);
       persistFlow(draftRef.current, target);
     },
-    [activateScreen, captureScrollNow, persistFlow, props.scrollY]
+    [activateScreen, captureScrollNow, navigateBookFlow, persistFlow]
   );
 
   const handleStartBooking = React.useCallback(async () => {
@@ -314,7 +424,7 @@ export function CustomerReservationFlow(props: Props) {
         const next = mergeValidatedDraft(draftRef.current, res.draft);
         draftRef.current = next;
         setDraft(next);
-        goForward("builder");
+        navigateBookFlow("builder");
         return;
       }
       Alert.alert("Can't continue yet", reservationStartErrorMessage(res.ok ? undefined : res.fields));
@@ -325,7 +435,7 @@ export function CustomerReservationFlow(props: Props) {
     }
   }, [
     draft,
-    goForward,
+    navigateBookFlow,
     props.authToken,
     props.hasVenue,
     props.onChooseVenue,
@@ -348,8 +458,11 @@ export function CustomerReservationFlow(props: Props) {
   const immersive = {
     ...shared,
     restaurantName: props.restaurantName,
-    hasVenue: props.hasVenue
+    hasVenue: props.hasVenue,
+    embedHero: false as const
   };
+
+  const flowHeroSheetTop = immersiveSheetTopOffset(screenH);
 
   const toggleGroupVip = React.useCallback((id: string) => {
     setGroupVipIds((prev) => {
@@ -364,10 +477,58 @@ export function CustomerReservationFlow(props: Props) {
     setAddonIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }, []);
 
+  const handleContinueFromBuilder = React.useCallback(async () => {
+    setContinueBookingLoading(true);
+    try {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+      });
+      navigateBookFlow("availability");
+    } finally {
+      setContinueBookingLoading(false);
+    }
+  }, [navigateBookFlow]);
+
+  const handleConfirmFromAvailability = React.useCallback(async () => {
+    setConfirmBookingLoading(true);
+    try {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+      });
+      setConfirmationCode(makeConfirmationCode());
+      navigateBookFlow("confirmation");
+    } finally {
+      setConfirmBookingLoading(false);
+    }
+  }, [navigateBookFlow]);
+
+  const handleBookAgain = React.useCallback(() => {
+    void Haptics.selectionAsync();
+    const fresh = createDefaultReservationDraft(resolvedHours ?? null);
+    setAddonIds([]);
+    setDraft(fresh);
+    draftRef.current = fresh;
+    const landingY = screenScrollYRef.current.landing ?? 0;
+    screenScrollYRef.current = { landing: landingY };
+    persistFlow(fresh, "builder");
+    navigateBookFlow("builder");
+  }, [navigateBookFlow, persistFlow, resolvedHours]);
+
   return (
     <View style={styles.flowRoot}>
+      <View style={styles.flowHero} pointerEvents="none">
+        <ReservationImmersiveHero
+          venueName={props.restaurantName}
+          hasVenue={props.hasVenue}
+          topInset={props.scrollTopPad}
+          sheetTopOffset={flowHeroSheetTop}
+          scrollY={props.scrollY}
+          scrollLinked={false}
+        />
+      </View>
+
       {visitedScreens.has("landing") ? (
-        <ReservationFlowScreenLayer active={screen === "landing"}>
+        <ReservationFlowScreenLayer active={screen === "landing"} {...slidePropsFor("landing")}>
           <ReservationLandingScreen
             {...flowCtx}
             {...shared}
@@ -385,66 +546,52 @@ export function CustomerReservationFlow(props: Props) {
       ) : null}
 
       {visitedScreens.has("builder") ? (
-        <ReservationFlowScreenLayer active={screen === "builder"}>
+        <ReservationFlowScreenLayer active={screen === "builder"} {...slidePropsFor("builder")}>
           <ReservationBuilderScreen
             {...immersive}
             {...coldScrollPropsFor("builder")}
-            presentationActive={screen === "builder"}
-            enterScrollToken={builderEnterToken > 0 ? builderEnterToken : undefined}
+            {...bookStepPresentationProps("builder")}
+            hasVenue={props.hasVenue}
             draft={draft}
             onChange={patchDraft}
+            continueLoading={continueBookingLoading}
             onBack={() => goBack("landing")}
-            onContinue={() => goForward("availability")}
+            onContinue={() => void handleContinueFromBuilder()}
           />
         </ReservationFlowScreenLayer>
       ) : null}
 
       {visitedScreens.has("availability") ? (
-        <ReservationFlowScreenLayer active={screen === "availability"}>
+        <ReservationFlowScreenLayer active={screen === "availability"} {...slidePropsFor("availability")}>
           <ReservationAvailabilityScreen
             {...immersive}
             {...coldScrollPropsFor("availability")}
+            {...bookStepPresentationProps("availability")}
+            hasVenue={props.hasVenue}
             draft={draft}
             onChange={patchDraft}
+            confirmLoading={confirmBookingLoading}
             onBack={() => goBack("builder")}
-            onContinue={() => goForward("checkout")}
-            onWaitlist={() => {
-              patchDraft({ slotLabel: "Waitlist" });
-              goForward("checkout");
-            }}
-          />
-        </ReservationFlowScreenLayer>
-      ) : null}
-
-      {visitedScreens.has("checkout") ? (
-        <ReservationFlowScreenLayer active={screen === "checkout"}>
-          <ReservationGuestCheckoutScreen
-            {...flowCtx}
-            {...immersive}
-            {...coldScrollPropsFor("checkout")}
-            draft={draft}
-            onChange={patchDraft}
-            onBack={() => goBack("availability")}
-            onConfirm={() => {
-              setConfirmationCode(makeConfirmationCode());
-              goForward("confirmation");
-            }}
+            onConfirm={() => void handleConfirmFromAvailability()}
           />
         </ReservationFlowScreenLayer>
       ) : null}
 
       {visitedScreens.has("confirmation") ? (
-        <ReservationFlowScreenLayer active={screen === "confirmation"}>
+        <ReservationFlowScreenLayer active={screen === "confirmation"} {...slidePropsFor("confirmation")}>
           <ReservationConfirmationScreen
             {...flowCtx}
             {...immersive}
             {...coldScrollPropsFor("confirmation")}
+            {...bookStepPresentationProps("confirmation")}
+            hasVenue={props.hasVenue}
             draft={draft}
             confirmationCode={confirmationCode}
             addonIds={addonIds}
             onToggleAddon={toggleAddon}
             onManage={() => goForward("management")}
             onOpenChat={props.onOpenChat}
+            onBookAgain={handleBookAgain}
             onDone={() => {
               setScreen("landing");
               props.onExitToHome();
@@ -503,5 +650,12 @@ export function CustomerReservationFlow(props: Props) {
 }
 
 const styles = StyleSheet.create({
-  flowRoot: { flex: 1 }
+  flowRoot: { flex: 1 },
+  flowHero: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    zIndex: 0
+  }
 });

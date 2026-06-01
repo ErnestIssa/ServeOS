@@ -212,11 +212,13 @@ export function ReservationPrimaryButton(props: {
         pressed && !blocked && styles.tapPressed
       ]}
     >
-      {props.loading ? (
-        <ReservationThreeDotLoader color="#FFFFFF" />
-      ) : (
-        <Text style={styles.primaryBtnText}>{props.label}</Text>
-      )}
+      <View style={styles.primaryBtnInner}>
+        {props.loading ? (
+          <ReservationThreeDotLoader color="#FFFFFF" />
+        ) : (
+          <Text style={styles.primaryBtnText}>{props.label}</Text>
+        )}
+      </View>
     </Pressable>
   );
 }
@@ -407,6 +409,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginTop: 8
+  },
+  primaryBtnInner: {
+    minHeight: 22,
+    alignItems: "center",
+    justifyContent: "center"
   },
   primaryBtnPurple: {
     backgroundColor: R.ordersNavPurpleBright

@@ -1,5 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { authScope } from "../../data/cache/cacheKeys";
+import { ACCESSIBILITY_CARD_OPTIONS, EXPERIENCE_CARD_OPTIONS } from "./reservationPresets";
+import { mergedExperiencePickIds } from "./experiencePickIds";
 import {
   EMPTY_RESERVATION_DRAFT,
   type ReservationDraft,
@@ -22,6 +24,23 @@ function storageKey(scope: string, restaurantId: string): string {
   return `${scope}:reservation:flow:${rid}`;
 }
 
+const ACCESSIBILITY_IDS = new Set(ACCESSIBILITY_CARD_OPTIONS.map((o) => o.id));
+const EXPERIENCE_IDS = new Set(EXPERIENCE_CARD_OPTIONS.map((o) => o.id));
+
+function normalizeAccessibilityNoteIds(raw: Record<string, unknown>): string[] {
+  if (Array.isArray(raw.accessibilityNoteIds)) {
+    const ids = raw.accessibilityNoteIds.filter(
+      (id): id is string => typeof id === "string" && ACCESSIBILITY_IDS.has(id)
+    );
+    return [...new Set(ids)];
+  }
+  const legacy =
+    typeof raw.accessibilityNotes === "string" ? raw.accessibilityNotes.trim() : "";
+  if (!legacy) return [];
+  const match = ACCESSIBILITY_CARD_OPTIONS.find((o) => o.label === legacy);
+  return match ? [match.id] : [];
+}
+
 function normalizeDraft(raw: unknown): ReservationDraft | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
@@ -30,13 +49,17 @@ function normalizeDraft(raw: unknown): ReservationDraft | null {
   const timeLabel = typeof o.timeLabel === "string" ? o.timeLabel.trim() : "";
   if (!guests || !dateLabel || !timeLabel) return null;
 
-  const quickPickIds = Array.isArray(o.quickPickIds)
+  const branchId = typeof o.branchId === "string" ? o.branchId : null;
+  const rawQuickPickIds = Array.isArray(o.quickPickIds)
     ? o.quickPickIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
     : [];
+  const quickPickIds = mergedExperiencePickIds({ branchId, quickPickIds: rawQuickPickIds }).filter((id) =>
+    EXPERIENCE_IDS.has(id)
+  );
 
   return {
     ...EMPTY_RESERVATION_DRAFT,
-    branchId: typeof o.branchId === "string" ? o.branchId : null,
+    branchId: null,
     quickDateId: typeof o.quickDateId === "string" ? o.quickDateId : null,
     quickPickIds,
     guests,
@@ -44,13 +67,10 @@ function normalizeDraft(raw: unknown): ReservationDraft | null {
     timeLabel,
     seatingPreference: typeof o.seatingPreference === "string" ? o.seatingPreference : null,
     occasion: typeof o.occasion === "string" ? o.occasion : null,
-    accessibilityNotes: typeof o.accessibilityNotes === "string" ? o.accessibilityNotes : "",
+    accessibilityNoteIds: normalizeAccessibilityNoteIds(o),
+    restaurantNote: typeof o.restaurantNote === "string" ? o.restaurantNote : "",
     tableId: typeof o.tableId === "string" ? o.tableId : null,
     slotLabel: typeof o.slotLabel === "string" ? o.slotLabel : null,
-    checkoutUseProfile: o.checkoutUseProfile !== false,
-    checkoutDeposit: o.checkoutDeposit === true,
-    checkoutSms: o.checkoutSms !== false,
-    checkoutEmail: o.checkoutEmail === true
   };
 }
 
@@ -58,16 +78,15 @@ const SCREEN_IDS = new Set<ReservationScreenId>([
   "landing",
   "builder",
   "availability",
-  "checkout",
   "confirmation",
   "management",
   "group_event"
 ]);
 
 function normalizeScreen(raw: unknown): ReservationScreenId {
-  return typeof raw === "string" && SCREEN_IDS.has(raw as ReservationScreenId)
-    ? (raw as ReservationScreenId)
-    : "landing";
+  if (typeof raw !== "string") return "landing";
+  if (raw === "checkout") return "availability";
+  return SCREEN_IDS.has(raw as ReservationScreenId) ? (raw as ReservationScreenId) : "landing";
 }
 
 function normalizeScrollByScreen(raw: unknown): ReservationScrollByScreen | undefined {

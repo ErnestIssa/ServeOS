@@ -37,6 +37,7 @@ type Props = {
   onSearchChange: (q: string) => void;
   onAddItem: (item: MenuItemFlat) => void;
   addingItemIds?: Record<string, boolean>;
+  markedMenuItemIds?: Record<string, boolean>;
 };
 
 type SectionId = "tonight" | "staff" | "fast" | "drinks" | "related";
@@ -82,9 +83,9 @@ function SearchResultRow({
         accessibilityLabel={addedJustNow ? `${item.name} added` : `Add ${item.name}`}
         onPress={onAdd}
         style={({ pressed }) => [styles.addBtn, pressed && styles.addBtnPressed]}
-        disabled={!!addLoading}
+        disabled={!!addLoading && !addedJustNow}
       >
-        {addLoading ? (
+        {addLoading && !addedJustNow ? (
           <SwapColorSpinner size={18} stroke={2} />
         ) : addedJustNow ? (
           <Text style={styles.addBtnCheck}>✓</Text>
@@ -103,7 +104,8 @@ export function CustomerNavSearchSheet({
   searchQuery,
   onSearchChange,
   onAddItem,
-  addingItemIds
+  addingItemIds,
+  markedMenuItemIds
 }: Props) {
   const insets = useSafeAreaInsets();
   const { width: windowW } = useWindowDimensions();
@@ -116,10 +118,6 @@ export function CustomerNavSearchSheet({
     drinks: true,
     related: true
   });
-
-  /** Sticky ✓ after a successful add so users can scan what they already tapped. Cleared when this sheet instance unmounts. */
-  const [addedConfirmById, setAddedConfirmById] = React.useState<Record<string, boolean>>({});
-  const prevAddingRef = React.useRef<Record<string, boolean>>({});
 
   const pool = React.useMemo(() => menuPoolFromCategories(categories), [categories]);
   const filteredPool = React.useMemo(() => filterPoolByCategory(pool, categoryId), [pool, categoryId]);
@@ -143,20 +141,6 @@ export function CustomerNavSearchSheet({
   const discoverStaff = React.useMemo(() => staffPickItems(pool, restaurantId), [pool, restaurantId]);
   const discoverFast = React.useMemo(() => fastestPrepareItems(pool), [pool]);
   const discoverDrinks = React.useMemo(() => bestDrinksItems(pool), [pool]);
-
-  React.useEffect(() => {
-    const prev = prevAddingRef.current;
-    const next = addingItemIds ?? {};
-
-    for (const [id, wasLoading] of Object.entries(prev)) {
-      if (!wasLoading) continue;
-      if (next[id]) continue; // still loading
-
-      setAddedConfirmById((p) => ({ ...p, [id]: true }));
-    }
-
-    prevAddingRef.current = next;
-  }, [addingItemIds]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -268,7 +252,7 @@ export function CustomerNavSearchSheet({
             money={money}
             onAdd={() => onAddItem(item)}
             addLoading={!!addingItemIds?.[item.id]}
-            addedJustNow={!!addedConfirmById[item.id]}
+            addedJustNow={!!markedMenuItemIds?.[item.id]}
             subline={
               section.id === "tonight"
                 ? !q

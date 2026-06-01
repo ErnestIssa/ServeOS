@@ -32,7 +32,8 @@ function MenuCarouselStrip({
   likedOrder,
   onToggleLike,
   onAddItem,
-  addingItemIds
+  addingItemIds,
+  markedMenuItemIds
 }: {
   trackingKey: string;
   headingTitle: string;
@@ -46,6 +47,7 @@ function MenuCarouselStrip({
   onToggleLike: (id: string) => void;
   onAddItem: (item: MenuItemFlat) => void;
   addingItemIds?: Record<string, boolean> | undefined;
+  markedMenuItemIds?: Record<string, boolean> | undefined;
 }) {
   const rowsSig = useMemo(() => menuRowsSignature(items), [items]);
   const { delayById, onViewableItemsChanged } = useMenuRevealDelays(rowsSig);
@@ -63,7 +65,7 @@ function MenuCarouselStrip({
         key={trackingKey}
         horizontal
         data={items}
-        extraData={[delayById, likedKey]}
+        extraData={[delayById, likedKey, markedMenuItemIds]}
         keyExtractor={(it) => `${trackingKey}-${it.id}`}
         showsHorizontalScrollIndicator={false}
         decelerationRate="fast"
@@ -89,6 +91,7 @@ function MenuCarouselStrip({
               liked={likedOrder.includes(item.id)}
               onToggleLike={() => onToggleLike(item.id)}
               addLoading={!!addingItemIds?.[item.id]}
+              addedJustNow={!!markedMenuItemIds?.[item.id]}
               onAddPress={() => onAddItem(item)}
             />
           </MenuCardScrollReveal>
@@ -107,7 +110,8 @@ function MenuGridChunk({
   likedOrder,
   onToggleLike,
   onAddItem,
-  addingItemIds
+  addingItemIds,
+  markedMenuItemIds
 }: {
   trackingKey: string;
   items: MenuItemFlat[];
@@ -118,6 +122,7 @@ function MenuGridChunk({
   onToggleLike: (id: string) => void;
   onAddItem: (item: MenuItemFlat) => void;
   addingItemIds?: Record<string, boolean> | undefined;
+  markedMenuItemIds?: Record<string, boolean> | undefined;
 }) {
   const rowsSig = useMemo(() => menuRowsSignature(items), [items]);
   const { delayById, onViewableItemsChanged } = useMenuRevealDelays(rowsSig);
@@ -133,7 +138,7 @@ function MenuGridChunk({
       scrollEnabled={false}
       nestedScrollEnabled
       removeClippedSubviews={false}
-      extraData={[delayById, likedKey]}
+      extraData={[delayById, likedKey, markedMenuItemIds]}
       style={{ width: listWidth, alignSelf: "stretch" }}
       contentContainerStyle={styles.gridFlatContent}
       keyExtractor={(it) => `${trackingKey}-${it.id}`}
@@ -152,6 +157,7 @@ function MenuGridChunk({
             liked={likedOrder.includes(item.id)}
             onToggleLike={() => onToggleLike(item.id)}
             addLoading={!!addingItemIds?.[item.id]}
+            addedJustNow={!!markedMenuItemIds?.[item.id]}
             onAddPress={() => onAddItem(item)}
           />
         </MenuCardScrollReveal>
@@ -173,6 +179,7 @@ type Props = {
   filterQuery?: string;
   onAddItem: (item: MenuItemFlat) => void;
   addingItemIds?: Record<string, boolean> | undefined;
+  markedMenuItemIds?: Record<string, boolean> | undefined;
   likedIdsInitial?: string[];
   prefsVersion?: number;
   edgeToEdge?: boolean;
@@ -187,6 +194,7 @@ export function CustomerMenuBrowsing({
   filterQuery = "",
   onAddItem,
   addingItemIds,
+  markedMenuItemIds,
   likedIdsInitial,
   prefsVersion = 0,
   edgeToEdge = false,
@@ -313,7 +321,8 @@ export function CustomerMenuBrowsing({
       void handleLike(id);
     },
     onAddItem: handleAddItem,
-    addingItemIds
+    addingItemIds,
+    markedMenuItemIds
   };
 
   /** Venue has no dishes at all */
@@ -393,9 +402,11 @@ export function CustomerMenuBrowsing({
                       gridCardWidth={gridCardWidth}
                       listWidth={usableW}
                       money={money}
-                    likedOrder={likedOrder}
-                    onToggleLike={(id) => void handleLike(id)}
+                      likedOrder={likedOrder}
+                      onToggleLike={(id) => void handleLike(id)}
                       onAddItem={handleAddItem}
+                      addingItemIds={addingItemIds}
+                      markedMenuItemIds={markedMenuItemIds}
                     />
                   </View>
                 )

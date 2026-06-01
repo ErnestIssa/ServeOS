@@ -55,6 +55,7 @@ import {
 import { clearOrderStatusCue, syncOrderStatusCue } from "./src/customer/orderStatusCue";
 import { AuthFlowScreen } from "./src/auth/AuthFlowScreen";
 import { deleteCartLine, fetchCustomerCart, patchCartLineQuantity, postCartAddItem, type CartLineApi } from "./src/customer/cartApi";
+import { buildMarkedMenuItemIdsRecord } from "./src/customer/customerMarkedMenuItems";
 import { playCartAddCue } from "./src/customer/cartCueSound";
 import { CartFABPopup } from "./src/customer/CartFABPopup";
 import { CartSheetPanel } from "./src/customer/CartSheetPanel";
@@ -71,7 +72,7 @@ import {
 } from "./src/customer/demoPeakModeMenu";
 import { CustomerMenuBrowsing, recordOrderedItemsForRestaurant } from "./src/menu/CustomerMenuBrowsing";
 import { bumpBrowseEngagement } from "./src/menu/menuPreferencesStorage";
-import { buildFilteredMenuPool, type MenuCategoryLite } from "./src/menu/menuBrowseUtils";
+import { buildFilteredMenuPool, flattenMenu, type MenuCategoryLite } from "./src/menu/menuBrowseUtils";
 import { BottomNavContentDimmer } from "./src/shell/BottomNavContentDimmer";
 import { TopNavContentDimmer } from "./src/shell/TopNavContentDimmer";
 import {
@@ -167,6 +168,8 @@ export default function App() {
   const [cartFabDeferred, setCartFabDeferred] = React.useState(false);
   const [pendingAddsCount, setPendingAddsCount] = React.useState(0);
   const [addingById, setAddingById] = React.useState<Record<string, boolean>>({});
+  const [serverMarkedMenuIds, setServerMarkedMenuIds] = React.useState<string[]>([]);
+  const [optimisticMarkedMenuIds, setOptimisticMarkedMenuIds] = React.useState<Set<string>>(() => new Set());
   const [optimisticCartQty, setOptimisticCartQty] = React.useState(0);
 
   const [actionModal, setActionModal] = React.useState<{
@@ -289,15 +292,70 @@ export default function App() {
   const [navSheetSearchMode, setNavSheetSearchMode] = React.useState(false);
 
   const applyCustomerCartResponse = React.useCallback(
-    (body: { lines: CartLineApi[]; subtotalCents: number; totalQuantity: number }) => {
+    (body: { lines: CartLineApi[]; subtotalCents: number; totalQuantity: number; markedMenuItemIds?: string[] }) => {
       setCustomerCart({
         lines: body.lines,
         subtotalCents: body.subtotalCents,
         totalQuantity: body.totalQuantity
       });
       setOptimisticCartQty(body.totalQuantity);
+      const marked = body.markedMenuItemIds ?? [];
+      setServerMarkedMenuIds(marked);
+      setOptimisticMarkedMenuIds((prev) => {
+        const next = new Set(prev);
+        for (const id of marked) next.delete(id);
+        for (const line of body.lines) next.delete(line.menuItemId);
+        return next;
+      });
     },
     []
+  );
+
+  const menuItemPool = React.useMemo(() => {
+    if (!menuPreview?.ok || !menuPreview.categories) return [];
+    return flattenMenu((menuPreview.categories ?? []) as MenuCategoryLite[]);
+  }, [menuPreview]);
+
+  const applyOptimisticAddToCustomerCart = React.useCallback(
+    (menuItemId: string) => {
+      const item = menuItemPool.find((i) => i.id === menuItemId);
+      const unitPriceCents = item?.priceCents ?? 0;
+      const name = item?.name ?? "Item";
+
+      setOptimisticMarkedMenuIds((prev) => new Set(prev).add(menuItemId));
+
+      setCustomerCart((prev) => {
+        const idx = prev.lines.findIndex((l) => l.menuItemId === menuItemId);
+        if (idx >= 0) {
+          const line = prev.lines[idx]!;
+          const quantity = line.quantity + 1;
+          const nextLines = prev.lines.map((l, i) =>
+            i === idx ? { ...l, quantity, lineTotalCents: l.unitPriceCents * quantity } : l
+          );
+          return {
+            lines: nextLines,
+            totalQuantity: prev.totalQuantity + 1,
+            subtotalCents: prev.subtotalCents + line.unitPriceCents
+          };
+        }
+        const tempLine: CartLineApi = {
+          id: `optimistic-${menuItemId}`,
+          menuItemId,
+          name,
+          quantity: 1,
+          unitPriceCents,
+          lineTotalCents: unitPriceCents,
+          modifierOptionIds: []
+        };
+        return {
+          lines: [...prev.lines, tempLine],
+          totalQuantity: prev.totalQuantity + 1,
+          subtotalCents: prev.subtotalCents + unitPriceCents
+        };
+      });
+      setOptimisticCartQty((q) => q + 1);
+    },
+    [menuItemPool]
   );
 
   const refreshCustomerCart = React.useCallback(
@@ -346,6 +404,33 @@ export default function App() {
       menuPreview?.ok && menuPreview.restaurant?.id ? String(menuPreview.restaurant.id).trim() : "";
     return fromMenu || menuRid.trim();
   }, [menuPreview, menuRid]);
+
+  const markedMenuItemIds = React.useMemo(() => {
+    if (!isCustomerSession) {
+      return buildMarkedMenuItemIdsRecord({
+        serverMarkedMenuItemIds: [],
+        cartLines: [],
+        orders: [],
+        restaurantId: activeRestaurantId(),
+        optimisticMenuItemIds: localCart.map((l) => l.menuItemId)
+      });
+    }
+    return buildMarkedMenuItemIdsRecord({
+      serverMarkedMenuItemIds: serverMarkedMenuIds,
+      cartLines: customerCart.lines,
+      orders: myOrders as CustomerMineOrder[],
+      restaurantId: activeRestaurantId(),
+      optimisticMenuItemIds: optimisticMarkedMenuIds
+    });
+  }, [
+    isCustomerSession,
+    serverMarkedMenuIds,
+    customerCart.lines,
+    myOrders,
+    activeRestaurantId,
+    optimisticMarkedMenuIds,
+    localCart
+  ]);
 
   useAnimatedReaction(
     () => sheetHeightSV.value,
@@ -626,6 +711,7 @@ export default function App() {
       if (res.ok) {
         setMenuPreview(res);
         setLocalCart([]);
+        setOptimisticMarkedMenuIds(new Set());
         setStatus("");
       } else {
         setMenuPreview(null);
@@ -830,27 +916,31 @@ export default function App() {
 
     lastAddAttemptRef.current = { menuItemId };
 
-    // Instant UI feedback (optimistic): spinner on this card + FAB bump + sound.
-    setAddingById((prev) => ({ ...prev, [menuItemId]: true }));
-    setPendingAddsCount((n) => n + 1);
     setCartFabDeferred(false);
     if (tab === "home") setCartFabBump((n) => n + 1);
     void playCartAddCue();
-    if (isCustomerSession) setOptimisticCartQty((q) => q + 1);
 
     try {
       /** Primary path: server cart. Reconcile after POST; don't block UI on GET. */
       if (token && isCustomerSession && rid) {
+        applyOptimisticAddToCustomerCart(menuItemId);
+        setPendingAddsCount((n) => n + 1);
         const res = await postCartAddItem({ jwt: token, restaurantId: rid, menuItemId });
+        setPendingAddsCount((n) => Math.max(0, n - 1));
         if (!res.ok) {
           const err = String((res as { error?: string }).error ?? "cart_add_failed");
+          setOptimisticMarkedMenuIds((prev) => {
+            const next = new Set(prev);
+            next.delete(menuItemId);
+            return next;
+          });
+          void refreshCustomerCart(rid);
           setStatus(err);
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
           showCartErrorModal(err);
-          if (isCustomerSession) setOptimisticCartQty((q) => Math.max(0, q - 1));
           return;
         }
-        void refreshCustomerCart(rid);
+        applyCustomerCartResponse(res);
         void bumpBrowseEngagement(rid).then(() => {
           setMenuPrefsSeq((s) => s + 1);
         });
@@ -878,20 +968,21 @@ export default function App() {
       }
 
       setLocalCart((c) => [...c, { menuItemId, quantity: 1, modifierOptionIds: [] }]);
+      setOptimisticCartQty((q) => q + 1);
       setStatus("Added to cart (this device only — sign in as a diner for cloud cart).");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "cart_add_failed";
       setStatus(msg);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       showCartErrorModal(msg);
-      if (isCustomerSession) setOptimisticCartQty((q) => Math.max(0, q - 1));
-    } finally {
-      setAddingById((prev) => {
-        const next = { ...prev };
-        delete next[menuItemId];
-        return next;
-      });
-      setPendingAddsCount((n) => Math.max(0, n - 1));
+      if (isCustomerSession && rid) {
+        setOptimisticMarkedMenuIds((prev) => {
+          const next = new Set(prev);
+          next.delete(menuItemId);
+          return next;
+        });
+        void refreshCustomerCart(rid);
+      }
     }
   }
 
@@ -909,11 +1000,16 @@ export default function App() {
           force: opts?.force
         });
         setMyOrders(orders as CustomerMineOrder[]);
+        const rid =
+          menuPreview?.ok && menuPreview.restaurant?.id
+            ? String(menuPreview.restaurant.id).trim()
+            : menuRid.trim();
+        if (rid) void refreshCustomerCart(rid);
       } catch {
         /* Keep last cached list visible. */
       }
     },
-    [token, isCustomerSession, sessionUser?.id]
+    [token, isCustomerSession, sessionUser?.id, menuPreview, menuRid, refreshCustomerCart]
   );
 
   React.useEffect(() => {
@@ -1210,6 +1306,7 @@ export default function App() {
         onSearchChange={setCustomerSearchQuery}
         onAddItem={(it) => void addMenuLineFromBrowse(it.id)}
         addingItemIds={addingById}
+        markedMenuItemIds={markedMenuItemIds}
       />
     ) : null;
 
@@ -1316,6 +1413,7 @@ export default function App() {
                       prefsVersion={menuPrefsSeq}
                       edgeToEdge
                       addingItemIds={addingById}
+                      markedMenuItemIds={markedMenuItemIds}
                       onMenuEngagement={() => setMenuPrefsSeq((s) => s + 1)}
                       onAddItem={(it) => void addMenuLineFromBrowse(it.id)}
                     />
@@ -1537,6 +1635,7 @@ export default function App() {
                     filterQuery=""
                     prefsVersion={menuPrefsSeq}
                     addingItemIds={addingById}
+                    markedMenuItemIds={markedMenuItemIds}
                     onMenuEngagement={() => setMenuPrefsSeq((s) => s + 1)}
                     onAddItem={(it) => void addMenuLineFromBrowse(it.id)}
                   />

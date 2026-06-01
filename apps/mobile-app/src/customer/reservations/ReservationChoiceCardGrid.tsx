@@ -51,6 +51,9 @@ export function ReservationChoiceCardGrid(props: {
                 }
               ]}
             >
+              {selected && Platform.OS !== "web" ? (
+                <View style={styles.selectedWhiteRing} pointerEvents="none" />
+              ) : null}
               <Text
                 style={[styles.cardTitle, { color: selected ? "#FFFFFF" : t.text }]}
                 numberOfLines={2}
@@ -101,6 +104,8 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 14,
     justifyContent: "center",
+    overflow: "hidden",
+    position: "relative",
     ...Platform.select({
       ios: {
         shadowColor: "#1e1b4b",
@@ -121,6 +126,17 @@ const styles = StyleSheet.create({
     android: { elevation: 8 },
     default: {}
   }),
+  /** Thin inner highlight on selected experience cards (mobile). */
+  selectedWhiteRing: {
+    position: "absolute",
+    top: 3,
+    left: 3,
+    right: 3,
+    bottom: 3,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.92)"
+  },
   cardTitle: {
     fontSize: 15,
     fontWeight: "900",

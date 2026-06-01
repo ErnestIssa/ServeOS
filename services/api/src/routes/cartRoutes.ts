@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import type { PrismaClient } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
+import { listMarkedMenuItemIdsForRestaurant } from "../lib/customerMarkedMenuItems.js";
 import { priceMenuItemLineInput, resolveQuickAddModifierOptionIds } from "../lib/menuItemLinePricing.js";
 
 function requireCustomer(req: { headers: { authorization?: string } }) {
@@ -43,6 +44,8 @@ async function serializeCustomerCart(prisma: PrismaClient, userId: string, resta
     }
   });
 
+  const markedMenuItemIds = await listMarkedMenuItemIdsForRestaurant(prisma, userId, restaurantId);
+
   if (!cart) {
     return {
       cart: null as null,
@@ -58,7 +61,8 @@ async function serializeCustomerCart(prisma: PrismaClient, userId: string, resta
       }>,
       subtotalCents: 0,
       lineCount: 0,
-      totalQuantity: 0
+      totalQuantity: 0,
+      markedMenuItemIds
     };
   }
 
@@ -121,7 +125,8 @@ async function serializeCustomerCart(prisma: PrismaClient, userId: string, resta
     lines: linesOut,
     subtotalCents,
     lineCount: linesOut.length,
-    totalQuantity
+    totalQuantity,
+    markedMenuItemIds
   };
 }
 

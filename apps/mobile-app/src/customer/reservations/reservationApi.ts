@@ -1,6 +1,8 @@
 import { apiFetch } from "../../api";
+import { EXPERIENCE_BRANCH_IDS } from "./reservationPresets";
 import type { ReservationDraft } from "./reservationTypes";
 import { buildQuickDateOptions, quickDateIdFromLabel } from "./reservationQuickDates";
+import { mergedExperiencePickIds } from "./experiencePickIds";
 
 export type ReservationStartFieldErrors = Partial<
   Record<"guests" | "dateLabel" | "timeLabel" | "experience" | "branchId" | "quickPickIds", string>
@@ -31,22 +33,21 @@ export function reservationStartPayload(draft: ReservationDraft) {
   const dateOptions = buildQuickDateOptions(10);
   const quickDateId =
     draft.quickDateId ?? quickDateIdFromLabel(dateOptions, draft.dateLabel) ?? undefined;
+  const experienceIds = mergedExperiencePickIds(draft);
+  const branchId = experienceIds.find((id) => EXPERIENCE_BRANCH_IDS.has(id)) ?? null;
   return {
     guests: draft.guests,
     dateLabel: draft.dateLabel,
     quickDateId: quickDateId ?? null,
     timeLabel: draft.timeLabel,
-    branchId: draft.branchId,
-    quickPickIds: draft.quickPickIds
+    branchId,
+    quickPickIds: experienceIds
   };
 }
 
 export function reservationStartErrorMessage(fields?: ReservationStartFieldErrors): string {
   if (!fields || Object.keys(fields).length === 0) {
     return "We couldn't start your reservation. Please try again.";
-  }
-  if (fields.experience === "pick_at_least_one") {
-    return "Choose at least one experience — a branch or a quick pick.";
   }
   if (fields.guests) return "Select how many guests are dining.";
   if (fields.dateLabel) return "Select a date for your visit.";
@@ -77,13 +78,18 @@ export function mergeValidatedDraft(
   current: ReservationDraft,
   validated: ValidateReservationStartOk["draft"]
 ): ReservationDraft {
+  const quickPickIds = mergedExperiencePickIds({
+    ...current,
+    branchId: validated.branchId,
+    quickPickIds: validated.quickPickIds
+  });
   return {
     ...current,
     guests: validated.guests,
     dateLabel: validated.dateLabel,
     quickDateId: validated.quickDateId,
     timeLabel: validated.timeLabel,
-    branchId: validated.branchId,
-    quickPickIds: validated.quickPickIds
+    branchId: null,
+    quickPickIds
   };
 }

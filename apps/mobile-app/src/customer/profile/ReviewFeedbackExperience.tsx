@@ -20,6 +20,7 @@ import Animated, {
   runOnJS,
   useAnimatedKeyboard,
   useAnimatedProps,
+  useAnimatedReaction,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -135,6 +136,7 @@ export const ReviewFeedbackExperience = React.forwardRef<
   const [composeActive, setComposeActive] = React.useState(false);
   const [keyboardOpen, setKeyboardOpen] = React.useState(false);
   const [sendStaged, setSendStaged] = React.useState(false);
+  const [caretColor, setCaretColor] = React.useState(TITLE_COLORS[0]);
   const keyboardOpenRef = React.useRef(false);
   const inputFocusedRef = React.useRef(false);
   const commentInputRef = React.useRef<TextInput>(null);
@@ -223,6 +225,36 @@ export const ReviewFeedbackExperience = React.forwardRef<
       hideSub.remove();
     };
   }, []);
+
+  const syncCaretColor = React.useCallback((step: number) => {
+    const idx = Math.min(2, Math.max(0, step));
+    setCaretColor(TITLE_COLORS[idx]);
+  }, []);
+
+  useAnimatedReaction(
+    () => Math.round(progress.value),
+    (step, prev) => {
+      if (step === prev) return;
+      runOnJS(syncCaretColor)(step);
+    },
+    [syncCaretColor]
+  );
+
+  React.useEffect(() => {
+    if (!composeActive) return;
+    const focusTimer = setTimeout(() => {
+      commentInputRef.current?.focus();
+    }, 40);
+    return () => clearTimeout(focusTimer);
+  }, [composeActive]);
+
+  React.useEffect(() => {
+    if (!composeActive || !keyboardOpen) return;
+    const focusTimer = setTimeout(() => {
+      commentInputRef.current?.focus();
+    }, 16);
+    return () => clearTimeout(focusTimer);
+  }, [composeActive, keyboardOpen]);
 
   const onCommentFocus = React.useCallback(() => {
     inputFocusedRef.current = true;
@@ -454,14 +486,6 @@ export const ReviewFeedbackExperience = React.forwardRef<
     backgroundColor: interpolateColor(progress.value, [0, 1, 2], INDICATOR_BGS)
   }));
 
-  const inputAnimatedProps = useAnimatedProps(() => {
-    const caretColor = interpolateColor(progress.value, [0, 1, 2], TITLE_COLORS);
-    return {
-      selectionColor: caretColor,
-      cursorColor: caretColor
-    };
-  });
-
   const stageFadeStyle = useAnimatedStyle(() => ({
     opacity: interpolate(focusProgress.value, [0, 1], [1, 0]),
     transform: [{ scale: interpolate(focusProgress.value, [0, 1], [1, 0.98]) }]
@@ -642,13 +666,18 @@ export const ReviewFeedbackExperience = React.forwardRef<
                 multiline
                 scrollEnabled
                 showSoftInputOnFocus
-                textAlignVertical={composeActive && comment.length === 0 ? "center" : "top"}
+                autoFocus={false}
+                caretHidden={false}
+                cursorColor={caretColor}
+                selectionColor={caretColor}
+                {...(Platform.OS === "android" ? { underlineColorAndroid: "transparent" } : {})}
+                textAlignVertical={composeActive ? "top" : "top"}
                 style={[
                   styles.commentInput,
                   composeActive ? styles.commentInputCompose : styles.commentInputRest,
+                  composeActive && styles.commentInputComposeCaret,
                   inputTextStyle
                 ]}
-                animatedProps={inputAnimatedProps}
                 accessibilityLabel="Visit feedback comments"
               />
             </View>
@@ -821,6 +850,11 @@ const styles = StyleSheet.create({
   commentInputCompose: {
     fontWeight: "700",
     textAlign: "center"
+  },
+  commentInputComposeCaret: {
+    minHeight: 120,
+    paddingTop: 10,
+    paddingBottom: 10
   },
   titleBlock: {
     alignItems: "center",

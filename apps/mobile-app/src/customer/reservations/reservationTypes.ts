@@ -3,7 +3,6 @@ export type ReservationScreenId =
   | "landing"
   | "builder"
   | "availability"
-  | "checkout"
   | "confirmation"
   | "management"
   | "group_event";
@@ -18,13 +17,12 @@ export type ReservationDraft = {
   timeLabel: string;
   seatingPreference: string | null;
   occasion: string | null;
-  accessibilityNotes: string;
+  /** Selected accessibility card ids (step 2); multi-select except `none` is exclusive. */
+  accessibilityNoteIds: string[];
+  /** Optional message for the venue (step 3). */
+  restaurantNote: string;
   tableId: string | null;
   slotLabel: string | null;
-  checkoutUseProfile: boolean;
-  checkoutDeposit: boolean;
-  checkoutSms: boolean;
-  checkoutEmail: boolean;
 };
 
 export const EMPTY_RESERVATION_DRAFT: ReservationDraft = {
@@ -36,13 +34,10 @@ export const EMPTY_RESERVATION_DRAFT: ReservationDraft = {
   timeLabel: "21:00",
   seatingPreference: null,
   occasion: null,
-  accessibilityNotes: "",
+  accessibilityNoteIds: [],
+  restaurantNote: "",
   tableId: null,
   slotLabel: null,
-  checkoutUseProfile: true,
-  checkoutDeposit: false,
-  checkoutSms: true,
-  checkoutEmail: false
 };
 
 export type ReservationFlowContext = {

@@ -1,14 +1,16 @@
 import React from "react";
-import { Animated, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
-import { ambientNativePalettes } from "@serveos/core-ambient/themes";
+import { Animated, ScrollView, Text, View, useWindowDimensions } from "react-native";
+import { immersiveSheetTopOffset } from "./reservationImmersiveMetrics";
 import { buildQuickDateOptions, quickDateIdFromLabel } from "./reservationQuickDates";
-import { BRANCH_OPTIONS, RECOMMENDATION_PICKS } from "./reservationPresets";
-import { ReservationChoiceCardGrid } from "./ReservationChoiceCardGrid";
-import { ReservationImmersiveHero } from "./ReservationImmersiveHero";
+import { mergedExperiencePickIds } from "./experiencePickIds";
+import { toggleExperiencePickId } from "./experienceSelection";
+import { ReservationDetailCardCarousel } from "./ReservationDetailCardCarousel";
+import { EXPERIENCE_CARD_OPTIONS } from "./reservationPresets";
 import { ReservationPlanVisitIntro } from "./ReservationPlanVisitIntro";
 import { ReservationQuickBookingBar } from "./ReservationQuickBookingBar";
 import { ReservationPrimaryButton } from "./ReservationUi";
-import { ReservationScreenShell } from "./ReservationScreenShell";
+import { ReservationImmersiveStepShell } from "./ReservationImmersiveStepShell";
+import { reservationBookStyles as styles } from "./reservationBookStyles";
 import { useAppTheme } from "../../theme/AppThemeContext";
 import type { ReservationDraft, ReservationFlowContext } from "./reservationTypes";
 
@@ -44,12 +46,8 @@ type Props = ReservationFlowContext & {
 
 export function ReservationLandingScreen(props: Props) {
   const { height: screenH } = useWindowDimensions();
-  const { colors: t, isDark } = useAppTheme();
-  const heroH = Math.round(Math.min(screenH * 0.54, 440));
-  const sheetTopOffset = heroH - 20;
-
-  const ambient = ambientNativePalettes.bookings;
-  const sheetGradient: [string, string] = isDark ? [t.meshTop, t.meshBottom] : [ambient.top, ambient.bottom];
+  const { colors: t } = useAppTheme();
+  const sheetTopOffset = immersiveSheetTopOffset(screenH);
 
   const scrollRef = React.useRef<ScrollView | null>(null);
   const quickDateOptions = React.useMemo(() => buildQuickDateOptions(10), []);
@@ -92,23 +90,7 @@ export function ReservationLandingScreen(props: Props) {
   const availabilityColor =
     availability === "available" ? t.success : availability === "limited" ? "#F59E0B" : t.danger;
 
-  const toggleBranch = React.useCallback(
-    (id: string) => {
-      props.onDraftChange({
-        branchId: props.draft.branchId === id ? null : id
-      });
-    },
-    [props.draft.branchId, props.onDraftChange]
-  );
-
-  const toggleQuickPick = React.useCallback(
-    (id: string) => {
-      const cur = props.draft.quickPickIds;
-      const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
-      props.onDraftChange({ quickPickIds: next });
-    },
-    [props.draft.quickPickIds, props.onDraftChange]
-  );
+  const experiencePickIds = React.useMemo(() => mergedExperiencePickIds(props.draft), [props.draft]);
 
   const onDateChange = React.useCallback(
     (dateLabel: string) => {
@@ -119,47 +101,35 @@ export function ReservationLandingScreen(props: Props) {
   );
 
   return (
-    <View style={{ flex: 1 }}>
-      <View style={{ position: "absolute", left: 0, right: 0, top: 0, zIndex: 0 }} pointerEvents="none">
-        <ReservationImmersiveHero
-          venueName={props.restaurantName}
-          hasVenue={props.hasVenue}
-          topInset={props.scrollTopPad}
-          sheetTopOffset={sheetTopOffset}
-          scrollY={props.scrollY}
+    <ReservationImmersiveStepShell
+      restaurantName={props.restaurantName}
+      hasVenue={props.hasVenue}
+      scrollY={props.scrollY}
+      onScroll={props.onScroll}
+      scrollTopPad={props.scrollTopPad}
+      scrollBottom={props.scrollBottom}
+      scrollRefExternal={scrollRef}
+      restoreScrollY={props.restoreScrollY}
+      scrollRestoreToken={props.scrollRestoreToken}
+      embedHero={false}
+      sheetScrollEnabled={!quickBarScrollLock}
+      cardOverlayBack={false}
+      footer={
+        <ReservationPrimaryButton
+          variant="purple"
+          label={props.hasVenue ? "Reserve a table" : "Choose venue"}
+          loading={props.hasVenue ? props.startBookingLoading : false}
+          onPress={() => {
+            if (!props.hasVenue) {
+              props.onChooseVenue();
+              return;
+            }
+            props.onStartBooking();
+          }}
+          disabled={!props.hasVenue}
         />
-      </View>
-
-      <View style={{ flex: 1, zIndex: 2 }}>
-        <ReservationScreenShell
-          layout="immersive"
-          showUxTagline={false}
-          onScroll={props.onScroll}
-          scrollTopPad={props.scrollTopPad}
-          scrollBottom={props.scrollBottom}
-          sheetTopOffset={sheetTopOffset}
-          sheetGradient={sheetGradient}
-          scrollRefExternal={scrollRef}
-          restoreScrollY={props.restoreScrollY}
-          scrollRestoreToken={props.scrollRestoreToken}
-          sheetScrollEnabled={!quickBarScrollLock}
-          footer={
-            <ReservationPrimaryButton
-              variant="purple"
-              label={props.hasVenue ? "Reserve a table" : "Choose venue"}
-              loading={props.hasVenue ? props.startBookingLoading : false}
-              onPress={() => {
-                if (!props.hasVenue) {
-                  props.onChooseVenue();
-                  return;
-                }
-                scrollToExperienceSection();
-                props.onStartBooking();
-              }}
-              disabled={!props.hasVenue}
-            />
-          }
-        >
+      }
+    >
           <ReservationPlanVisitIntro />
 
           <ReservationQuickBookingBar
@@ -190,48 +160,18 @@ export function ReservationLandingScreen(props: Props) {
             }}
           >
             <Text style={[styles.sectionTitle, { color: t.text }]}>Choose Your Experience</Text>
-            <Text style={[styles.sectionSubtitle, { color: t.ordersNavPurpleBright }]}>Branch</Text>
-            <ReservationChoiceCardGrid
-              options={BRANCH_OPTIONS}
-              isDark={isDark}
-              t={t}
-              selectedId={(id) => props.draft.branchId === id}
-              onToggle={toggleBranch}
-            />
-
-            <Text style={[styles.sectionSubtitle, styles.sectionSubtitleFollow, { color: t.ordersNavPurpleBright }]}>
-              Quick picks
-            </Text>
-            <ReservationChoiceCardGrid
-              options={RECOMMENDATION_PICKS}
-              isDark={isDark}
-              t={t}
-              selectedId={(id) => props.draft.quickPickIds.includes(id)}
-              onToggle={toggleQuickPick}
+            <Text style={[styles.sectionSubtitle, { color: t.ordersNavPurpleBright }]}>Quick picks</Text>
+            <ReservationDetailCardCarousel
+              options={EXPERIENCE_CARD_OPTIONS}
+              selectedIds={experiencePickIds}
+              onSelect={(opt) =>
+                props.onDraftChange({
+                  quickPickIds: toggleExperiencePickId(experiencePickIds, opt),
+                  branchId: null
+                })
+              }
             />
           </View>
-        </ReservationScreenShell>
-      </View>
-    </View>
+    </ReservationImmersiveStepShell>
   );
 }
-
-const styles = StyleSheet.create({
-  sectionTitle: {
-    fontSize: 22,
-    fontWeight: "900",
-    letterSpacing: -0.4,
-    marginTop: 10,
-    marginBottom: 6
-  },
-  sectionSubtitle: {
-    fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: 0.35,
-    textTransform: "uppercase",
-    marginBottom: 12
-  },
-  sectionSubtitleFollow: {
-    marginTop: 20
-  }
-});

@@ -23,6 +23,8 @@ type Props = {
   onToggleLike?: () => void;
   onAddPress: () => void;
   addLoading?: boolean;
+  /** Sticky ✓ after a successful add (matches nav search sheet). */
+  addedJustNow?: boolean;
 };
 
 export function MenuItemCard({
@@ -36,7 +38,8 @@ export function MenuItemCard({
   liked,
   onToggleLike,
   onAddPress,
-  addLoading = false
+  addLoading = false,
+  addedJustNow = false
 }: Props) {
   const carousel = layout === "carousel";
   const desc = description?.trim();
@@ -75,14 +78,20 @@ export function MenuItemCard({
           <Text style={styles.price}>{priceLabel}</Text>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Add ${title}`}
+            accessibilityLabel={addedJustNow ? `${title} added` : `Add ${title}`}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             android_ripple={{ color: "rgba(99,102,241,0.15)" }}
             style={({ pressed }) => [styles.addBtn, pressed && styles.addPressed]}
-            disabled={addLoading}
+            disabled={addLoading && !addedJustNow}
             onPress={onAddPress}
           >
-            {addLoading ? <SwapColorSpinner size={18} stroke={3} /> : <Text style={styles.addBtnText}>+</Text>}
+            {addLoading && !addedJustNow ? (
+              <SwapColorSpinner size={18} stroke={3} />
+            ) : addedJustNow ? (
+              <Text style={styles.addBtnCheck}>✓</Text>
+            ) : (
+              <Text style={styles.addBtnText}>+</Text>
+            )}
           </Pressable>
         </View>
       </View>
@@ -187,5 +196,11 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "800",
     marginTop: -2
+  },
+
+  addBtnCheck: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "900"
   }
 });

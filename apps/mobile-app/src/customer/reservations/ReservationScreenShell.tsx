@@ -14,6 +14,7 @@ import {
 import { R } from "../../theme";
 import { BOOKING_UX_TAGLINE } from "./reservationPresets";
 import { rubberBandOffsetPastMax } from "./reservationScrollBounds";
+import { useFooterKeyboardRevealGap } from "./useFooterKeyboardRevealGap";
 
 const RUBBER_CAP_PX = 26;
 const BOUNCE_UNDERSHOOT_PX = 11;
@@ -52,6 +53,10 @@ type Props = {
   cardOverlayBack?: boolean;
   /** When false, the immersive sheet does not scroll (e.g. quick-booking wheels are active). */
   sheetScrollEnabled?: boolean;
+  /** Max extra height below footer (note step). */
+  footerScrollRevealGap?: number;
+  /** When true, gap animates in only while the keyboard is open. */
+  footerScrollRevealKeyboardOnly?: boolean;
   children: React.ReactNode;
   footer?: React.ReactNode;
 };
@@ -70,6 +75,21 @@ export function ReservationScreenShell(props: Props) {
   const hitBottomRef = React.useRef(false);
   const [viewportH, setViewportH] = React.useState(0);
   const [contentH, setContentH] = React.useState(0);
+
+  const footerRevealMax = props.footerScrollRevealGap ?? 0;
+  const keyboardRevealOnly = props.footerScrollRevealKeyboardOnly === true && footerRevealMax > 0;
+
+  const getMaxScrollY = React.useCallback(
+    () => maxScrollYRef.current,
+    []
+  );
+
+  const keyboardRevealGapAnim = useFooterKeyboardRevealGap(
+    footerRevealMax,
+    keyboardRevealOnly && hasFixedHero,
+    scrollRef,
+    getMaxScrollY
+  );
 
   React.useEffect(() => {
     maxScrollYRef.current = Math.max(0, contentH - viewportH);
@@ -308,7 +328,16 @@ export function ReservationScreenShell(props: Props) {
           <View style={styles.immersiveBody}>
             <View style={styles.body}>{props.children}</View>
             {props.footer ? (
-              <View style={[styles.footer, { marginBottom: props.scrollBottom }]}>{props.footer}</View>
+              <View style={[styles.footer, { marginBottom: props.scrollBottom }]}>
+                {props.footer}
+                {footerRevealMax > 0 ? (
+                  keyboardRevealOnly ? (
+                    <Animated.View style={{ height: keyboardRevealGapAnim, overflow: "hidden" }} />
+                  ) : (
+                    <View style={{ height: footerRevealMax }} />
+                  )
+                ) : null}
+              </View>
             ) : null}
           </View>
         </View>

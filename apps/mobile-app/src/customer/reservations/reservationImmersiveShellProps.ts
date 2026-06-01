@@ -13,8 +13,15 @@ export type ReservationImmersiveShellProps = {
   scrollRestoreToken?: number;
   /** When true, native scroll is synced to shared `scrollY` (builder enter matches landing reserve scroll). */
   presentationActive?: boolean;
-  /** Bumps when opening builder from landing — triggers the same animated sheet scroll as Reserve. */
+  /** Bumps when opening builder from landing — syncs native scroll on enter. */
   enterScrollToken?: number;
+  /** Target scroll when entering builder from Reserve a table (card below top nav). */
+  enterScrollTargetY?: number;
+  sheetScrollEnabled?: boolean;
+  cardOverlayBack?: boolean;
+  scrollRefExternal?: React.RefObject<import("react-native").ScrollView | null>;
+  bookStep?: number;
+  embedHero?: boolean;
 };
 
 /** Pass scroll + venue props through to `ReservationImmersiveStepShell`. */
@@ -30,6 +37,12 @@ export function immersiveShellPassThrough(props: ReservationImmersiveShellProps)
     restoreScrollY: props.restoreScrollY,
     scrollRestoreToken: props.scrollRestoreToken,
     presentationActive: props.presentationActive,
-    enterScrollToken: props.enterScrollToken
+    enterScrollToken: props.enterScrollToken,
+    enterScrollTargetY: props.enterScrollTargetY,
+    sheetScrollEnabled: props.sheetScrollEnabled,
+    cardOverlayBack: props.cardOverlayBack,
+    scrollRefExternal: props.scrollRefExternal,
+    bookStep: props.bookStep,
+    embedHero: props.embedHero
   };
 }

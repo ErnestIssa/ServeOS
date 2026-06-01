@@ -78,21 +78,23 @@ function resolveExperience(
 ):
   | { ok: true; branchId: string | null; quickPickIds: string[] }
   | { ok: false; error: string; field?: "branchId" | "quickPickIds" | "experience" } {
-  const branch = branchId?.trim() ? branchId.trim() : null;
+  const legacyBranch = branchId?.trim() ? branchId.trim() : null;
   const picks = [...new Set(quickPickIds.map((id) => id.trim()).filter(Boolean))];
+  if (legacyBranch && !picks.includes(legacyBranch)) picks.push(legacyBranch);
 
-  if (branch && !branchIds.has(branch)) {
-    return { ok: false, error: "invalid", field: "branchId" };
-  }
+  const experienceIdSet = new Set<string>([...branchIds, ...quickPickIdSet]);
   for (const id of picks) {
-    if (!quickPickIdSet.has(id)) {
+    if (!experienceIdSet.has(id)) {
       return { ok: false, error: "invalid", field: "quickPickIds" };
     }
   }
-  if (!branch && picks.length === 0) {
-    return { ok: false, error: "pick_at_least_one", field: "experience" };
-  }
-  return { ok: true, branchId: branch, quickPickIds: picks };
+
+  const branchPicks = picks.filter((id) => branchIds.has(id));
+  return {
+    ok: true,
+    branchId: branchPicks[0] ?? null,
+    quickPickIds: picks
+  };
 }
 
 export function validateReservationStartInput(

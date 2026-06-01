@@ -1,17 +1,29 @@
 import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import React from "react";
-import { Keyboard, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions, type ViewStyle } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import {
+  Keyboard,
+  Platform,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+  type LayoutChangeEvent,
+  type ViewStyle
+} from "react-native";
+import { Gesture, GestureDetector, Pressable } from "react-native-gesture-handler";
 import Animated, {
+  cancelAnimation,
+  Easing,
   Extrapolation,
   interpolate,
+  interpolateColor,
   runOnJS,
   type SharedValue,
   useAnimatedReaction,
   useAnimatedStyle,
   useSharedValue,
-  withSpring
+  withTiming
 } from "react-native-reanimated";
 import type { EdgeInsets } from "react-native-safe-area-context";
 import {
@@ -43,17 +55,58 @@ const TABS: ReadonlyArray<{ id: TabId; label: string }> = [
   { id: "account", label: "ME" }
 ];
 
-const SPRING = { damping: 24, stiffness: 340, mass: 0.82 };
+/** Matches review mood slider — smooth glide, not bouncy spring. */
+const PILL_MOVE_MS = 300;
+const PILL_DRAG_SNAP_MS = 260;
+const PILL_EASE = Easing.bezier(0.22, 1, 0.36, 1);
+const PILL_DRAG_EASE = Easing.out(Easing.cubic);
+/** Magnify while finger is down (drag or hold). */
+const PILL_LIFT_MS = 200;
+const PILL_LIFT_SCALE = 1.12;
+const PILL_LIFT_RISE_Y = -4;
+/** Finger must move this far before pan (and magnify) — plain taps stay inert. */
+const PILL_DRAG_MIN_DISTANCE = 12;
+/** Horizontal travel before magnify while dragging. */
+const PILL_LIFT_TRANSLATION_X = 8;
 const PILL_INSET = 3;
-const ICON_SIZE = 24;
-/** ME tab profile photo — larger circle, no label underneath. */
-const ME_AVATAR_TAB_SIZE = 36;
+const TAB_COUNT = TABS.length;
+const TAB_LAST_INDEX = TAB_COUNT - 1;
+const TAB_INDEX_INPUT = [0, 1, 2, 3, 4] as const;
+const ICON_SIZE = 30;
+
+function clampPillProgress(n: number): number {
+  "worklet";
+  return Math.min(TAB_LAST_INDEX, Math.max(0, n));
+}
+
+function useTabStopLayout() {
+  const c0 = useSharedValue(0);
+  const c1 = useSharedValue(0);
+  const c2 = useSharedValue(0);
+  const c3 = useSharedValue(0);
+  const c4 = useSharedValue(0);
+  const w0 = useSharedValue(0);
+  const w1 = useSharedValue(0);
+  const w2 = useSharedValue(0);
+  const w3 = useSharedValue(0);
+  const w4 = useSharedValue(0);
+  return React.useMemo(
+    () => ({
+      centers: [c0, c1, c2, c3, c4] as const,
+      widths: [w0, w1, w2, w3, w4] as const
+    }),
+    [c0, c1, c2, c3, c4, w0, w1, w2, w3, w4]
+  );
+}
+
+/** ME tab profile photo — slightly larger than nav glyphs. */
+const ME_AVATAR_TAB_SIZE = 40;
 /** Keeps tab press ripple / hit area inset from outer purple chrome (horizontal padding on strip). */
 const TAB_EDGE_INSET_H = 10;
 /** Space between seam dash zone and interactive row (ripple must not creep into dash). */
-const TAB_STRIP_PAD_ABOVE_TABS = 14;
+const TAB_STRIP_PAD_ABOVE_TABS = 10;
 /** Space between tab row zone and inner bottom corners of purple chrome. */
-const TAB_STRIP_PAD_BELOW_TABS = 14;
+const TAB_STRIP_PAD_BELOW_TABS = 10;
 /** Overlays sheet↔tabs seam so drags work when sheet layout height is 0 (zero-height views don't receive touches). */
 const SHEET_SEAM_GRAB_HEIGHT = 36;
 /** When sheet is taller than this and finger is up, hide seam grab so only the sheet pan runs (no double updates). */
@@ -126,6 +179,9 @@ export function FloatingGlassTabBar({
 }: Props) {
   const { height: screenH } = useWindowDimensions();
   const { isDark, colors: theme } = useAppTheme();
+  const pillFillRest = isDark ? "#334155" : "#F5F3FF";
+  const pillFillLift = isDark ? "#3D4F68" : "#FFFFFF";
+  const pillBorderColor = isDark ? "rgba(167,139,250,0.85)" : "rgba(139,92,246,0.65)";
   const androidGlassFill = React.useMemo(
     () => ({
       ...styles.androidFallbackFill,
@@ -134,13 +190,16 @@ export function FloatingGlassTabBar({
     [isDark]
   );
 
-  const { panVerticalOnSheetBody, panVerticalSeamGrab, panVerticalWithTabsDuplicate, sheetPanDragSessionSV } =
-    useNavSheetPanGestures(insets, sheetHeightSV, {
+  const { panVerticalOnSheetBody, panVerticalSeamGrab, sheetPanDragSessionSV } = useNavSheetPanGestures(
+    insets,
+    sheetHeightSV,
+    {
       onUserDragFromCollapsed: onSheetDragOpenFromCollapsed,
       allowHalfDetent: !sheetFullOnly,
       snapImpactTargetSV,
       snapImpactArmedSV
-    });
+    }
+  );
 
   const dockBottom = insets.bottom + FLOAT_MARGIN_BOTTOM;
   const pillAnchorBottom = FLOAT_MARGIN_BOTTOM + insets.bottom + FLOATING_TAB_BAR_HEIGHT;
@@ -160,78 +219,236 @@ export function FloatingGlassTabBar({
     snapHighSV.value = v.snapHigh;
   }, [screenH, insets.bottom, insets.top, snapMidSV, snapHighSV]);
 
-  const rowW = useSharedValue(0);
-  const pillX = useSharedValue(0);
-  const startPillX = useSharedValue(0);
+  const { centers: tabCenters, widths: tabWidths } = useTabStopLayout();
+  const pillProgress = useSharedValue(0);
+  const pillLiftSV = useSharedValue(0);
+  const dragStartProgress = useSharedValue(0);
+  const lastPillTabIndex = useSharedValue(0);
+  const pillDragDidMoveSV = useSharedValue(0);
+  const tabIndexSV = useSharedValue(0);
+  const tabRowWidthSV = useSharedValue(0);
+
+  React.useLayoutEffect(() => {
+    tabIndexSV.value = tabIndex;
+  }, [tabIndex, tabIndexSV]);
 
   const tabIndex = React.useMemo(() => Math.max(0, TABS.findIndex((t) => t.id === tab)), [tab]);
   const tabRef = React.useRef(tab);
   tabRef.current = tab;
+  const pillDragActiveRef = React.useRef(false);
+
+  const resetPillLift = React.useCallback(() => {
+    cancelAnimation(pillLiftSV);
+    pillLiftSV.value = withTiming(0, { duration: PILL_LIFT_MS, easing: PILL_DRAG_EASE });
+  }, [pillLiftSV]);
+
+  const snapPillTo = React.useCallback(
+    (index: number, duration = PILL_MOVE_MS, easing = PILL_EASE) => {
+      const clamped = Math.max(0, Math.min(TAB_COUNT - 1, index));
+      lastPillTabIndex.value = clamped;
+      cancelAnimation(pillLiftSV);
+      pillLiftSV.value = 0;
+      pillProgress.value = withTiming(clamped, { duration, easing });
+    },
+    [lastPillTabIndex, pillLiftSV, pillProgress]
+  );
 
   const finishPan = React.useCallback(
     (index: number) => {
       const id = TABS[index]?.id;
       if (!id || id === tabRef.current) return;
       onChange(id);
-      void Haptics.selectionAsync();
     },
     [onChange]
   );
 
-  React.useEffect(() => {
-    const seg = rowW.value / TABS.length;
-    if (seg <= 0 || !Number.isFinite(seg)) return;
-    pillX.value = withSpring(tabIndex * seg, SPRING);
-  }, [tab, tabIndex, pillX]);
+  const fireTabCrossHaptic = React.useCallback(() => {
+    void Haptics.selectionAsync();
+  }, []);
 
-  const handleRowLayout = React.useCallback(
-    (w: number) => {
-      rowW.value = w;
-      const seg = w / TABS.length;
-      if (seg > 0) {
-        pillX.value = withSpring(tabIndex * seg, SPRING);
+  const setPillDragActive = React.useCallback((active: boolean) => {
+    pillDragActiveRef.current = active;
+  }, []);
+
+  React.useEffect(() => {
+    if (pillDragActiveRef.current) return;
+    snapPillTo(tabIndex);
+  }, [tab, tabIndex, snapPillTo]);
+
+  const seedTabStopsFromRowWidth = React.useCallback(
+    (rowW: number) => {
+      tabRowWidthSV.value = rowW;
+      const pad = 6;
+      const inner = Math.max(0, rowW - pad * 2);
+      const step = inner / TAB_COUNT;
+      if (step <= 0) return;
+      for (let i = 0; i < TAB_COUNT; i++) {
+        tabCenters[i].value = pad + (i + 0.5) * step;
+        tabWidths[i].value = step;
       }
     },
-    [rowW, pillX, tabIndex]
+    [tabCenters, tabRowWidthSV, tabWidths]
   );
 
-  const panTabExclusive = React.useMemo(
-    () =>
-      Gesture.Exclusive(
-        panVerticalWithTabsDuplicate,
-        Gesture.Pan()
-          .activeOffsetX([-12, 12])
-          .failOffsetY([-20, 20])
-          .onBegin(() => {
-            startPillX.value = pillX.value;
-          })
-          .onUpdate((e) => {
-            const seg = rowW.value / TABS.length;
-            if (seg <= 0) return;
-            const maxX = (TABS.length - 1) * seg;
-            const next = startPillX.value + e.translationX;
-            pillX.value = Math.max(0, Math.min(maxX, next));
-          })
-          .onEnd(() => {
-            const seg = rowW.value / TABS.length;
-            if (seg <= 0) return;
-            const idx = Math.round(pillX.value / seg);
-            const clamped = Math.max(0, Math.min(TABS.length - 1, idx));
-            pillX.value = withSpring(clamped * seg, SPRING);
-            runOnJS(finishPan)(clamped);
-          })
-      ),
-    [panVerticalWithTabsDuplicate, pillX, rowW, finishPan, startPillX]
+  const onTabRowLayout = React.useCallback(
+    (e: LayoutChangeEvent) => {
+      const rowW = e.nativeEvent.layout.width;
+      if (rowW <= 0) return;
+      seedTabStopsFromRowWidth(rowW);
+      if (!pillDragActiveRef.current) {
+        pillProgress.value = tabIndex;
+        lastPillTabIndex.value = tabIndex;
+      }
+    },
+    [lastPillTabIndex, pillProgress, seedTabStopsFromRowWidth, tabIndex]
+  );
+
+  const onTabItemLayout = React.useCallback(
+    (index: number) => (e: LayoutChangeEvent) => {
+      const { x, width } = e.nativeEvent.layout;
+      if (width <= 0) return;
+      tabCenters[index].value = x + width / 2;
+      tabWidths[index].value = width;
+    },
+    [tabCenters, tabWidths]
+  );
+
+  const panTabRow = React.useMemo(() => {
+    const pan = Gesture.Pan()
+      .minPointers(1)
+      .maxPointers(1)
+      .minDistance(PILL_DRAG_MIN_DISTANCE)
+      .activeOffsetX([-8, 8])
+      .failOffsetY([-14, 14]);
+
+    pan.onBegin(() => {
+      "worklet";
+      dragStartProgress.value = pillProgress.value;
+      lastPillTabIndex.value = Math.round(pillProgress.value);
+      pillDragDidMoveSV.value = 0;
+    });
+
+    pan.onUpdate((event) => {
+      "worklet";
+      const range = tabCenters[4].value - tabCenters[0].value;
+      if (range <= 1) return;
+
+      if (Math.abs(event.translationX) >= PILL_LIFT_TRANSLATION_X) {
+        pillDragDidMoveSV.value = 1;
+        if (pillLiftSV.value < 0.02) {
+          cancelAnimation(pillLiftSV);
+          pillLiftSV.value = withTiming(1, { duration: PILL_LIFT_MS, easing: PILL_EASE });
+          runOnJS(setPillDragActive)(true);
+        }
+      }
+
+      const next = dragStartProgress.value + (event.translationX / range) * TAB_LAST_INDEX;
+      pillProgress.value = clampPillProgress(next);
+      const idx = Math.round(pillProgress.value);
+      const clamped = Math.max(0, Math.min(TAB_LAST_INDEX, idx));
+      if (clamped !== lastPillTabIndex.value) {
+        lastPillTabIndex.value = clamped;
+        runOnJS(fireTabCrossHaptic)();
+      }
+    });
+
+    pan.onEnd(() => {
+      "worklet";
+      cancelAnimation(pillLiftSV);
+      pillLiftSV.value = withTiming(0, { duration: PILL_LIFT_MS, easing: PILL_DRAG_EASE });
+
+      if (pillDragDidMoveSV.value < 0.5) {
+        const home = Math.max(0, Math.min(TAB_LAST_INDEX, tabIndexSV.value));
+        pillProgress.value = withTiming(home, { duration: PILL_DRAG_SNAP_MS, easing: PILL_DRAG_EASE });
+        runOnJS(setPillDragActive)(false);
+        return;
+      }
+
+      const clamped = Math.max(0, Math.min(TAB_LAST_INDEX, Math.round(pillProgress.value)));
+      lastPillTabIndex.value = clamped;
+      pillProgress.value = withTiming(clamped, {
+        duration: PILL_DRAG_SNAP_MS,
+        easing: PILL_DRAG_EASE
+      });
+      runOnJS(finishPan)(clamped);
+      runOnJS(setPillDragActive)(false);
+    });
+
+    pan.onFinalize(() => {
+      "worklet";
+      cancelAnimation(pillLiftSV);
+      pillLiftSV.value = withTiming(0, { duration: PILL_LIFT_MS, easing: PILL_DRAG_EASE });
+      runOnJS(setPillDragActive)(false);
+    });
+
+    return pan;
+  }, [
+    dragStartProgress,
+    finishPan,
+    fireTabCrossHaptic,
+    lastPillTabIndex,
+    pillDragDidMoveSV,
+    pillLiftSV,
+    pillProgress,
+    setPillDragActive,
+    tabCenters,
+    tabIndexSV
+  ]);
+
+  const panTabRowWithPress = React.useMemo(
+    () => Gesture.Simultaneous(panTabRow, Gesture.Native()),
+    [panTabRow]
   );
 
   const pillAnimatedStyle = useAnimatedStyle(() => {
-    const seg = rowW.value / TABS.length;
-    const w = Math.max(0, seg - PILL_INSET * 2);
+    const x = interpolate(
+      pillProgress.value,
+      TAB_INDEX_INPUT,
+      [
+        tabCenters[0].value,
+        tabCenters[1].value,
+        tabCenters[2].value,
+        tabCenters[3].value,
+        tabCenters[4].value
+      ]
+    );
+    const w = interpolate(
+      pillProgress.value,
+      TAB_INDEX_INPUT,
+      [tabWidths[0].value, tabWidths[1].value, tabWidths[2].value, tabWidths[3].value, tabWidths[4].value]
+    );
+    const rowW = tabRowWidthSV.value;
+    const fallbackSeg = rowW > 0 ? rowW / TAB_COUNT : 64;
+    const wSafe = w > 8 ? w : fallbackSeg;
+    const rangeOk = tabCenters[4].value - tabCenters[0].value > 8;
+    const xSafe = rangeOk
+      ? x
+      : rowW > 0
+        ? 6 + (pillProgress.value + 0.5) * Math.max(0, rowW - 12) / TAB_COUNT
+        : 0;
+    const pillW = Math.max(40, wSafe - PILL_INSET * 2);
+    const lift = pillLiftSV.value;
+    const atRest = lift < 0.001;
+    const scale = atRest ? 1 : interpolate(lift, [0, 1], [1, PILL_LIFT_SCALE]);
+    const liftY = atRest ? 0 : interpolate(lift, [0, 1], [0, PILL_LIFT_RISE_Y]);
+    const tx = xSafe - wSafe / 2;
+    const translateX = atRest ? Math.round(tx) : tx;
     return {
-      width: w,
-      transform: [{ translateX: pillX.value + PILL_INSET }]
+      width: pillW,
+      zIndex: atRest ? 1 : 10,
+      shadowOpacity: atRest ? 0.1 : interpolate(lift, [0, 1], [0.1, 0.28]),
+      shadowRadius: atRest ? 4 : interpolate(lift, [0, 1], [4, 18]),
+      elevation: atRest ? 2 : interpolate(lift, [0, 1], [2, 12]),
+      transform: [{ translateX }, { translateY: liftY }, { scale }]
     };
   });
+
+  const pillFillAnimatedStyle = useAnimatedStyle(() => {
+    const lift = pillLiftSV.value;
+    return {
+      backgroundColor: interpolateColor(lift, [0, 1], [pillFillRest, pillFillLift])
+    };
+  }, [pillFillLift, pillFillRest]);
 
   const animatedShellStyle = useAnimatedStyle(() => {
     const h = sheetHeightSV.value;
@@ -312,26 +529,20 @@ export function FloatingGlassTabBar({
   );
 
   const onTabPress = (id: TabId, index: number) => {
-    const w = rowW.value;
-    const seg = w / TABS.length;
-    if (seg > 0) {
-      pillX.value = withSpring(index * seg, SPRING);
-    }
+    pillDragActiveRef.current = false;
+    pillDragDidMoveSV.value = 0;
+    resetPillLift();
+    snapPillTo(index);
     onChange(id);
     void Haptics.selectionAsync();
   };
 
-  const colorsFor = (tabItem: (typeof TABS)[number], selected: boolean) => {
+  const iconColorFor = (tabItem: (typeof TABS)[number], selected: boolean) => {
     if (tabItem.id === "orders") {
-      return {
-        icon: selected ? theme.ordersNavPurpleBright : theme.ordersNavPurple,
-        label: selected ? theme.ordersNavPurpleBright : theme.ordersNavPurple
-      };
+      return selected ? theme.ordersNavPurpleBright : theme.ordersNavPurple;
     }
-    if (selected) {
-      return { icon: theme.accentPurple, label: theme.text };
-    }
-    return { icon: theme.navIconIdle, label: theme.navLabelIdle };
+    if (selected) return theme.accentPurple;
+    return theme.navIconIdle;
   };
 
   return (
@@ -377,23 +588,21 @@ export function FloatingGlassTabBar({
 
               <View style={styles.gestureHost}>
                 <View style={styles.tabGestureSizer}>
-                  <GestureDetector gesture={panTabExclusive}>
+                  <GestureDetector gesture={panTabRowWithPress}>
                     <View style={styles.tabSwipeArea}>
-                      <Animated.View style={[styles.liquidPill, pillAnimatedStyle]} pointerEvents="none">
-                        <View style={styles.pillFill} />
-                        <View style={styles.pillGlassBorder} />
+                      <Animated.View
+                        style={[styles.liquidPill, pillAnimatedStyle]}
+                        pointerEvents="none"
+                        collapsable={false}
+                      >
+                        <Animated.View style={[styles.pillFill, pillFillAnimatedStyle]} />
+                        <View style={[styles.pillGlassBorder, { borderColor: pillBorderColor }]} />
                       </Animated.View>
 
-                      <View
-                      style={styles.tabRow}
-                      onLayout={(e) => handleRowLayout(e.nativeEvent.layout.width)}
-                    >
+                      <View style={styles.tabRow} onLayout={onTabRowLayout}>
                       {TABS.map((t, index) => {
                         const selected = tab === t.id;
-                        const { icon, label: labelColor } = colorsFor(t, selected);
-                        const labelWeight: "600" | "800" | "900" =
-                          t.id === "orders" ? "900" : selected ? "800" : "600";
-                        const meHasPhoto = t.id === "account" && Boolean(meAvatarUri?.trim());
+                        const iconColor = iconColorFor(t, selected);
                         return (
                           <Pressable
                             key={t.id}
@@ -407,19 +616,18 @@ export function FloatingGlassTabBar({
                                     color: "rgba(139,92,246,0.14)",
                                     foreground: false,
                                     borderless: false,
-                                    radius: 22
+                                    radius: 26
                                   }
                                 : undefined
                             }
-                            onPress={() => onTabPress(t.id, index)}
+                            onLayout={onTabItemLayout(index)}
+                            onPress={() => {
+                              if (pillDragActiveRef.current) return;
+                              onTabPress(t.id, index);
+                            }}
                           >
-                            <View
-                              style={[
-                                styles.tabGlyphWrap,
-                                meHasPhoto && styles.tabGlyphWrapMePhoto
-                              ]}
-                            >
-                              <TabGlyph id={t.id} color={icon} meAvatarUri={meAvatarUri} />
+                            <View style={styles.tabGlyphWrap}>
+                              <TabGlyph id={t.id} color={iconColor} meAvatarUri={meAvatarUri} />
                               {t.id === "messages" && messagesUnreadCount > 0 ? (
                                 <View style={styles.tabBadge}>
                                   <Text style={styles.tabBadgeText}>
@@ -435,14 +643,6 @@ export function FloatingGlassTabBar({
                                 </View>
                               ) : null}
                             </View>
-                            {meHasPhoto ? null : (
-                              <Text
-                                style={[styles.tabLabel, { color: labelColor, fontWeight: labelWeight }]}
-                                numberOfLines={1}
-                              >
-                                {t.label}
-                              </Text>
-                            )}
                           </Pressable>
                         );
                       })}
@@ -566,22 +766,27 @@ const styles = StyleSheet.create({
   /** Bridges the collapsed sheet (h=0) and tab strip so vertical pans always have a hit target. */
   sheetSeamGrabBridge: {
     position: "absolute",
-    top: -14,
+    top: 0,
     left: 0,
     right: 0,
-    height: SHEET_SEAM_GRAB_HEIGHT,
-    zIndex: 30,
+    height: 18,
+    zIndex: 12,
     backgroundColor: "transparent"
   },
   gestureHost: {
     flex: 1,
     width: "100%",
     position: "relative",
+    zIndex: 32,
     justifyContent: "flex-start",
     paddingHorizontal: TAB_EDGE_INSET_H,
     paddingTop: TAB_STRIP_PAD_ABOVE_TABS,
     paddingBottom: TAB_STRIP_PAD_BELOW_TABS,
-    ...hairline
+    ...hairline,
+    ...Platform.select({
+      android: { elevation: 34 },
+      default: {}
+    })
   },
   tabGestureSizer: {
     flex: 1,
@@ -594,7 +799,8 @@ const styles = StyleSheet.create({
     minHeight: 0,
     width: "100%",
     justifyContent: "center",
-    position: "relative"
+    position: "relative",
+    overflow: "visible"
   },
   liquidPill: {
     position: "absolute",
@@ -607,36 +813,30 @@ const styles = StyleSheet.create({
     ...Platform.select({
       ios: {
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.14,
-        shadowRadius: 10
+        shadowOffset: { width: 0, height: 4 }
       },
-      android: { elevation: 3 },
       default: {}
     })
   },
   pillFill: {
     ...StyleSheet.absoluteFillObject,
-    borderRadius: 22,
-    backgroundColor:
-      Platform.OS === "ios" ? "rgba(255,255,255,0.68)" : "rgba(255,255,255,0.78)"
+    borderRadius: 22
   },
   pillGlassBorder: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: 22,
-    borderWidth: 2,
-    borderColor: "rgba(139,92,246,0.52)"
+    borderWidth: 2
   },
   tabRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     alignSelf: "stretch",
-    minHeight: 44,
+    minHeight: 48,
     paddingHorizontal: 6,
     position: "relative",
-    zIndex: 2,
-    overflow: "hidden",
+    zIndex: 4,
+    overflow: "visible",
     gap: 3
   },
   tabItem: {
@@ -644,28 +844,22 @@ const styles = StyleSheet.create({
     minWidth: 0,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 3,
+    paddingVertical: 6,
     paddingHorizontal: 0,
     borderRadius: 13,
-    overflow: "hidden",
-    marginHorizontal: 2,
-    marginTop: 2,
-    marginBottom: 2
+    overflow: "visible",
+    marginHorizontal: 2
   },
   tabGlyphWrap: {
-    height: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 3
-  },
-  tabGlyphWrapMePhoto: {
+    width: ME_AVATAR_TAB_SIZE,
     height: ME_AVATAR_TAB_SIZE,
-    marginBottom: 0
+    alignItems: "center",
+    justifyContent: "center"
   },
   tabBadge: {
     position: "absolute",
-    top: -5,
-    right: -10,
+    top: -2,
+    right: -8,
     minWidth: 17,
     height: 17,
     paddingHorizontal: 4,
@@ -681,12 +875,6 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "900",
     lineHeight: 11
-  },
-  tabLabel: {
-    fontSize: 13,
-    letterSpacing: 0.12,
-    textAlign: "center",
-    width: "100%"
   },
   pressed: { opacity: 0.88 }
 });
