@@ -45,6 +45,7 @@ import {
 } from "./src/customer/chat/customerChatSocket";
 import { CustomerOrdersVenueScreen } from "./src/customer/CustomerOrdersVenueScreen";
 import { CustomerReservationFlow } from "./src/customer/reservations/CustomerReservationFlow";
+import { fetchCustomerAppContext } from "./src/customer/customerAppApi";
 import {
   countActiveCustomerOrders,
   isActiveOrderStatus,
@@ -208,6 +209,7 @@ export default function App() {
   const [ordersEmptySessionVisitCount, setOrdersEmptySessionVisitCount] = React.useState(0);
   const ordersEmptyVisitLatchRef = React.useRef(false);
   const [chatUnreadCount, setChatUnreadCount] = React.useState(0);
+  const [upcomingReservationsCount, setUpcomingReservationsCount] = React.useState(0);
   const [meAvatarUri, setMeAvatarUri] = React.useState<string | null>(null);
   /** ME tab inner stack: only the hub root keeps the floating top search bar visible. */
   const [meStackAtRoot, setMeStackAtRoot] = React.useState(true);
@@ -222,6 +224,7 @@ export default function App() {
   }, [myOrders, isCustomerSession]);
 
   const ordersTabBadgeCount = tab === "orders" ? 0 : activeOrderCount;
+  const bookTabBadgeCount = tab === "bookings" ? 0 : upcomingReservationsCount;
 
   const customerVenueDisplayName =
     menuPreview?.ok && menuPreview.restaurant?.name
@@ -425,6 +428,38 @@ export default function App() {
       menuPreview?.ok && menuPreview.restaurant?.id ? String(menuPreview.restaurant.id).trim() : "";
     return fromMenu || menuRid.trim();
   }, [menuPreview, menuRid]);
+
+  const refreshCustomerAppContext = React.useCallback(
+    async (restaurantId?: string) => {
+      const t = token;
+      if (!t || !isCustomerSession) {
+        setUpcomingReservationsCount(0);
+        setChatUnreadCount(0);
+        return;
+      }
+      const rid = (restaurantId ?? activeRestaurantId()).trim() || null;
+      try {
+        const res = await fetchCustomerAppContext(t, rid);
+        if (!res.ok) return;
+        const ctx = res.context;
+        setChatUnreadCount(ctx.badges.chatUnread);
+        setUpcomingReservationsCount(ctx.badges.upcomingReservations);
+        if (ctx.avatarUri) setMeAvatarUri(ctx.avatarUri);
+        if (ctx.cart) {
+          applyCustomerCartResponse({
+            lines: ctx.cart.lines,
+            subtotalCents: ctx.cart.subtotalCents,
+            totalQuantity: ctx.cart.totalQuantity,
+            markedMenuItemIds: ctx.cart.markedMenuItemIds,
+            orderNote: ctx.cart.orderNote
+          });
+        }
+      } catch {
+        /* keep last snapshot */
+      }
+    },
+    [token, isCustomerSession, activeRestaurantId, applyCustomerCartResponse]
+  );
 
   const markedMenuItemIds = React.useMemo(() => {
     if (!isCustomerSession) {
@@ -821,7 +856,7 @@ export default function App() {
           ];
         });
       }
-      void recordOrderedItemsForRestaurant(rid, lineIdsSnapshot);
+      void recordOrderedItemsForRestaurant(rid, lineIdsSnapshot, token);
       setMenuPrefsSeq((x) => x + 1);
       setStatus("Order placed");
       void refreshCustomerCart(rid);
@@ -851,7 +886,7 @@ export default function App() {
     });
     setPlacingOrder(false);
     if (!res.ok) return setStatus(res.error ?? "order_failed");
-    void recordOrderedItemsForRestaurant(rid, lineIdsSnapshot);
+    void recordOrderedItemsForRestaurant(rid, lineIdsSnapshot, token);
     setMenuPrefsSeq((x) => x + 1);
     setStatus("Order placed");
     setLocalCart([]);
@@ -1049,7 +1084,7 @@ export default function App() {
           return;
         }
         applyCustomerCartResponse(res);
-        void bumpBrowseEngagement(rid).then(() => {
+        void bumpBrowseEngagement(rid, token).then(() => {
           setMenuPrefsSeq((s) => s + 1);
         });
         setStatus("");
@@ -1123,6 +1158,10 @@ export default function App() {
   React.useEffect(() => {
     if (tab === "orders" && token && isCustomerSession) void fetchMyOrders();
   }, [tab, token, isCustomerSession, fetchMyOrders]);
+
+  React.useEffect(() => {
+    if (token && isCustomerSession) void refreshCustomerAppContext();
+  }, [tab, token, isCustomerSession, refreshCustomerAppContext, menuRid, sessionUser?.preferredRestaurantId]);
 
   React.useEffect(() => {
     if (!isCustomerSession) return;
@@ -1522,6 +1561,7 @@ export default function App() {
                       edgeToEdge
                       addingItemIds={addingById}
                       markedMenuItemIds={markedMenuItemIds}
+                      authToken={token}
                       onMenuEngagement={() => setMenuPrefsSeq((s) => s + 1)}
                       onAddItem={(it) => void addMenuLineFromBrowse(it.id)}
                     />
@@ -1607,6 +1647,7 @@ export default function App() {
             onExitToHome={() => setTab("home")}
             onResetScroll={resetBookingsScroll}
             onRestoreScroll={restoreBookingsScroll}
+            onReservationsChanged={() => void refreshCustomerAppContext()}
           />
         ) : tab === "bookings" ? (
           <Animated.ScrollView
@@ -1744,6 +1785,7 @@ export default function App() {
                     prefsVersion={menuPrefsSeq}
                     addingItemIds={addingById}
                     markedMenuItemIds={markedMenuItemIds}
+                    authToken={token}
                     onMenuEngagement={() => setMenuPrefsSeq((s) => s + 1)}
                     onAddItem={(it) => void addMenuLineFromBrowse(it.id)}
                   />
@@ -2014,6 +2056,7 @@ export default function App() {
           topInset={insets.top}
           bottomInset={contentBottomInset(insets.bottom)}
           user={sessionUser}
+          authToken={token}
           onBack={() => setCustomerNavMenuOpen(false)}
           onChooseVenue={() => {
             setCustomerNavMenuOpen(false);
@@ -2038,6 +2081,7 @@ export default function App() {
         sheetFullOnly={navSheetSearchMode}
         messagesUnreadCount={chatUnreadCount}
         ordersActiveCount={ordersTabBadgeCount}
+        bookingsUpcomingCount={bookTabBadgeCount}
         meAvatarUri={isCustomerSession ? meAvatarUri : null}
       />
     </Animated.View>

@@ -19,6 +19,11 @@ import {
   validateReservationSchedule,
   type PinnedReservationSlot
 } from "../lib/reservationSlotValidation.js";
+import {
+  clearCustomerReservationDraft,
+  loadCustomerReservationDraft,
+  saveCustomerReservationDraft
+} from "../lib/customerReservationDraftService.js";
 import { validateReservationStartInput } from "../lib/reservationStartValidation.js";
 
 function bearerToken(headers: { authorization?: string }): string | null {
@@ -399,6 +404,68 @@ export function registerCustomerReservationRoutes(app: FastifyInstance, prisma: 
       });
 
       return { ok: true, reservation: serializeCustomerReservation(row) };
+    }
+  );
+
+  app.get<{ Params: { restaurantId: string } }>(
+    "/customer/restaurants/:restaurantId/reservations/draft",
+    async (req, reply) => {
+      let user;
+      try {
+        user = requireCustomer(req, app);
+      } catch (e) {
+        const err = e as { statusCode?: number; message?: string };
+        return reply.status(err.statusCode ?? 401).send({ ok: false, error: err.message ?? "unauthorized" });
+      }
+      const { restaurantId } = req.params;
+      const flow = await loadCustomerReservationDraft(prisma, user.sub, restaurantId);
+      return { ok: true, flow };
+    }
+  );
+
+  app.patch<{ Params: { restaurantId: string } }>(
+    "/customer/restaurants/:restaurantId/reservations/draft",
+    async (req, reply) => {
+      let user;
+      try {
+        user = requireCustomer(req, app);
+      } catch (e) {
+        const err = e as { statusCode?: number; message?: string };
+        return reply.status(err.statusCode ?? 401).send({ ok: false, error: err.message ?? "unauthorized" });
+      }
+      const { restaurantId } = req.params;
+      const body = z
+        .object({
+          draft: z.record(z.unknown()),
+          screen: z.string().min(1),
+          scrollByScreen: z.record(z.number()).optional(),
+          confirmedReservationId: z.string().nullable().optional()
+        })
+        .parse(req.body);
+
+      const flow = await saveCustomerReservationDraft(prisma, user.sub, restaurantId, {
+        draft: body.draft,
+        screen: body.screen,
+        scrollByScreen: body.scrollByScreen,
+        confirmedReservationId: body.confirmedReservationId ?? null
+      });
+      return { ok: true, flow };
+    }
+  );
+
+  app.delete<{ Params: { restaurantId: string } }>(
+    "/customer/restaurants/:restaurantId/reservations/draft",
+    async (req, reply) => {
+      let user;
+      try {
+        user = requireCustomer(req, app);
+      } catch (e) {
+        const err = e as { statusCode?: number; message?: string };
+        return reply.status(err.statusCode ?? 401).send({ ok: false, error: err.message ?? "unauthorized" });
+      }
+      const { restaurantId } = req.params;
+      await clearCustomerReservationDraft(prisma, user.sub, restaurantId);
+      return { ok: true };
     }
   );
 }

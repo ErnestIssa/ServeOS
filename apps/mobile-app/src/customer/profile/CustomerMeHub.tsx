@@ -6,7 +6,13 @@ import { useAppTheme } from "../../theme/AppThemeContext";
 import { ProfileAvatarModal } from "./ProfileAvatarModal";
 import type { MeNavHighlightKey } from "./profileNavHighlight";
 import { loadProfileAvatarUri, saveProfileAvatarUri } from "./profileAvatarStorage";
-import { loadProfileQuickPrefs, saveProfileLocation, saveProfilePush } from "./profilePrefsStorage";
+import { fetchCustomerPreferences } from "../customerAppApi";
+import {
+  loadProfileQuickPrefsForCustomer,
+  saveProfileAvatarForCustomer,
+  saveProfileLocationForCustomer,
+  saveProfilePushForCustomer
+} from "./profilePrefsStorage";
 import {
   BlurModalScrim,
   FadeSection,
@@ -20,6 +26,7 @@ import {
 
 type Props = {
   user: AuthUser | null;
+  authToken?: string | null;
   venueName: string;
   topInset: number;
   bottomInset: number;
@@ -48,8 +55,24 @@ export function CustomerMeHub(props: Props) {
   React.useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const [uri, q] = await Promise.all([loadProfileAvatarUri(), loadProfileQuickPrefs()]);
+      const [localUri, q] = await Promise.all([
+        loadProfileAvatarUri(),
+        loadProfileQuickPrefsForCustomer(props.authToken)
+      ]);
       if (cancelled) return;
+      let uri = localUri;
+      const tok = props.authToken?.trim();
+      if (tok) {
+        try {
+          const res = await fetchCustomerPreferences(tok);
+          if (res.ok && res.avatarUri) {
+            uri = res.avatarUri;
+            await saveProfileAvatarUri(res.avatarUri);
+          }
+        } catch {
+          /* keep local */
+        }
+      }
       setAvatarUri(uri);
       setPushOn(q.push);
       setLocationOn(q.location);
@@ -58,7 +81,7 @@ export function CustomerMeHub(props: Props) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [props.authToken]);
 
   const email = props.user?.email?.trim() || "—";
 
@@ -199,7 +222,7 @@ export function CustomerMeHub(props: Props) {
                     value={pushOn}
                     onValueChange={(v) => {
                       setPushOn(v);
-                      void saveProfilePush(v);
+                      void saveProfilePushForCustomer(v, props.authToken);
                     }}
                   />
                 </View>
@@ -209,7 +232,7 @@ export function CustomerMeHub(props: Props) {
                     value={locationOn}
                     onValueChange={(v) => {
                       setLocationOn(v);
-                      void saveProfileLocation(v);
+                      void saveProfileLocationForCustomer(v, props.authToken);
                     }}
                   />
                 </View>
@@ -253,6 +276,7 @@ export function CustomerMeHub(props: Props) {
         onSaved={(uri) => {
           setAvatarUri(uri);
           void saveProfileAvatarUri(uri);
+          void saveProfileAvatarForCustomer(uri, props.authToken);
           props.onAvatarSaved?.(uri);
         }}
       />

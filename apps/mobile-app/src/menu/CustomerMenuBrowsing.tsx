@@ -4,7 +4,12 @@ import { R } from "../theme";
 import { MenuItemCard } from "./MenuItemCard";
 import { MenuCardScrollReveal } from "./MenuCardScrollReveal";
 import { menuImageSourceForKey } from "./menuCardAssets";
-import { appendLastOrdered, bumpBrowseEngagement, getRestaurantPrefs, toggleLike } from "./menuPreferencesStorage";
+import {
+  appendLastOrdered,
+  bumpBrowseEngagement,
+  getRestaurantPrefsForCustomer,
+  toggleLike
+} from "./menuPreferencesStorage";
 import {
   buildFilteredMenuPool,
   clusterCategoriesForBrowse,
@@ -183,6 +188,7 @@ type Props = {
   likedIdsInitial?: string[];
   prefsVersion?: number;
   edgeToEdge?: boolean;
+  authToken?: string | null;
   /** Fires after local menu engagement storage updates (likes / + taps). */
   onMenuEngagement?: () => void;
 };
@@ -198,6 +204,7 @@ export function CustomerMenuBrowsing({
   likedIdsInitial,
   prefsVersion = 0,
   edgeToEdge = false,
+  authToken,
   onMenuEngagement
 }: Props) {
   const { width: winW } = useWindowDimensions();
@@ -231,7 +238,7 @@ export function CustomerMenuBrowsing({
     const fetchId = ++prefsFetchGen.current;
     let cancelled = false;
     void (async () => {
-      const p = await getRestaurantPrefs(restaurantId);
+      const p = await getRestaurantPrefsForCustomer(restaurantId, authToken);
       if (cancelled || fetchId !== prefsFetchGen.current) return;
       setLikedOrder(p.likes);
       setLastOrdered(p.lastOrdered);
@@ -239,7 +246,7 @@ export function CustomerMenuBrowsing({
     return () => {
       cancelled = true;
     };
-  }, [restaurantId, prefsVersion]);
+  }, [restaurantId, prefsVersion, authToken]);
 
   const clustered = useMemo(() => clusterCategoriesForBrowse(cats as MenuCategoryLite[]), [cats]);
 
@@ -293,16 +300,16 @@ export function CustomerMenuBrowsing({
   }, [likedOrder, poolFull, filterQuery]);
 
   const handleLike = useCallback(async (itemId: string) => {
-    const nowLiked = await toggleLike(restaurantId, itemId);
+    const nowLiked = await toggleLike(restaurantId, itemId, authToken);
     if (nowLiked) {
-      void bumpBrowseEngagement(restaurantId).then(() => {
+      void bumpBrowseEngagement(restaurantId, authToken).then(() => {
         onMenuEngagement?.();
       });
     }
     prefsFetchGen.current += 1;
-    const p = await getRestaurantPrefs(restaurantId);
+    const p = await getRestaurantPrefsForCustomer(restaurantId, authToken);
     setLikedOrder(p.likes);
-  }, [restaurantId, onMenuEngagement]);
+  }, [restaurantId, authToken, onMenuEngagement]);
 
   const handleAddItem = useCallback(
     (item: MenuItemFlat) => {
@@ -419,8 +426,12 @@ export function CustomerMenuBrowsing({
   );
 }
 
-export function recordOrderedItemsForRestaurant(restaurantId: string, menuItemIds: string[]): Promise<void> {
-  return appendLastOrdered(restaurantId, menuItemIds);
+export function recordOrderedItemsForRestaurant(
+  restaurantId: string,
+  menuItemIds: string[],
+  authToken?: string | null
+): Promise<void> {
+  return appendLastOrdered(restaurantId, menuItemIds, authToken);
 }
 
 const styles = StyleSheet.create({

@@ -61,6 +61,8 @@ type Props = ReservationFlowContext & {
   onResetScroll: () => void;
   /** Restore shared bookings scroll after cold load / venue switch (defaults to `scrollY`). */
   onRestoreScroll?: (y: number) => void;
+  /** Refresh bottom-nav Book badge after confirm / cancel. */
+  onReservationsChanged?: () => void;
 };
 
 type ScrollRestore = {
@@ -181,9 +183,9 @@ export function CustomerReservationFlow(props: Props) {
         updatedAt: Date.now()
       };
       writeReservationFlowMemory(props.userId, restaurantId, state);
-      void saveReservationFlow(props.userId, restaurantId, state);
+      void saveReservationFlow(props.userId, restaurantId, state, { authToken: props.authToken });
     },
-    [cached?.confirmedReservationId, props.userId, restaurantId]
+    [cached?.confirmedReservationId, props.authToken, props.userId, restaurantId]
   );
 
   const hydrateConfirmedReservation = React.useCallback(
@@ -274,7 +276,9 @@ export function CustomerReservationFlow(props: Props) {
 
     let cancelled = false;
     void (async () => {
-      const loaded = await loadReservationFlow(props.userId, restaurantId);
+      const loaded = await loadReservationFlow(props.userId, restaurantId, {
+        authToken: props.authToken
+      });
       if (cancelled) return;
       if (loaded) {
         setDraft(loaded.draft);
@@ -553,12 +557,13 @@ export function CustomerReservationFlow(props: Props) {
       setConfirmedReservation(res.reservation);
       persistFlow(draftRef.current, "confirmation", res.reservation.id);
       navigateBookFlow("confirmation");
+      props.onReservationsChanged?.();
     } catch {
       Alert.alert("Connection issue", "We couldn't reach the server. Check your connection and try again.");
     } finally {
       setConfirmBookingLoading(false);
     }
-  }, [confirmedReservationId, navigateBookFlow, persistFlow, props.authToken, props.restaurantId]);
+  }, [confirmedReservationId, navigateBookFlow, persistFlow, props.authToken, props.onReservationsChanged, props.restaurantId]);
 
   return (
     <View style={styles.flowRoot}>
@@ -649,6 +654,7 @@ export function CustomerReservationFlow(props: Props) {
               setConfirmedReservation(null);
               setConfirmationCode("SRV-000000");
               setScreen("landing");
+              props.onReservationsChanged?.();
               props.onExitToHome();
             }}
           />
@@ -686,6 +692,7 @@ export function CustomerReservationFlow(props: Props) {
                         }
                         setConfirmedReservation(null);
                         persistFlow(draftRef.current, "landing", null);
+                        props.onReservationsChanged?.();
                         goBack("landing");
                       } catch {
                         Alert.alert("Connection issue", "We couldn't reach the server.");

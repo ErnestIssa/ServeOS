@@ -19,6 +19,7 @@ type Props = {
   topInset: number;
   bottomInset: number;
   user: AuthUser | null;
+  authToken?: string | null;
   onCloseMenu: () => void;
   onChooseVenue: () => void;
 };
@@ -36,6 +37,7 @@ function BackChevron({ color }: { color: string }) {
 
 type RenderCtx = {
   user: AuthUser | null;
+  authToken?: string | null;
   bottomInset: number;
   topChromeHeight: number;
   onScrollAtTop: (atTop: boolean) => void;
@@ -50,6 +52,7 @@ function renderAppRoute(route: AppStackRoute, ctx: RenderCtx): React.ReactNode {
       return (
         <AppControlCenterHome
           user={ctx.user}
+          authToken={ctx.authToken}
           topInset={0}
           bottomInset={ctx.bottomInset}
           chromeTopBleed={ctx.topChromeHeight}
@@ -71,13 +74,20 @@ function renderAppRoute(route: AppStackRoute, ctx: RenderCtx): React.ReactNode {
         />
       );
     case "settings_detail":
-      return <SettingsDetailScreen detailKey={route.key} user={ctx.user} bottomInset={ctx.bottomInset} />;
+      return (
+        <SettingsDetailScreen
+          detailKey={route.key}
+          user={ctx.user}
+          authToken={ctx.authToken}
+          bottomInset={ctx.bottomInset}
+        />
+      );
     case "help":
       return (
         <ProfilePlaceholderScreen title="Help" subtitle="FAQs and contact" topInset={0} bottomInset={ctx.bottomInset} />
       );
     case "safety":
-      return <SafetyScreen bottomInset={ctx.bottomInset} />;
+      return <SafetyScreen authToken={ctx.authToken} bottomInset={ctx.bottomInset} />;
     case "section":
       return (
         <ProfilePlaceholderScreen
@@ -165,6 +175,7 @@ function CustomerProfileStackInner(props: Props) {
   const renderCtx = React.useMemo<RenderCtx>(
     () => ({
       user: props.user,
+      authToken: props.authToken,
       bottomInset: props.bottomInset,
       topChromeHeight,
       onScrollAtTop: setScrollAtTop,
@@ -172,7 +183,7 @@ function CustomerProfileStackInner(props: Props) {
       push,
       onChooseVenue: props.onChooseVenue
     }),
-    [navigate, props.bottomInset, props.onChooseVenue, props.user, push, topChromeHeight]
+    [navigate, props.authToken, props.bottomInset, props.onChooseVenue, props.user, push, topChromeHeight]
   );
 
   const styles = React.useMemo(

@@ -2,7 +2,7 @@ import React from "react";
 import { StyleSheet, Text, TextInput, View, type ImageStyle, type TextStyle, type ViewStyle } from "react-native";
 import type { AuthUser } from "../../api";
 import { useAppTheme } from "../../theme/AppThemeContext";
-import { loadAppSettings, saveAppSettings } from "./profilePrefsStorage";
+import { loadAppSettingsForCustomer, saveAppSettingsForCustomer } from "./profilePrefsStorage";
 import type { AppSettings, SettingsDetailKey } from "./profilePrefsStorage";
 import {
   BoolRow,
@@ -80,6 +80,7 @@ export function SettingsHomeScreen(props: HubProps) {
 type DetailProps = {
   detailKey: SettingsDetailKey;
   user: AuthUser | null;
+  authToken?: string | null;
   bottomInset: number;
 };
 
@@ -89,8 +90,8 @@ export function SettingsDetailScreen(props: DetailProps) {
   const [saved, setSaved] = React.useState(false);
 
   React.useEffect(() => {
-    void loadAppSettings().then(setSettings);
-  }, []);
+    void loadAppSettingsForCustomer(props.authToken).then(setSettings);
+  }, [props.authToken]);
 
   const patch = (partial: Partial<AppSettings>) => {
     setSettings((s) => (s ? { ...s, ...partial } : s));
@@ -99,7 +100,7 @@ export function SettingsDetailScreen(props: DetailProps) {
 
   const save = async () => {
     if (!settings) return;
-    await saveAppSettings(settings);
+    await saveAppSettingsForCustomer(settings, props.authToken);
     if (settings.nightMode === "dark") setScheme("dark");
     else if (settings.nightMode === "light") setScheme("light");
     setSaved(true);

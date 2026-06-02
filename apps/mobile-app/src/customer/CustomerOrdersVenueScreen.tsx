@@ -156,6 +156,7 @@ export function CustomerOrdersVenueScreen(props: Props) {
           ordersSessionVisits={ordersEmptySessionVisits}
           phraseLandTick={phraseLandTick}
           motionPaused={emptyMotionPaused}
+          authToken={token}
           onPrimaryCta={onBrowseMenu}
         />
       </View>

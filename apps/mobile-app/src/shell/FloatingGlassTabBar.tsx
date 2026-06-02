@@ -131,6 +131,8 @@ type Props = {
   messagesUnreadCount?: number;
   /** Active (in-progress) orders — hidden while Orders tab is open. */
   ordersActiveCount?: number;
+  /** Upcoming confirmed reservations — hidden while Book tab is open. */
+  bookingsUpcomingCount?: number;
   /** When set, ME tab shows the user's photo instead of the ME label. */
   meAvatarUri?: string | null;
 };
@@ -175,6 +177,7 @@ export function FloatingGlassTabBar({
   sheetFullOnly,
   messagesUnreadCount = 0,
   ordersActiveCount = 0,
+  bookingsUpcomingCount = 0,
   meAvatarUri = null
 }: Props) {
   const { height: screenH } = useWindowDimensions();
@@ -655,6 +658,13 @@ export function FloatingGlassTabBar({
                                   </Text>
                                 </View>
                               ) : null}
+                              {t.id === "bookings" && bookingsUpcomingCount > 0 ? (
+                                <View style={styles.tabBadgeCart} pointerEvents="none">
+                                  <Text style={styles.tabBadgeCartText} allowFontScaling={false}>
+                                    {bookingsUpcomingCount > 99 ? "99+" : String(bookingsUpcomingCount)}
+                                  </Text>
+                                </View>
+                              ) : null}
                             </View>
                           </Pressable>
                         );
@@ -888,6 +898,27 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "900",
     lineHeight: 11
+  },
+  /** Book tab — same purple pill + white ring as `CartFABPopup` badge. */
+  tabBadgeCart: {
+    position: "absolute",
+    top: -6,
+    right: -10,
+    minWidth: 19,
+    height: 19,
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    backgroundColor: R.accentPurple,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.95)"
+  },
+  tabBadgeCartText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "800",
+    lineHeight: 12
   },
   pressed: { opacity: 0.88 }
 });

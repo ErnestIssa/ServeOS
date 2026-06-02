@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { fetchCustomerPreferences, patchCustomerPreferences } from "../customerAppApi";
 
 export type ProfileStackRoute =
   | { name: "home" }
@@ -96,4 +97,82 @@ export async function loadAppSettings(): Promise<AppSettings> {
 
 export async function saveAppSettings(settings: AppSettings): Promise<void> {
   await AsyncStorage.setItem(KEY_APP_SETTINGS, JSON.stringify(settings));
+}
+
+/** Server SST with local cache fallback (control centre + settings). */
+export async function loadAppSettingsForCustomer(authToken?: string | null): Promise<AppSettings> {
+  const tok = authToken?.trim();
+  if (tok) {
+    try {
+      const res = await fetchCustomerPreferences(tok);
+      if (res.ok) {
+        await saveAppSettings(res.appSettings);
+        await saveProfilePush(res.quickPrefs.push);
+        await saveProfileLocation(res.quickPrefs.location);
+        if (res.appSettings.nightMode === "dark") await saveDeviceTheme("dark");
+        else if (res.appSettings.nightMode === "light") await saveDeviceTheme("light");
+        return res.appSettings;
+      }
+    } catch {
+      /* local fallback */
+    }
+  }
+  return loadAppSettings();
+}
+
+export async function saveAppSettingsForCustomer(
+  settings: AppSettings,
+  authToken?: string | null
+): Promise<void> {
+  await saveAppSettings(settings);
+  const tok = authToken?.trim();
+  if (!tok) return;
+  void patchCustomerPreferences(tok, { appSettings: settings }).catch(() => {});
+}
+
+export async function loadProfileQuickPrefsForCustomer(
+  authToken?: string | null
+): Promise<{ push: boolean; location: boolean }> {
+  const tok = authToken?.trim();
+  if (tok) {
+    try {
+      const res = await fetchCustomerPreferences(tok);
+      if (res.ok) {
+        await saveProfilePush(res.quickPrefs.push);
+        await saveProfileLocation(res.quickPrefs.location);
+        return res.quickPrefs;
+      }
+    } catch {
+      /* local */
+    }
+  }
+  return loadProfileQuickPrefs();
+}
+
+export async function saveProfilePushForCustomer(on: boolean, authToken?: string | null): Promise<void> {
+  await saveProfilePush(on);
+  const tok = authToken?.trim();
+  if (!tok) return;
+  const q = await loadProfileQuickPrefsForCustomer(tok);
+  void patchCustomerPreferences(tok, { quickPrefs: { ...q, push: on } }).catch(() => {});
+}
+
+export async function saveProfileLocationForCustomer(
+  on: boolean,
+  authToken?: string | null
+): Promise<void> {
+  await saveProfileLocation(on);
+  const tok = authToken?.trim();
+  if (!tok) return;
+  const q = await loadProfileQuickPrefsForCustomer(tok);
+  void patchCustomerPreferences(tok, { quickPrefs: { ...q, location: on } }).catch(() => {});
+}
+
+export async function saveProfileAvatarForCustomer(
+  uri: string | null,
+  authToken?: string | null
+): Promise<void> {
+  const tok = authToken?.trim();
+  if (!tok) return;
+  void patchCustomerPreferences(tok, { avatarUri: uri }).catch(() => {});
 }

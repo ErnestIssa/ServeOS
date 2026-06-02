@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { authScope } from "../../data/cache/cacheKeys";
+import { fetchReservationDraft, patchReservationDraft } from "./reservationApi";
 import { ACCESSIBILITY_CARD_OPTIONS, EXPERIENCE_CARD_OPTIONS } from "./reservationPresets";
 import { mergedExperiencePickIds } from "./experiencePickIds";
 import {
@@ -16,6 +17,10 @@ export type PersistedReservationFlow = {
   scrollByScreen?: ReservationScrollByScreen;
   confirmedReservationId?: string | null;
   updatedAt: number;
+};
+
+export type ReservationFlowSync = {
+  authToken?: string | null;
 };
 
 const memory = new Map<string, PersistedReservationFlow>();
@@ -115,10 +120,52 @@ export function writeReservationFlowMemory(
   memory.set(storageKey(authScope(userId), restaurantId), state);
 }
 
+function flowFromServerPayload(flow: {
+  draft: Record<string, unknown>;
+  screen: string;
+  scrollByScreen?: Record<string, number>;
+  confirmedReservationId?: string | null;
+  updatedAt: string;
+}): PersistedReservationFlow | null {
+  const draft = normalizeDraft(flow.draft);
+  if (!draft) return null;
+  const screen = normalizeScreen(flow.screen);
+  const confirmedReservationId =
+    typeof flow.confirmedReservationId === "string" && flow.confirmedReservationId.trim()
+      ? flow.confirmedReservationId.trim()
+      : null;
+  if (screen === "confirmation" && !confirmedReservationId) return null;
+  return {
+    draft,
+    screen,
+    scrollByScreen: normalizeScrollByScreen(flow.scrollByScreen),
+    confirmedReservationId,
+    updatedAt: Date.parse(flow.updatedAt) || Date.now()
+  };
+}
+
 export async function loadReservationFlow(
   userId: string | null | undefined,
-  restaurantId: string
+  restaurantId: string,
+  sync?: ReservationFlowSync
 ): Promise<PersistedReservationFlow | null> {
+  const rid = restaurantId.trim();
+  const tok = sync?.authToken?.trim();
+  if (userId && tok && rid) {
+    try {
+      const res = await fetchReservationDraft(tok, rid);
+      if (res.ok && res.flow) {
+        const state = flowFromServerPayload(res.flow);
+        if (state) {
+          writeReservationFlowMemory(userId, restaurantId, state);
+          return state;
+        }
+      }
+    } catch {
+      /* fall through to local cache */
+    }
+  }
+
   const scope = authScope(userId);
   const mem = readReservationFlowMemory(userId, restaurantId);
   if (mem) return mem;
@@ -159,7 +206,8 @@ export async function loadReservationFlow(
 export async function saveReservationFlow(
   userId: string | null | undefined,
   restaurantId: string,
-  state: PersistedReservationFlow
+  state: PersistedReservationFlow,
+  sync?: ReservationFlowSync
 ): Promise<void> {
   writeReservationFlowMemory(userId, restaurantId, state);
   try {
@@ -174,5 +222,16 @@ export async function saveReservationFlow(
     );
   } catch {
     /* best-effort */
+  }
+
+  const tok = sync?.authToken?.trim();
+  const rid = restaurantId.trim();
+  if (userId && tok && rid) {
+    void patchReservationDraft(tok, rid, {
+      draft: state.draft,
+      screen: state.screen,
+      scrollByScreen: state.scrollByScreen,
+      confirmedReservationId: state.confirmedReservationId ?? null
+    }).catch(() => {});
   }
 }

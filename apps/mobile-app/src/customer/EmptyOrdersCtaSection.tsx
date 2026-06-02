@@ -4,7 +4,7 @@ import React from "react";
 import { Animated, Easing, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { R } from "../theme";
 import { NavIconOrdersMark } from "../shell/NavTabIcons";
-import { getRestaurantPrefs, type RestaurantPrefs } from "../menu/menuPreferencesStorage";
+import { getRestaurantPrefsForCustomer, type RestaurantPrefs } from "../menu/menuPreferencesStorage";
 
 /**
  * Same hue order as login `swapColor`, tuned for light backgrounds (no phrase panel / no border).
@@ -192,6 +192,7 @@ type Props = {
   /** Pauses phrase transitions (e.g. while search sheet is open on Orders). */
   motionPaused?: boolean;
   onPrimaryCta: () => void;
+  authToken?: string | null;
 };
 
 export function EmptyOrdersCtaSection({
@@ -202,7 +203,8 @@ export function EmptyOrdersCtaSection({
   ordersSessionVisits,
   phraseLandTick,
   motionPaused = false,
-  onPrimaryCta
+  onPrimaryCta,
+  authToken
 }: Props) {
   const { width: screenW } = useWindowDimensions();
   const [businessTone, setBusinessTone] = React.useState(false);
@@ -278,13 +280,13 @@ export function EmptyOrdersCtaSection({
     }
     let cancelled = false;
     void (async () => {
-      const p = await getRestaurantPrefs(rid);
+      const p = await getRestaurantPrefsForCustomer(rid, authToken);
       if (!cancelled) setPrefs(p);
     })();
     return () => {
       cancelled = true;
     };
-  }, [restaurantId, menuPrefsVersion]);
+  }, [restaurantId, menuPrefsVersion, authToken]);
 
   const hourBucket = clock.getHours();
   const dayBucket = clock.getDay();

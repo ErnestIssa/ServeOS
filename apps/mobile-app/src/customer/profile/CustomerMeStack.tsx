@@ -206,6 +206,7 @@ function CustomerMeStackInner(props: Props) {
   const meHub = (
     <CustomerMeHub
       user={props.user}
+      authToken={props.authToken}
       venueName={props.venueName}
       topInset={hubTopInset}
       bottomInset={props.bottomInset}

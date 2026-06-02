@@ -1,7 +1,7 @@
 import React from "react";
 import { StyleSheet, Text } from "react-native";
 import { useAppTheme } from "../../theme/AppThemeContext";
-import { loadAppSettings, saveAppSettings } from "./profilePrefsStorage";
+import { loadAppSettingsForCustomer, saveAppSettingsForCustomer } from "./profilePrefsStorage";
 import type { AppSettings } from "./profilePrefsStorage";
 import {
   BoolRow,
@@ -13,6 +13,7 @@ import {
 } from "./ProfileUi";
 
 type Props = {
+  authToken?: string | null;
   bottomInset: number;
 };
 
@@ -21,8 +22,8 @@ export function SafetyScreen(props: Props) {
   const [settings, setSettings] = React.useState<AppSettings | null>(null);
 
   React.useEffect(() => {
-    void loadAppSettings().then(setSettings);
-  }, []);
+    void loadAppSettingsForCustomer(props.authToken).then(setSettings);
+  }, [props.authToken]);
 
   const styles = React.useMemo(
     () =>
@@ -58,7 +59,10 @@ export function SafetyScreen(props: Props) {
             onChange={(tripCheck) => setSettings({ ...settings, safety: { ...settings.safety, tripCheck } })}
           />
         </ProfileCard>
-        <ProfilePrimaryButton label="Save" onPress={() => void saveAppSettings(settings)} />
+        <ProfilePrimaryButton
+          label="Save"
+          onPress={() => void saveAppSettingsForCustomer(settings, props.authToken)}
+        />
       </FadeSection>
     </ProfileScreenContainer>
   );

@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from "react-native";
 import type { AuthUser } from "../../api";
 import { ThemedSwitch } from "../../components/ThemedSwitch";
 import { useAppTheme } from "../../theme/AppThemeContext";
+import { loadAppSettingsForCustomer, saveAppSettingsForCustomer } from "./profilePrefsStorage";
 import { hapticSelect } from "./ProfileUi";
 import type { AppNavHighlightKey } from "./profileNavHighlight";
 import {
@@ -16,6 +17,7 @@ import {
 
 type Props = {
   user: AuthUser | null;
+  authToken?: string | null;
   topInset: number;
   bottomInset: number;
   /** Measured top chrome (back row + safe padding) for frosted glass bleed. */
@@ -192,7 +194,13 @@ export function AppControlCenterHome(props: Props) {
               value={scheme === "dark"}
               onValueChange={(v) => {
                 hapticSelect();
-                setScheme(v ? "dark" : "light");
+                const mode = v ? "dark" : "light";
+                setScheme(mode);
+                void (async () => {
+                  const settings = await loadAppSettingsForCustomer(props.authToken);
+                  const next = { ...settings, nightMode: mode as "dark" | "light" };
+                  await saveAppSettingsForCustomer(next, props.authToken);
+                })();
               }}
             />
           </View>

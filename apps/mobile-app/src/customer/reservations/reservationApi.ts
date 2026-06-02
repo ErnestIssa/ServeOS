@@ -171,6 +171,53 @@ export type CustomerReservationApi = {
   draft: ReservationDraft;
 };
 
+export type ReservationFlowApi = {
+  draft: Record<string, unknown>;
+  screen: string;
+  scrollByScreen?: Record<string, number>;
+  confirmedReservationId?: string | null;
+  updatedAt: string;
+};
+
+export async function fetchReservationDraft(token: string, restaurantId: string) {
+  return apiFetch<{ ok: true; flow: ReservationFlowApi | null } | { ok: false; error?: string }>(
+    `/customer/restaurants/${encodeURIComponent(restaurantId)}/reservations/draft`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function patchReservationDraft(
+  token: string,
+  restaurantId: string,
+  payload: {
+    draft: ReservationDraft;
+    screen: string;
+    scrollByScreen?: Record<string, number>;
+    confirmedReservationId?: string | null;
+  }
+) {
+  return apiFetch<{ ok: true; flow: ReservationFlowApi } | { ok: false; error?: string }>(
+    `/customer/restaurants/${encodeURIComponent(restaurantId)}/reservations/draft`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        draft: payload.draft,
+        screen: payload.screen,
+        scrollByScreen: payload.scrollByScreen,
+        confirmedReservationId: payload.confirmedReservationId ?? null
+      })
+    }
+  );
+}
+
+export async function deleteReservationDraft(token: string, restaurantId: string) {
+  return apiFetch<{ ok: true } | { ok: false; error?: string }>(
+    `/customer/restaurants/${encodeURIComponent(restaurantId)}/reservations/draft`,
+    { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
 export async function fetchUpcomingReservations(token: string) {
   return apiFetch<{ ok: true; reservations: CustomerReservationApi[] } | { ok: false; error?: string }>(
     "/customer/reservations/upcoming",

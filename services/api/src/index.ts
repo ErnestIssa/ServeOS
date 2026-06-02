@@ -92,7 +92,16 @@ async function main() {
     ok: true,
     name: "ServeOS API",
     deployment: "unified",
-    endpoints: ["/health", "/auth/*", "/customer/*", "/customer/chat/*", "/restaurants/*", "/orders/*"]
+    endpoints: [
+      "/health",
+      "/auth/*",
+      "/customer/*",
+      "/customer/context",
+      "/customer/chat/*",
+      "/restaurants/*",
+      "/orders/*",
+      "/cart/*"
+    ]
   }));
 
   registerAuthRoutes(app, prisma);

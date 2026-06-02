@@ -46,6 +46,7 @@ type Props = {
   /** Tab behind the menu — light mode uses its ambient gradient to match the shell. */
   ambientTab: AmbientNativeTab;
   user: AuthUser | null;
+  authToken?: string | null;
   onBack: () => void;
   onChooseVenue: () => void;
 };
@@ -154,6 +155,7 @@ export function CustomerNavMenuPage(props: Props) {
             topInset={topInset}
             bottomInset={bottomInset}
             user={props.user}
+            authToken={props.authToken}
             onCloseMenu={handleCloseMenu}
             onChooseVenue={() => {
               handleCloseMenu();
