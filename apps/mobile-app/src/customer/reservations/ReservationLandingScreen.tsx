@@ -16,17 +16,6 @@ import type { ReservationDraft, ReservationFlowContext } from "./reservationType
 
 type AvailabilityState = "available" | "limited" | "not_available";
 
-function computeAvailability(draft: ReservationDraft): AvailabilityState {
-  const guests = Math.max(1, Number.isFinite(draft.guests) ? draft.guests : 1);
-  const time = String(draft.timeLabel || "");
-  const date = String(draft.dateLabel || "");
-
-  if (guests >= 8 && (time === "21:00" || /next week/i.test(date))) return "not_available";
-  if (guests >= 6) return "limited";
-  if (time === "19:00" || time === "21:00") return "limited";
-  return "available";
-}
-
 type Props = ReservationFlowContext & {
   hasVenue: boolean;
   authToken: string | null;
@@ -84,12 +73,6 @@ export function ReservationLandingScreen(props: Props) {
     scrollRef.current?.scrollTo({ y: experienceScrollY(experienceSectionY), animated: true });
   }, [experienceSectionY, experienceScrollY]);
 
-  const availability = React.useMemo(() => computeAvailability(props.draft), [props.draft]);
-  const availabilityText =
-    availability === "available" ? "Available" : availability === "limited" ? "Limited" : "Not Available";
-  const availabilityColor =
-    availability === "available" ? t.success : availability === "limited" ? "#F59E0B" : t.danger;
-
   const experiencePickIds = React.useMemo(() => mergedExperiencePickIds(props.draft), [props.draft]);
 
   const slotPicker = useReservationSlotPicker({
@@ -101,6 +84,38 @@ export function ReservationLandingScreen(props: Props) {
     enabled: props.hasVenue && !!props.authToken?.trim(),
     onResolved: (patch) => props.onDraftChange(patch)
   });
+
+  const availability = React.useMemo((): AvailabilityState => {
+    if (!props.hasVenue || !props.authToken?.trim()) return "limited";
+    if (slotPicker.loading) return "limited";
+    if (slotPicker.bookableDateIds.length === 0) return "not_available";
+    const dateOk =
+      !props.draft.quickDateId || slotPicker.bookableDateIds.includes(props.draft.quickDateId);
+    const timeOk = slotPicker.availableTimeLabels.includes(props.draft.timeLabel);
+    if (dateOk && timeOk) return "available";
+    return "limited";
+  }, [
+    props.authToken,
+    props.draft.quickDateId,
+    props.draft.timeLabel,
+    props.hasVenue,
+    slotPicker.availableTimeLabels,
+    slotPicker.bookableDateIds,
+    slotPicker.loading
+  ]);
+
+  const availabilityText =
+    !props.authToken?.trim()
+      ? "Sign in to see live availability"
+      : slotPicker.loading
+        ? "Checking availability…"
+        : availability === "available"
+          ? "Available"
+          : availability === "limited"
+            ? "Limited"
+            : "Not Available";
+  const availabilityColor =
+    availability === "available" ? t.success : availability === "limited" ? "#F59E0B" : t.danger;
 
   const onDateChange = React.useCallback(
     async (dateLabel: string, quickDateId: string) => {

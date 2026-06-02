@@ -24,13 +24,13 @@ import { R } from "../../theme";
 import { useAppTheme } from "../../theme/AppThemeContext";
 import { CHAT } from "../chat/chatTheme";
 import { ReservationBookingRef } from "./ReservationBookingRef";
-import { ReservationDateTimeWheels } from "../reservations/ReservationDateTimeWheels";
 import {
-  fetchReservationSlotPicker,
-  scheduleFieldErrorMessage,
-  type CustomerReservationApi
-} from "../reservations/reservationApi";
-import { quickDateIdFromLabel, buildQuickDateOptions } from "../reservations/reservationQuickDates";
+  ReservationDateTimeWheels,
+  type ReservationDateTimeWheelsHandle,
+  type ReservationWheelSelection
+} from "../reservations/ReservationDateTimeWheels";
+import { normalizeEditSlotPicker } from "../reservations/editSlotPickerNormalize";
+import { fetchReservationSlotPicker, type CustomerReservationApi } from "../reservations/reservationApi";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -47,7 +47,11 @@ type Props = {
   reservation: CustomerReservationApi | null;
   onClose: () => void;
   onCancel: () => Promise<void>;
-  onSaveEdit: (patch: { dateLabel: string; quickDateId: string; timeLabel: string }) => Promise<void>;
+  onSaveEdit: (patch: {
+    dateLabel: string;
+    quickDateId: string;
+    timeLabel: string;
+  }) => Promise<{ ok: true; dateLabel: string; timeLabel: string } | { ok: false; message: string }>;
   cancelLoading?: boolean;
   saveLoading?: boolean;
 };
@@ -66,11 +70,9 @@ export function ReservationManageModal({
   const progress = useSharedValue(0);
   const [mounted, setMounted] = React.useState(visible);
   const [panel, setPanel] = React.useState<Panel>("menu");
-  const dateOptions = React.useMemo(() => buildQuickDateOptions(10), []);
-
-  const [dateLabel, setDateLabel] = React.useState("");
-  const [quickDateId, setQuickDateId] = React.useState<string | null>(null);
-  const [timeLabel, setTimeLabel] = React.useState("");
+  const wheelsRef = React.useRef<ReservationDateTimeWheelsHandle>(null);
+  const [initialWheelSelection, setInitialWheelSelection] =
+    React.useState<ReservationWheelSelection | null>(null);
   const [availableTimeLabels, setAvailableTimeLabels] = React.useState<string[]>([]);
   const [bookableDateIds, setBookableDateIds] = React.useState<string[]>([]);
   const [serverDateOptions, setServerDateOptions] = React.useState<
@@ -80,85 +82,71 @@ export function ReservationManageModal({
   const [pickerReady, setPickerReady] = React.useState(false);
   const [wheelEpoch, setWheelEpoch] = React.useState(0);
   const pickerReadyRef = React.useRef(false);
+  const timesByDateIdRef = React.useRef<Record<string, string[]>>({});
 
   const reservationId = reservation?.id ?? null;
   const restaurantId = reservation?.restaurantId ?? null;
 
-  const loadSlots = React.useCallback(
-    async (params: {
-      quickDateId?: string | null;
-      dateLabel?: string;
-      timeLabel?: string;
-      reservationId?: string | null;
-    }) => {
-      if (!authToken || !restaurantId) return;
-      setSlotsLoading(true);
-      if (!pickerReadyRef.current) setPickerReady(false);
-      try {
-        const res = await fetchReservationSlotPicker(authToken, restaurantId, {
-          ...params,
-          reservationId: params.reservationId ?? reservationId
-        });
-        if (!res.ok) {
-          setAvailableTimeLabels([]);
-          setBookableDateIds([]);
-          setServerDateOptions([]);
-          return;
-        }
-        setDateLabel(res.dateLabel);
-        setQuickDateId(res.quickDateId);
-        setTimeLabel(res.timeLabel);
-        setServerDateOptions(res.dateOptions);
-        setAvailableTimeLabels(res.timeOptions.filter((x) => x.available).map((x) => x.label));
-        setBookableDateIds(
-          res.dateOptions.filter((d) => d.hasAvailableSlots !== false).map((d) => d.id)
-        );
-        setWheelEpoch((n) => n + 1);
-        pickerReadyRef.current = true;
-        setPickerReady(true);
-      } catch {
+  const onDatePreview = React.useCallback((nextQuickDateId: string) => {
+    const times = timesByDateIdRef.current[nextQuickDateId] ?? [];
+    setAvailableTimeLabels(times.length > 0 ? times : []);
+  }, []);
+
+  const loadEditPicker = React.useCallback(async () => {
+    if (!authToken || !restaurantId || !reservationId) return;
+    setSlotsLoading(true);
+    setPickerReady(false);
+    pickerReadyRef.current = false;
+    try {
+      const res = await fetchReservationSlotPicker(authToken, restaurantId, { reservationId });
+      if (!res.ok) {
         setAvailableTimeLabels([]);
         setBookableDateIds([]);
         setServerDateOptions([]);
-        pickerReadyRef.current = false;
-        setPickerReady(false);
-      } finally {
-        setSlotsLoading(false);
+        timesByDateIdRef.current = {};
+        return;
       }
-    },
-    [authToken, restaurantId, reservationId]
-  );
-
-  const handleDateChange = React.useCallback(
-    (nextDateLabel: string, nextQuickDateId: string) => {
-      void loadSlots({ quickDateId: nextQuickDateId, dateLabel: nextDateLabel });
-    },
-    [loadSlots]
-  );
-
-  const handleTimeChange = React.useCallback((nextTimeLabel: string) => {
-    setTimeLabel(nextTimeLabel);
-  }, []);
+      const norm = normalizeEditSlotPicker(res);
+      if (!norm.hasChoices) {
+        timesByDateIdRef.current = {};
+        setBookableDateIds([]);
+        setServerDateOptions([]);
+        setAvailableTimeLabels([]);
+        setInitialWheelSelection(null);
+        return;
+      }
+      timesByDateIdRef.current = norm.timesByDateId;
+      setInitialWheelSelection({
+        dateLabel: norm.dateLabel,
+        quickDateId: norm.quickDateId,
+        timeLabel: norm.timeLabel
+      });
+      setServerDateOptions(norm.dateOptions);
+      setAvailableTimeLabels(norm.timesByDateId[norm.quickDateId] ?? []);
+      setBookableDateIds(norm.bookableDateIds);
+      setWheelEpoch((n) => n + 1);
+      pickerReadyRef.current = true;
+      setPickerReady(true);
+    } catch {
+      setAvailableTimeLabels([]);
+      setBookableDateIds([]);
+      setServerDateOptions([]);
+      timesByDateIdRef.current = {};
+      pickerReadyRef.current = false;
+      setPickerReady(false);
+    } finally {
+      setSlotsLoading(false);
+    }
+  }, [authToken, restaurantId, reservationId]);
 
   React.useEffect(() => {
     setPanel("menu");
   }, [reservationId]);
 
   React.useEffect(() => {
-    if (!reservation || panel === "edit") return;
-    setDateLabel(reservation.draft.dateLabel);
-    setQuickDateId(
-      reservation.draft.quickDateId ?? quickDateIdFromLabel(dateOptions, reservation.draft.dateLabel)
-    );
-    setTimeLabel(reservation.draft.timeLabel);
-    setPickerReady(false);
-  }, [reservation, dateOptions, panel]);
-
-  React.useEffect(() => {
     if (!visible || panel !== "edit" || !reservation) return;
-    /** Only reservationId — server anchors from startsAt, not stale draft d0…d9 ids. */
-    void loadSlots({ reservationId: reservation.id });
-  }, [visible, panel, reservation?.id, loadSlots, reservation]);
+    void loadEditPicker();
+  }, [visible, panel, reservation?.id, loadEditPicker, reservation]);
 
   const finishClose = React.useCallback(() => {
     setMounted(false);
@@ -193,6 +181,8 @@ export function ReservationManageModal({
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     if (next !== "edit") {
       pickerReadyRef.current = false;
+      timesByDateIdRef.current = {};
+      setInitialWheelSelection(null);
       setPickerReady(false);
     }
     setPanel(next);
@@ -233,13 +223,21 @@ export function ReservationManageModal({
   }
 
   async function handleSaveEdit() {
-    if (!quickDateId) return;
-    try {
-      await onSaveEdit({ dateLabel, quickDateId, timeLabel });
-      requestClose();
-    } catch {
-      Alert.alert("Couldn't save", scheduleFieldErrorMessage());
+    const picked = wheelsRef.current?.getSelection();
+    if (!picked) {
+      Alert.alert("Couldn't save", "Choose a date and time, then try again.");
+      return;
     }
+    const result = await onSaveEdit(picked);
+    if (result.ok) {
+      Alert.alert(
+        "Booking updated",
+        `Your visit is now ${result.dateLabel} at ${result.timeLabel}.`
+      );
+      requestClose();
+      return;
+    }
+    Alert.alert("Couldn't update", result.message);
   }
 
   return (
@@ -311,8 +309,11 @@ export function ReservationManageModal({
                   <Text style={styles.backLabel}>Back</Text>
                 </Pressable>
                 <Text style={styles.title}>Change date or time</Text>
+                <Text style={[styles.currentVisit, { color: t.textSecondary }]}>
+                  Currently booked: {reservation.draft.dateLabel} · {reservation.draft.timeLabel}
+                </Text>
                 <Text style={[styles.editHint, { color: t.textMuted }]}>
-                  Scroll the wheels or use the arrows to pick a new date and time
+                  Scroll to preview other slots — only Save changes confirms your choice
                 </Text>
 
                 {!pickerReady && slotsLoading ? (
@@ -321,34 +322,30 @@ export function ReservationManageModal({
                     color={t.ordersNavPurpleBright}
                     size="large"
                   />
-                ) : bookableDateIds.length === 0 ? (
+                ) : bookableDateIds.length === 0 || availableTimeLabels.length === 0 ? (
                   <Text style={[styles.noSlots, { color: t.textSecondary }]}>
                     No bookable dates right now. Try again closer to your visit or contact the venue.
                   </Text>
                 ) : (
                   <>
-                    <ReservationDateTimeWheels
-                      key={`picker-${wheelEpoch}`}
-                      dateLabel={dateLabel}
-                      timeLabel={timeLabel}
-                      availableTimeLabels={availableTimeLabels}
-                      bookableDateIds={bookableDateIds}
-                      serverDateOptions={serverDateOptions}
-                      onDateChange={handleDateChange}
-                      onTimeChange={handleTimeChange}
-                      disabled={saveLoading}
-                    />
-                    {slotsLoading ? (
-                      <ActivityIndicator
-                        style={styles.slotsRefreshing}
-                        color={t.ordersNavPurpleBright}
-                        size="small"
+                    {initialWheelSelection && availableTimeLabels.length > 0 ? (
+                      <ReservationDateTimeWheels
+                        ref={wheelsRef}
+                        key={`picker-${wheelEpoch}`}
+                        draftMode
+                        seedKey={wheelEpoch}
+                        initialSelection={initialWheelSelection}
+                        dateLabel={initialWheelSelection.dateLabel}
+                        timeLabel={initialWheelSelection.timeLabel}
+                        availableTimeLabels={availableTimeLabels}
+                        bookableDateIds={bookableDateIds}
+                        serverDateOptions={serverDateOptions}
+                        timesByDateId={timesByDateIdRef.current}
+                        onDatePreview={(_dl, qid) => onDatePreview(qid)}
+                        onDateChange={() => {}}
+                        onTimeChange={() => {}}
+                        disabled={saveLoading}
                       />
-                    ) : null}
-                    {availableTimeLabels.length === 0 ? (
-                      <Text style={[styles.noSlots, { color: t.textSecondary }]}>
-                        No times left on this day — spin the date to pick another day.
-                      </Text>
                     ) : null}
                   </>
                 )}
@@ -358,19 +355,15 @@ export function ReservationManageModal({
                     styles.primaryBtn,
                     pressed && styles.pressed,
                     styles.saveBtn,
-                    (slotsLoading ||
-                      bookableDateIds.length === 0 ||
-                      availableTimeLabels.length === 0 ||
-                      !timeLabel) &&
-                      styles.btnDisabled
+                    (slotsLoading || !pickerReady || bookableDateIds.length === 0) && styles.btnDisabled
                   ]}
                   onPress={() => void handleSaveEdit()}
                   disabled={
                     saveLoading ||
                     slotsLoading ||
+                    !pickerReady ||
                     bookableDateIds.length === 0 ||
-                    availableTimeLabels.length === 0 ||
-                    !timeLabel
+                    availableTimeLabels.length === 0
                   }
                 >
                   {saveLoading ? (
@@ -456,6 +449,12 @@ const styles = StyleSheet.create({
   },
   backChevron: { fontSize: 22, fontWeight: "800", color: CHAT.brand, marginRight: 2, lineHeight: 24 },
   backLabel: { fontSize: 15, fontWeight: "700", color: CHAT.brand },
+  currentVisit: {
+    fontSize: 14,
+    fontWeight: "700",
+    textAlign: "center",
+    marginBottom: 6
+  },
   editHint: {
     fontSize: 12,
     fontWeight: "600",
@@ -463,7 +462,6 @@ const styles = StyleSheet.create({
     marginBottom: 8
   },
   slotsLoader: { marginVertical: 24 },
-  slotsRefreshing: { marginTop: 8, marginBottom: 4 },
   noSlots: {
     fontSize: 14,
     fontWeight: "600",

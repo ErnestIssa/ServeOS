@@ -6,6 +6,7 @@ import {
   RECOMMENDATION_PICKS,
   TIME_OPTIONS,
   buildQuickDateOptions,
+  mergeVisitIntoDateOptions,
   resolveQuickDateId
 } from "./reservationPresets.js";
 
@@ -49,11 +50,18 @@ function normalizeGuests(n: number): { ok: true; guests: number } | { ok: false;
 
 function resolveDate(
   dateLabel: string,
-  quickDateId?: string | null
+  quickDateId?: string | null,
+  now = new Date()
 ):
   | { ok: true; dateLabel: string; quickDateId: string; dayLabel: string }
   | { ok: false; error: string } {
-  const quick = buildQuickDateOptions(10);
+  let quick = buildQuickDateOptions(10, now);
+  if (quickDateId?.startsWith("abs")) {
+    const ms = Number.parseInt(quickDateId.slice(3), 10);
+    if (Number.isFinite(ms)) {
+      quick = mergeVisitIntoDateOptions(quick, new Date(ms), now);
+    }
+  }
   const id = resolveQuickDateId(quick, dateLabel, quickDateId);
   if (id) {
     const opt = quick.find((o) => o.id === id)!;
@@ -113,7 +121,7 @@ export function validateReservationStartInput(
   const guestsRes = normalizeGuests(body.guests);
   if (!guestsRes.ok) fields.guests = guestsRes.error;
 
-  const dateRes = resolveDate(body.dateLabel, body.quickDateId);
+  const dateRes = resolveDate(body.dateLabel, body.quickDateId, new Date());
   if (!dateRes.ok) fields.dateLabel = dateRes.error;
 
   const timeRes = resolveTime(body.timeLabel);

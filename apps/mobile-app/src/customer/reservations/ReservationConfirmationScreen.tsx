@@ -4,6 +4,7 @@ import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { ReservationManageModal } from "../profile/ReservationManageModal";
 import { buildBookingConfirmationDetailRows } from "./bookingConfirmationDetails";
 import {
+  bookingScheduleErrorMessage,
   cancelCustomerReservation,
   patchCustomerReservation,
   type CustomerReservationApi
@@ -154,16 +155,27 @@ export function ReservationConfirmationScreen(props: Props) {
   async function handleSaveEdit(patch: { dateLabel: string; quickDateId: string; timeLabel: string }) {
     const token = props.authToken?.trim();
     const id = reservation?.id;
-    if (!token || !id) return;
+    if (!token || !id) {
+      return { ok: false as const, message: "Sign in to update your booking." };
+    }
     setSaveLoading(true);
     try {
       const res = await patchCustomerReservation(token, id, patch);
       if (!res.ok) {
-        Alert.alert("Couldn't update", "Please pick a valid date and time.");
-        throw new Error("patch_failed");
+        return {
+          ok: false as const,
+          message: bookingScheduleErrorMessage(res.fields)
+        };
       }
       props.onReservationUpdated(res.reservation);
       setManageOpen(false);
+      return {
+        ok: true as const,
+        dateLabel: res.reservation.draft.dateLabel,
+        timeLabel: res.reservation.draft.timeLabel
+      };
+    } catch {
+      return { ok: false as const, message: "Something went wrong. Please try again." };
     } finally {
       setSaveLoading(false);
     }
@@ -225,6 +237,7 @@ export function ReservationConfirmationScreen(props: Props) {
 
       <ReservationManageModal
         visible={manageOpen}
+        authToken={props.authToken?.trim() ?? ""}
         reservation={reservation}
         onClose={() => setManageOpen(false)}
         onCancel={handleCancel}

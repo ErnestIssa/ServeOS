@@ -253,17 +253,23 @@ export function UpcomingReservationsScreen(props: Props) {
   }
 
   async function handleSaveEdit(patch: { dateLabel: string; quickDateId: string; timeLabel: string }) {
-    if (!active) return;
+    if (!active) return { ok: false as const, message: "No booking selected." };
     setSaveLoading(true);
     try {
       const res = await patchCustomerReservation(props.authToken, active.id, patch);
       if (!res.ok) {
-        Alert.alert("Couldn't update", scheduleFieldErrorMessage(res.fields));
-        throw new Error("patch_failed");
+        return { ok: false as const, message: scheduleFieldErrorMessage(res.fields) };
       }
       props.onReservationUpdated?.(res.reservation);
       await reload();
       setManageOpen(false);
+      return {
+        ok: true as const,
+        dateLabel: res.reservation.draft.dateLabel,
+        timeLabel: res.reservation.draft.timeLabel
+      };
+    } catch {
+      return { ok: false as const, message: "Something went wrong. Please try again." };
     } finally {
       setSaveLoading(false);
     }

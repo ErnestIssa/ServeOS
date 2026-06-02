@@ -1,5 +1,3 @@
-import { BlurView } from "expo-blur";
-import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
 import {
   FlatList,
@@ -16,6 +14,8 @@ import Svg, { Path } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CartLineApi } from "./cartApi";
 import { SwipePlaceOrderBar } from "./SwipePlaceOrderBar";
+import { NavGlassSurface } from "../shell/NavGlassSurface";
+import { NAV_GLASS_SCOOP_RADIUS } from "../shell/navGlassChrome";
 import { R } from "../theme";
 import { useAppTheme } from "../theme/AppThemeContext";
 
@@ -107,9 +107,7 @@ export function CartSheetPanel({
 }: Props) {
   const insets = useSafeAreaInsets();
   const { colors: theme, isDark } = useAppTheme();
-  const blurTint = isDark ? "dark" : "light";
-  const androidGlass = isDark ? "rgba(11,18,32,0.78)" : "rgba(255,255,255,0.82)";
-  const pillBorder = isDark ? "rgba(124,58,237,0.45)" : "rgba(124,58,237,0.28)";
+  const headerDividerColor = isDark ? "rgba(248,250,252,0.12)" : "rgba(11,18,32,0.08)";
   const orderNoteLiveRef = React.useRef(orderNote);
   orderNoteLiveRef.current = orderNote;
 
@@ -130,19 +128,31 @@ export function CartSheetPanel({
   );
 
   const hasCartItems = totalQuantity > 0;
+  const sheetFullyOpen = hasCartItems && sheetOpenStage === 2;
+  const headerTitleColor = sheetFullyOpen
+    ? "#FFFFFF"
+    : hasCartItems
+      ? theme.ordersNavPurpleBright
+      : R.text;
+  const headerSubColor = sheetFullyOpen
+    ? "rgba(255,255,255,0.9)"
+    : hasCartItems
+      ? theme.textSecondary
+      : R.textSecondary;
+  const headerDivider = sheetFullyOpen
+    ? "rgba(255,255,255,0.22)"
+    : headerDividerColor;
 
   const cartHeaderContent = (
-    <View style={hasCartItems ? styles.headerRow : styles.headerRowPlain}>
+    <View
+      style={[
+        hasCartItems ? styles.headerRow : styles.headerRowPlain,
+        hasCartItems ? { borderBottomColor: headerDivider } : null
+      ]}
+    >
       <View style={styles.headerTextCol}>
-        <Text
-          style={[
-            styles.title,
-            { color: hasCartItems ? theme.ordersNavPurpleBright : R.text }
-          ]}
-        >
-          Your order
-        </Text>
-        <Text style={[styles.sub, { color: hasCartItems ? theme.textSecondary : R.textSecondary }]}>
+        <Text style={[styles.title, { color: headerTitleColor }]}>Your order</Text>
+        <Text style={[styles.sub, { color: headerSubColor }]}>
           {totalQuantity === 0
             ? "Cart is empty"
             : `${totalQuantity} item${totalQuantity === 1 ? "" : "s"} · ${money(subtotalCents)}`}
@@ -153,9 +163,13 @@ export function CartSheetPanel({
         accessibilityLabel="Order info"
         hitSlop={10}
         onPress={onOpenInfo}
-        style={({ pressed }) => [styles.infoBtn, pressed && styles.tapPressed]}
+        style={({ pressed }) => [
+          styles.infoBtn,
+          sheetFullyOpen && styles.infoBtnOnPurple,
+          pressed && styles.tapPressed
+        ]}
       >
-        <Text style={styles.infoText}>i</Text>
+        <Text style={[styles.infoText, sheetFullyOpen && styles.infoTextOnPurple]}>i</Text>
       </Pressable>
     </View>
   );
@@ -169,7 +183,7 @@ export function CartSheetPanel({
         keyExtractor={(l) => l.id}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, sheetFullyOpen && styles.listContentUnderPurple]}
         renderItem={({ item: line }) => (
           <View style={[styles.lineRow, line.stale ? styles.lineStale : null]}>
             <View style={styles.lineMain}>
@@ -222,6 +236,8 @@ export function CartSheetPanel({
     <KeyboardAvoidingView
       style={[
         styles.root,
+        hasCartItems ? styles.rootGlassFlush : null,
+        sheetFullyOpen ? styles.rootFullSheet : null,
         {
           // Lift the dock a bit more as the sheet opens beyond half / full.
           paddingBottom: Math.max(
@@ -236,27 +252,24 @@ export function CartSheetPanel({
       keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 64 : 0}
     >
       {hasCartItems ? (
-        <View style={[styles.topGlassBody, { borderColor: pillBorder }]}>
-          {Platform.OS === "ios" ? (
-            <BlurView intensity={36} tint={blurTint} style={StyleSheet.absoluteFill} />
-          ) : (
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: androidGlass }]} />
-          )}
-          <LinearGradient
-            colors={
-              isDark
-                ? ["rgba(124,58,237,0.14)", "rgba(11,18,32,0.06)"]
-                : ["rgba(255,255,255,0.55)", "rgba(248,250,252,0.12)"]
-            }
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFill}
-            pointerEvents="none"
-          />
-          <View style={styles.topGlassContent}>
-            {cartHeaderContent}
-            <View style={styles.listWrapInGlass}>{cartListBody}</View>
-          </View>
+        <View style={styles.topGlassBody}>
+          {sheetFullyOpen ? (
+            <View style={[styles.sheetPurpleCap, { backgroundColor: R.accentPurple }]}>
+              {cartHeaderContent}
+            </View>
+          ) : null}
+          <NavGlassSurface
+            style={styles.topGlassListPane}
+            borderRadius={sheetFullyOpen ? 0 : NAV_GLASS_SCOOP_RADIUS}
+            feather="both"
+          >
+            <View style={[styles.topGlassContent, sheetFullyOpen && styles.topGlassContentUnderPurple]}>
+              {!sheetFullyOpen ? cartHeaderContent : null}
+              <View style={[styles.listWrapInGlass, sheetFullyOpen && styles.listWrapUnderPurple]}>
+                {cartListBody}
+              </View>
+            </View>
+          </NavGlassSurface>
         </View>
       ) : (
         <>
@@ -266,7 +279,7 @@ export function CartSheetPanel({
       )}
 
       {showNoteArea ? (
-        <View style={styles.noteWrap}>
+        <View style={[styles.noteWrap, hasCartItems && styles.insetBelowGlass]}>
           <TextInput
             value={orderNote}
             onChangeText={onOrderNoteChange}
@@ -295,6 +308,7 @@ export function CartSheetPanel({
       <View
         style={[
           styles.footerDock,
+          hasCartItems && styles.insetBelowGlass,
           // Push the button up as the sheet opens further (gives breathing room above the chrome bottom).
           sheetOpenStage === 2 ? { marginBottom: 28 } : sheetOpenStage === 1 ? { marginBottom: 12 } : null
         ]}
@@ -341,38 +355,57 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     paddingHorizontal: 16,
-    paddingTop: 20,
+    paddingTop: 12,
     paddingBottom: 14
+  },
+  rootGlassFlush: {
+    paddingHorizontal: 0
+  },
+  rootFullSheet: {
+    paddingTop: 0
   },
   topGlassBody: {
     flex: 1,
     overflow: "hidden",
-    borderRadius: 20,
-    borderWidth: StyleSheet.hairlineWidth,
-    ...Platform.select({
-      ios: {
-        shadowColor: "#4C1D95",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.12,
-        shadowRadius: 10
-      },
-      android: { elevation: 4 },
-      default: {}
-    })
+    borderTopLeftRadius: NAV_GLASS_SCOOP_RADIUS,
+    borderTopRightRadius: NAV_GLASS_SCOOP_RADIUS
+  },
+  topGlassListPane: {
+    flex: 1,
+    borderBottomLeftRadius: NAV_GLASS_SCOOP_RADIUS,
+    borderBottomRightRadius: NAV_GLASS_SCOOP_RADIUS
+  },
+  sheetPurpleCap: {
+    paddingTop: 28,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderTopLeftRadius: NAV_GLASS_SCOOP_RADIUS,
+    borderTopRightRadius: NAV_GLASS_SCOOP_RADIUS
   },
   topGlassContent: {
     flex: 1,
-    paddingHorizontal: 12,
-    paddingTop: 12,
+    paddingHorizontal: 16,
+    paddingTop: 10,
     paddingBottom: 10
+  },
+  topGlassContentUnderPurple: {
+    paddingTop: 0
+  },
+  listWrapUnderPurple: {
+    marginTop: 4
+  },
+  listContentUnderPurple: {
+    paddingTop: 12
+  },
+  insetBelowGlass: {
+    paddingHorizontal: 16
   },
   headerRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingBottom: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(124,58,237,0.14)"
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth
   },
   headerRowPlain: {
     flexDirection: "row",
@@ -393,6 +426,11 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent"
   },
   infoText: { fontSize: 12, fontWeight: "900", color: "#DC2626" },
+  infoBtnOnPurple: {
+    borderColor: "rgba(255,255,255,0.92)",
+    backgroundColor: "rgba(255,255,255,0.14)"
+  },
+  infoTextOnPurple: { color: "#FFFFFF" },
   tapPressed: { opacity: 0.85 },
   listWrap: { flex: 1, marginTop: 14 },
   listWrapInGlass: { flex: 1, marginTop: 8, minHeight: 0 },

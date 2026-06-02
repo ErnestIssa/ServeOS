@@ -87,9 +87,15 @@ export function resolveQuickDateId(
   dateLabel: string,
   quickDateId?: string | null
 ): string | null {
+  const byLabel = options.find((o) => o.dateLabel === dateLabel || o.label === dateLabel);
+  if (quickDateId?.startsWith("abs") && options.some((o) => o.id === quickDateId)) {
+    return quickDateId;
+  }
+  if (byLabel && quickDateId && byLabel.id !== quickDateId) {
+    return byLabel.id;
+  }
   if (quickDateId && options.some((o) => o.id === quickDateId)) return quickDateId;
-  const hit = options.find((o) => o.dateLabel === dateLabel || o.label === dateLabel);
-  return hit?.id ?? null;
+  return byLabel?.id ?? null;
 }
 
 /** Calendar day offset from today (0 = today). */

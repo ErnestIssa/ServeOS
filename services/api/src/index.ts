@@ -32,14 +32,24 @@ const chatBus = new EventEmitter();
 chatBus.setMaxListeners(0);
 
 app.setErrorHandler((err: unknown, _req, reply) => {
-  const e = err as { name?: string; statusCode?: number; status?: number; message?: string };
+  const e = err as {
+    name?: string;
+    statusCode?: number;
+    status?: number;
+    message?: string;
+    meta?: Record<string, unknown>;
+  };
   if (e?.name === "ZodError") {
     return reply.status(400).send({ ok: false, error: "validation_error" });
   }
   const code = e.statusCode ?? e.status ?? 500;
   const msg = e.message ?? "server_error";
   if (code >= 500) app.log.error(err);
-  return reply.status(code).send({ ok: false, error: String(msg) });
+  return reply.status(code).send({
+    ok: false,
+    error: String(msg),
+    ...(e.meta && typeof e.meta === "object" ? { meta: e.meta } : {})
+  });
 });
 
 async function main() {

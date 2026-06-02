@@ -2,13 +2,13 @@ import type { CustomerReservation, PrismaClient } from "@prisma/client";
 import {
   buildQuickDateOptions,
   dayFromQuickDateOption,
-  resolveQuickDateId
+  mergeVisitIntoDateOptions,
+  quickDateFromStartsAt,
+  resolveQuickDateId,
+  timeLabelFromStartsAt
 } from "./reservationPresets.js";
-import {
-  validateReservationSchedule,
-  type PinnedReservationSlot,
-  type ReservationStartValidated
-} from "./reservationSlotValidation.js";
+import { validateReservationSchedule, type PinnedReservationSlot } from "./reservationSlotValidation.js";
+import type { ReservationStartValidated } from "./reservationStartValidation.js";
 
 export type ReservationDraftPayload = {
   branchId: string | null;
@@ -41,17 +41,21 @@ function addDays(d: Date, n: number): Date {
 export function resolveReservationStartsAt(
   quickDateId: string | null | undefined,
   dateLabel: string,
-  timeLabel: string
+  timeLabel: string,
+  now = new Date()
 ): Date {
-  const now = new Date();
   let quick = buildQuickDateOptions(10, now);
+  if (quickDateId?.startsWith("abs")) {
+    const ms = Number.parseInt(quickDateId.slice(3), 10);
+    if (Number.isFinite(ms)) {
+      quick = mergeVisitIntoDateOptions(quick, new Date(ms), now);
+    }
+  }
   const id = resolveQuickDateId(quick, dateLabel, quickDateId);
   const opt = id ? quick.find((o) => o.id === id) : quick.find((o) => o.dateLabel === dateLabel);
   let d: Date;
   if (opt) {
     d = dayFromQuickDateOption(opt, now);
-  } else if (quickDateId?.startsWith("abs")) {
-    d = startOfDay(new Date(Number.parseInt(quickDateId.slice(3), 10)));
   } else {
     let dayOffset = 0;
     if (id?.match(/^d(\d+)$/)) {
@@ -68,6 +72,21 @@ export function resolveReservationStartsAt(
   const m = Number.parseInt(parts[1] ?? "0", 10);
   d.setHours(Number.isFinite(h) ? h : 19, Number.isFinite(m) ? m : 0, 0, 0);
   return d;
+}
+
+/** Align stored draft labels with authoritative `startsAt` (fixes rolling dN drift). */
+export function canonicalizeDraftSchedule(
+  draft: ReservationDraftPayload,
+  startsAt: Date,
+  now = new Date()
+): ReservationDraftPayload {
+  const date = quickDateFromStartsAt(startsAt, now);
+  return {
+    ...draft,
+    quickDateId: date.id,
+    dateLabel: date.dateLabel,
+    timeLabel: timeLabelFromStartsAt(startsAt)
+  };
 }
 
 export function makeConfirmationCode(): string {
@@ -114,21 +133,34 @@ export function validateFullReservationBody(
   now = new Date(),
   pinnedSlot?: PinnedReservationSlot | null
 ):
-  | { ok: true; validated: ReservationStartValidated; draft: ReservationDraftPayload }
+  | { ok: true; validated: ReservationStartValidated; draft: ReservationDraftPayload; startsAt: Date }
   | { ok: false; error: string; fields?: Record<string, string> } {
   const schedule = validateReservationSchedule(raw, openingHours, now, pinnedSlot);
   if (!schedule.ok) {
     return { ok: false, error: schedule.error, fields: schedule.fields };
   }
+  const draft = canonicalizeDraftSchedule(
+    normalizeDraftPayload(raw, schedule.validated),
+    schedule.startsAt,
+    now
+  );
   return {
     ok: true,
-    validated: schedule.validated,
-    draft: normalizeDraftPayload(raw, schedule.validated)
+    validated: {
+      ...schedule.validated,
+      quickDateId: draft.quickDateId ?? schedule.validated.quickDateId,
+      dateLabel: draft.dateLabel,
+      timeLabel: draft.timeLabel,
+      timeId: draft.timeLabel
+    },
+    draft,
+    startsAt: schedule.startsAt
   };
 }
 
 export function serializeCustomerReservation(row: CustomerReservation & { restaurant: { id: string; name: string } }) {
-  const draft = row.draft as ReservationDraftPayload;
+  const now = new Date();
+  const draft = canonicalizeDraftSchedule(row.draft as ReservationDraftPayload, row.startsAt, now);
   return {
     id: row.id,
     restaurantId: row.restaurantId,

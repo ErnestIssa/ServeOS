@@ -18,9 +18,11 @@ import Animated, {
 import { SwapColorSpinner } from "../components/SwapColorLoader";
 import { R } from "../theme";
 
-const THUMB_MARGIN = 4;
-const THUMB_SIZE = 36;
-const RAIL_RADIUS = 14;
+/** Matches `ReservationConfirmationScreen` manage CTA (`minHeight: 64`, `borderRadius: 20`). */
+const RAIL_MIN_HEIGHT = 64;
+const RAIL_RADIUS = 20;
+const THUMB_MARGIN = 5;
+const THUMB_SIZE = RAIL_MIN_HEIGHT - THUMB_MARGIN * 2;
 const COMMIT_FRAC = 0.72;
 const SPRING_SLIDE = { damping: 19, stiffness: 460, mass: 0.52 };
 const SPRING_BACK = { damping: 22, stiffness: 400, mass: 0.48 };
@@ -174,7 +176,7 @@ export function SwipePlaceOrderBar({ disabled, placing, label, onCommit }: Props
         accessibilityRole="progressbar"
         accessibilityLabel="Placing order"
       >
-        <SwapColorSpinner size={20} stroke={2.5} />
+        <SwapColorSpinner size={24} stroke={2.5} />
       </Animated.View>
     );
   }
@@ -206,11 +208,10 @@ export function SwipePlaceOrderBar({ disabled, placing, label, onCommit }: Props
   );
 }
 
-const RAIL_H = THUMB_SIZE + THUMB_MARGIN * 2;
-
 const styles = StyleSheet.create({
   rail: {
-    height: RAIL_H,
+    height: RAIL_MIN_HEIGHT,
+    minHeight: RAIL_MIN_HEIGHT,
     borderRadius: RAIL_RADIUS,
     backgroundColor: R.accentPurple,
     justifyContent: "center",
@@ -233,11 +234,11 @@ const styles = StyleSheet.create({
   },
   railLabel: {
     alignSelf: "center",
-    paddingHorizontal: THUMB_SIZE + THUMB_MARGIN * 2 + 6,
+    paddingHorizontal: THUMB_SIZE + THUMB_MARGIN * 2 + 8,
     color: "rgba(255,255,255,0.98)",
-    fontSize: 14,
-    fontWeight: "800",
-    letterSpacing: -0.15
+    fontSize: 17,
+    fontWeight: "900",
+    letterSpacing: -0.1
   },
   thumb: {
     position: "absolute",
@@ -264,10 +265,10 @@ const styles = StyleSheet.create({
     overflow: "visible"
   },
   chevronChar: {
-    fontSize: 22,
+    fontSize: 28,
     fontWeight: "900",
     color: R.accentPurple,
-    lineHeight: 26,
+    lineHeight: 32,
     includeFontPadding: false,
     marginHorizontal: 1,
     textAlignVertical: "center"

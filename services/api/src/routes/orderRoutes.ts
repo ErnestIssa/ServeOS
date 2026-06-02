@@ -221,6 +221,7 @@ export async function registerOrderRoutes(
     if (!restaurant) throw Object.assign(new Error("restaurant_not_found"), { statusCode: 404 });
 
     let lineSources: Array<{ menuItemId: string; quantity: number; modifierOptionIds?: string[] }>;
+    let orderNote = body.note?.trim() || undefined;
 
     if (body.fromCart) {
       if (!customer) throw Object.assign(new Error("missing_token"), { statusCode: 401 });
@@ -230,6 +231,9 @@ export async function registerOrderRoutes(
       });
       if (!cart || cart.lines.length === 0) {
         throw Object.assign(new Error("cart_empty"), { statusCode: 400 });
+      }
+      if (!orderNote && cart.orderNote?.trim()) {
+        orderNote = cart.orderNote.trim();
       }
       lineSources = cart.lines.map((l: (typeof cart.lines)[number]) => ({
         menuItemId: l.menuItemId,
@@ -274,7 +278,7 @@ export async function registerOrderRoutes(
           subtotalCents,
           taxCents,
           totalCents,
-          note: body.note,
+          note: orderNote,
           lines: {
             create: lineInputs.map((l) => ({
               menuItemId: l.menuItemId,

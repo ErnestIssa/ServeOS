@@ -70,7 +70,19 @@ export type ReservationSlotPicker = {
   dateLabel: string;
   timeLabel: string;
   minLeadMinutes: number;
+  /** Present on edit-matrix load — local date changes use this, no refetch until save. */
+  timesByDateId?: Record<string, string[]>;
 };
+
+export function bookingScheduleErrorMessage(fields?: ReservationStartFieldErrors): string {
+  if (!fields || Object.keys(fields).length === 0) {
+    return "We couldn't save your booking. Please try again.";
+  }
+  if (fields.dateLabel || fields.timeLabel) {
+    return scheduleFieldErrorMessage(fields);
+  }
+  return reservationStartErrorMessage(fields);
+}
 
 export function scheduleFieldErrorMessage(fields?: ReservationStartFieldErrors): string {
   if (!fields) return "Please choose an available date and time.";

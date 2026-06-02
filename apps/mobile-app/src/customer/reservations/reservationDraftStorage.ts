@@ -14,6 +14,7 @@ export type PersistedReservationFlow = {
   draft: ReservationDraft;
   screen: ReservationScreenId;
   scrollByScreen?: ReservationScrollByScreen;
+  confirmedReservationId?: string | null;
   updatedAt: number;
 };
 
@@ -129,13 +130,23 @@ export async function loadReservationFlow(
       draft?: unknown;
       screen?: unknown;
       scrollByScreen?: ReservationScrollByScreen;
+      confirmedReservationId?: unknown;
     };
     const draft = normalizeDraft(parsed.draft);
     if (!draft) return null;
+    const screen = normalizeScreen(parsed.screen);
+    const confirmedReservationId =
+      typeof parsed.confirmedReservationId === "string" && parsed.confirmedReservationId.trim()
+        ? parsed.confirmedReservationId.trim()
+        : null;
+    if (screen === "confirmation" && !confirmedReservationId) {
+      return null;
+    }
     const state: PersistedReservationFlow = {
       draft,
-      screen: normalizeScreen(parsed.screen),
+      screen,
       scrollByScreen: normalizeScrollByScreen(parsed.scrollByScreen),
+      confirmedReservationId,
       updatedAt: Date.now()
     };
     writeReservationFlowMemory(userId, restaurantId, state);
@@ -157,7 +168,8 @@ export async function saveReservationFlow(
       JSON.stringify({
         draft: state.draft,
         screen: state.screen,
-        scrollByScreen: state.scrollByScreen
+        scrollByScreen: state.scrollByScreen,
+        confirmedReservationId: state.confirmedReservationId ?? null
       })
     );
   } catch {

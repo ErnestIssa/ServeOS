@@ -29,8 +29,10 @@ import {
   type ReservationScrollByScreen
 } from "./reservationDraftStorage";
 import {
+  bookingScheduleErrorMessage,
   cancelCustomerReservation,
   confirmCustomerReservation,
+  fetchCustomerReservation,
   mergeValidatedDraft,
   patchCustomerReservation,
   reservationStartErrorMessage,
@@ -82,7 +84,10 @@ export function CustomerReservationFlow(props: Props) {
   const restaurantId = props.restaurantId.trim();
   const cached = readReservationFlowMemory(props.userId, restaurantId);
 
-  const initialScreen = normalizeReservationScreen(cached?.screen ?? "landing");
+  const initialScreen =
+    cached?.screen === "confirmation" && !cached.confirmedReservationId
+      ? "landing"
+      : normalizeReservationScreen(cached?.screen ?? "landing");
   const [screen, setScreen] = React.useState<ReservationScreenId>(initialScreen);
   const [visitedScreens, setVisitedScreens] = React.useState<Set<ReservationScreenId>>(
     () => new Set<ReservationScreenId>(["landing", initialScreen])
@@ -99,6 +104,8 @@ export function CustomerReservationFlow(props: Props) {
   screenRef.current = screen;
   const [confirmationCode, setConfirmationCode] = React.useState("SRV-000000");
   const [confirmedReservation, setConfirmedReservation] = React.useState<CustomerReservationApi | null>(null);
+  const confirmedReservationRef = React.useRef<CustomerReservationApi | null>(null);
+  confirmedReservationRef.current = confirmedReservation;
   const confirmedReservationId = confirmedReservation?.id ?? null;
   const [startBookingLoading, setStartBookingLoading] = React.useState(false);
   const [continueBookingLoading, setContinueBookingLoading] = React.useState(false);
@@ -157,18 +164,43 @@ export function CustomerReservationFlow(props: Props) {
   }, [props.authToken, props.restaurantId, props.openingHours]);
 
   const persistFlow = React.useCallback(
-    (nextDraft: ReservationDraft, nextScreen: ReservationScreenId) => {
+    (
+      nextDraft: ReservationDraft,
+      nextScreen: ReservationScreenId,
+      confirmedId?: string | null
+    ) => {
       if (!restaurantId) return;
       const state = {
         draft: nextDraft,
         screen: nextScreen,
         scrollByScreen: { ...screenScrollYRef.current },
+        confirmedReservationId:
+          confirmedId !== undefined
+            ? confirmedId
+            : confirmedReservationRef.current?.id ?? cached?.confirmedReservationId ?? null,
         updatedAt: Date.now()
       };
       writeReservationFlowMemory(props.userId, restaurantId, state);
       void saveReservationFlow(props.userId, restaurantId, state);
     },
-    [props.userId, restaurantId]
+    [cached?.confirmedReservationId, props.userId, restaurantId]
+  );
+
+  const hydrateConfirmedReservation = React.useCallback(
+    (reservationId: string | null | undefined) => {
+      const token = props.authToken?.trim();
+      if (!token || !reservationId) return;
+      if (confirmedReservationRef.current?.id === reservationId) return;
+      void (async () => {
+        const res = await fetchCustomerReservation(token, reservationId);
+        if (!res.ok) return;
+        setConfirmedReservation(res.reservation);
+        setConfirmationCode(res.reservation.confirmationCode);
+        setDraft(res.reservation.draft);
+        draftRef.current = res.reservation.draft;
+      })();
+    },
+    [props.authToken]
   );
 
   const captureScrollNow = React.useCallback(() => {
@@ -229,11 +261,14 @@ export function CustomerReservationFlow(props: Props) {
     const mem = readReservationFlowMemory(props.userId, restaurantId);
     if (mem) {
       setDraft(mem.draft);
-      setScreen(mem.screen);
+      const safeScreen =
+        mem.screen === "confirmation" && !mem.confirmedReservationId ? "landing" : mem.screen;
+      setScreen(safeScreen);
       if (mem.scrollByScreen) screenScrollYRef.current = { ...mem.scrollByScreen };
-      const y = mem.scrollByScreen?.[mem.screen] ?? 0;
+      const y = mem.scrollByScreen?.[safeScreen] ?? 0;
       restoreSharedScroll(y);
-      setScrollRestore({ token: Date.now(), screen: mem.screen, y });
+      setScrollRestore({ token: Date.now(), screen: safeScreen, y });
+      hydrateConfirmedReservation(mem.confirmedReservationId);
       return;
     }
 
@@ -243,11 +278,16 @@ export function CustomerReservationFlow(props: Props) {
       if (cancelled) return;
       if (loaded) {
         setDraft(loaded.draft);
-        setScreen(loaded.screen);
+        const safeScreen =
+          loaded.screen === "confirmation" && !loaded.confirmedReservationId
+            ? "landing"
+            : loaded.screen;
+        setScreen(safeScreen);
         if (loaded.scrollByScreen) screenScrollYRef.current = { ...loaded.scrollByScreen };
-        const y = loaded.scrollByScreen?.[loaded.screen] ?? 0;
+        const y = loaded.scrollByScreen?.[safeScreen] ?? 0;
         restoreSharedScroll(y);
-        setScrollRestore({ token: Date.now(), screen: loaded.screen, y });
+        setScrollRestore({ token: Date.now(), screen: safeScreen, y });
+        hydrateConfirmedReservation(loaded.confirmedReservationId);
         return;
       }
       setDraft(createDefaultReservationDraft(props.openingHours ?? null));
@@ -257,7 +297,12 @@ export function CustomerReservationFlow(props: Props) {
     return () => {
       cancelled = true;
     };
-  }, [props.userId, restaurantId, restoreSharedScroll]);
+  }, [hydrateConfirmedReservation, props.userId, restaurantId, restoreSharedScroll]);
+
+  React.useEffect(() => {
+    const mem = readReservationFlowMemory(props.userId, restaurantId);
+    hydrateConfirmedReservation(mem?.confirmedReservationId);
+  }, [hydrateConfirmedReservation, props.authToken, props.userId, restaurantId]);
 
   React.useEffect(() => {
     if (props.openingHours !== undefined) return;
@@ -500,19 +545,20 @@ export function CustomerReservationFlow(props: Props) {
       if (!res.ok) {
         Alert.alert(
           "Can't confirm yet",
-          reservationStartErrorMessage("fields" in res ? res.fields : undefined)
+          bookingScheduleErrorMessage("fields" in res ? res.fields : undefined)
         );
         return;
       }
       setConfirmationCode(res.reservation.confirmationCode);
       setConfirmedReservation(res.reservation);
+      persistFlow(draftRef.current, "confirmation", res.reservation.id);
       navigateBookFlow("confirmation");
     } catch {
       Alert.alert("Connection issue", "We couldn't reach the server. Check your connection and try again.");
     } finally {
       setConfirmBookingLoading(false);
     }
-  }, [confirmedReservationId, navigateBookFlow, props.authToken, props.restaurantId]);
+  }, [confirmedReservationId, navigateBookFlow, persistFlow, props.authToken, props.restaurantId]);
 
   return (
     <View style={styles.flowRoot}>
@@ -597,7 +643,7 @@ export function CustomerReservationFlow(props: Props) {
               setConfirmationCode(next.confirmationCode);
               setDraft(next.draft);
               draftRef.current = next.draft;
-              persistFlow(next.draft, "confirmation");
+              persistFlow(next.draft, "confirmation", next.id);
             }}
             onReservationCancelled={() => {
               setConfirmedReservation(null);
@@ -638,7 +684,8 @@ export function CustomerReservationFlow(props: Props) {
                           Alert.alert("Couldn't cancel", "Please try again.");
                           return;
                         }
-                        setConfirmedReservationId(null);
+                        setConfirmedReservation(null);
+                        persistFlow(draftRef.current, "landing", null);
                         goBack("landing");
                       } catch {
                         Alert.alert("Connection issue", "We couldn't reach the server.");

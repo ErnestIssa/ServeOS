@@ -2,7 +2,9 @@ import {
   buildQuickDateOptions,
   dayFromQuickDateOption,
   mergeVisitIntoDateOptions,
+  quickDateFromStartsAt,
   resolveQuickDateId,
+  timeLabelFromStartsAt,
   TIME_OPTIONS,
   type QuickDateOption
 } from "./reservationPresets.js";
@@ -165,20 +167,27 @@ export function buildReservationSlotPicker(
   if (visitStartsAt) {
     baseDates = mergeVisitIntoDateOptions(baseDates, visitStartsAt, now);
   }
+  const timesScratch: Record<string, string[]> = {};
   const dated = baseDates.map((d) => {
     const slice = buildSlotPickerForDate(openingHours, d.id, d.dateLabel, null, now, pinnedSlot, baseDates);
-    const hasAvailableSlots = slice.timeOptions.some((t) => t.available);
-    return { ...d, hasAvailableSlots };
+    const labels = slice.timeOptions.filter((t) => t.available).map((t) => t.label);
+    timesScratch[d.id] = labels;
+    return { ...d, hasAvailableSlots: labels.length > 0 };
   });
 
-  let resolvedId = resolveQuickDateId(dated, dateLabel, quickDateId) ?? dated[0]?.id ?? "d0";
-  let dateOpt = dated.find((o) => o.id === resolvedId) ?? dated[0]!;
-  if (!dateOpt.hasAvailableSlots) {
-    const fallback = dated.find((o) => o.hasAvailableSlots);
-    if (fallback) {
-      resolvedId = fallback.id;
-      dateOpt = fallback;
-    }
+  const { bookableDates } = pruneEditSlotMatrix(timesScratch, dated);
+
+  let resolvedId = resolveQuickDateId(bookableDates, dateLabel, quickDateId) ?? bookableDates[0]?.id ?? "d0";
+  let dateOpt = bookableDates.find((o) => o.id === resolvedId) ?? bookableDates[0];
+  if (!dateOpt) {
+    return {
+      dateOptions: [],
+      timeOptions: TIME_OPTIONS.map((t) => ({ id: t.id, label: t.label, available: false })),
+      quickDateId: "d0",
+      dateLabel: "Today",
+      timeLabel: "",
+      minLeadMinutes: RESERVATION_MIN_LEAD_MINUTES
+    };
   }
 
   const picker = buildSlotPickerForDate(
@@ -193,8 +202,107 @@ export function buildReservationSlotPicker(
 
   return {
     ...picker,
-    dateOptions: dated
+    dateOptions: bookableDates
   };
+}
+
+export type EditSlotPickerPayload = SlotPickerPayload & {
+  /** Available HH:mm labels per date id — for edit UI without refetch per spin. */
+  timesByDateId: Record<string, string[]>;
+};
+
+/** One load for manage-booking edit: all bookable days + their times. */
+export function buildEditReservationSlotPicker(
+  openingHours: string | null | undefined,
+  visitStartsAt: Date,
+  now = new Date(),
+  pinnedSlot?: PinnedReservationSlot | null
+): EditSlotPickerPayload {
+  let baseDates = buildQuickDateOptions(10, now);
+  baseDates = mergeVisitIntoDateOptions(baseDates, visitStartsAt, now);
+
+  const timesByDateId: Record<string, string[]> = {};
+  const dated: SlotDateOption[] = baseDates.map((d) => {
+    const visitDay = dayFromQuickDateOption(d, now);
+    const preferred =
+      pinnedSlot && pinnedAppliesToVisitDay(pinnedSlot, visitDay) ? pinnedSlot.timeLabel : null;
+    const slice = buildSlotPickerForDate(
+      openingHours,
+      d.id,
+      d.dateLabel,
+      preferred,
+      now,
+      pinnedSlot,
+      baseDates
+    );
+    const labels = slice.timeOptions.filter((t) => t.available).map((t) => t.label);
+    timesByDateId[d.id] = labels;
+    return { ...d, hasAvailableSlots: labels.length > 0 };
+  });
+
+  const canonical = quickDateFromStartsAt(visitStartsAt, now);
+  const timeLabel = timeLabelFromStartsAt(visitStartsAt);
+  let resolvedId = canonical.id;
+  let dateOpt = dated.find((o) => o.id === resolvedId) ?? dated.find((o) => o.hasAvailableSlots) ?? dated[0]!;
+  if (!dateOpt.hasAvailableSlots) {
+    const fallback = dated.find((o) => o.hasAvailableSlots);
+    if (fallback) {
+      resolvedId = fallback.id;
+      dateOpt = fallback;
+    }
+  }
+
+  const { bookableDates, timesByDateId: prunedTimes } = pruneEditSlotMatrix(timesByDateId, dated);
+
+  if (bookableDates.length === 0) {
+    return {
+      dateOptions: [],
+      timeOptions: [],
+      quickDateId: "d0",
+      dateLabel: "Today",
+      timeLabel: "",
+      minLeadMinutes: RESERVATION_MIN_LEAD_MINUTES,
+      timesByDateId: {}
+    };
+  }
+
+  let pickId = resolvedId;
+  if (!prunedTimes[pickId]?.length) {
+    pickId = bookableDates[0]!.id;
+  }
+  const pickOpt = bookableDates.find((o) => o.id === pickId) ?? bookableDates[0]!;
+  const pickTimes = prunedTimes[pickId] ?? [];
+  const pickTime = pickTimes.includes(timeLabel) ? timeLabel : pickTimes[0]!;
+
+  return {
+    dateOptions: bookableDates,
+    timeOptions: TIME_OPTIONS.map((t) => ({
+      id: t.id,
+      label: t.label,
+      available: pickTimes.includes(t.label)
+    })),
+    quickDateId: pickId,
+    dateLabel: pickOpt.dateLabel,
+    timeLabel: pickTime,
+    minLeadMinutes: RESERVATION_MIN_LEAD_MINUTES,
+    timesByDateId: prunedTimes
+  };
+}
+
+/** Drop dates with zero times; drop orphan time keys. Date and time lists stay paired. */
+function pruneEditSlotMatrix(
+  timesByDateId: Record<string, string[]>,
+  dated: SlotDateOption[]
+): { bookableDates: SlotDateOption[]; timesByDateId: Record<string, string[]> } {
+  const pruned: Record<string, string[]> = {};
+  const bookableDates: SlotDateOption[] = [];
+  for (const d of dated) {
+    const labels = (timesByDateId[d.id] ?? []).filter((x) => x.length > 0);
+    if (labels.length === 0) continue;
+    pruned[d.id] = labels;
+    bookableDates.push({ ...d, hasAvailableSlots: true });
+  }
+  return { bookableDates, timesByDateId: pruned };
 }
 
 export type ScheduleValidationResult =
@@ -213,7 +321,7 @@ export function validateReservationSchedule(
   }
 
   const v = parsed.data;
-  const startsAt = resolveReservationStartsAt(v.quickDateId, v.dateLabel, v.timeLabel);
+  const startsAt = resolveReservationStartsAt(v.quickDateId, v.dateLabel, v.timeLabel, now);
   let dateOptions = buildQuickDateOptions(10, now);
   if (pinnedSlot) {
     dateOptions = mergeVisitIntoDateOptions(dateOptions, new Date(pinnedSlot.visitDayMs), now);

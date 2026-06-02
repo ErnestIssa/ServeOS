@@ -54,7 +54,15 @@ import {
 } from "./src/customer/CustomerOrderTrackingSection";
 import { clearOrderStatusCue, syncOrderStatusCue } from "./src/customer/orderStatusCue";
 import { AuthFlowScreen } from "./src/auth/AuthFlowScreen";
-import { deleteCartLine, fetchCustomerCart, patchCartLineQuantity, postCartAddItem, type CartLineApi } from "./src/customer/cartApi";
+import {
+  deleteCartLine,
+  fetchCustomerCart,
+  isCartRemoveConfirmationError,
+  patchCartLineDelta,
+  patchCustomerCartNote,
+  postCartAddItem,
+  type CartLineApi
+} from "./src/customer/cartApi";
 import { buildMarkedMenuItemIdsRecord } from "./src/customer/customerMarkedMenuItems";
 import { playCartAddCue } from "./src/customer/cartCueSound";
 import { CartFABPopup } from "./src/customer/CartFABPopup";
@@ -291,14 +299,27 @@ export default function App() {
   /** True from search-bar open until sheet fully closes or cart sheet takes over — drives full-only sheet snap + early mount. */
   const [navSheetSearchMode, setNavSheetSearchMode] = React.useState(false);
 
+  const skipCartNotePersistRef = React.useRef(true);
+  const cartNoteSaveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const applyCustomerCartResponse = React.useCallback(
-    (body: { lines: CartLineApi[]; subtotalCents: number; totalQuantity: number; markedMenuItemIds?: string[] }) => {
+    (body: {
+      lines: CartLineApi[];
+      subtotalCents: number;
+      totalQuantity: number;
+      markedMenuItemIds?: string[];
+      orderNote?: string;
+    }) => {
       setCustomerCart({
         lines: body.lines,
         subtotalCents: body.subtotalCents,
         totalQuantity: body.totalQuantity
       });
       setOptimisticCartQty(body.totalQuantity);
+      if (body.orderNote !== undefined) {
+        skipCartNotePersistRef.current = true;
+        setOrderNote(body.orderNote);
+      }
       const marked = body.markedMenuItemIds ?? [];
       setServerMarkedMenuIds(marked);
       setOptimisticMarkedMenuIds((prev) => {
@@ -753,6 +774,9 @@ export default function App() {
         return;
       }
       lineIdsSnapshot = customerCart.lines.map((l) => l.menuItemId);
+      skipCartNotePersistRef.current = true;
+      const noteSave = await patchCustomerCartNote(token, rid, orderNote);
+      if (noteSave.ok) applyCustomerCartResponse(noteSave);
       setPlacingOrder(true);
       const res = await apiFetch<Record<string, unknown> & { ok?: boolean; error?: string; order?: { id?: string } }>(
         "/orders/place",
@@ -836,45 +860,129 @@ export default function App() {
     setTrackId(res.order?.id ?? "");
   }
 
-  async function removeCustomerCartLine(lineId: string) {
+  function showCartMutationError(raw: string, title = "Couldn't update cart") {
+    const msg =
+      raw === "remove_confirmation_required"
+        ? "Please confirm removing this item."
+        : raw === "not_found"
+          ? "That item is no longer in your cart."
+          : /can’t reach|can't reach|network|timeout/i.test(raw)
+            ? "We can't reach the server right now. Check your connection and try again."
+            : "Something went wrong updating your cart. Please try again.";
+    setActionModal({
+      visible: true,
+      title,
+      message: msg,
+      primaryLabel: "OK",
+      onPrimary: () => setActionModal((p) => ({ ...p, visible: false })),
+      onSecondary: undefined,
+      secondaryLabel: undefined
+    });
+  }
+
+  function confirmRemoveCartLine(line: CartLineApi, onConfirmed: () => void) {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setActionModal({
+      visible: true,
+      title: "Remove item?",
+      message: `Remove "${line.name}" from your cart? This can't be undone.`,
+      primaryLabel: "Remove",
+      onPrimary: () => {
+        setActionModal((p) => ({ ...p, visible: false }));
+        onConfirmed();
+      },
+      secondaryLabel: "Keep item",
+      onSecondary: () => setActionModal((p) => ({ ...p, visible: false }))
+    });
+  }
+
+  async function executeRemoveCustomerCartLine(lineId: string) {
     if (!token || !isCustomerSession) return;
-    const res = await deleteCartLine(token, lineId);
+    const rid = activeRestaurantId().trim();
+    const res = await deleteCartLine(token, lineId, true);
     if (!res.ok) {
-      setStatus(String((res as { error?: string }).error ?? "cart_remove_failed"));
+      if (isCartRemoveConfirmationError(res)) return;
+      showCartMutationError(String(res.error ?? "cart_remove_failed"));
+      if (rid) void refreshCustomerCart(rid);
       return;
     }
     applyCustomerCartResponse(res);
     setCartFabDeferred(false);
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }
+
+  function requestRemoveCustomerCartLine(lineId: string) {
+    const line = customerCart.lines.find((l) => l.id === lineId);
+    if (!line) return;
+    confirmRemoveCartLine(line, () => void executeRemoveCustomerCartLine(lineId));
   }
 
   async function incCustomerCartLine(lineId: string) {
     if (!token || !isCustomerSession) return;
-    const cur = customerCart.lines.find((l) => l.id === lineId);
-    if (!cur) return;
-    applyCustomerCartResponse({
-      lines: customerCart.lines.map((l) => (l.id === lineId ? { ...l, quantity: l.quantity + 1, lineTotalCents: l.unitPriceCents * (l.quantity + 1) } : l)),
-      subtotalCents: customerCart.subtotalCents + cur.unitPriceCents,
-      totalQuantity: customerCart.totalQuantity + 1
-    });
-    setOptimisticCartQty((q) => q + 1);
-    const res = await patchCartLineQuantity(token, lineId, cur.quantity + 1);
-    if (res.ok) applyCustomerCartResponse(res);
+    const rid = activeRestaurantId().trim();
+    const res = await patchCartLineDelta(token, lineId, 1);
+    if (!res.ok) {
+      showCartMutationError(String(res.error ?? "cart_update_failed"));
+      if (rid) void refreshCustomerCart(rid);
+      return;
+    }
+    applyCustomerCartResponse(res);
   }
 
   async function decCustomerCartLine(lineId: string) {
     if (!token || !isCustomerSession) return;
     const cur = customerCart.lines.find((l) => l.id === lineId);
     if (!cur) return;
-    if (cur.quantity <= 1) return void removeCustomerCartLine(lineId);
-    applyCustomerCartResponse({
-      lines: customerCart.lines.map((l) => (l.id === lineId ? { ...l, quantity: l.quantity - 1, lineTotalCents: l.unitPriceCents * (l.quantity - 1) } : l)),
-      subtotalCents: Math.max(0, customerCart.subtotalCents - cur.unitPriceCents),
-      totalQuantity: Math.max(0, customerCart.totalQuantity - 1)
-    });
-    setOptimisticCartQty((q) => Math.max(0, q - 1));
-    const res = await patchCartLineQuantity(token, lineId, cur.quantity - 1);
-    if (res.ok) applyCustomerCartResponse(res);
+    if (cur.quantity <= 1) {
+      confirmRemoveCartLine(cur, () => void executeRemoveCustomerCartLine(lineId));
+      return;
+    }
+    const rid = activeRestaurantId().trim();
+    const res = await patchCartLineDelta(token, lineId, -1);
+    if (!res.ok) {
+      if (isCartRemoveConfirmationError(res)) {
+        confirmRemoveCartLine(cur, () => void executeRemoveCustomerCartLine(lineId));
+        return;
+      }
+      showCartMutationError(String(res.error ?? "cart_update_failed"));
+      if (rid) void refreshCustomerCart(rid);
+      return;
+    }
+    applyCustomerCartResponse(res);
   }
+
+  const persistCustomerCartNote = React.useCallback(
+    async (note: string) => {
+      const t = token;
+      const rid = activeRestaurantId().trim();
+      if (!t || !isCustomerSession || !rid) return;
+      const res = await patchCustomerCartNote(t, rid, note);
+      if (!res.ok) {
+        showCartMutationError(String(res.error ?? "cart_note_failed"), "Couldn't save note");
+        return;
+      }
+      applyCustomerCartResponse(res);
+    },
+    [token, isCustomerSession, applyCustomerCartResponse, activeRestaurantId]
+  );
+
+  const onCustomerCartNoteChange = React.useCallback((text: string) => {
+    skipCartNotePersistRef.current = false;
+    setOrderNote(text);
+  }, []);
+
+  React.useEffect(() => {
+    if (!token || !isCustomerSession) return;
+    const rid = activeRestaurantId().trim();
+    if (!rid || skipCartNotePersistRef.current) return;
+    if (cartNoteSaveTimerRef.current) clearTimeout(cartNoteSaveTimerRef.current);
+    cartNoteSaveTimerRef.current = setTimeout(() => {
+      void persistCustomerCartNote(orderNote);
+    }, 480);
+    return () => {
+      if (cartNoteSaveTimerRef.current) clearTimeout(cartNoteSaveTimerRef.current);
+    };
+  }, [orderNote, token, isCustomerSession, persistCustomerCartNote]);
 
   function showCartErrorModal(raw: string) {
     const msg =
@@ -1278,10 +1386,10 @@ export default function App() {
         totalQuantity={customerCart.totalQuantity}
         money={money}
         orderNote={orderNote}
-        onOrderNoteChange={setOrderNote}
+        onOrderNoteChange={onCustomerCartNoteChange}
         placing={placingOrder}
         onPlaceOrder={() => void submitOrder()}
-        onRemoveLine={(id) => void removeCustomerCartLine(id)}
+        onRemoveLine={(id) => requestRemoveCustomerCartLine(id)}
         onIncLine={(id) => void incCustomerCartLine(id)}
         onDecLine={(id) => void decCustomerCartLine(id)}
         onOpenInfo={openNutritionAfterFullSheet}

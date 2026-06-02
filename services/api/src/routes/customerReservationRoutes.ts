@@ -2,7 +2,6 @@ import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import {
-  resolveReservationStartsAt,
   serializeCustomerReservation,
   uniqueConfirmationCode,
   upcomingReservationWhere,
@@ -14,6 +13,7 @@ import {
   timeLabelFromStartsAt
 } from "../lib/reservationPresets.js";
 import {
+  buildEditReservationSlotPicker,
   buildReservationSlotPicker,
   scheduleFieldErrorMessage,
   validateReservationSchedule,
@@ -138,11 +138,7 @@ export function registerCustomerReservationRoutes(app: FastifyInstance, prisma: 
         });
       }
 
-      const startsAt = resolveReservationStartsAt(
-        parsed.draft.quickDateId,
-        parsed.draft.dateLabel,
-        parsed.draft.timeLabel
-      );
+      const startsAt = parsed.startsAt;
       const confirmationCode = await uniqueConfirmationCode(prisma);
 
       const row = await prisma.customerReservation.create({
@@ -202,7 +198,13 @@ export function registerCustomerReservationRoutes(app: FastifyInstance, prisma: 
   app.get<{ Params: { reservationId: string } }>(
     "/customer/reservations/:reservationId",
     async (req, reply) => {
-      const user = requireCustomer(req, app);
+      let user;
+      try {
+        user = requireCustomer(req, app);
+      } catch (e) {
+        const err = e as { statusCode?: number; message?: string };
+        return reply.status(err.statusCode ?? 401).send({ ok: false, error: err.message ?? "unauthorized" });
+      }
       const { reservationId } = req.params;
 
       const row = await prisma.customerReservation.findFirst({
@@ -220,7 +222,13 @@ export function registerCustomerReservationRoutes(app: FastifyInstance, prisma: 
   app.patch<{ Params: { reservationId: string } }>(
     "/customer/reservations/:reservationId",
     async (req, reply) => {
-      const user = requireCustomer(req, app);
+      let user;
+      try {
+        user = requireCustomer(req, app);
+      } catch (e) {
+        const err = e as { statusCode?: number; message?: string };
+        return reply.status(err.statusCode ?? 401).send({ ok: false, error: err.message ?? "unauthorized" });
+      }
       const { reservationId } = req.params;
 
       const existing = await prisma.customerReservation.findFirst({
@@ -231,7 +239,15 @@ export function registerCustomerReservationRoutes(app: FastifyInstance, prisma: 
         return reply.status(404).send({ ok: false, error: "reservation_not_found" });
       }
 
-      const patch = patchReservationSchema.parse(req.body);
+      const patchResult = patchReservationSchema.safeParse(req.body);
+      if (!patchResult.success) {
+        return reply.status(400).send({
+          ok: false,
+          error: "invalid_body",
+          fields: patchResult.error.flatten().fieldErrors
+        });
+      }
+      const patch = patchResult.data;
       const prevDraft = existing.draft as ReservationDraftPayload;
       const merged = { ...prevDraft, ...patch };
 
@@ -259,11 +275,7 @@ export function registerCustomerReservationRoutes(app: FastifyInstance, prisma: 
         });
       }
 
-      const startsAt = resolveReservationStartsAt(
-        validated.draft.quickDateId,
-        validated.draft.dateLabel,
-        validated.draft.timeLabel
-      );
+      const startsAt = validated.startsAt;
 
       const row = await prisma.customerReservation.update({
         where: { id: reservationId },
@@ -314,26 +326,37 @@ export function registerCustomerReservationRoutes(app: FastifyInstance, prisma: 
           where: { id: holdId, userId: user.sub, restaurantId, status: "CONFIRMED" },
           select: { startsAt: true }
         });
-        if (hold) {
-          visitStartsAt = hold.startsAt;
-          const now = new Date();
-          const visitDay = new Date(hold.startsAt);
-          visitDay.setHours(0, 0, 0, 0);
-          const canonical = quickDateFromStartsAt(hold.startsAt, now);
-          const timeLabel = timeLabelFromStartsAt(hold.startsAt);
-          pinnedSlot = {
-            quickDateId: canonical.id,
-            dateLabel: canonical.dateLabel,
-            timeLabel,
-            visitDayMs: visitDay.getTime()
-          };
-          const userPickedDate = Boolean(quickDateId || dateLabel);
-          if (!userPickedDate) {
-            quickDateId = canonical.id;
-            dateLabel = canonical.dateLabel;
-            preferredTime = timeLabel;
-          }
+        if (!hold) {
+          return reply.status(404).send({ ok: false, error: "reservation_not_found" });
         }
+        visitStartsAt = hold.startsAt;
+        const now = new Date();
+        const visitDay = new Date(hold.startsAt);
+        visitDay.setHours(0, 0, 0, 0);
+        const canonical = quickDateFromStartsAt(hold.startsAt, now);
+        const timeLabel = timeLabelFromStartsAt(hold.startsAt);
+        pinnedSlot = {
+          quickDateId: canonical.id,
+          dateLabel: canonical.dateLabel,
+          timeLabel,
+          visitDayMs: visitDay.getTime()
+        };
+        const userPickedDate = Boolean(quickDateId || dateLabel);
+        if (!userPickedDate) {
+          quickDateId = canonical.id;
+          dateLabel = canonical.dateLabel;
+          preferredTime = timeLabel;
+        }
+      }
+
+      if (holdId && visitStartsAt && !quickDateId && !dateLabel) {
+        const editPicker = buildEditReservationSlotPicker(
+          restaurant.openingHours ?? null,
+          visitStartsAt,
+          new Date(),
+          pinnedSlot
+        );
+        return { ok: true, ...editPicker };
       }
 
       const picker = buildReservationSlotPicker(
@@ -353,7 +376,13 @@ export function registerCustomerReservationRoutes(app: FastifyInstance, prisma: 
   app.post<{ Params: { reservationId: string } }>(
     "/customer/reservations/:reservationId/cancel",
     async (req, reply) => {
-      const user = requireCustomer(req, app);
+      let user;
+      try {
+        user = requireCustomer(req, app);
+      } catch (e) {
+        const err = e as { statusCode?: number; message?: string };
+        return reply.status(err.statusCode ?? 401).send({ ok: false, error: err.message ?? "unauthorized" });
+      }
       const { reservationId } = req.params;
 
       const existing = await prisma.customerReservation.findFirst({
