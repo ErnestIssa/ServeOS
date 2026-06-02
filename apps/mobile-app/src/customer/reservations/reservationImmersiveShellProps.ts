@@ -19,6 +19,8 @@ export type ReservationImmersiveShellProps = {
   enterScrollTargetY?: number;
   sheetScrollEnabled?: boolean;
   cardOverlayBack?: boolean;
+  cardOverlayClose?: boolean;
+  onClose?: () => void;
   scrollRefExternal?: React.RefObject<import("react-native").ScrollView | null>;
   bookStep?: number;
   embedHero?: boolean;
@@ -41,6 +43,8 @@ export function immersiveShellPassThrough(props: ReservationImmersiveShellProps)
     enterScrollTargetY: props.enterScrollTargetY,
     sheetScrollEnabled: props.sheetScrollEnabled,
     cardOverlayBack: props.cardOverlayBack,
+    cardOverlayClose: props.cardOverlayClose,
+    onClose: props.onClose,
     scrollRefExternal: props.scrollRefExternal,
     bookStep: props.bookStep,
     embedHero: props.embedHero

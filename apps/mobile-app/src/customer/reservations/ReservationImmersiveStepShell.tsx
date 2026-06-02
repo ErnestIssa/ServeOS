@@ -29,6 +29,8 @@ type Props = {
   sheetScrollEnabled?: boolean;
   /** When false, matches step 1 (no pill on card corner). */
   cardOverlayBack?: boolean;
+  cardOverlayClose?: boolean;
+  onClose?: () => void;
   scrollRefExternal?: React.RefObject<ScrollView | null>;
   /** 2+ shows centred “N of total” (step 1 / landing has no indicator). */
   bookStep?: number;
@@ -95,6 +97,8 @@ export function ReservationImmersiveStepShell(props: Props) {
           sheetScrollEnabled={props.sheetScrollEnabled}
           onBack={props.onBack}
           cardOverlayBack={props.cardOverlayBack === true}
+          cardOverlayClose={props.cardOverlayClose === true}
+          onClose={props.onClose}
           footer={props.footer}
           footerScrollRevealGap={props.footerScrollRevealGap}
           footerScrollRevealKeyboardOnly={props.footerScrollRevealKeyboardOnly}

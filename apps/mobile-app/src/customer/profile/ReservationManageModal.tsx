@@ -8,7 +8,6 @@ import {
   Modal,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   UIManager,
@@ -24,9 +23,14 @@ import Animated, {
 import { R } from "../../theme";
 import { useAppTheme } from "../../theme/AppThemeContext";
 import { CHAT } from "../chat/chatTheme";
-import type { CustomerReservationApi } from "../reservations/reservationApi";
-import { TIME_OPTIONS } from "../reservations/reservationPresets";
-import { buildQuickDateOptions, quickDateIdFromLabel } from "../reservations/reservationQuickDates";
+import { ReservationBookingRef } from "./ReservationBookingRef";
+import { ReservationDateTimeWheels } from "../reservations/ReservationDateTimeWheels";
+import {
+  fetchReservationSlotPicker,
+  scheduleFieldErrorMessage,
+  type CustomerReservationApi
+} from "../reservations/reservationApi";
+import { quickDateIdFromLabel, buildQuickDateOptions } from "../reservations/reservationQuickDates";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -39,6 +43,7 @@ type Panel = "menu" | "edit";
 
 type Props = {
   visible: boolean;
+  authToken: string;
   reservation: CustomerReservationApi | null;
   onClose: () => void;
   onCancel: () => Promise<void>;
@@ -49,6 +54,7 @@ type Props = {
 
 export function ReservationManageModal({
   visible,
+  authToken,
   reservation,
   onClose,
   onCancel,
@@ -61,16 +67,98 @@ export function ReservationManageModal({
   const [mounted, setMounted] = React.useState(visible);
   const [panel, setPanel] = React.useState<Panel>("menu");
   const dateOptions = React.useMemo(() => buildQuickDateOptions(10), []);
+
   const [dateLabel, setDateLabel] = React.useState("");
   const [quickDateId, setQuickDateId] = React.useState<string | null>(null);
   const [timeLabel, setTimeLabel] = React.useState("");
+  const [availableTimeLabels, setAvailableTimeLabels] = React.useState<string[]>([]);
+  const [bookableDateIds, setBookableDateIds] = React.useState<string[]>([]);
+  const [serverDateOptions, setServerDateOptions] = React.useState<
+    { id: string; label: string; dateLabel: string; sublabel?: string }[]
+  >([]);
+  const [slotsLoading, setSlotsLoading] = React.useState(false);
+  const [pickerReady, setPickerReady] = React.useState(false);
+  const [wheelEpoch, setWheelEpoch] = React.useState(0);
+  const pickerReadyRef = React.useRef(false);
+
+  const reservationId = reservation?.id ?? null;
+  const restaurantId = reservation?.restaurantId ?? null;
+
+  const loadSlots = React.useCallback(
+    async (params: {
+      quickDateId?: string | null;
+      dateLabel?: string;
+      timeLabel?: string;
+      reservationId?: string | null;
+    }) => {
+      if (!authToken || !restaurantId) return;
+      setSlotsLoading(true);
+      if (!pickerReadyRef.current) setPickerReady(false);
+      try {
+        const res = await fetchReservationSlotPicker(authToken, restaurantId, {
+          ...params,
+          reservationId: params.reservationId ?? reservationId
+        });
+        if (!res.ok) {
+          setAvailableTimeLabels([]);
+          setBookableDateIds([]);
+          setServerDateOptions([]);
+          return;
+        }
+        setDateLabel(res.dateLabel);
+        setQuickDateId(res.quickDateId);
+        setTimeLabel(res.timeLabel);
+        setServerDateOptions(res.dateOptions);
+        setAvailableTimeLabels(res.timeOptions.filter((x) => x.available).map((x) => x.label));
+        setBookableDateIds(
+          res.dateOptions.filter((d) => d.hasAvailableSlots !== false).map((d) => d.id)
+        );
+        setWheelEpoch((n) => n + 1);
+        pickerReadyRef.current = true;
+        setPickerReady(true);
+      } catch {
+        setAvailableTimeLabels([]);
+        setBookableDateIds([]);
+        setServerDateOptions([]);
+        pickerReadyRef.current = false;
+        setPickerReady(false);
+      } finally {
+        setSlotsLoading(false);
+      }
+    },
+    [authToken, restaurantId, reservationId]
+  );
+
+  const handleDateChange = React.useCallback(
+    (nextDateLabel: string, nextQuickDateId: string) => {
+      void loadSlots({ quickDateId: nextQuickDateId, dateLabel: nextDateLabel });
+    },
+    [loadSlots]
+  );
+
+  const handleTimeChange = React.useCallback((nextTimeLabel: string) => {
+    setTimeLabel(nextTimeLabel);
+  }, []);
 
   React.useEffect(() => {
-    if (!reservation) return;
+    setPanel("menu");
+  }, [reservationId]);
+
+  React.useEffect(() => {
+    if (!reservation || panel === "edit") return;
     setDateLabel(reservation.draft.dateLabel);
-    setQuickDateId(reservation.draft.quickDateId ?? quickDateIdFromLabel(dateOptions, reservation.draft.dateLabel));
+    setQuickDateId(
+      reservation.draft.quickDateId ?? quickDateIdFromLabel(dateOptions, reservation.draft.dateLabel)
+    );
     setTimeLabel(reservation.draft.timeLabel);
-  }, [reservation, dateOptions]);
+    setPickerReady(false);
+  }, [reservation, dateOptions, panel]);
+
+  React.useEffect(() => {
+    if (!visible || panel !== "edit" || !reservation) return;
+    /** Only reservationId — server anchors from startsAt, not stale draft d0…d9 ids. */
+    void loadSlots({ reservationId: reservation.id });
+  }, [visible, panel, reservation?.id, loadSlots, reservation]);
 
   const finishClose = React.useCallback(() => {
     setMounted(false);
@@ -103,6 +191,10 @@ export function ReservationManageModal({
 
   function animatePanel(next: Panel) {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    if (next !== "edit") {
+      pickerReadyRef.current = false;
+      setPickerReady(false);
+    }
     setPanel(next);
     void Haptics.selectionAsync();
   }
@@ -146,7 +238,7 @@ export function ReservationManageModal({
       await onSaveEdit({ dateLabel, quickDateId, timeLabel });
       requestClose();
     } catch {
-      Alert.alert("Couldn't save", "Please check your date and time and try again.");
+      Alert.alert("Couldn't save", scheduleFieldErrorMessage());
     }
   }
 
@@ -179,7 +271,12 @@ export function ReservationManageModal({
               <>
                 <Text style={styles.title}>Manage booking</Text>
                 <Text style={styles.subtitle}>{venueName}</Text>
-                <Text style={[styles.ref, { color: t.textMuted }]}>{reservation.confirmationCode}</Text>
+                <ReservationBookingRef
+                  confirmationCode={reservation.confirmationCode}
+                  labelColor={t.textMuted}
+                  codeColor={t.textSecondary}
+                  style={styles.refWrap}
+                />
                 <View style={styles.actions}>
                   <Pressable
                     style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}
@@ -214,57 +311,67 @@ export function ReservationManageModal({
                   <Text style={styles.backLabel}>Back</Text>
                 </Pressable>
                 <Text style={styles.title}>Change date or time</Text>
-                <ScrollView style={styles.editScroll} showsVerticalScrollIndicator={false}>
-                  <Text style={styles.sectionLabel}>Date</Text>
-                  <View style={styles.chipRow}>
-                    {dateOptions.map((opt) => {
-                      const selected = quickDateId === opt.id;
-                      return (
-                        <Pressable
-                          key={opt.id}
-                          onPress={() => {
-                            setQuickDateId(opt.id);
-                            setDateLabel(opt.dateLabel);
-                            void Haptics.selectionAsync();
-                          }}
-                          style={({ pressed }) => [
-                            styles.chip,
-                            selected && styles.chipSelected,
-                            pressed && styles.pressed
-                          ]}
-                        >
-                          <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{opt.label}</Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                  <Text style={[styles.sectionLabel, styles.sectionGap]}>Time</Text>
-                  <View style={styles.chipRow}>
-                    {TIME_OPTIONS.map((opt) => {
-                      const selected = timeLabel === opt.label;
-                      return (
-                        <Pressable
-                          key={opt.id}
-                          onPress={() => {
-                            setTimeLabel(opt.label);
-                            void Haptics.selectionAsync();
-                          }}
-                          style={({ pressed }) => [
-                            styles.chip,
-                            selected && styles.chipSelected,
-                            pressed && styles.pressed
-                          ]}
-                        >
-                          <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{opt.label}</Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </ScrollView>
+                <Text style={[styles.editHint, { color: t.textMuted }]}>
+                  Scroll the wheels or use the arrows to pick a new date and time
+                </Text>
+
+                {!pickerReady && slotsLoading ? (
+                  <ActivityIndicator
+                    style={styles.slotsLoader}
+                    color={t.ordersNavPurpleBright}
+                    size="large"
+                  />
+                ) : bookableDateIds.length === 0 ? (
+                  <Text style={[styles.noSlots, { color: t.textSecondary }]}>
+                    No bookable dates right now. Try again closer to your visit or contact the venue.
+                  </Text>
+                ) : (
+                  <>
+                    <ReservationDateTimeWheels
+                      key={`picker-${wheelEpoch}`}
+                      dateLabel={dateLabel}
+                      timeLabel={timeLabel}
+                      availableTimeLabels={availableTimeLabels}
+                      bookableDateIds={bookableDateIds}
+                      serverDateOptions={serverDateOptions}
+                      onDateChange={handleDateChange}
+                      onTimeChange={handleTimeChange}
+                      disabled={saveLoading}
+                    />
+                    {slotsLoading ? (
+                      <ActivityIndicator
+                        style={styles.slotsRefreshing}
+                        color={t.ordersNavPurpleBright}
+                        size="small"
+                      />
+                    ) : null}
+                    {availableTimeLabels.length === 0 ? (
+                      <Text style={[styles.noSlots, { color: t.textSecondary }]}>
+                        No times left on this day — spin the date to pick another day.
+                      </Text>
+                    ) : null}
+                  </>
+                )}
+
                 <Pressable
-                  style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed, styles.saveBtn]}
+                  style={({ pressed }) => [
+                    styles.primaryBtn,
+                    pressed && styles.pressed,
+                    styles.saveBtn,
+                    (slotsLoading ||
+                      bookableDateIds.length === 0 ||
+                      availableTimeLabels.length === 0 ||
+                      !timeLabel) &&
+                      styles.btnDisabled
+                  ]}
                   onPress={() => void handleSaveEdit()}
-                  disabled={saveLoading}
+                  disabled={
+                    saveLoading ||
+                    slotsLoading ||
+                    bookableDateIds.length === 0 ||
+                    availableTimeLabels.length === 0 ||
+                    !timeLabel
+                  }
                 >
                   {saveLoading ? (
                     <ActivityIndicator color="#FFF" />
@@ -304,7 +411,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingTop: 10,
     paddingBottom: 18,
-    maxHeight: "82%",
+    maxHeight: "88%",
     shadowColor: "#000",
     shadowOpacity: 0.14,
     shadowRadius: 24,
@@ -333,13 +440,9 @@ const styles = StyleSheet.create({
     color: R.textMuted,
     textAlign: "center"
   },
-  ref: {
+  refWrap: {
     marginTop: 6,
-    marginBottom: 16,
-    fontSize: 13,
-    fontWeight: "800",
-    letterSpacing: 1,
-    textAlign: "center"
+    marginBottom: 16
   },
   actions: { width: "100%", gap: 10 },
   detailPanel: { width: "100%", minHeight: 120 },
@@ -353,24 +456,21 @@ const styles = StyleSheet.create({
   },
   backChevron: { fontSize: 22, fontWeight: "800", color: CHAT.brand, marginRight: 2, lineHeight: 24 },
   backLabel: { fontSize: 15, fontWeight: "700", color: CHAT.brand },
-  editScroll: { maxHeight: 280, marginBottom: 12 },
-  sectionLabel: { fontSize: 13, fontWeight: "800", color: R.textMuted, marginBottom: 8 },
-  sectionGap: { marginTop: 14 },
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 999,
-    borderWidth: 2,
-    borderColor: R.border,
-    backgroundColor: "rgba(249,250,251,0.95)"
+  editHint: {
+    fontSize: 12,
+    fontWeight: "600",
+    textAlign: "center",
+    marginBottom: 8
   },
-  chipSelected: {
-    borderColor: CHAT.brand,
-    backgroundColor: "rgba(139, 92, 246, 0.12)"
+  slotsLoader: { marginVertical: 24 },
+  slotsRefreshing: { marginTop: 8, marginBottom: 4 },
+  noSlots: {
+    fontSize: 14,
+    fontWeight: "600",
+    textAlign: "center",
+    marginVertical: 20,
+    lineHeight: 20
   },
-  chipText: { fontSize: 14, fontWeight: "700", color: R.textSecondary },
-  chipTextSelected: { color: CHAT.brand },
   primaryBtn: {
     width: "100%",
     paddingVertical: 16,
@@ -393,7 +493,8 @@ const styles = StyleSheet.create({
     justifyContent: "center"
   },
   dangerBtnText: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
-  saveBtn: { marginTop: 4 },
+  saveBtn: { marginTop: 12 },
+  btnDisabled: { opacity: 0.45 },
   cancelBtn: {
     marginTop: 14,
     width: "100%",

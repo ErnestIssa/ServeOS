@@ -217,12 +217,12 @@ function VerticalSnapWheelInner(props: Props) {
   );
 
   const commitIndex = React.useCallback(
-    (idx: number) => {
+    (idx: number, fromUser = false) => {
       const clamped = clampIndex(idx, maxIndex);
       lastCommittedIndex.current = clamped;
       lastHapticIndex.current = clamped;
       setCenterIndex(clamped);
-      if (clamped !== selectedIndex) {
+      if (fromUser || clamped !== selectedIndex) {
         onIndexChange(clamped);
       }
     },
@@ -234,7 +234,7 @@ function VerticalSnapWheelInner(props: Props) {
       settlingRef.current = true;
       const idx = settleIndexFromOffset(y, count, velocityY);
       scrollToOffset(offsetForIndex(idx), true);
-      commitIndex(idx);
+      commitIndex(idx, true);
       clearReleaseTimer();
       const session = dragSessionRef.current;
       releaseTimerRef.current = setTimeout(() => {
@@ -286,7 +286,7 @@ function VerticalSnapWheelInner(props: Props) {
       if (next === centerIndex) return;
       beginDragSession();
       scrollToIndex(next, true);
-      commitIndex(next);
+      commitIndex(next, true);
       clearReleaseTimer();
       const session = dragSessionRef.current;
       releaseTimerRef.current = setTimeout(() => {

@@ -51,6 +51,9 @@ type Props = {
   scrollRestoreToken?: number;
   /** Back control overlaps top-left of the gradient card (post-landing steps). */
   cardOverlayBack?: boolean;
+  /** Close (×) overlaps top-right of the gradient card (e.g. confirmation). */
+  cardOverlayClose?: boolean;
+  onClose?: () => void;
   /** When false, the immersive sheet does not scroll (e.g. quick-booking wheels are active). */
   sheetScrollEnabled?: boolean;
   /** Max extra height below footer (note step). */
@@ -315,6 +318,22 @@ export function ReservationScreenShell(props: Props) {
               </Pressable>
             </Animated.View>
           ) : null}
+          {props.cardOverlayClose && props.onClose ? (
+            <Animated.View style={[styles.cardOverlayCloseWrap, { opacity: backBlink }]}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+                onPress={() => {
+                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  flashOverlayBack();
+                  props.onClose?.();
+                }}
+                style={({ pressed }) => [styles.cardOverlayCloseBtn, pressed && styles.pressed]}
+              >
+                <Text style={styles.cardOverlayCloseX}>×</Text>
+              </Pressable>
+            </Animated.View>
+          ) : null}
           {props.sheetGradient ? (
             <LinearGradient
               colors={props.sheetGradient}
@@ -395,6 +414,27 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "800",
     color: "#FFFFFF"
+  },
+  cardOverlayCloseWrap: {
+    position: "absolute",
+    zIndex: 12,
+    right: R.space.sm,
+    top: 10
+  },
+  cardOverlayCloseBtn: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 20,
+    backgroundColor: "rgba(15, 23, 42, 0.42)"
+  },
+  cardOverlayCloseX: {
+    fontSize: 28,
+    fontWeight: "300",
+    color: "#FFFFFF",
+    lineHeight: 30,
+    marginTop: -2
   },
   immersiveBody: {
     paddingHorizontal: R.space.sm,

@@ -14,8 +14,12 @@ type Props = {
   guests: number;
   dateLabel: string;
   timeLabel: string;
+  /** API-filtered slots (book landing). When empty, time wheel shows placeholders. */
+  availableTimeLabels?: readonly string[];
+  bookableDateIds?: readonly string[];
+  slotsLoading?: boolean;
   onGuestsChange: (guests: number) => void;
-  onDateChange: (dateLabel: string) => void;
+  onDateChange: (dateLabel: string, quickDateId: string) => void;
   onTimeChange: (timeLabel: string) => void;
   onReserve: () => void;
   disabled?: boolean;
@@ -52,38 +56,47 @@ function guestIndexFromValue(n: number): number {
   return best;
 }
 
-function timeIndexFromLabel(label: string): number {
-  const i = TIME_OPTIONS.findIndex((t) => t.label === label);
+function timeIndexFromLabel(label: string, wheelOptions: WheelOption[]): number {
+  const i = wheelOptions.findIndex((t) => t.label === label);
   if (i >= 0) return i;
   const fallback = defaultBookingTimeLabel(null);
-  return Math.max(0, TIME_OPTIONS.findIndex((t) => t.label === fallback));
+  const fi = wheelOptions.findIndex((t) => t.label === fallback);
+  return fi >= 0 ? fi : 0;
 }
 
 function ReservationQuickBookingBarInner(props: Props) {
   const { colors: t, isDark } = useAppTheme();
   const dateOptions = React.useMemo(() => buildQuickDateOptions(10), []);
-  const dateWheelOptions = React.useMemo<WheelOption[]>(
-    () =>
-      dateOptions.map((d) => ({
+  const dateWheelOptions = React.useMemo<WheelOption[]>(() => {
+    const bookable = props.bookableDateIds?.length ? new Set(props.bookableDateIds) : null;
+    return dateOptions
+      .filter((d) => !bookable || bookable.has(d.id))
+      .map((d) => ({
         id: d.id,
         label: d.label,
         sublabel: d.sublabel
-      })),
-    [dateOptions]
-  );
-  const timeOptions = React.useMemo<WheelOption[]>(
-    () => TIME_OPTIONS.map((opt) => ({ id: opt.id, label: opt.label, sublabel: opt.sublabel })),
-    []
-  );
+      }));
+  }, [dateOptions, props.bookableDateIds]);
+  const timeOptions = React.useMemo<WheelOption[]>(() => {
+    if (!props.availableTimeLabels?.length) {
+      return TIME_OPTIONS.map((opt) => ({ id: opt.id, label: opt.label, sublabel: opt.sublabel }));
+    }
+    const allowed = new Set(props.availableTimeLabels);
+    return TIME_OPTIONS.filter((opt) => allowed.has(opt.label)).map((opt) => ({
+      id: opt.id,
+      label: opt.label,
+      sublabel: opt.sublabel
+    }));
+  }, [props.availableTimeLabels]);
 
   const dateIndex = React.useMemo(() => {
     const id = quickDateIdFromLabel(dateOptions, props.dateLabel);
-    const i = dateOptions.findIndex((o) => o.id === id);
+    const i = dateWheelOptions.findIndex((o) => o.id === id);
     return i >= 0 ? i : 0;
-  }, [dateOptions, props.dateLabel]);
+  }, [dateOptions, dateWheelOptions, props.dateLabel]);
 
   const guestIndex = guestIndexFromValue(props.guests);
-  const timeIndex = timeIndexFromLabel(props.timeLabel);
+  const timeIndex = timeIndexFromLabel(props.timeLabel, timeOptions);
 
   const tint = isDark ? "dark" : "light";
   const androidGlass = isDark ? "rgba(11,18,32,0.52)" : "rgba(248,250,252,0.52)";
@@ -98,18 +111,21 @@ function ReservationQuickBookingBarInner(props: Props) {
 
   const onDateIndex = React.useCallback(
     (i: number) => {
-      const opt = dateOptions[i];
-      if (opt && opt.dateLabel !== props.dateLabel) props.onDateChange(opt.dateLabel);
+      const opt = dateWheelOptions[i];
+      const src = dateOptions.find((d) => d.id === opt?.id);
+      if (src && src.dateLabel !== props.dateLabel) {
+        props.onDateChange(src.dateLabel, src.id);
+      }
     },
-    [dateOptions, props.dateLabel, props.onDateChange]
+    [dateOptions, dateWheelOptions, props.dateLabel, props.onDateChange]
   );
 
   const onTimeIndex = React.useCallback(
     (i: number) => {
-      const opt = TIME_OPTIONS[i];
+      const opt = timeOptions[i];
       if (opt && opt.label !== props.timeLabel) props.onTimeChange(opt.label);
     },
-    [props.timeLabel, props.onTimeChange]
+    [props.timeLabel, props.onTimeChange, timeOptions]
   );
 
   const scrollLock = useBookingBarScrollLock(props.onWheelDragActiveChange);
@@ -148,8 +164,8 @@ function ReservationQuickBookingBarInner(props: Props) {
         <VerticalSnapWheel
           accessibilityLabel="Time"
           options={timeOptions}
-          selectedIndex={timeIndex}
-          disabled={props.disabled}
+          selectedIndex={timeOptions.length > 0 ? timeIndex : 0}
+          disabled={props.disabled || props.slotsLoading || timeOptions.length === 0}
           isDark={isDark}
           accentColor={t.ordersNavPurpleBright}
           textColor={t.textMuted}

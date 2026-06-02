@@ -56,6 +56,59 @@ export function reservationStartErrorMessage(fields?: ReservationStartFieldError
   return "Please check your booking details and try again.";
 }
 
+export type SlotTimeOption = {
+  id: string;
+  label: string;
+  available: boolean;
+  reason?: string;
+};
+
+export type ReservationSlotPicker = {
+  dateOptions: { id: string; label: string; dateLabel: string; sublabel?: string; hasAvailableSlots?: boolean }[];
+  timeOptions: SlotTimeOption[];
+  quickDateId: string;
+  dateLabel: string;
+  timeLabel: string;
+  minLeadMinutes: number;
+};
+
+export function scheduleFieldErrorMessage(fields?: ReservationStartFieldErrors): string {
+  if (!fields) return "Please choose an available date and time.";
+  if (fields.timeLabel === "past_or_too_soon") {
+    return "That time has already passed. Pick a later slot at least 30 minutes from now.";
+  }
+  if (fields.timeLabel === "outside_hours") {
+    return "That time is outside the restaurant's opening hours.";
+  }
+  if (fields.dateLabel === "past") return "You can't book a date in the past.";
+  if (fields.timeLabel) return "Please choose an available time.";
+  if (fields.dateLabel) return "Please choose an available date.";
+  return "Please choose an available date and time.";
+}
+
+export async function fetchReservationSlotPicker(
+  token: string,
+  restaurantId: string,
+  params: {
+    quickDateId?: string | null;
+    dateLabel?: string;
+    timeLabel?: string;
+    /** When editing, keeps this booking's slot selectable on its visit day. */
+    reservationId?: string | null;
+  }
+) {
+  const q = new URLSearchParams();
+  if (params.quickDateId) q.set("quickDateId", params.quickDateId);
+  if (params.dateLabel) q.set("dateLabel", params.dateLabel);
+  if (params.timeLabel) q.set("timeLabel", params.timeLabel);
+  if (params.reservationId) q.set("reservationId", params.reservationId);
+  const qs = q.toString();
+  return apiFetch<{ ok: true } & ReservationSlotPicker | { ok: false; error?: string }>(
+    `/customer/restaurants/${encodeURIComponent(restaurantId)}/reservations/slot-picker${qs ? `?${qs}` : ""}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
 export async function validateReservationStart(
   token: string,
   restaurantId: string,

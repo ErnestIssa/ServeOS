@@ -9,6 +9,16 @@ import {
   validateFullReservationBody,
   type ReservationDraftPayload
 } from "../lib/reservationBooking.js";
+import {
+  quickDateFromStartsAt,
+  timeLabelFromStartsAt
+} from "../lib/reservationPresets.js";
+import {
+  buildReservationSlotPicker,
+  scheduleFieldErrorMessage,
+  validateReservationSchedule,
+  type PinnedReservationSlot
+} from "../lib/reservationSlotValidation.js";
 import { validateReservationStartInput } from "../lib/reservationStartValidation.js";
 
 function bearerToken(headers: { authorization?: string }): string | null {
@@ -54,7 +64,7 @@ export function registerCustomerReservationRoutes(app: FastifyInstance, prisma: 
       const { restaurantId } = req.params;
       const restaurant = await prisma.restaurant.findUnique({
         where: { id: restaurantId },
-        select: { id: true, name: true }
+        select: { id: true, name: true, openingHours: true }
       });
       if (!restaurant) {
         return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
@@ -69,7 +79,16 @@ export function registerCustomerReservationRoutes(app: FastifyInstance, prisma: 
         });
       }
 
-      const v = result.data;
+      const schedule = validateReservationSchedule(req.body, restaurant.openingHours ?? null);
+      if (!schedule.ok) {
+        return reply.status(400).send({
+          ok: false,
+          error: schedule.error,
+          fields: schedule.fields
+        });
+      }
+
+      const v = schedule.validated;
       return {
         ok: true,
         nextScreen: "builder" as const,
@@ -104,13 +123,13 @@ export function registerCustomerReservationRoutes(app: FastifyInstance, prisma: 
 
       const restaurant = await prisma.restaurant.findUnique({
         where: { id: restaurantId },
-        select: { id: true, name: true }
+        select: { id: true, name: true, openingHours: true }
       });
       if (!restaurant) {
         return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
       }
 
-      const parsed = validateFullReservationBody(req.body);
+      const parsed = validateFullReservationBody(req.body, restaurant.openingHours ?? null);
       if (!parsed.ok) {
         return reply.status(400).send({
           ok: false,
@@ -206,7 +225,7 @@ export function registerCustomerReservationRoutes(app: FastifyInstance, prisma: 
 
       const existing = await prisma.customerReservation.findFirst({
         where: { id: reservationId, userId: user.sub, status: "CONFIRMED" },
-        include: { restaurant: { select: { id: true, name: true } } }
+        include: { restaurant: { select: { id: true, name: true, openingHours: true } } }
       });
       if (!existing) {
         return reply.status(404).send({ ok: false, error: "reservation_not_found" });
@@ -216,12 +235,27 @@ export function registerCustomerReservationRoutes(app: FastifyInstance, prisma: 
       const prevDraft = existing.draft as ReservationDraftPayload;
       const merged = { ...prevDraft, ...patch };
 
-      const validated = validateFullReservationBody(merged);
+      const visitDay = new Date(existing.startsAt);
+      visitDay.setHours(0, 0, 0, 0);
+      const canonical = quickDateFromStartsAt(existing.startsAt, new Date());
+      const pinnedSlot: PinnedReservationSlot = {
+        quickDateId: canonical.id,
+        dateLabel: canonical.dateLabel,
+        timeLabel: timeLabelFromStartsAt(existing.startsAt),
+        visitDayMs: visitDay.getTime()
+      };
+      const validated = validateFullReservationBody(
+        merged,
+        existing.restaurant.openingHours ?? null,
+        new Date(),
+        pinnedSlot
+      );
       if (!validated.ok) {
         return reply.status(400).send({
           ok: false,
           error: validated.error,
-          fields: validated.fields
+          fields: validated.fields,
+          message: scheduleFieldErrorMessage(validated.fields)
         });
       }
 
@@ -241,6 +275,78 @@ export function registerCustomerReservationRoutes(app: FastifyInstance, prisma: 
       });
 
       return { ok: true, reservation: serializeCustomerReservation(row) };
+    }
+  );
+
+  /** Slot picker for edit flow — same rules as book bar; API is source of truth. */
+  app.get<{
+    Params: { restaurantId: string };
+    Querystring: { quickDateId?: string; dateLabel?: string; timeLabel?: string; reservationId?: string };
+  }>(
+    "/customer/restaurants/:restaurantId/reservations/slot-picker",
+    async (req, reply) => {
+      let user: ReturnType<typeof requireCustomer>;
+      try {
+        user = requireCustomer(req, app);
+      } catch (e) {
+        const err = e as { statusCode?: number; message?: string };
+        return reply.status(err.statusCode ?? 401).send({ ok: false, error: err.message ?? "unauthorized" });
+      }
+
+      const { restaurantId } = req.params;
+      const restaurant = await prisma.restaurant.findUnique({
+        where: { id: restaurantId },
+        select: { id: true, openingHours: true }
+      });
+      if (!restaurant) {
+        return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
+      }
+
+      let pinnedSlot: PinnedReservationSlot | null = null;
+      let visitStartsAt: Date | null = null;
+      let quickDateId = req.query.quickDateId?.trim() || null;
+      let dateLabel = req.query.dateLabel?.trim() || null;
+      let preferredTime = req.query.timeLabel?.trim() || null;
+
+      const holdId = req.query.reservationId?.trim();
+      if (holdId) {
+        const hold = await prisma.customerReservation.findFirst({
+          where: { id: holdId, userId: user.sub, restaurantId, status: "CONFIRMED" },
+          select: { startsAt: true }
+        });
+        if (hold) {
+          visitStartsAt = hold.startsAt;
+          const now = new Date();
+          const visitDay = new Date(hold.startsAt);
+          visitDay.setHours(0, 0, 0, 0);
+          const canonical = quickDateFromStartsAt(hold.startsAt, now);
+          const timeLabel = timeLabelFromStartsAt(hold.startsAt);
+          pinnedSlot = {
+            quickDateId: canonical.id,
+            dateLabel: canonical.dateLabel,
+            timeLabel,
+            visitDayMs: visitDay.getTime()
+          };
+          const userPickedDate = Boolean(quickDateId || dateLabel);
+          if (!userPickedDate) {
+            quickDateId = canonical.id;
+            dateLabel = canonical.dateLabel;
+            preferredTime = timeLabel;
+          }
+        }
+      }
+
+      const picker = buildReservationSlotPicker(
+        restaurant.openingHours ?? null,
+        quickDateId,
+        dateLabel || "Today",
+        preferredTime,
+        new Date(),
+        pinnedSlot,
+        visitStartsAt
+      );
+
+      return { ok: true, ...picker };
     }
   );
 

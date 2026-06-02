@@ -190,16 +190,13 @@ export function FloatingGlassTabBar({
     [isDark]
   );
 
-  const { panVerticalOnSheetBody, panVerticalSeamGrab, sheetPanDragSessionSV } = useNavSheetPanGestures(
-    insets,
-    sheetHeightSV,
-    {
+  const { panVerticalOnSheetBody, panVerticalSeamGrab, panVerticalWithTabsDuplicate, sheetPanDragSessionSV } =
+    useNavSheetPanGestures(insets, sheetHeightSV, {
       onUserDragFromCollapsed: onSheetDragOpenFromCollapsed,
       allowHalfDetent: !sheetFullOnly,
       snapImpactTargetSV,
       snapImpactArmedSV
-    }
-  );
+    });
 
   const dockBottom = insets.bottom + FLOAT_MARGIN_BOTTOM;
   const pillAnchorBottom = FLOAT_MARGIN_BOTTOM + insets.bottom + FLOATING_TAB_BAR_HEIGHT;
@@ -318,8 +315,8 @@ export function FloatingGlassTabBar({
       .minPointers(1)
       .maxPointers(1)
       .minDistance(PILL_DRAG_MIN_DISTANCE)
-      .activeOffsetX([-8, 8])
-      .failOffsetY([-14, 14]);
+      .activeOffsetX([-10, 10])
+      .failOffsetY([-22, 22]);
 
     pan.onBegin(() => {
       "worklet";
@@ -398,6 +395,12 @@ export function FloatingGlassTabBar({
   const panTabRowWithPress = React.useMemo(
     () => Gesture.Simultaneous(panTabRow, Gesture.Native()),
     [panTabRow]
+  );
+
+  /** Vertical sheet open vs horizontal tab pill — first axis to activate wins. */
+  const panTabsWithSheet = React.useMemo(
+    () => Gesture.Race(panVerticalWithTabsDuplicate, panTabRowWithPress),
+    [panTabRowWithPress, panVerticalWithTabsDuplicate]
   );
 
   const pillAnimatedStyle = useAnimatedStyle(() => {
@@ -514,6 +517,16 @@ export function FloatingGlassTabBar({
   }, [sheetHeightSV, sheetPanDragSessionSV]);
 
   /** Unmounting the seam grab mid-drag killed the pan; keep it while `sheetPanDragSessionSV` is active. */
+  const [sheetPanelTouches, setSheetPanelTouches] = React.useState(false);
+  useAnimatedReaction(
+    () => sheetHeightSV.value > 0.5,
+    (open, prev) => {
+      if (open === prev) return;
+      runOnJS(setSheetPanelTouches)(open);
+    },
+    [sheetHeightSV]
+  );
+
   const [seamGrabActive, setSeamGrabActive] = React.useState(true);
   useAnimatedReaction(
     () => {
@@ -563,7 +576,7 @@ export function FloatingGlassTabBar({
               <Animated.View
                 collapsable={false}
                 style={[styles.sheetPanel, sheetPanelStyle]}
-                pointerEvents="auto"
+                pointerEvents={sheetPanelTouches ? "auto" : "box-none"}
               >
                 <Animated.View
                   style={[styles.sheetTopHandleDashWrap, sheetTopHandleDashStyle]}
@@ -588,7 +601,7 @@ export function FloatingGlassTabBar({
 
               <View style={styles.gestureHost}>
                 <View style={styles.tabGestureSizer}>
-                  <GestureDetector gesture={panTabRowWithPress}>
+                  <GestureDetector gesture={panTabsWithSheet}>
                     <View style={styles.tabSwipeArea}>
                       <Animated.View
                         style={[styles.liquidPill, pillAnimatedStyle]}
@@ -769,8 +782,8 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 18,
-    zIndex: 12,
+    height: SHEET_SEAM_GRAB_HEIGHT,
+    zIndex: 40,
     backgroundColor: "transparent"
   },
   gestureHost: {

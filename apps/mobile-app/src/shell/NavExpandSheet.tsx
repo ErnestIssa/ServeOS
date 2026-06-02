@@ -107,9 +107,9 @@ export function buildSheetPan({
   return Gesture.Pan()
     .maxPointers(1)
     /** Prevent accidental sheet close while scrolling inside the sheet. */
-    .minDistance(14)
-    .activeOffsetY([-14, 14])
-    .failOffsetX([-140, 140])
+    .minDistance(10)
+    .activeOffsetY([-10, 10])
+    .failOffsetX([-48, 48])
     .onBegin(() => {
       const h0 = sheetHeightSV.value;
       startH.value = h0;

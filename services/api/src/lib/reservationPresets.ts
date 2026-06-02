@@ -91,3 +91,65 @@ export function resolveQuickDateId(
   const hit = options.find((o) => o.dateLabel === dateLabel || o.label === dateLabel);
   return hit?.id ?? null;
 }
+
+/** Calendar day offset from today (0 = today). */
+export function dayOffsetFromStartsAt(startsAt: Date, now = new Date()): number {
+  const today = startOfDay(now);
+  const visit = startOfDay(startsAt);
+  return Math.round((visit.getTime() - today.getTime()) / 86_400_000);
+}
+
+/** Map stored visit instant → quick-pick row for *today's* rolling window. */
+export function quickDateFromStartsAt(startsAt: Date, now = new Date()): QuickDateOption {
+  const offset = dayOffsetFromStartsAt(startsAt, now);
+  if (offset >= 0 && offset < 10) {
+    return buildQuickDateOptions(10, now)[offset]!;
+  }
+  const visit = startOfDay(startsAt);
+  const wd = WEEKDAY_SHORT[visit.getDay()];
+  const sub = formatSublabel(visit);
+  return {
+    id: `abs${visit.getTime()}`,
+    label: wd,
+    dateLabel: `${wd} · ${sub}`,
+    sublabel: sub
+  };
+}
+
+export function timeLabelFromStartsAt(startsAt: Date): string {
+  const h = startsAt.getHours();
+  const m = startsAt.getMinutes();
+  const label = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  const hit = TIME_OPTIONS.find((t) => t.label === label);
+  return hit?.label ?? TIME_OPTIONS[0]!.label;
+}
+
+/** Ensure the reservation's visit day appears in edit picker date lists. */
+export function mergeVisitIntoDateOptions(
+  base: readonly QuickDateOption[],
+  startsAt: Date,
+  now = new Date()
+): QuickDateOption[] {
+  const visit = startOfDay(startsAt);
+  const visitMs = visit.getTime();
+  if (base.some((o) => dayFromQuickDateOption(o, now).getTime() === visitMs)) {
+    return [...base];
+  }
+  const extra = quickDateFromStartsAt(startsAt, now);
+  const merged = [...base, extra];
+  merged.sort(
+    (a, b) => dayFromQuickDateOption(a, now).getTime() - dayFromQuickDateOption(b, now).getTime()
+  );
+  return merged;
+}
+
+export function dayFromQuickDateOption(opt: QuickDateOption, now = new Date()): Date {
+  if (opt.id.startsWith("abs")) {
+    return startOfDay(new Date(Number.parseInt(opt.id.slice(3), 10)));
+  }
+  const m = opt.id.match(/^d(\d+)$/);
+  if (m) return addDays(startOfDay(now), Number.parseInt(m[1]!, 10));
+  if (opt.dateLabel === "Today") return startOfDay(now);
+  if (opt.dateLabel === "Tomorrow") return addDays(startOfDay(now), 1);
+  return startOfDay(now);
+}

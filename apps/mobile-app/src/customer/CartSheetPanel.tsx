@@ -1,3 +1,5 @@
+import { BlurView } from "expo-blur";
+import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
 import {
   FlatList,
@@ -15,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CartLineApi } from "./cartApi";
 import { SwipePlaceOrderBar } from "./SwipePlaceOrderBar";
 import { R } from "../theme";
+import { useAppTheme } from "../theme/AppThemeContext";
 
 type Props = {
   lines: CartLineApi[];
@@ -103,6 +106,10 @@ export function CartSheetPanel({
   onRequestNoteFocus
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { colors: theme, isDark } = useAppTheme();
+  const blurTint = isDark ? "dark" : "light";
+  const androidGlass = isDark ? "rgba(11,18,32,0.78)" : "rgba(255,255,255,0.82)";
+  const pillBorder = isDark ? "rgba(124,58,237,0.45)" : "rgba(124,58,237,0.28)";
   const orderNoteLiveRef = React.useRef(orderNote);
   orderNoteLiveRef.current = orderNote;
 
@@ -122,6 +129,95 @@ export function CartSheetPanel({
     [userFirstName, topItemName, totalQuantity]
   );
 
+  const hasCartItems = totalQuantity > 0;
+
+  const cartHeaderContent = (
+    <View style={hasCartItems ? styles.headerRow : styles.headerRowPlain}>
+      <View style={styles.headerTextCol}>
+        <Text
+          style={[
+            styles.title,
+            { color: hasCartItems ? theme.ordersNavPurpleBright : R.text }
+          ]}
+        >
+          Your order
+        </Text>
+        <Text style={[styles.sub, { color: hasCartItems ? theme.textSecondary : R.textSecondary }]}>
+          {totalQuantity === 0
+            ? "Cart is empty"
+            : `${totalQuantity} item${totalQuantity === 1 ? "" : "s"} · ${money(subtotalCents)}`}
+        </Text>
+      </View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Order info"
+        hitSlop={10}
+        onPress={onOpenInfo}
+        style={({ pressed }) => [styles.infoBtn, pressed && styles.tapPressed]}
+      >
+        <Text style={styles.infoText}>i</Text>
+      </Pressable>
+    </View>
+  );
+
+  const cartListBody =
+    lines.length === 0 ? (
+      <Text style={styles.empty}>Tap + on a dish on Home to add items here.</Text>
+    ) : (
+      <FlatList
+        data={lines}
+        keyExtractor={(l) => l.id}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={styles.listContent}
+        renderItem={({ item: line }) => (
+          <View style={[styles.lineRow, line.stale ? styles.lineStale : null]}>
+            <View style={styles.lineMain}>
+              <Text style={styles.lineName} numberOfLines={2}>
+                {line.name}
+              </Text>
+              <Text style={styles.lineMeta}>
+                {money(line.unitPriceCents)} each{line.stale ? " · review" : ""}
+              </Text>
+              <View style={styles.qtyRow}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Decrease ${line.name}`}
+                  hitSlop={8}
+                  style={({ pressed }) => [styles.qtyBtn, pressed && styles.tapPressed]}
+                  onPress={() => onDecLine(line.id)}
+                >
+                  <Text style={styles.qtyBtnText}>−</Text>
+                </Pressable>
+                <Text style={styles.qtyText}>{line.quantity}</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Increase ${line.name}`}
+                  hitSlop={8}
+                  style={({ pressed }) => [styles.qtyBtn, pressed && styles.tapPressed]}
+                  onPress={() => onIncLine(line.id)}
+                >
+                  <Text style={styles.qtyBtnText}>+</Text>
+                </Pressable>
+              </View>
+            </View>
+            <View style={styles.lineRight}>
+              <Text style={styles.lineTotal}>{money(line.lineTotalCents)}</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Delete ${line.name}`}
+                hitSlop={8}
+                style={({ pressed }) => [styles.deleteBtn, pressed && styles.tapPressed]}
+                onPress={() => onRemoveLine(line.id)}
+              >
+                <DeleteLineIcon />
+              </Pressable>
+            </View>
+          </View>
+        )}
+      />
+    );
+
   return (
     <KeyboardAvoidingView
       style={[
@@ -139,84 +235,35 @@ export function CartSheetPanel({
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 64 : 0}
     >
-      <View style={styles.headerRow}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.title}>Your order</Text>
-          <Text style={styles.sub}>
-            {totalQuantity === 0
-              ? "Cart is empty"
-              : `${totalQuantity} item${totalQuantity === 1 ? "" : "s"} · ${money(subtotalCents)}`}
-          </Text>
-        </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Order info"
-          hitSlop={10}
-          onPress={onOpenInfo}
-          style={({ pressed }) => [styles.infoBtn, pressed && styles.tapPressed]}
-        >
-          <Text style={styles.infoText}>i</Text>
-        </Pressable>
-      </View>
-
-      <View style={styles.listWrap}>
-        {lines.length === 0 ? (
-          <Text style={styles.empty}>Tap + on a dish on Home to add items here.</Text>
-        ) : (
-          <FlatList
-            data={lines}
-            keyExtractor={(l) => l.id}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={styles.listContent}
-            renderItem={({ item: line }) => (
-              <View style={[styles.lineRow, line.stale ? styles.lineStale : null]}>
-                <View style={styles.lineMain}>
-                  <Text style={styles.lineName} numberOfLines={2}>
-                    {line.name}
-                  </Text>
-                  <Text style={styles.lineMeta}>
-                    {money(line.unitPriceCents)} each{line.stale ? " · review" : ""}
-                  </Text>
-                  <View style={styles.qtyRow}>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={`Decrease ${line.name}`}
-                      hitSlop={8}
-                      style={({ pressed }) => [styles.qtyBtn, pressed && styles.tapPressed]}
-                      onPress={() => onDecLine(line.id)}
-                    >
-                      <Text style={styles.qtyBtnText}>−</Text>
-                    </Pressable>
-                    <Text style={styles.qtyText}>{line.quantity}</Text>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={`Increase ${line.name}`}
-                      hitSlop={8}
-                      style={({ pressed }) => [styles.qtyBtn, pressed && styles.tapPressed]}
-                      onPress={() => onIncLine(line.id)}
-                    >
-                      <Text style={styles.qtyBtnText}>+</Text>
-                    </Pressable>
-                  </View>
-                </View>
-                <View style={styles.lineRight}>
-                  <Text style={styles.lineTotal}>{money(line.lineTotalCents)}</Text>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Delete ${line.name}`}
-                    hitSlop={8}
-                    style={({ pressed }) => [styles.deleteBtn, pressed && styles.tapPressed]}
-                    onPress={() => onRemoveLine(line.id)}
-                  >
-                    <DeleteLineIcon />
-                  </Pressable>
-                </View>
-              </View>
-            )}
+      {hasCartItems ? (
+        <View style={[styles.topGlassBody, { borderColor: pillBorder }]}>
+          {Platform.OS === "ios" ? (
+            <BlurView intensity={36} tint={blurTint} style={StyleSheet.absoluteFill} />
+          ) : (
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: androidGlass }]} />
+          )}
+          <LinearGradient
+            colors={
+              isDark
+                ? ["rgba(124,58,237,0.14)", "rgba(11,18,32,0.06)"]
+                : ["rgba(255,255,255,0.55)", "rgba(248,250,252,0.12)"]
+            }
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
           />
-        )}
-      </View>
+          <View style={styles.topGlassContent}>
+            {cartHeaderContent}
+            <View style={styles.listWrapInGlass}>{cartListBody}</View>
+          </View>
+        </View>
+      ) : (
+        <>
+          <View style={styles.headerRowPlain}>{cartHeaderContent}</View>
+          <View style={styles.listWrap}>{cartListBody}</View>
+        </>
+      )}
 
       {showNoteArea ? (
         <View style={styles.noteWrap}>
@@ -294,12 +341,47 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     paddingHorizontal: 16,
-    paddingTop: 28,
+    paddingTop: 20,
     paddingBottom: 14
   },
-  headerRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  title: { fontSize: 20, fontWeight: "800", color: R.text, letterSpacing: -0.4 },
-  sub: { marginTop: 4, fontSize: 13, fontWeight: "600", color: R.textSecondary },
+  topGlassBody: {
+    flex: 1,
+    overflow: "hidden",
+    borderRadius: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#4C1D95",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.12,
+        shadowRadius: 10
+      },
+      android: { elevation: 4 },
+      default: {}
+    })
+  },
+  topGlassContent: {
+    flex: 1,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 10
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingBottom: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(124,58,237,0.14)"
+  },
+  headerRowPlain: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12
+  },
+  headerTextCol: { flex: 1 },
+  title: { fontSize: 20, fontWeight: "800", letterSpacing: -0.4 },
+  sub: { marginTop: 4, fontSize: 13, fontWeight: "600" },
   infoBtn: {
     width: 26,
     height: 26,
@@ -313,6 +395,7 @@ const styles = StyleSheet.create({
   infoText: { fontSize: 12, fontWeight: "900", color: "#DC2626" },
   tapPressed: { opacity: 0.85 },
   listWrap: { flex: 1, marginTop: 14 },
+  listWrapInGlass: { flex: 1, marginTop: 8, minHeight: 0 },
   listContent: { paddingBottom: 10, gap: 10 },
   empty: { fontSize: 14, color: R.textMuted, lineHeight: 20, fontWeight: "500" },
   lineRow: {

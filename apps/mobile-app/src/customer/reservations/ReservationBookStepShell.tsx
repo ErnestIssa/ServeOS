@@ -60,7 +60,9 @@ export function ReservationBookStepShell(props: Props) {
     <ReservationImmersiveStepShell
       {...immersiveShellPassThrough(props)}
       bookStep={props.bookStep}
-      cardOverlayBack={false}
+      cardOverlayBack={props.cardOverlayBack}
+      cardOverlayClose={props.cardOverlayClose}
+      onClose={props.onClose}
       footer={footer}
       footerScrollRevealGap={props.footerScrollRevealGap}
       footerScrollRevealKeyboardOnly={props.footerScrollRevealKeyboardOnly}

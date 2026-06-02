@@ -11,6 +11,7 @@ import { ProfilePlaceholderScreen } from "./ProfilePlaceholderScreen";
 import { ProfileReviewScreen } from "./ProfileReviewScreen";
 import { UpcomingReservationsScreen } from "./UpcomingReservationsScreen";
 import type { MeStackRoute } from "./profileHubRoutes";
+import type { CustomerReservationApi } from "../reservations/reservationApi";
 import { ProfileNavHighlightProvider, useProfileNavHighlight } from "./profileNavHighlight";
 import { useProfileSubpageMotion } from "./useProfileSubpageMotion";
 import {
@@ -78,6 +79,16 @@ function CustomerMeStackInner(props: Props) {
 
   const push = React.useCallback((next: MeStackRoute) => {
     setStack((s) => [...s, next]);
+  }, []);
+
+  const syncReservationInStack = React.useCallback((updated: CustomerReservationApi) => {
+    setStack((s) =>
+      s.map((r) =>
+        r.name === "reservation_details" && r.reservation.id === updated.id
+          ? { ...r, reservation: updated }
+          : r
+      )
+    );
   }, []);
 
   const pop = React.useCallback(() => {
@@ -220,13 +231,16 @@ function CustomerMeStackInner(props: Props) {
         authToken={props.authToken.trim()}
         topInset={0}
         bottomInset={props.bottomInset}
+        onReservationUpdated={syncReservationInStack}
         onOpenBookingDetails={(reservation) =>
           navigate("me:reservations", () => push({ name: "reservation_details", reservation }))
         }
       />
-    ) : route.name === "reservation_details" ? (
+    ) : route.name === "reservation_details" && props.authToken?.trim() ? (
       <MeReservationConfirmationScreen
-        reservation={route.reservation}
+        authToken={props.authToken.trim()}
+        reservationId={route.reservation.id}
+        initialReservation={route.reservation}
         topInset={0}
         bottomInset={props.bottomInset}
       />

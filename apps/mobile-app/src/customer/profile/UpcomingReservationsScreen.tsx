@@ -3,19 +3,24 @@ import React from "react";
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Pressable,
   StyleSheet,
   Text,
-  View
+  View,
+  useWindowDimensions
 } from "react-native";
 import { useAppTheme } from "../../theme/AppThemeContext";
 import {
   cancelCustomerReservation,
   fetchUpcomingReservations,
   patchCustomerReservation,
+  scheduleFieldErrorMessage,
   type CustomerReservationApi
 } from "../reservations/reservationApi";
-import { ProfileScreenContainer } from "./ProfileUi";
+import { ReservationBookingRef } from "./ReservationBookingRef";
 import { ReservationCountdownRing } from "./ReservationCountdownRing";
 import { ReservationManageModal } from "./ReservationManageModal";
 
@@ -24,16 +29,51 @@ type Props = {
   topInset: number;
   bottomInset: number;
   onOpenBookingDetails: (reservation: CustomerReservationApi) => void;
+  /** Keeps booking details route in sync after manage-booking actions. */
+  onReservationUpdated?: (reservation: CustomerReservationApi) => void;
 };
+
+function ReservationPage({
+  reservation,
+  pageWidth,
+  styles,
+  codeColor
+}: {
+  reservation: CustomerReservationApi;
+  pageWidth: number;
+  styles: ReturnType<typeof StyleSheet.create>;
+  codeColor: string;
+}) {
+  return (
+    <View style={[styles.page, { width: pageWidth }]}>
+      <Text style={styles.venue}>{reservation.restaurantName}</Text>
+      <Text style={styles.meta}>
+        {reservation.draft.guests} guest{reservation.draft.guests === 1 ? "" : "s"} · {reservation.draft.dateLabel} ·{" "}
+        {reservation.draft.timeLabel}
+      </Text>
+
+      <ReservationCountdownRing
+        startsAt={reservation.startsAt}
+        createdAt={reservation.createdAt}
+        size={300}
+      />
+
+      <ReservationBookingRef confirmationCode={reservation.confirmationCode} codeColor={codeColor} />
+    </View>
+  );
+}
 
 export function UpcomingReservationsScreen(props: Props) {
   const { colors: t } = useAppTheme();
+  const { width: windowW } = useWindowDimensions();
   const [loading, setLoading] = React.useState(true);
   const [reservations, setReservations] = React.useState<CustomerReservationApi[]>([]);
   const [activeIndex, setActiveIndex] = React.useState(0);
+  const [pageWidth, setPageWidth] = React.useState(Math.max(320, windowW));
   const [manageOpen, setManageOpen] = React.useState(false);
   const [cancelLoading, setCancelLoading] = React.useState(false);
   const [saveLoading, setSaveLoading] = React.useState(false);
+  const listRef = React.useRef<FlatList<CustomerReservationApi>>(null);
 
   const reload = React.useCallback(async () => {
     setLoading(true);
@@ -41,12 +81,14 @@ export function UpcomingReservationsScreen(props: Props) {
       const res = await fetchUpcomingReservations(props.authToken);
       if (res.ok) {
         setReservations(res.reservations);
-        setActiveIndex(0);
+        setActiveIndex((prev) => Math.min(prev, Math.max(0, res.reservations.length - 1)));
       } else {
         setReservations([]);
+        setActiveIndex(0);
       }
     } catch {
       setReservations([]);
+      setActiveIndex(0);
     } finally {
       setLoading(false);
     }
@@ -56,17 +98,46 @@ export function UpcomingReservationsScreen(props: Props) {
     void reload();
   }, [reload]);
 
+  /** Swiped to another booking — close manage so actions always target the visible reservation. */
+  React.useEffect(() => {
+    setManageOpen(false);
+  }, [activeIndex]);
+
   const active = reservations[activeIndex] ?? null;
+  const hasMultiple = reservations.length > 1;
 
   const styles = React.useMemo(
     () =>
       StyleSheet.create({
+        shell: {
+          flex: 1,
+          paddingHorizontal: t.space.sm
+        },
+        flex: { flex: 1 },
         center: {
           flex: 1,
-          justifyContent: "center",
           alignItems: "center",
           paddingHorizontal: t.space.md,
           paddingBottom: 24
+        },
+        centerInner: {
+          flex: 1,
+          justifyContent: "center",
+          alignItems: "center",
+          width: "100%"
+        },
+        carouselHost: {
+          flex: 1
+        },
+        carouselContent: {
+          flexGrow: 1,
+          justifyContent: "center"
+        },
+        page: {
+          alignItems: "center",
+          justifyContent: "center",
+          paddingHorizontal: t.space.md,
+          paddingVertical: 8
         },
         venue: {
           fontSize: 28,
@@ -81,21 +152,19 @@ export function UpcomingReservationsScreen(props: Props) {
           fontWeight: "700",
           color: t.textSecondary,
           textAlign: "center",
-          marginBottom: 28
+          marginBottom: 20
         },
-        code: {
-          marginTop: 20,
-          fontSize: 15,
-          fontWeight: "800",
-          letterSpacing: 1.2,
-          color: t.ordersNavPurpleBright
+        footer: {
+          width: "100%",
+          maxWidth: 420,
+          alignSelf: "center",
+          paddingTop: 8
         },
         btnRow: {
           flexDirection: "row",
           gap: 12,
-          marginTop: 36,
-          width: "100%",
-          maxWidth: 420
+          marginTop: 14,
+          width: "100%"
         },
         btn: {
           flex: 1,
@@ -136,20 +205,37 @@ export function UpcomingReservationsScreen(props: Props) {
           textAlign: "center",
           lineHeight: 22
         },
-        pager: {
+        dotsRow: {
           flexDirection: "row",
+          justifyContent: "center",
           gap: 8,
-          marginTop: 20
+          marginBottom: 4
         },
         dot: {
-          width: 10,
-          height: 10,
-          borderRadius: 5,
-          backgroundColor: `${t.ordersNavPurpleBright}44`
+          width: 8,
+          height: 8,
+          borderRadius: 4,
+          backgroundColor: `${t.textMuted}44`
         },
-        dotActive: { backgroundColor: t.ordersNavPurpleBright, width: 24 }
+        dotActive: {
+          width: 22,
+          backgroundColor: t.ordersNavPurpleBright
+        }
       }),
     [t]
+  );
+
+  const onScrollSettled = React.useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const x = e.nativeEvent.contentOffset.x;
+      const idx = Math.round(x / Math.max(pageWidth, 1));
+      const clamped = Math.max(0, Math.min(reservations.length - 1, idx));
+      if (clamped !== activeIndex) {
+        setActiveIndex(clamped);
+        void Haptics.selectionAsync();
+      }
+    },
+    [activeIndex, pageWidth, reservations.length]
   );
 
   async function handleCancel() {
@@ -158,6 +244,8 @@ export function UpcomingReservationsScreen(props: Props) {
     try {
       const res = await cancelCustomerReservation(props.authToken, active.id);
       if (!res.ok) throw new Error("cancel_failed");
+      setManageOpen(false);
+      props.onReservationUpdated?.(res.reservation);
       await reload();
     } finally {
       setCancelLoading(false);
@@ -170,10 +258,12 @@ export function UpcomingReservationsScreen(props: Props) {
     try {
       const res = await patchCustomerReservation(props.authToken, active.id, patch);
       if (!res.ok) {
-        Alert.alert("Couldn't update", "Please pick a valid date and time.");
+        Alert.alert("Couldn't update", scheduleFieldErrorMessage(res.fields));
         throw new Error("patch_failed");
       }
-      setReservations((prev) => prev.map((r) => (r.id === active.id ? res.reservation : r)));
+      props.onReservationUpdated?.(res.reservation);
+      await reload();
+      setManageOpen(false);
     } finally {
       setSaveLoading(false);
     }
@@ -181,75 +271,109 @@ export function UpcomingReservationsScreen(props: Props) {
 
   return (
     <>
-      <ProfileScreenContainer topInset={props.topInset} bottomInset={props.bottomInset}>
+      <View
+        style={[
+          styles.shell,
+          { paddingTop: props.topInset > 0 ? props.topInset : 8, paddingBottom: props.bottomInset + 24 }
+        ]}
+      >
         {loading ? (
           <View style={styles.center}>
-            <ActivityIndicator size="large" color={t.ordersNavPurpleBright} />
+            <View style={styles.centerInner}>
+              <ActivityIndicator size="large" color={t.ordersNavPurpleBright} />
+            </View>
           </View>
         ) : !active ? (
           <View style={styles.center}>
-            <Text style={styles.emptyTitle}>No upcoming reservations</Text>
-            <Text style={styles.emptyBody}>Book a table from the Book tab and it will show up here.</Text>
+            <View style={styles.centerInner}>
+              <Text style={styles.emptyTitle}>No upcoming reservations</Text>
+              <Text style={styles.emptyBody}>Book a table from the Book tab and it will show up here.</Text>
+            </View>
           </View>
         ) : (
-          <View style={styles.center}>
-            <Text style={styles.venue}>{active.restaurantName}</Text>
-            <Text style={styles.meta}>
-              {active.draft.guests} guest{active.draft.guests === 1 ? "" : "s"} · {active.draft.dateLabel} ·{" "}
-              {active.draft.timeLabel}
-            </Text>
-
-            <ReservationCountdownRing
-              startsAt={active.startsAt}
-              windowStartAt={active.createdAt}
-              size={300}
+          <View
+            style={styles.flex}
+            onLayout={(e) => {
+              const w = Math.ceil(e.nativeEvent.layout.width);
+              if (w > 0 && w !== pageWidth) setPageWidth(w);
+            }}
+          >
+            <FlatList
+              ref={listRef}
+              data={reservations}
+              horizontal
+              pagingEnabled
+              bounces={hasMultiple}
+              showsHorizontalScrollIndicator={false}
+              decelerationRate="fast"
+              scrollEventThrottle={16}
+              keyExtractor={(item) => item.id}
+              getItemLayout={(_, index) => ({
+                length: pageWidth,
+                offset: pageWidth * index,
+                index
+              })}
+              onMomentumScrollEnd={onScrollSettled}
+              onScrollEndDrag={onScrollSettled}
+              contentContainerStyle={styles.carouselContent}
+              renderItem={({ item }) => (
+                <ReservationPage
+                  reservation={item}
+                  pageWidth={pageWidth}
+                  styles={styles}
+                  codeColor={t.ordersNavPurpleBright}
+                />
+              )}
+              style={styles.carouselHost}
             />
 
-            <Text style={styles.code}>{active.confirmationCode}</Text>
+            <View style={styles.footer}>
+              {hasMultiple ? (
+                <View style={styles.dotsRow}>
+                  {reservations.map((r, i) => (
+                    <Pressable
+                      key={r.id}
+                      onPress={() => {
+                        listRef.current?.scrollToIndex({ index: i, animated: true });
+                        setActiveIndex(i);
+                        void Haptics.selectionAsync();
+                      }}
+                      style={[styles.dot, i === activeIndex && styles.dotActive]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Booking ${i + 1}`}
+                    />
+                  ))}
+                </View>
+              ) : null}
 
-            {reservations.length > 1 ? (
-              <View style={styles.pager}>
-                {reservations.map((r, i) => (
-                  <Pressable
-                    key={r.id}
-                    onPress={() => {
-                      setActiveIndex(i);
-                      void Haptics.selectionAsync();
-                    }}
-                    style={[styles.dot, i === activeIndex && styles.dotActive]}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Reservation ${i + 1}`}
-                  />
-                ))}
+              <View style={styles.btnRow}>
+                <Pressable
+                  style={({ pressed }) => [styles.btn, styles.btnManage, pressed && styles.btnPressed]}
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    setManageOpen(true);
+                  }}
+                >
+                  <Text style={styles.btnLabel}>Manage booking</Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [styles.btn, styles.btnDetails, pressed && styles.btnPressed]}
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    props.onOpenBookingDetails(active);
+                  }}
+                >
+                  <Text style={styles.btnLabel}>Booking details</Text>
+                </Pressable>
               </View>
-            ) : null}
-
-            <View style={styles.btnRow}>
-              <Pressable
-                style={({ pressed }) => [styles.btn, styles.btnManage, pressed && styles.btnPressed]}
-                onPress={() => {
-                  void Haptics.selectionAsync();
-                  setManageOpen(true);
-                }}
-              >
-                <Text style={styles.btnLabel}>Manage booking</Text>
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [styles.btn, styles.btnDetails, pressed && styles.btnPressed]}
-                onPress={() => {
-                  void Haptics.selectionAsync();
-                  props.onOpenBookingDetails(active);
-                }}
-              >
-                <Text style={styles.btnLabel}>Booking details</Text>
-              </Pressable>
             </View>
           </View>
         )}
-      </ProfileScreenContainer>
+      </View>
 
       <ReservationManageModal
         visible={manageOpen}
+        authToken={props.authToken}
         reservation={active}
         onClose={() => setManageOpen(false)}
         onCancel={handleCancel}

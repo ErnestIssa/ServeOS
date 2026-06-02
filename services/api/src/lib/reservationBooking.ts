@@ -1,6 +1,14 @@
 import type { CustomerReservation, PrismaClient } from "@prisma/client";
-import { buildQuickDateOptions, resolveQuickDateId } from "./reservationPresets.js";
-import { validateReservationStartInput, type ReservationStartValidated } from "./reservationStartValidation.js";
+import {
+  buildQuickDateOptions,
+  dayFromQuickDateOption,
+  resolveQuickDateId
+} from "./reservationPresets.js";
+import {
+  validateReservationSchedule,
+  type PinnedReservationSlot,
+  type ReservationStartValidated
+} from "./reservationSlotValidation.js";
 
 export type ReservationDraftPayload = {
   branchId: string | null;
@@ -35,17 +43,26 @@ export function resolveReservationStartsAt(
   dateLabel: string,
   timeLabel: string
 ): Date {
-  const quick = buildQuickDateOptions(10);
+  const now = new Date();
+  let quick = buildQuickDateOptions(10, now);
   const id = resolveQuickDateId(quick, dateLabel, quickDateId);
-  let dayOffset = 0;
-  if (id?.match(/^d(\d+)$/)) {
-    dayOffset = Number.parseInt(id.slice(1), 10);
-  } else if (dateLabel === "Today") {
-    dayOffset = 0;
-  } else if (dateLabel === "Tomorrow") {
-    dayOffset = 1;
+  const opt = id ? quick.find((o) => o.id === id) : quick.find((o) => o.dateLabel === dateLabel);
+  let d: Date;
+  if (opt) {
+    d = dayFromQuickDateOption(opt, now);
+  } else if (quickDateId?.startsWith("abs")) {
+    d = startOfDay(new Date(Number.parseInt(quickDateId.slice(3), 10)));
+  } else {
+    let dayOffset = 0;
+    if (id?.match(/^d(\d+)$/)) {
+      dayOffset = Number.parseInt(id.slice(1), 10);
+    } else if (dateLabel === "Today") {
+      dayOffset = 0;
+    } else if (dateLabel === "Tomorrow") {
+      dayOffset = 1;
+    }
+    d = addDays(startOfDay(now), dayOffset);
   }
-  const d = addDays(startOfDay(new Date()), dayOffset);
   const parts = timeLabel.trim().split(":");
   const h = Number.parseInt(parts[0] ?? "19", 10);
   const m = Number.parseInt(parts[1] ?? "0", 10);
@@ -91,17 +108,22 @@ export function normalizeDraftPayload(raw: unknown, validated: ReservationStartV
   };
 }
 
-export function validateFullReservationBody(raw: unknown):
+export function validateFullReservationBody(
+  raw: unknown,
+  openingHours: string | null | undefined,
+  now = new Date(),
+  pinnedSlot?: PinnedReservationSlot | null
+):
   | { ok: true; validated: ReservationStartValidated; draft: ReservationDraftPayload }
   | { ok: false; error: string; fields?: Record<string, string> } {
-  const start = validateReservationStartInput(raw);
-  if (!start.ok) {
-    return { ok: false, error: "validation_error", fields: start.fields };
+  const schedule = validateReservationSchedule(raw, openingHours, now, pinnedSlot);
+  if (!schedule.ok) {
+    return { ok: false, error: schedule.error, fields: schedule.fields };
   }
   return {
     ok: true,
-    validated: start.data,
-    draft: normalizeDraftPayload(raw, start.data)
+    validated: schedule.validated,
+    draft: normalizeDraftPayload(raw, schedule.validated)
   };
 }
 

@@ -533,6 +533,7 @@ export function CustomerReservationFlow(props: Props) {
             {...flowCtx}
             {...shared}
             hasVenue={props.hasVenue}
+            authToken={props.authToken}
             draft={draft}
             onDraftChange={patchDraft}
             onStartBooking={() => void handleStartBooking()}
@@ -590,6 +591,7 @@ export function CustomerReservationFlow(props: Props) {
             reservation={confirmedReservation}
             authToken={props.authToken}
             onNeedHelp={props.onOpenChat}
+            onClose={() => goBack("landing")}
             onReservationUpdated={(next) => {
               setConfirmedReservation(next);
               setConfirmationCode(next.confirmationCode);

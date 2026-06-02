@@ -8,7 +8,6 @@ import {
   patchCustomerReservation,
   type CustomerReservationApi
 } from "./reservationApi";
-import { RESERVATION_BOOK_STEP_NUMBER } from "./reservationBookSteps";
 import { ReservationBookingHelpLink } from "./ReservationBookingHelpLink";
 import { ReservationBookStepShell } from "./ReservationBookStepShell";
 import { immersiveShellPassThrough, type ReservationImmersiveShellProps } from "./reservationImmersiveShellProps";
@@ -24,6 +23,7 @@ type Props = ReservationFlowContext &
     onNeedHelp: () => void;
     onReservationUpdated: (reservation: CustomerReservationApi) => void;
     onReservationCancelled: () => void;
+    onClose: () => void;
     manageLoading?: boolean;
     hasVenue: boolean;
   };
@@ -41,7 +41,7 @@ export function ReservationConfirmationScreen(props: Props) {
       StyleSheet.create({
         body: {
           alignItems: "center",
-          paddingTop: 8,
+          paddingTop: 44,
           paddingBottom: 12
         },
         tick: {
@@ -182,7 +182,8 @@ export function ReservationConfirmationScreen(props: Props) {
     <>
       <ReservationBookStepShell
         {...immersiveShellPassThrough(props)}
-        bookStep={RESERVATION_BOOK_STEP_NUMBER.confirmation}
+        cardOverlayClose
+        onClose={props.onClose}
         draft={draft}
         onDraftChange={() => {}}
         hasVenue={props.hasVenue}

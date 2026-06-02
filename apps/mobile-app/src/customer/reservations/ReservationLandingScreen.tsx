@@ -1,13 +1,13 @@
 import React from "react";
 import { Animated, ScrollView, Text, View, useWindowDimensions } from "react-native";
 import { immersiveSheetTopOffset } from "./reservationImmersiveMetrics";
-import { buildQuickDateOptions, quickDateIdFromLabel } from "./reservationQuickDates";
 import { mergedExperiencePickIds } from "./experiencePickIds";
 import { toggleExperiencePickId } from "./experienceSelection";
 import { ReservationDetailCardCarousel } from "./ReservationDetailCardCarousel";
 import { EXPERIENCE_CARD_OPTIONS } from "./reservationPresets";
 import { ReservationPlanVisitIntro } from "./ReservationPlanVisitIntro";
 import { ReservationQuickBookingBar } from "./ReservationQuickBookingBar";
+import { useReservationSlotPicker } from "./useReservationSlotPicker";
 import { ReservationPrimaryButton } from "./ReservationUi";
 import { ReservationImmersiveStepShell } from "./ReservationImmersiveStepShell";
 import { reservationBookStyles as styles } from "./reservationBookStyles";
@@ -29,6 +29,7 @@ function computeAvailability(draft: ReservationDraft): AvailabilityState {
 
 type Props = ReservationFlowContext & {
   hasVenue: boolean;
+  authToken: string | null;
   scrollY: Animated.Value;
   onScroll: ReturnType<typeof import("react-native").Animated.event>;
   scrollTopPad: number;
@@ -50,7 +51,6 @@ export function ReservationLandingScreen(props: Props) {
   const sheetTopOffset = immersiveSheetTopOffset(screenH);
 
   const scrollRef = React.useRef<ScrollView | null>(null);
-  const quickDateOptions = React.useMemo(() => buildQuickDateOptions(10), []);
   const [experienceSectionY, setExperienceSectionY] = React.useState<number | null>(null);
   const pendingExperienceScrollRef = React.useRef(false);
   const [quickBarScrollLock, setQuickBarScrollLock] = React.useState(false);
@@ -92,12 +92,35 @@ export function ReservationLandingScreen(props: Props) {
 
   const experiencePickIds = React.useMemo(() => mergedExperiencePickIds(props.draft), [props.draft]);
 
+  const slotPicker = useReservationSlotPicker({
+    authToken: props.authToken,
+    restaurantId: props.restaurantId,
+    quickDateId: props.draft.quickDateId,
+    dateLabel: props.draft.dateLabel,
+    timeLabel: props.draft.timeLabel,
+    enabled: props.hasVenue && !!props.authToken?.trim(),
+    onResolved: (patch) => props.onDraftChange(patch)
+  });
+
   const onDateChange = React.useCallback(
-    (dateLabel: string) => {
-      const quickDateId = quickDateIdFromLabel(quickDateOptions, dateLabel);
-      props.onDraftChange({ dateLabel, quickDateId });
+    async (dateLabel: string, quickDateId: string) => {
+      const patch = await slotPicker.pickDate(dateLabel, quickDateId);
+      if (patch) props.onDraftChange(patch);
+      else props.onDraftChange({ dateLabel, quickDateId });
     },
-    [quickDateOptions, props.onDraftChange]
+    [props.onDraftChange, slotPicker]
+  );
+
+  const onTimeChange = React.useCallback(
+    (timeLabel: string) => {
+      if (
+        slotPicker.availableTimeLabels.length === 0 ||
+        slotPicker.availableTimeLabels.includes(timeLabel)
+      ) {
+        props.onDraftChange({ timeLabel });
+      }
+    },
+    [props.onDraftChange, slotPicker.availableTimeLabels]
   );
 
   return (
@@ -136,10 +159,13 @@ export function ReservationLandingScreen(props: Props) {
             guests={props.draft.guests}
             dateLabel={props.draft.dateLabel}
             timeLabel={props.draft.timeLabel}
+            availableTimeLabels={slotPicker.availableTimeLabels}
+            bookableDateIds={slotPicker.bookableDateIds}
+            slotsLoading={slotPicker.loading}
             disabled={!props.hasVenue}
             onGuestsChange={(guests) => props.onDraftChange({ guests: Math.max(1, guests) })}
             onDateChange={onDateChange}
-            onTimeChange={(timeLabel) => props.onDraftChange({ timeLabel })}
+            onTimeChange={onTimeChange}
             onReserve={() => {
               if (!props.hasVenue) {
                 props.onChooseVenue();
