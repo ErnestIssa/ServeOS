@@ -13,24 +13,16 @@ export type MeNavHighlightKey =
   | "me:rewards"
   | "me:preferences"
   | "me:notifications"
-  | "me:support";
+  | "me:security"
+  | "me:support"
+  | `me:${string}`;
 
 export type AppNavHighlightKey =
   | "app:chip:help"
   | "app:chip:safety"
   | "app:chip:settings"
-  | "app:role"
-  | "app:venues"
-  | "app:dashboard"
-  | "app:staff_tools"
-  | "app:resources"
-  | "app:safety_privacy"
-  | "app:connected"
-  | "app:integrations"
-  | "app:sessions"
-  | "app:developer"
-  | "app:about"
-  | `app:settings:${string}`;
+  | `app:settings:${string}`
+  | `app:${string}`;
 
 export type ProfileNavHighlightKey = MeNavHighlightKey | AppNavHighlightKey;
 

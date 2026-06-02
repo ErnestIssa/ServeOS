@@ -2,6 +2,7 @@ import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 import type { AuthUser } from "../../api";
 import { ThemedSwitch } from "../../components/ThemedSwitch";
+import type { MobileExperienceManifest, MeHubRowManifest } from "../../mobile/mobileExperienceTypes";
 import { useAppTheme } from "../../theme/AppThemeContext";
 import { ProfileAvatarModal } from "./ProfileAvatarModal";
 import type { MeNavHighlightKey } from "./profileNavHighlight";
@@ -16,7 +17,6 @@ import {
 import {
   BlurModalScrim,
   FadeSection,
-  hapticSelect,
   ProfileCard,
   ProfileHeader,
   ProfileScreenContainer,
@@ -27,11 +27,13 @@ import {
 type Props = {
   user: AuthUser | null;
   authToken?: string | null;
+  mobileExperience: MobileExperienceManifest;
   venueName: string;
   topInset: number;
   bottomInset: number;
   activeOrderCount: number;
   onNavigateSection: (title: string, subtitle: string | undefined, key: MeNavHighlightKey) => void;
+  onNavigateScreen: (screenKey: string, title: string, subtitle?: string) => void;
   onNavigateReview: () => void;
   onOpenBookings: () => void;
   onOpenOrders: () => void;
@@ -43,8 +45,19 @@ type Props = {
   onScrollCapture?: (y: number) => void;
 };
 
+function rowSubtitle(row: MeHubRowManifest, activeOrderCount: number): string {
+  if (row.id === "me:active_orders") {
+    return activeOrderCount > 0
+      ? `${activeOrderCount} in progress — track live status`
+      : "No active orders right now";
+  }
+  return row.subtitle;
+}
+
 export function CustomerMeHub(props: Props) {
   const { colors: t } = useAppTheme();
+  const { meHub } = props.mobileExperience;
+  const isCustomerExperience = props.mobileExperience.roleType === "CUSTOMER";
   const [prefsReady, setPrefsReady] = React.useState(false);
   const [pushOn, setPushOn] = React.useState(true);
   const [locationOn, setLocationOn] = React.useState(false);
@@ -53,6 +66,7 @@ export function CustomerMeHub(props: Props) {
   const [avatarOpen, setAvatarOpen] = React.useState(false);
 
   React.useEffect(() => {
+    if (!isCustomerExperience) return;
     let cancelled = false;
     void (async () => {
       const [localUri, q] = await Promise.all([
@@ -81,9 +95,55 @@ export function CustomerMeHub(props: Props) {
     return () => {
       cancelled = true;
     };
-  }, [props.authToken]);
+  }, [props.authToken, isCustomerExperience]);
+
+  React.useEffect(() => {
+    if (isCustomerExperience) return;
+    let cancelled = false;
+    void loadProfileAvatarUri().then((uri) => {
+      if (!cancelled) setAvatarUri(uri);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isCustomerExperience]);
 
   const email = props.user?.email?.trim() || "—";
+
+  const onRowPress = React.useCallback(
+    (row: MeHubRowManifest) => {
+      switch (row.action) {
+        case "open_reservations":
+          props.onOpenBookings();
+          break;
+        case "open_orders":
+          props.onOpenOrders();
+          break;
+        case "open_review":
+          props.onNavigateReview();
+          break;
+        case "open_support":
+          props.onOpenSupport();
+          break;
+        case "navigate_screen":
+          if (row.screenKey) {
+            props.onNavigateScreen(row.screenKey, row.sectionTitle ?? row.title, row.sectionSubtitle);
+          }
+          break;
+        case "navigate_section":
+          props.onNavigateSection(
+            row.sectionTitle ?? row.title,
+            row.sectionSubtitle,
+            row.id as MeNavHighlightKey
+          );
+          break;
+        case "sign_out":
+          setSignOutOpen(true);
+          break;
+      }
+    },
+    [props]
+  );
 
   const switchStyles = React.useMemo(
     () =>
@@ -114,159 +174,70 @@ export function CustomerMeHub(props: Props) {
         <FadeSection>
           <ProfileHeader
             user={props.user}
-            streakScore="4.98"
+            showStreak={props.mobileExperience.roleType === "CUSTOMER"}
             avatarUri={avatarUri}
             onAvatarPress={() => setAvatarOpen(true)}
           />
-          <Text style={{ fontSize: 13, fontWeight: "700", color: t.accentBlue, marginBottom: t.space.sm }}>
-            {props.venueName}
-          </Text>
+          {meHub.showVenueLine ? (
+            <Text style={{ fontSize: 13, fontWeight: "700", color: t.accentBlue, marginBottom: t.space.sm }}>
+              {props.venueName}
+            </Text>
+          ) : null}
         </FadeSection>
 
-        <FadeSection>
-          <SectionLabel variant="me">Activity</SectionLabel>
-          <ProfileCard noPad>
-            <SectionRow
-              title="Upcoming reservations"
-              subtitle="Tables and events you've booked"
-              highlightKey="me:reservations"
-              onPress={props.onOpenBookings}
-            />
-            <SectionRow
-              title="Active orders"
-              subtitle={
-                props.activeOrderCount > 0
-                  ? `${props.activeOrderCount} in progress — track live status`
-                  : "No active orders right now"
-              }
-              highlightKey="me:active_orders"
-              onPress={props.onOpenOrders}
-            />
-            <SectionRow
-              title="Review"
-              subtitle="Rate your visits and share feedback"
-              highlightKey="me:review"
-              onPress={() => props.onNavigateReview()}
-            />
-            <SectionRow
-              title="Order history"
-              subtitle="Past orders, receipts, and reorder"
-              highlightKey="me:order_history"
-              last
-              onPress={() => props.onNavigateSection("Order history", "Receipts and past totals", "me:order_history")}
-            />
-          </ProfileCard>
-        </FadeSection>
+        {meHub.sections.map((section) => (
+          <FadeSection key={section.id}>
+            <SectionLabel variant="me">{section.label}</SectionLabel>
+            <ProfileCard noPad={section.rows.some((r) => r.action !== "sign_out")}>
+              {section.rows.map((row, i) => (
+                <SectionRow
+                  key={row.id}
+                  title={row.title}
+                  subtitle={rowSubtitle(row, props.activeOrderCount)}
+                  highlightKey={row.danger ? undefined : (row.id as MeNavHighlightKey)}
+                  danger={row.danger}
+                  last={i === section.rows.length - 1}
+                  noHighlight={row.danger}
+                  onPress={() => onRowPress(row)}
+                />
+              ))}
+            </ProfileCard>
+          </FadeSection>
+        ))}
 
-        <FadeSection>
-          <SectionLabel variant="me">Places & payment</SectionLabel>
-          <ProfileCard noPad>
-            <SectionRow
-              title="Saved & favorite venues"
-              subtitle="Restaurants you love"
-              highlightKey="me:favorites"
-              onPress={() => props.onNavigateSection("Saved venues", "Favorites and recents", "me:favorites")}
-            />
-            <SectionRow
-              title="Payment methods"
-              subtitle="Cards and Swish"
-              highlightKey="me:payments"
-              onPress={() => props.onNavigateSection("Payment methods", "Stripe / Swish", "me:payments")}
-            />
-            <SectionRow
-              title="Addresses"
-              subtitle="Delivery and saved locations"
-              highlightKey="me:addresses"
-              last
-              onPress={() => props.onNavigateSection("Addresses", "Saved delivery addresses", "me:addresses")}
-            />
-          </ProfileCard>
-        </FadeSection>
-
-        <FadeSection>
-          <SectionLabel variant="me">Rewards</SectionLabel>
-          <ProfileCard noPad>
-            <SectionRow
-              title="Rewards & loyalty"
-              subtitle="Points, offers, and perks"
-              highlightKey="me:rewards"
-              last
-              onPress={() => props.onNavigateSection("Rewards & loyalty", "Coming soon", "me:rewards")}
-            />
-          </ProfileCard>
-        </FadeSection>
-
-        <FadeSection>
-          <SectionLabel variant="me">Personal preferences</SectionLabel>
-          <ProfileCard>
-            <SectionRow
-              title="Dietary & allergies"
-              subtitle="Filters for menu and ordering"
-              highlightKey="me:preferences"
-              last
-              onPress={() => props.onNavigateSection("Dietary & allergies", "Set preferences for safer ordering", "me:preferences")}
-            />
-          </ProfileCard>
-        </FadeSection>
-
-        <FadeSection>
-          <SectionLabel variant="me">Notifications</SectionLabel>
-          <ProfileCard>
-            {!prefsReady ? (
-              <Text style={{ fontSize: 14, fontWeight: "600", color: t.textMuted }}>Loading…</Text>
-            ) : (
-              <>
-                <View style={switchStyles.switchRow}>
-                  <Text style={switchStyles.switchLabel}>Order & chat push</Text>
-                  <ThemedSwitch
-                    value={pushOn}
-                    onValueChange={(v) => {
-                      setPushOn(v);
-                      void saveProfilePushForCustomer(v, props.authToken);
-                    }}
-                  />
-                </View>
-                <View style={[switchStyles.switchRow, switchStyles.switchRowLast]}>
-                  <Text style={switchStyles.switchLabel}>Location for venues</Text>
-                  <ThemedSwitch
-                    value={locationOn}
-                    onValueChange={(v) => {
-                      setLocationOn(v);
-                      void saveProfileLocationForCustomer(v, props.authToken);
-                    }}
-                  />
-                </View>
-              </>
-            )}
-          </ProfileCard>
-        </FadeSection>
-
-        <FadeSection>
-          <SectionLabel variant="me">Help</SectionLabel>
-          <ProfileCard noPad>
-            <SectionRow
-              title="Support"
-              subtitle="Quick help and contact"
-              highlightKey="me:support"
-              last
-              onPress={props.onOpenSupport}
-            />
-          </ProfileCard>
-        </FadeSection>
-
-        <FadeSection>
-          <SectionLabel variant="me">Session</SectionLabel>
-          <ProfileCard noPad>
-            <SectionRow
-              title="Log out"
-              subtitle="Ends this session on your device"
-              danger
-              last
-              noHighlight
-              onPress={() => setSignOutOpen(true)}
-            />
-          </ProfileCard>
-        </FadeSection>
+        {meHub.showNotificationToggles ? (
+          <FadeSection>
+            <SectionLabel variant="me">Notifications</SectionLabel>
+            <ProfileCard>
+              {!prefsReady ? (
+                <Text style={{ fontSize: 14, fontWeight: "600", color: t.textMuted }}>Loading…</Text>
+              ) : (
+                <>
+                  <View style={switchStyles.switchRow}>
+                    <Text style={switchStyles.switchLabel}>Order & chat push</Text>
+                    <ThemedSwitch
+                      value={pushOn}
+                      onValueChange={(v) => {
+                        setPushOn(v);
+                        void saveProfilePushForCustomer(v, props.authToken);
+                      }}
+                    />
+                  </View>
+                  <View style={[switchStyles.switchRow, switchStyles.switchRowLast]}>
+                    <Text style={switchStyles.switchLabel}>Location for venues</Text>
+                    <ThemedSwitch
+                      value={locationOn}
+                      onValueChange={(v) => {
+                        setLocationOn(v);
+                        void saveProfileLocationForCustomer(v, props.authToken);
+                      }}
+                    />
+                  </View>
+                </>
+              )}
+            </ProfileCard>
+          </FadeSection>
+        ) : null}
       </ProfileScreenContainer>
 
       <ProfileAvatarModal
@@ -276,7 +247,7 @@ export function CustomerMeHub(props: Props) {
         onSaved={(uri) => {
           setAvatarUri(uri);
           void saveProfileAvatarUri(uri);
-          void saveProfileAvatarForCustomer(uri, props.authToken);
+          if (isCustomerExperience) void saveProfileAvatarForCustomer(uri, props.authToken);
           props.onAvatarSaved?.(uri);
         }}
       />
@@ -284,7 +255,7 @@ export function CustomerMeHub(props: Props) {
       <BlurModalScrim
         visible={signOutOpen}
         title="Log out?"
-        body={`${email}\n\nYou can sign back in with the same guest account.`}
+        body={`${email}\n\nYou can sign back in with the same account.`}
         primaryLabel="Log out"
         primaryDanger
         onPrimary={() => {

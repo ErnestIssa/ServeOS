@@ -47,6 +47,20 @@ import { CustomerOrdersVenueScreen } from "./src/customer/CustomerOrdersVenueScr
 import { CustomerReservationFlow } from "./src/customer/reservations/CustomerReservationFlow";
 import { fetchCustomerAppContext } from "./src/customer/customerAppApi";
 import {
+  fetchMobileExperience,
+  mobileExperienceFromUser,
+  mobileRoleTypeFromUser,
+  visibleTabsFromUser,
+  workspaceScreenForTab
+} from "./src/mobile/mobileExperience";
+import {
+  fetchWorkspaceContext,
+  patchWorkspaceActiveRestaurant,
+  type WorkspaceContext
+} from "./src/mobile/workspaceApi";
+import { WorkspaceScreenHost } from "./src/workspace/WorkspaceScreenHost";
+import { WorkspaceVenuePicker } from "./src/workspace/WorkspaceVenuePicker";
+import {
   countActiveCustomerOrders,
   isActiveOrderStatus,
   orderStatusMilestone,
@@ -130,11 +144,13 @@ export default function App() {
   const [userRole, setUserRole] = React.useState<string | null>(null);
   const [sessionUser, setSessionUser] = React.useState<AuthUser | null>(null);
 
-  /** JWT + profile can disagree briefly; cart API gate uses this (not UI role alone). */
-  const isCustomerSession = React.useMemo(
-    () => String(sessionUser?.role ?? userRole ?? "").toUpperCase() === "CUSTOMER",
-    [sessionUser?.role, userRole]
-  );
+  const mobileExperience = React.useMemo(() => mobileExperienceFromUser(sessionUser), [sessionUser]);
+  const mobileRoleType = React.useMemo(() => mobileRoleTypeFromUser(sessionUser), [sessionUser]);
+  /** Backend `roleType` — not raw DB role strings. */
+  const isCustomerSession = mobileRoleType === "CUSTOMER";
+  const isAdminSession = mobileRoleType === "ADMIN";
+  const isStaffSession = mobileRoleType === "STAFF";
+  const visibleTabIds = visibleTabsFromUser(sessionUser) ?? undefined;
 
   const [restaurants, setRestaurants] = React.useState<Array<{ id: string; name: string; role: string; companyId?: string | null }>>([]);
   const [restaurantName, setRestaurantName] = React.useState("My Restaurant");
@@ -213,10 +229,59 @@ export default function App() {
   const [meAvatarUri, setMeAvatarUri] = React.useState<string | null>(null);
   /** ME tab inner stack: only the hub root keeps the floating top search bar visible. */
   const [meStackAtRoot, setMeStackAtRoot] = React.useState(true);
+  const [workspaceContext, setWorkspaceContext] = React.useState<WorkspaceContext | null>(null);
+
+  const refreshWorkspaceContext = React.useCallback(async (jwt?: string) => {
+    const t = jwt ?? token;
+    if (!t || mobileRoleTypeFromUser(sessionUser) === "CUSTOMER") {
+      setWorkspaceContext(null);
+      return;
+    }
+    const res = await fetchWorkspaceContext(t);
+    if (res.ok) setWorkspaceContext(res.context);
+  }, [token, sessionUser]);
+
+  const workspaceRestaurantId = workspaceContext?.activeRestaurantId ?? null;
+
+  const setWorkspaceVenue = React.useCallback(
+    async (restaurantId: string) => {
+      if (!token) return;
+      const res = await patchWorkspaceActiveRestaurant(token, restaurantId);
+      if (res.ok) setWorkspaceContext(res.context);
+    },
+    [token]
+  );
+
+  const workspaceTabScreen = React.useMemo(
+    () => workspaceScreenForTab(mobileExperience, tab),
+    [mobileExperience, tab]
+  );
 
   React.useEffect(() => {
     if (tab !== "account") setMeStackAtRoot(true);
   }, [tab]);
+
+  React.useEffect(() => {
+    void refreshWorkspaceContext();
+  }, [refreshWorkspaceContext]);
+
+  React.useEffect(() => {
+    if (!visibleTabIds?.length) return;
+    if (!visibleTabIds.includes(tab)) setTab(visibleTabIds[0]!);
+  }, [tab, visibleTabIds]);
+
+  React.useEffect(() => {
+    if (!token || sessionUser?.mobileExperience) return;
+    let cancelled = false;
+    void fetchMobileExperience(token).then((experience) => {
+      if (cancelled || !experience) return;
+      setSessionUser((u) => (u ? { ...u, roleType: experience.roleType, mobileExperience: experience } : u));
+      if (experience.roleType !== "CUSTOMER") void refreshWorkspaceContext(token);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, sessionUser?.mobileExperience]);
 
   const activeOrderCount = React.useMemo(() => {
     if (!isCustomerSession) return 0;
@@ -647,8 +712,15 @@ export default function App() {
     const orders = ordersRes.orders ?? [];
     setMyOrders(orders);
     await cacheWrite(myOrdersKey(authScope(me.user.id)), orders, TTL.myOrders);
-    setSessionUser(me.user);
-    return me.user;
+    let user = me.user;
+    if (!user.mobileExperience) {
+      const experience = await fetchMobileExperience(jwt);
+      if (experience) {
+        user = { ...user, roleType: experience.roleType, mobileExperience: experience };
+      }
+    }
+    setSessionUser(user);
+    return user;
   }, []);
 
   const completeAuthSession = React.useCallback(
@@ -1383,7 +1455,7 @@ export default function App() {
   const scrollBottom = contentBottomInset(insets.bottom);
   const scrollTopPad = R.space.sm + insets.top + FLOATING_TOP_BAR_HEIGHT + 18;
   const meCompactTopPad = insets.top + 8;
-  const hideCustomerTopNav = isCustomerSession && tab === "account" && !meStackAtRoot;
+  const hideProfileSubpageTopNav = !!token && mobileExperience && tab === "account" && !meStackAtRoot;
 
   const pageTitle =
     tab === "home"
@@ -1472,9 +1544,9 @@ export default function App() {
 
       <View style={styles.main}>
         <ScrollMeshBackground tab={tab} scrollY={scrollY} />
-        {!hideCustomerTopNav ? <TopNavContentDimmer topInset={insets.top} /> : null}
+        {!hideProfileSubpageTopNav ? <TopNavContentDimmer topInset={insets.top} /> : null}
         {isCustomerSession ? (
-          !hideCustomerTopNav ? (
+          !hideProfileSubpageTopNav ? (
           <FloatingTopBar
             variant="customer"
             topInset={insets.top}
@@ -1492,6 +1564,24 @@ export default function App() {
               setCustomerNavMenuOpen(true);
             }}
           />
+          ) : null
+        ) : token && mobileExperience ? (
+          !hideProfileSubpageTopNav ? (
+            <FloatingTopBar
+              topInset={insets.top}
+              scrollY={scrollY}
+              navGradient={navGradient}
+              leftLabel={leftLabel}
+              centerTitle={pageTitle}
+              notificationCount={0}
+              onLeftPress={() => setTab("account")}
+              onSearch={() => setStatus("search")}
+              onNotifications={() => setStatus("notifications")}
+              onMenu={() => {
+                Keyboard.dismiss();
+                setCustomerNavMenuOpen(true);
+              }}
+            />
           ) : null
         ) : (
           <FloatingTopBar
@@ -1582,6 +1672,25 @@ export default function App() {
                   </View>
                 ) : null}
               </>
+            ) : token && workspaceTabScreen ? (
+              <View style={styles.customerHomeCopyInset}>
+                {workspaceContext && workspaceContext.memberships.length > 1 ? (
+                  <WorkspaceVenuePicker
+                    memberships={workspaceContext.memberships}
+                    activeRestaurantId={workspaceRestaurantId}
+                    onSelect={(id) => void setWorkspaceVenue(id)}
+                  />
+                ) : null}
+                <WorkspaceScreenHost
+                  screenKey={workspaceTabScreen.screenKey}
+                  authToken={token}
+                  restaurantId={workspaceRestaurantId}
+                  title={workspaceTabScreen.title}
+                  subtitle={workspaceTabScreen.subtitle}
+                  topInset={0}
+                  bottomInset={0}
+                />
+              </View>
             ) : (
               <>
                 <Text style={styles.heroGreeting}>{greeting()}</Text>
@@ -1725,7 +1834,26 @@ export default function App() {
             ]}
             showsVerticalScrollIndicator={false}
           >
-            {token && isCustomerSession ? (
+            {token && workspaceTabScreen && tab === "orders" ? (
+              <View style={styles.customerHomeCopyInset}>
+                {workspaceContext && workspaceContext.memberships.length > 1 ? (
+                  <WorkspaceVenuePicker
+                    memberships={workspaceContext.memberships}
+                    activeRestaurantId={workspaceRestaurantId}
+                    onSelect={(id) => void setWorkspaceVenue(id)}
+                  />
+                ) : null}
+                <WorkspaceScreenHost
+                  screenKey={workspaceTabScreen.screenKey}
+                  authToken={token}
+                  restaurantId={workspaceRestaurantId}
+                  title={workspaceTabScreen.title}
+                  subtitle={workspaceTabScreen.subtitle}
+                  topInset={0}
+                  bottomInset={0}
+                />
+              </View>
+            ) : token && isCustomerSession ? (
               <CustomerOrdersVenueScreen
                 token={token}
                 userDisplayName={customerDisplayName(sessionUser?.signupProfile, sessionUser?.email ?? undefined)}
@@ -1918,7 +2046,7 @@ export default function App() {
           </Animated.ScrollView>
         ) : null}
 
-        {tab === "account" && token && isCustomerSession ? (
+        {tab === "account" && token && mobileExperience ? (
           <View style={styles.scrollLayer}>
             <CustomerMeStack
               topInset={scrollTopPad}
@@ -1926,6 +2054,8 @@ export default function App() {
               bottomInset={scrollBottom}
               user={sessionUser}
               authToken={token}
+              mobileExperience={mobileExperience}
+              workspaceRestaurantId={workspaceRestaurantId}
               venueName={customerVenueDisplayName}
               activeOrderCount={activeOrderCount}
               onOpenOrders={() => setTab("orders")}
@@ -2049,7 +2179,7 @@ export default function App() {
 
       <NutritionInfoModal visible={nutritionOpen} onDismiss={() => setNutritionOpen(false)} />
 
-      {token && isCustomerSession ? (
+      {token && mobileExperience ? (
         <CustomerNavMenuPage
           visible={customerNavMenuOpen}
           ambientTab={tab}
@@ -2057,10 +2187,14 @@ export default function App() {
           bottomInset={contentBottomInset(insets.bottom)}
           user={sessionUser}
           authToken={token}
+          mobileExperience={mobileExperience}
+          workspaceRestaurantId={workspaceRestaurantId}
           onBack={() => setCustomerNavMenuOpen(false)}
           onChooseVenue={() => {
             setCustomerNavMenuOpen(false);
-            setTab("orders");
+            if (isCustomerSession) setTab("orders");
+            else if (workspaceContext && workspaceContext.memberships.length > 1) setTab("home");
+            else setTab("orders");
           }}
         />
       ) : null}
@@ -2082,7 +2216,8 @@ export default function App() {
         messagesUnreadCount={chatUnreadCount}
         ordersActiveCount={ordersTabBadgeCount}
         bookingsUpcomingCount={bookTabBadgeCount}
-        meAvatarUri={isCustomerSession ? meAvatarUri : null}
+        meAvatarUri={meAvatarUri}
+        visibleTabIds={visibleTabIds}
       />
     </Animated.View>
   );

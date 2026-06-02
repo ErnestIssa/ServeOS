@@ -13,6 +13,7 @@ import {
 import type { AmbientNativeTab } from "@serveos/core-ambient/themes";
 import { ambientNativePalettes } from "@serveos/core-ambient/themes";
 import type { AuthUser } from "../api";
+import type { MobileExperienceManifest } from "../mobile/mobileExperienceTypes";
 import { CustomerProfileStack } from "../customer/profile/CustomerProfileStack";
 import { useAppTheme } from "../theme/AppThemeContext";
 
@@ -47,6 +48,8 @@ type Props = {
   ambientTab: AmbientNativeTab;
   user: AuthUser | null;
   authToken?: string | null;
+  workspaceRestaurantId?: string | null;
+  mobileExperience: MobileExperienceManifest;
   onBack: () => void;
   onChooseVenue: () => void;
 };
@@ -156,6 +159,8 @@ export function CustomerNavMenuPage(props: Props) {
             bottomInset={bottomInset}
             user={props.user}
             authToken={props.authToken}
+            workspaceRestaurantId={props.workspaceRestaurantId}
+            mobileExperience={props.mobileExperience}
             onCloseMenu={handleCloseMenu}
             onChooseVenue={() => {
               handleCloseMenu();

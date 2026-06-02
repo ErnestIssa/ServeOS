@@ -6,20 +6,22 @@ import type { AuthUser } from "../../api";
 import { useAppTheme } from "../../theme/AppThemeContext";
 import { FrostedTopChrome } from "./profileScrollFrostedEdges";
 import { AppControlCenterHome } from "./AppControlCenterHome";
-import { ProfileHubSubpageOverlay } from "./ProfileHubSubpageOverlay";
 import { ProfilePlaceholderScreen } from "./ProfilePlaceholderScreen";
+import { WorkspaceScreenHost } from "../../workspace/WorkspaceScreenHost";
 import { SafetyScreen } from "./SafetyScreen";
 import { SettingsDetailScreen, SettingsHomeScreen } from "./SettingsScreens";
-import type { AppStackRoute } from "./profileHubRoutes";
-import { appStackOverlayTitle, splitHubStack } from "./profileHubStackHelpers";
+import type { MobileExperienceManifest } from "../../mobile/mobileExperienceTypes";
+import { appStackOverlayTitle, splitHubStack, type AppStackRoute } from "./profileHubRoutes";
+import { ProfileHubSubpageOverlay, useProfileSubpageMotion } from "./ProfileHubSubpageOverlay";
 import { ProfileNavHighlightProvider, useProfileNavHighlight } from "./profileNavHighlight";
-import { useProfileSubpageMotion } from "./useProfileSubpageMotion";
 
 type Props = {
   topInset: number;
   bottomInset: number;
   user: AuthUser | null;
   authToken?: string | null;
+  workspaceRestaurantId?: string | null;
+  mobileExperience: MobileExperienceManifest;
   onCloseMenu: () => void;
   onChooseVenue: () => void;
 };
@@ -38,6 +40,8 @@ function BackChevron({ color }: { color: string }) {
 type RenderCtx = {
   user: AuthUser | null;
   authToken?: string | null;
+  workspaceRestaurantId?: string | null;
+  mobileExperience: MobileExperienceManifest;
   bottomInset: number;
   topChromeHeight: number;
   onScrollAtTop: (atTop: boolean) => void;
@@ -53,6 +57,7 @@ function renderAppRoute(route: AppStackRoute, ctx: RenderCtx): React.ReactNode {
         <AppControlCenterHome
           user={ctx.user}
           authToken={ctx.authToken}
+          mobileExperience={ctx.mobileExperience}
           topInset={0}
           bottomInset={ctx.bottomInset}
           chromeTopBleed={ctx.topChromeHeight}
@@ -63,6 +68,11 @@ function renderAppRoute(route: AppStackRoute, ctx: RenderCtx): React.ReactNode {
           onNavigateSection={(sectionTitle, subtitle, key) =>
             ctx.navigate(key, () => ctx.push({ name: "section", title: sectionTitle, subtitle }))
           }
+          onNavigateScreen={(screenKey, title, subtitle) =>
+            ctx.navigate(screenKey as `app:${string}`, () =>
+              ctx.push({ name: "workspace", screenKey, title, subtitle })
+            )
+          }
           onChooseVenue={ctx.onChooseVenue}
         />
       );
@@ -70,6 +80,8 @@ function renderAppRoute(route: AppStackRoute, ctx: RenderCtx): React.ReactNode {
       return (
         <SettingsHomeScreen
           bottomInset={ctx.bottomInset}
+          accountKeys={ctx.mobileExperience.settings.accountKeys}
+          generalKeys={ctx.mobileExperience.settings.generalKeys}
           onOpenDetail={(key) => ctx.navigate(`app:settings:${key}`, () => ctx.push({ name: "settings_detail", key }))}
         />
       );
@@ -81,6 +93,20 @@ function renderAppRoute(route: AppStackRoute, ctx: RenderCtx): React.ReactNode {
           authToken={ctx.authToken}
           bottomInset={ctx.bottomInset}
         />
+      );
+    case "workspace":
+      return ctx.authToken ? (
+        <WorkspaceScreenHost
+          screenKey={route.screenKey}
+          authToken={ctx.authToken}
+          restaurantId={ctx.workspaceRestaurantId}
+          title={route.title}
+          subtitle={route.subtitle}
+          topInset={0}
+          bottomInset={ctx.bottomInset}
+        />
+      ) : (
+        <ProfilePlaceholderScreen title={route.title} subtitle={route.subtitle} topInset={0} bottomInset={ctx.bottomInset} />
       );
     case "help":
       return (
@@ -176,6 +202,8 @@ function CustomerProfileStackInner(props: Props) {
     () => ({
       user: props.user,
       authToken: props.authToken,
+      workspaceRestaurantId: props.workspaceRestaurantId,
+      mobileExperience: props.mobileExperience,
       bottomInset: props.bottomInset,
       topChromeHeight,
       onScrollAtTop: setScrollAtTop,
@@ -183,7 +211,17 @@ function CustomerProfileStackInner(props: Props) {
       push,
       onChooseVenue: props.onChooseVenue
     }),
-    [navigate, props.authToken, props.bottomInset, props.onChooseVenue, props.user, push, topChromeHeight]
+    [
+      navigate,
+      props.authToken,
+      props.workspaceRestaurantId,
+      props.mobileExperience,
+      props.bottomInset,
+      props.onChooseVenue,
+      props.user,
+      push,
+      topChromeHeight
+    ]
   );
 
   const styles = React.useMemo(

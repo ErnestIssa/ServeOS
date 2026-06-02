@@ -14,6 +14,8 @@ import { registerOrderRoutes } from "./routes/orderRoutes.js";
 import { registerCartRoutes } from "./routes/cartRoutes.js";
 import { registerBusinessRoutes } from "./routes/businessRoutes.js";
 import { registerCustomerRoutes } from "./routes/customerRoutes.js";
+import { registerMobileExperienceRoutes } from "./routes/mobileExperienceRoutes.js";
+import { registerMobileWorkspaceRoutes } from "./routes/mobileWorkspaceRoutes.js";
 import { registerCustomerReservationRoutes } from "./routes/customerReservationRoutes.js";
 import { registerCustomerChatRoutes } from "./routes/customerChatRoutes.js";
 import { registerCustomerChatRealtime } from "./routes/customerChatRealtime.js";
@@ -97,6 +99,7 @@ async function main() {
       "/auth/*",
       "/customer/*",
       "/customer/context",
+      "/mobile/experience",
       "/customer/chat/*",
       "/restaurants/*",
       "/orders/*",
@@ -105,6 +108,8 @@ async function main() {
   }));
 
   registerAuthRoutes(app, prisma);
+  registerMobileExperienceRoutes(app, prisma);
+  registerMobileWorkspaceRoutes(app, prisma);
   registerRestaurantRoutes(app, prisma);
   registerRestaurantChatRoutes(app, prisma, chatBus);
   registerCustomerRoutes(app, prisma);

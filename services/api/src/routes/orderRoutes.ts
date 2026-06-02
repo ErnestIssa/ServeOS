@@ -13,6 +13,7 @@ import { autoTerminateStaleActiveOrdersForCustomer } from "../lib/autoTerminateS
 import { markCustomerMessagesDeliveredForOrder } from "../lib/chatReceipts.js";
 import { emitChatEvent } from "../lib/chatRealtime.js";
 import { syncOrderRoomSystemMessage } from "../lib/customerChatHub.js";
+import { isVenueMembershipRole } from "../lib/membershipAccess.js";
 import { serializeMessage } from "../lib/chatMessageService.js";
 
 export type { OrderEventPayload };
@@ -100,7 +101,7 @@ export async function registerOrderRoutes(
     const m = await prisma.membership.findUnique({
       where: { userId_restaurantId: { userId: user.sub, restaurantId } }
     });
-    if (!m || (m.role !== "OWNER" && m.role !== "STAFF")) {
+    if (!m || !isVenueMembershipRole(m.role)) {
       throw Object.assign(new Error("forbidden"), { statusCode: 403 });
     }
     return user;

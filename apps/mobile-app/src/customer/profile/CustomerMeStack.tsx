@@ -6,14 +6,15 @@ import type { AuthUser } from "../../api";
 import { useAppTheme } from "../../theme/AppThemeContext";
 import { CustomerMeHub } from "./CustomerMeHub";
 import { MeReservationConfirmationScreen } from "./MeReservationConfirmationScreen";
-import { ProfileHubSubpageOverlay } from "./ProfileHubSubpageOverlay";
+import { ProfileHubSubpageOverlay, useProfileSubpageMotion } from "./ProfileHubSubpageOverlay";
 import { ProfilePlaceholderScreen } from "./ProfilePlaceholderScreen";
+import { WorkspaceScreenHost } from "../../workspace/WorkspaceScreenHost";
 import { ProfileReviewScreen } from "./ProfileReviewScreen";
 import { UpcomingReservationsScreen } from "./UpcomingReservationsScreen";
+import type { MobileExperienceManifest } from "../../mobile/mobileExperienceTypes";
 import type { MeStackRoute } from "./profileHubRoutes";
 import type { CustomerReservationApi } from "../reservations/reservationApi";
 import { ProfileNavHighlightProvider, useProfileNavHighlight } from "./profileNavHighlight";
-import { useProfileSubpageMotion } from "./useProfileSubpageMotion";
 import {
   REVIEW_CLOSE_FADE_MS,
   REVIEW_CLOSE_Y_MS,
@@ -30,6 +31,8 @@ type Props = {
   bottomInset: number;
   user: AuthUser | null;
   authToken: string | null;
+  workspaceRestaurantId?: string | null;
+  mobileExperience: MobileExperienceManifest;
   venueName: string;
   activeOrderCount: number;
   onOpenOrders: () => void;
@@ -177,16 +180,19 @@ function CustomerMeStackInner(props: Props) {
     hubScrollYRef.current = Math.max(0, y);
   }, []);
 
-  const openReview = React.useCallback(() => {
-    void Haptics.selectionAsync();
-    push({ name: "review" });
-  }, [push]);
+  const isCustomer = props.mobileExperience.roleType === "CUSTOMER";
 
   const openUpcomingReservations = React.useCallback(() => {
     void Haptics.selectionAsync();
-    if (!props.authToken?.trim()) return;
+    if (!isCustomer || !props.authToken?.trim()) return;
     navigate("me:reservations", () => push({ name: "upcoming_reservations" }));
-  }, [navigate, props.authToken, push]);
+  }, [isCustomer, navigate, props.authToken, push]);
+
+  const openReview = React.useCallback(() => {
+    if (!isCustomer) return;
+    void Haptics.selectionAsync();
+    push({ name: "review" });
+  }, [isCustomer, push]);
 
   const closeReservationOverlay = React.useCallback(() => {
     if (reservationExitInFlightRef.current || !isReservationOverlay) return;
@@ -207,6 +213,7 @@ function CustomerMeStackInner(props: Props) {
     <CustomerMeHub
       user={props.user}
       authToken={props.authToken}
+      mobileExperience={props.mobileExperience}
       venueName={props.venueName}
       topInset={hubTopInset}
       bottomInset={props.bottomInset}
@@ -215,6 +222,9 @@ function CustomerMeStackInner(props: Props) {
       scrollEnabled={!isReviewRoute}
       onNavigateSection={(sectionTitle, subtitle, key) =>
         navigate(key, () => push({ name: "section", title: sectionTitle, subtitle }))
+      }
+      onNavigateScreen={(screenKey, title, subtitle) =>
+        navigate(screenKey, () => push({ name: "workspace", screenKey, title, subtitle }))
       }
       onNavigateReview={openReview}
       onOpenBookings={openUpcomingReservations}
@@ -250,6 +260,16 @@ function CustomerMeStackInner(props: Props) {
   const content =
     route.name === "home" || route.name === "review" || isReservationOverlay ? (
       meHub
+    ) : route.name === "workspace" && props.authToken ? (
+      <WorkspaceScreenHost
+        screenKey={route.screenKey}
+        authToken={props.authToken}
+        restaurantId={props.workspaceRestaurantId}
+        title={route.title}
+        subtitle={route.subtitle}
+        topInset={hubTopInset}
+        bottomInset={props.bottomInset}
+      />
     ) : route.name === "section" ? (
       <ProfilePlaceholderScreen
         title={route.title}

@@ -2,6 +2,11 @@ import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 import type { AuthUser } from "../../api";
 import { ThemedSwitch } from "../../components/ThemedSwitch";
+import type {
+  ControlCentreChipManifest,
+  ControlCentreRowManifest,
+  MobileExperienceManifest
+} from "../../mobile/mobileExperienceTypes";
 import { useAppTheme } from "../../theme/AppThemeContext";
 import { loadAppSettingsForCustomer, saveAppSettingsForCustomer } from "./profilePrefsStorage";
 import { hapticSelect } from "./ProfileUi";
@@ -18,21 +23,80 @@ import {
 type Props = {
   user: AuthUser | null;
   authToken?: string | null;
+  mobileExperience: MobileExperienceManifest;
   topInset: number;
   bottomInset: number;
-  /** Measured top chrome (back row + safe padding) for frosted glass bleed. */
   chromeTopBleed: number;
   onScrollEdges?: (edges: { atTop: boolean; atBottom: boolean }) => void;
   onNavigateHelp: () => void;
   onNavigateSafety: () => void;
   onNavigateAppSettings: () => void;
   onNavigateSection: (title: string, subtitle: string | undefined, key: AppNavHighlightKey) => void;
+  onNavigateScreen: (screenKey: string, title: string, subtitle?: string) => void;
   onChooseVenue: () => void;
 };
 
+function chipVariant(
+  action: ControlCentreChipManifest["action"]
+): "help" | "safety" | "settings" {
+  if (action === "navigate_safety") return "safety";
+  if (action === "navigate_settings") return "settings";
+  return "help";
+}
+
 export function AppControlCenterHome(props: Props) {
   const { colors: t, scheme, setScheme } = useAppTheme();
-  const role = String(props.user?.role ?? "CUSTOMER").toUpperCase();
+  const { controlCentre } = props.mobileExperience;
+
+  const onChipPress = React.useCallback(
+    (chip: ControlCentreChipManifest) => {
+      switch (chip.action) {
+        case "navigate_help":
+          props.onNavigateHelp();
+          break;
+        case "navigate_safety":
+          props.onNavigateSafety();
+          break;
+        case "navigate_settings":
+          props.onNavigateAppSettings();
+          break;
+      }
+    },
+    [props]
+  );
+
+  const onRowPress = React.useCallback(
+    (row: ControlCentreRowManifest) => {
+      switch (row.action) {
+        case "navigate_help":
+          props.onNavigateHelp();
+          break;
+        case "navigate_safety":
+          props.onNavigateSafety();
+          break;
+        case "navigate_settings":
+          props.onNavigateAppSettings();
+          break;
+        case "choose_venue":
+          props.onChooseVenue();
+          break;
+        case "navigate_screen":
+          if (row.screenKey) {
+            props.onNavigateScreen(row.screenKey, row.sectionTitle ?? row.title, row.sectionSubtitle);
+          }
+          break;
+        case "navigate_section":
+          props.onNavigateSection(
+            row.sectionTitle ?? row.title,
+            row.sectionSubtitle,
+            row.id as AppNavHighlightKey
+          );
+          break;
+      }
+    },
+    [props]
+  );
+
   const appearanceStyles = React.useMemo(
     () =>
       StyleSheet.create({
@@ -55,157 +119,68 @@ export function AppControlCenterHome(props: Props) {
       frostedExternalTopChrome
       onScrollEdges={props.onScrollEdges}
     >
-      <FadeSection>
-        <View style={{ flexDirection: "row", marginBottom: t.space.sm, marginHorizontal: -4 }}>
-          <TopChip
-            variant="help"
-            label="Help"
-            highlightKey="app:chip:help"
-            onPress={props.onNavigateHelp}
-          />
-          <TopChip
-            variant="safety"
-            label="Safety"
-            highlightKey="app:chip:safety"
-            onPress={props.onNavigateSafety}
-          />
-          <TopChip
-            variant="settings"
-            label="App settings"
-            highlightKey="app:chip:settings"
-            onPress={props.onNavigateAppSettings}
-          />
-        </View>
-      </FadeSection>
-
-      <FadeSection>
-        <SectionLabel variant="me">Access & venues</SectionLabel>
-        <ProfileCard noPad>
-          <SectionRow
-            title="Switch role / mode"
-            subtitle={role === "CUSTOMER" ? "Guest · customer mode" : role}
-            highlightKey="app:role"
-            onPress={() => props.onNavigateSection("Switch role", "Customer, owner, and staff modes", "app:role")}
-          />
-          <SectionRow
-            title="Venues"
-            subtitle="Manage or select restaurants"
-            highlightKey="app:venues"
-            last
-            onPress={props.onChooseVenue}
-          />
-        </ProfileCard>
-      </FadeSection>
-
-      <FadeSection>
-        <SectionLabel variant="me">Business & operations</SectionLabel>
-        <ProfileCard noPad>
-          <SectionRow
-            title="Business dashboard"
-            subtitle="Owner and staff overview"
-            highlightKey="app:dashboard"
-            onPress={() => props.onNavigateSection("Business dashboard", "Web admin and analytics", "app:dashboard")}
-          />
-          <SectionRow
-            title="Staff tools"
-            subtitle="KDS, checkout, floor operations"
-            highlightKey="app:staff_tools"
-            last
-            onPress={() => props.onNavigateSection("Staff tools", "Operational shortcuts", "app:staff_tools")}
-          />
-        </ProfileCard>
-      </FadeSection>
-
-      <FadeSection>
-        <SectionLabel variant="me">Resources</SectionLabel>
-        <ProfileCard noPad>
-          <SectionRow
-            title="Tutorials & help center"
-            subtitle="Docs and how-to guides"
-            highlightKey="app:resources"
-            last
-            onPress={() => props.onNavigateSection("Resources", "Tutorials and documentation", "app:resources")}
-          />
-        </ProfileCard>
-      </FadeSection>
-
-      <FadeSection>
-        <SectionLabel variant="me">Privacy & app</SectionLabel>
-        <ProfileCard noPad>
-          <SectionRow
-            title="Safety & privacy"
-            subtitle="Policies and data controls"
-            highlightKey="app:safety_privacy"
-            onPress={props.onNavigateSafety}
-          />
-          <SectionRow
-            title="App settings"
-            subtitle="Theme, language, device"
-            highlightKey="app:chip:settings"
-            onPress={props.onNavigateAppSettings}
-          />
-          <SectionRow
-            title="Connected devices"
-            subtitle="Printers, KDS, displays"
-            highlightKey="app:connected"
-            onPress={() => props.onNavigateSection("Connected devices", "Hardware pairing", "app:connected")}
-          />
-          <SectionRow
-            title="Integrations"
-            subtitle="Stripe, Swish, and partners"
-            highlightKey="app:integrations"
-            last
-            onPress={() => props.onNavigateSection("Integrations", "Payment and platform links", "app:integrations")}
-          />
-        </ProfileCard>
-      </FadeSection>
-
-      <FadeSection>
-        <SectionLabel variant="me">Platform</SectionLabel>
-        <ProfileCard noPad>
-          <SectionRow
-            title="Session management"
-            subtitle="Active sessions and devices"
-            highlightKey="app:sessions"
-            onPress={() => props.onNavigateSection("Session management", "Devices signed in", "app:sessions")}
-          />
-          <SectionRow
-            title="Developer / advanced"
-            subtitle="Logs, debug, and tools"
-            highlightKey="app:developer"
-            onPress={() => props.onNavigateSection("Developer tools", "Diagnostics", "app:developer")}
-          />
-          <SectionRow
-            title="About ServeOS"
-            subtitle="Platform version and legal"
-            highlightKey="app:about"
-            last
-            onPress={() => props.onNavigateSection("About ServeOS", "System information", "app:about")}
-          />
-        </ProfileCard>
-      </FadeSection>
-
-      <FadeSection>
-        <SectionLabel variant="me">Appearance</SectionLabel>
-        <ProfileCard>
-          <View style={appearanceStyles.row}>
-            <Text style={appearanceStyles.label}>Dark mode</Text>
-            <ThemedSwitch
-              value={scheme === "dark"}
-              onValueChange={(v) => {
-                hapticSelect();
-                const mode = v ? "dark" : "light";
-                setScheme(mode);
-                void (async () => {
-                  const settings = await loadAppSettingsForCustomer(props.authToken);
-                  const next = { ...settings, nightMode: mode as "dark" | "light" };
-                  await saveAppSettingsForCustomer(next, props.authToken);
-                })();
-              }}
-            />
+      {controlCentre.chips.length > 0 ? (
+        <FadeSection>
+          <View style={{ flexDirection: "row", marginBottom: t.space.sm, marginHorizontal: -4 }}>
+            {controlCentre.chips.map((chip) => (
+              <TopChip
+                key={chip.id}
+                variant={chipVariant(chip.action)}
+                label={chip.label}
+                highlightKey={chip.id as AppNavHighlightKey}
+                onPress={() => onChipPress(chip)}
+              />
+            ))}
           </View>
-        </ProfileCard>
-      </FadeSection>
+        </FadeSection>
+      ) : null}
+
+      {controlCentre.sections.map((section) => (
+        <FadeSection key={section.id}>
+          <SectionLabel variant="me">{section.label}</SectionLabel>
+          <ProfileCard noPad>
+            {section.rows.map((row) => (
+              <SectionRow
+                key={row.id}
+                title={row.title}
+                subtitle={row.subtitle}
+                highlightKey={row.id as AppNavHighlightKey}
+                last={!!row.last}
+                onPress={() => onRowPress(row)}
+              />
+            ))}
+          </ProfileCard>
+        </FadeSection>
+      ))}
+
+      {controlCentre.showDarkModeToggle ? (
+        <FadeSection>
+          <SectionLabel variant="me">Appearance</SectionLabel>
+          <ProfileCard>
+            <View style={appearanceStyles.row}>
+              <Text style={appearanceStyles.label}>Dark mode</Text>
+              <ThemedSwitch
+                value={scheme === "dark"}
+                onValueChange={(v) => {
+                  hapticSelect();
+                  const mode = v ? "dark" : "light";
+                  setScheme(mode);
+                  void (async () => {
+                    const settings = await loadAppSettingsForCustomer(
+                      props.mobileExperience.roleType === "CUSTOMER" ? props.authToken : undefined
+                    );
+                    const next = { ...settings, nightMode: mode as "dark" | "light" };
+                    await saveAppSettingsForCustomer(
+                      next,
+                      props.mobileExperience.roleType === "CUSTOMER" ? props.authToken : undefined
+                    );
+                  })();
+                }}
+              />
+            </View>
+          </ProfileCard>
+        </FadeSection>
+      ) : null}
     </ProfileScreenContainer>
   );
 }

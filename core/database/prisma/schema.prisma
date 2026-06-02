@@ -9,7 +9,10 @@ datasource db {
 
 enum Role {
   OWNER
+  MANAGER
   STAFF
+  KITCHEN
+  CASHIER
   CUSTOMER
 }
 

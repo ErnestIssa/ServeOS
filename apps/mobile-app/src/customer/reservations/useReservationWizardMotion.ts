@@ -1,1 +1,1 @@
-export { useProfileSubpageMotion as useReservationWizardMotion } from "../profile/useProfileSubpageMotion";
+export { useProfileSubpageMotion as useReservationWizardMotion } from "../profile/ProfileHubSubpageOverlay";

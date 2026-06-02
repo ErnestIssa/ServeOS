@@ -4,6 +4,7 @@ import type { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { fetchMenuTree } from "../lib/menu.js";
+import { isVenueMembershipRole } from "../lib/membershipAccess.js";
 
 export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaClient) {
   function requireUser(req: { headers: { authorization?: string } }) {
@@ -22,7 +23,7 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
     const m = await prisma.membership.findUnique({
       where: { userId_restaurantId: { userId: user.sub, restaurantId } }
     });
-    if (!m || (m.role !== "OWNER" && m.role !== "STAFF")) {
+    if (!m || !isVenueMembershipRole(m.role)) {
       throw Object.assign(new Error("forbidden"), { statusCode: 403 });
     }
     return { user, membership: m };

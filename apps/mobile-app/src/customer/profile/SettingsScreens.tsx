@@ -20,6 +20,8 @@ type SettingsDetailStyles = Record<string, ViewStyle | TextStyle | ImageStyle>;
 
 type HubProps = {
   bottomInset: number;
+  accountKeys: SettingsDetailKey[];
+  generalKeys: SettingsDetailKey[];
   onOpenDetail: (key: SettingsDetailKey) => void;
 };
 
@@ -39,40 +41,47 @@ const GENERAL_ROWS = [
 ];
 
 export function SettingsHomeScreen(props: HubProps) {
+  const accountRows = ACCOUNT_ROWS.filter((r) => props.accountKeys.includes(r.key));
+  const generalRows = GENERAL_ROWS.filter((r) => props.generalKeys.includes(r.key));
+
   return (
     <ProfileScreenContainer topInset={0} bottomInset={props.bottomInset}>
-      <FadeSection>
-        <SectionLabel variant="me">Account</SectionLabel>
-        <ProfileCard noPad>
-          {ACCOUNT_ROWS.map((row, i) => (
-            <RowItem
-              key={row.key}
-              icon={row.icon}
-              title={row.title}
-              subtitle={row.subtitle}
-              highlightKey={`app:settings:${row.key}`}
-              last={i === ACCOUNT_ROWS.length - 1}
-              onPress={() => props.onOpenDetail(row.key)}
-            />
-          ))}
-        </ProfileCard>
-      </FadeSection>
-      <FadeSection>
-        <SectionLabel variant="me">General</SectionLabel>
-        <ProfileCard noPad>
-          {GENERAL_ROWS.map((row, i) => (
-            <RowItem
-              key={row.key}
-              icon={row.icon}
-              title={row.title}
-              subtitle={row.subtitle}
-              highlightKey={`app:settings:${row.key}`}
-              last={i === GENERAL_ROWS.length - 1}
-              onPress={() => props.onOpenDetail(row.key)}
-            />
-          ))}
-        </ProfileCard>
-      </FadeSection>
+      {accountRows.length > 0 ? (
+        <FadeSection>
+          <SectionLabel variant="me">Account</SectionLabel>
+          <ProfileCard noPad>
+            {accountRows.map((row, i) => (
+              <RowItem
+                key={row.key}
+                icon={row.icon}
+                title={row.title}
+                subtitle={row.subtitle}
+                highlightKey={`app:settings:${row.key}`}
+                last={i === accountRows.length - 1}
+                onPress={() => props.onOpenDetail(row.key)}
+              />
+            ))}
+          </ProfileCard>
+        </FadeSection>
+      ) : null}
+      {generalRows.length > 0 ? (
+        <FadeSection>
+          <SectionLabel variant="me">General</SectionLabel>
+          <ProfileCard noPad>
+            {generalRows.map((row, i) => (
+              <RowItem
+                key={row.key}
+                icon={row.icon}
+                title={row.title}
+                subtitle={row.subtitle}
+                highlightKey={`app:settings:${row.key}`}
+                last={i === generalRows.length - 1}
+                onPress={() => props.onOpenDetail(row.key)}
+              />
+            ))}
+          </ProfileCard>
+        </FadeSection>
+      ) : null}
     </ProfileScreenContainer>
   );
 }

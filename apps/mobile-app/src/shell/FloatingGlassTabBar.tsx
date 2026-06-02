@@ -135,6 +135,8 @@ type Props = {
   bookingsUpcomingCount?: number;
   /** When set, ME tab shows the user's photo instead of the ME label. */
   meAvatarUri?: string | null;
+  /** Backend-authorized tabs only (defaults to all five). */
+  visibleTabIds?: TabId[];
 };
 
 function TabGlyph({
@@ -178,8 +180,16 @@ export function FloatingGlassTabBar({
   messagesUnreadCount = 0,
   ordersActiveCount = 0,
   bookingsUpcomingCount = 0,
-  meAvatarUri = null
+  meAvatarUri = null,
+  visibleTabIds
 }: Props) {
+  const visibleTabs = React.useMemo(() => {
+    const allowed = visibleTabIds?.length ? new Set(visibleTabIds) : null;
+    return allowed ? TABS.filter((t) => allowed.has(t.id)) : TABS;
+  }, [visibleTabIds]);
+  const tabCount = visibleTabs.length;
+  const tabLastIndex = Math.max(0, tabCount - 1);
+
   const { height: screenH } = useWindowDimensions();
   const { isDark, colors: theme } = useAppTheme();
   const pillFillRest = isDark ? "#334155" : "#F5F3FF";
@@ -232,7 +242,10 @@ export function FloatingGlassTabBar({
     tabIndexSV.value = tabIndex;
   }, [tabIndex, tabIndexSV]);
 
-  const tabIndex = React.useMemo(() => Math.max(0, TABS.findIndex((t) => t.id === tab)), [tab]);
+  const tabIndex = React.useMemo(
+    () => Math.max(0, visibleTabs.findIndex((t) => t.id === tab)),
+    [tab, visibleTabs]
+  );
   const tabRef = React.useRef(tab);
   tabRef.current = tab;
   const pillDragActiveRef = React.useRef(false);
@@ -244,22 +257,22 @@ export function FloatingGlassTabBar({
 
   const snapPillTo = React.useCallback(
     (index: number, duration = PILL_MOVE_MS, easing = PILL_EASE) => {
-      const clamped = Math.max(0, Math.min(TAB_COUNT - 1, index));
+      const clamped = Math.max(0, Math.min(tabLastIndex, index));
       lastPillTabIndex.value = clamped;
       cancelAnimation(pillLiftSV);
       pillLiftSV.value = 0;
       pillProgress.value = withTiming(clamped, { duration, easing });
     },
-    [lastPillTabIndex, pillLiftSV, pillProgress]
+    [lastPillTabIndex, pillLiftSV, pillProgress, tabLastIndex]
   );
 
   const finishPan = React.useCallback(
     (index: number) => {
-      const id = TABS[index]?.id;
+      const id = visibleTabs[index]?.id;
       if (!id || id === tabRef.current) return;
       onChange(id);
     },
-    [onChange]
+    [onChange, visibleTabs]
   );
 
   const fireTabCrossHaptic = React.useCallback(() => {
@@ -280,14 +293,14 @@ export function FloatingGlassTabBar({
       tabRowWidthSV.value = rowW;
       const pad = 6;
       const inner = Math.max(0, rowW - pad * 2);
-      const step = inner / TAB_COUNT;
+      const step = inner / tabCount;
       if (step <= 0) return;
-      for (let i = 0; i < TAB_COUNT; i++) {
+      for (let i = 0; i < tabCount; i++) {
         tabCenters[i].value = pad + (i + 0.5) * step;
         tabWidths[i].value = step;
       }
     },
-    [tabCenters, tabRowWidthSV, tabWidths]
+    [tabCenters, tabRowWidthSV, tabWidths, tabCount]
   );
 
   const onTabRowLayout = React.useCallback(
@@ -424,13 +437,14 @@ export function FloatingGlassTabBar({
       [tabWidths[0].value, tabWidths[1].value, tabWidths[2].value, tabWidths[3].value, tabWidths[4].value]
     );
     const rowW = tabRowWidthSV.value;
-    const fallbackSeg = rowW > 0 ? rowW / TAB_COUNT : 64;
+    const lastIdx = Math.min(4, Math.max(0, tabLastIndex));
+    const fallbackSeg = rowW > 0 ? rowW / Math.max(1, tabCount) : 64;
     const wSafe = w > 8 ? w : fallbackSeg;
-    const rangeOk = tabCenters[4].value - tabCenters[0].value > 8;
+    const rangeOk = tabCenters[lastIdx].value - tabCenters[0].value > 8;
     const xSafe = rangeOk
       ? x
       : rowW > 0
-        ? 6 + (pillProgress.value + 0.5) * Math.max(0, rowW - 12) / TAB_COUNT
+        ? 6 + (pillProgress.value + 0.5) * Math.max(0, rowW - 12) / Math.max(1, tabCount)
         : 0;
     const pillW = Math.max(40, wSafe - PILL_INSET * 2);
     const lift = pillLiftSV.value;
@@ -616,7 +630,7 @@ export function FloatingGlassTabBar({
                       </Animated.View>
 
                       <View style={styles.tabRow} onLayout={onTabRowLayout}>
-                      {TABS.map((t, index) => {
+                      {visibleTabs.map((t, index) => {
                         const selected = tab === t.id;
                         const iconColor = iconColorFor(t, selected);
                         return (

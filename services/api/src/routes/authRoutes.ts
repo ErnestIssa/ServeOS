@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { readPreferredRestaurantIdFromProfile } from "../lib/customerPreferredVenue.js";
+import { buildMobileExperienceManifest } from "../lib/mobileExperience.js";
 
 /** Fields that exist on every deployed DB revision (safe for signup response + fallbacks). */
 const USER_CORE_SELECT = {
@@ -29,22 +30,52 @@ function publicUserFromDbRow(row: {
   };
 }
 
+async function enrichUserWithExperience(prisma: PrismaClient, userId: string, base: ReturnType<typeof publicUserFromDbRow>) {
+  const row = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { role: true, signupProfile: true, memberships: { select: { role: true } } }
+  });
+  if (!row) return base;
+  const experience = buildMobileExperienceManifest({
+    userRole: row.role,
+    membershipRoles: row.memberships.map((m) => m.role),
+    signupProfile: row.signupProfile
+  });
+  return { ...base, roleType: experience.roleType, mobileExperience: experience };
+}
+
 async function findUserForAuthMe(prisma: PrismaClient, sub: string) {
   try {
     const row = await prisma.user.findUnique({
       where: { id: sub },
-      select: { ...USER_CORE_SELECT, signupProfile: true }
+      select: {
+        ...USER_CORE_SELECT,
+        signupProfile: true,
+        memberships: { select: { role: true } }
+      }
     });
     if (!row) return null;
-    return publicUserFromDbRow(row);
+    const base = publicUserFromDbRow(row);
+    const experience = buildMobileExperienceManifest({
+      userRole: row.role,
+      membershipRoles: row.memberships.map((m) => m.role),
+      signupProfile: row.signupProfile
+    });
+    return { ...base, roleType: experience.roleType, mobileExperience: experience };
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2022") {
       const row = await prisma.user.findUnique({
         where: { id: sub },
-        select: USER_CORE_SELECT
+        select: { ...USER_CORE_SELECT, memberships: { select: { role: true } } }
       });
       if (!row) return null;
-      return publicUserFromDbRow({ ...row, signupProfile: null });
+      const base = publicUserFromDbRow({ ...row, signupProfile: null });
+      const experience = buildMobileExperienceManifest({
+        userRole: row.role,
+        membershipRoles: row.memberships.map((m) => m.role),
+        signupProfile: null
+      });
+      return { ...base, roleType: experience.roleType, mobileExperience: experience };
     }
     throw e;
   }
@@ -203,7 +234,8 @@ export function registerAuthRoutes(app: FastifyInstance, prisma: PrismaClient) {
       sub: dbUser.id,
       role: dbUser.role as "OWNER" | "STAFF" | "CUSTOMER"
     });
-    return { ok: true, user: publicUserFromDbRow(dbUser), token };
+    const user = await enrichUserWithExperience(prisma, dbUser.id, publicUserFromDbRow(dbUser));
+    return { ok: true, user, token };
   });
 
   const loginSchema = z.object({
@@ -250,7 +282,15 @@ export function registerAuthRoutes(app: FastifyInstance, prisma: PrismaClient) {
     }
 
     const token = app.signJwt({ sub: user.id, role: user.role });
-    return { ok: true, user: { id: user.id, email: user.email, phone: user.phone, role: user.role }, token };
+    const base = publicUserFromDbRow({
+      id: user.id,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      signupProfile: null
+    });
+    const enriched = await enrichUserWithExperience(prisma, user.id, base);
+    return { ok: true, user: enriched, token };
   });
 
   app.get("/auth/me", async (req, reply) => {

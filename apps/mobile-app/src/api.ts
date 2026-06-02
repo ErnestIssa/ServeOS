@@ -17,11 +17,16 @@ export function apiHttpToWsBase(u: string) {
   return `ws://${t}`;
 }
 
+import type { MobileExperienceManifest, MobileRoleType } from "./mobile/mobileExperienceTypes";
+
 export type AuthUser = {
   id: string;
   email?: string | null;
   phone?: string | null;
   role: string;
+  /** Mobile UI bucket — CUSTOMER | ADMIN | STAFF (from backend, not raw DB role). */
+  roleType?: MobileRoleType;
+  mobileExperience?: MobileExperienceManifest;
   signupProfile?: unknown | null;
   /** Server-held customer venue preference; source of truth for “current restaurant”. */
   preferredRestaurantId?: string | null;

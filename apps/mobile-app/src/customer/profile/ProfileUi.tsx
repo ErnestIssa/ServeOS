@@ -218,6 +218,7 @@ export function HubSpaceBanner(props: { title: string; subtitle: string }) {
 export function ProfileHeader(props: {
   user: AuthUser | null;
   streakScore?: string;
+  showStreak?: boolean;
   avatarUri: string | null;
   onAvatarPress: () => void;
 }) {
@@ -225,6 +226,7 @@ export function ProfileHeader(props: {
   const displayName = profileFullName(props.user);
   const email = props.user?.email?.trim() || "—";
   const streak = props.streakScore ?? "4.98";
+  const showStreak = props.showStreak ?? true;
 
   return (
     <View style={{ flexDirection: "row", alignItems: "center", marginBottom: t.space.sm }}>
@@ -260,12 +262,14 @@ export function ProfileHeader(props: {
       <View style={{ flex: 1, marginLeft: 14 }}>
         <Text style={{ fontSize: 22, fontWeight: "900", color: t.text, letterSpacing: -0.3 }}>{displayName}</Text>
         <Text style={{ marginTop: 4, fontSize: 13, fontWeight: "600", color: t.textSecondary }}>{email}</Text>
-        <View style={{ marginTop: 8, flexDirection: "row", alignItems: "center", gap: 4 }}>
-          <Text style={{ fontSize: 12, fontWeight: "900", color: "#EAB308" }} accessibilityLabel="Streak rating">
-            ★
-          </Text>
-          <Text style={{ fontSize: 12, fontWeight: "800", color: t.accentPurple, letterSpacing: -0.2 }}>{streak}</Text>
-        </View>
+        {showStreak ? (
+          <View style={{ marginTop: 8, flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Text style={{ fontSize: 12, fontWeight: "900", color: "#EAB308" }} accessibilityLabel="Streak rating">
+              ★
+            </Text>
+            <Text style={{ fontSize: 12, fontWeight: "800", color: t.accentPurple, letterSpacing: -0.2 }}>{streak}</Text>
+          </View>
+        ) : null}
       </View>
     </View>
   );
