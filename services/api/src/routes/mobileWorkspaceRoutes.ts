@@ -326,22 +326,4 @@ export function registerMobileWorkspaceRoutes(
       return reply.status(err.statusCode ?? 500).send({ ok: false, error: err.message ?? "error" });
     }
   });
-
-  app.patch("/restaurants/:restaurantId/menu/items/:itemId", async (req, reply) => {
-    const ctx = await requireMobileAuth(req, app, prisma);
-    if (ctx.venueAccessState !== "active") {
-      return reply.status(403).send({ ok: false, error: "pending_approval" });
-    }
-    const { restaurantId, itemId } = req.params as { restaurantId: string; itemId: string };
-    const body = z.object({ isActive: z.boolean() }).parse(req.body);
-    const item = await prisma.menuItem.findFirst({
-      where: { id: itemId, category: { restaurantId } }
-    });
-    if (!item) return reply.status(404).send({ ok: false, error: "item_not_found" });
-    const updated = await prisma.menuItem.update({
-      where: { id: itemId },
-      data: { isActive: body.isActive }
-    });
-    return { ok: true, item: { id: updated.id, isActive: updated.isActive } };
-  });
 }
