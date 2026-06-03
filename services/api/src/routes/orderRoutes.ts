@@ -1,6 +1,5 @@
 import { EventEmitter } from "node:events";
 import type { FastifyInstance } from "fastify";
-import websocket from "@fastify/websocket";
 import jwt from "jsonwebtoken";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { z } from "zod";
@@ -94,8 +93,6 @@ export async function registerOrderRoutes(
     }
     return user;
   }
-
-  await app.register(websocket);
 
   app.get(
     "/orders/events",

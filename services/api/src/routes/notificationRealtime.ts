@@ -1,6 +1,5 @@
 import type { EventEmitter } from "node:events";
 import type { FastifyInstance } from "fastify";
-import websocket from "@fastify/websocket";
 import jwt from "jsonwebtoken";
 import type { InAppUserPayload } from "../notifications/types.js";
 
@@ -8,12 +7,11 @@ function roomUser(userId: string) {
   return `user:${userId}`;
 }
 
-export async function registerNotificationRealtime(
+/** Requires `@fastify/websocket` registered once on the app (see `index.ts`). */
+export function registerNotificationRealtime(
   app: FastifyInstance,
   notificationBus: EventEmitter
 ) {
-  await app.register(websocket);
-
   app.get("/notifications/ws", { websocket: true }, (socket, req) => {
     const secret = process.env.JWT_SECRET;
     if (!secret) {

@@ -4,6 +4,7 @@ loadServeOsEnv();
 
 import { upstashRedisHealth } from "@serveos/core-upstash";
 import cors from "@fastify/cors";
+import websocket from "@fastify/websocket";
 import Fastify from "fastify";
 import { PrismaClient } from "@prisma/client";
 import { authPlugin } from "./plugins/auth.js";
@@ -70,6 +71,7 @@ async function main() {
   });
 
   await app.register(authPlugin);
+  await app.register(websocket);
 
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
@@ -136,7 +138,7 @@ async function main() {
   registerCustomerChatRealtime(app, prisma, chatBus);
   registerRestaurantChatRealtime(app, prisma, chatBus);
   registerNotificationRoutes(app, prisma, domainEventBus);
-  await registerNotificationRealtime(app, notificationBus);
+  registerNotificationRealtime(app, notificationBus);
   registerCartRoutes(app, prisma);
   registerBusinessRoutes(app);
 
