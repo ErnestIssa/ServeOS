@@ -16,10 +16,14 @@ import { registerBusinessRoutes } from "./routes/businessRoutes.js";
 import { registerCustomerRoutes } from "./routes/customerRoutes.js";
 import { registerMobileExperienceRoutes } from "./routes/mobileExperienceRoutes.js";
 import { registerMobileWorkspaceRoutes } from "./routes/mobileWorkspaceRoutes.js";
+import { registerStaffAccessRoutes } from "./routes/staffAccessRoutes.js";
 import { registerCustomerReservationRoutes } from "./routes/customerReservationRoutes.js";
 import { registerCustomerChatRoutes } from "./routes/customerChatRoutes.js";
 import { registerCustomerChatRealtime } from "./routes/customerChatRealtime.js";
 import { registerRestaurantChatRealtime } from "./routes/restaurantChatRealtime.js";
+import { registerNotificationRoutes } from "./routes/notificationRoutes.js";
+import { registerNotificationRealtime } from "./routes/notificationRealtime.js";
+import { initNotificationSystem } from "./notifications/initNotifications.js";
 import { ensureChatMessageImageEnum } from "./lib/chatImageEnum.js";
 
 const port = Number(process.env.PORT ?? process.env.API_GATEWAY_PORT ?? 3000);
@@ -32,6 +36,10 @@ const orderBus = new EventEmitter();
 orderBus.setMaxListeners(0);
 const chatBus = new EventEmitter();
 chatBus.setMaxListeners(0);
+const domainEventBus = new EventEmitter();
+domainEventBus.setMaxListeners(0);
+const notificationBus = new EventEmitter();
+notificationBus.setMaxListeners(0);
 
 app.setErrorHandler((err: unknown, _req, reply) => {
   const e = err as {
@@ -103,21 +111,32 @@ async function main() {
       "/customer/chat/*",
       "/restaurants/*",
       "/orders/*",
-      "/cart/*"
+      "/cart/*",
+      "/notifications/*"
     ]
   }));
 
-  registerAuthRoutes(app, prisma);
+  initNotificationSystem(app, prisma, {
+    domainEventBus,
+    orderBus,
+    chatBus,
+    notificationBus
+  });
+
+  registerAuthRoutes(app, prisma, domainEventBus);
   registerMobileExperienceRoutes(app, prisma);
   registerMobileWorkspaceRoutes(app, prisma);
+  registerStaffAccessRoutes(app, prisma, domainEventBus);
   registerRestaurantRoutes(app, prisma);
   registerRestaurantChatRoutes(app, prisma, chatBus);
   registerCustomerRoutes(app, prisma);
   registerCustomerReservationRoutes(app, prisma);
-  registerCustomerChatRoutes(app, prisma, chatBus);
-  await registerOrderRoutes(app, prisma, orderBus, chatBus);
+  registerCustomerChatRoutes(app, prisma, chatBus, domainEventBus);
+  await registerOrderRoutes(app, prisma, orderBus, chatBus, domainEventBus);
   registerCustomerChatRealtime(app, prisma, chatBus);
   registerRestaurantChatRealtime(app, prisma, chatBus);
+  registerNotificationRoutes(app, prisma, domainEventBus);
+  await registerNotificationRealtime(app, notificationBus);
   registerCartRoutes(app, prisma);
   registerBusinessRoutes(app);
 

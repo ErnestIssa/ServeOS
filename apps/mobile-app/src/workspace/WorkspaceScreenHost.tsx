@@ -247,6 +247,54 @@ export function WorkspaceScreenHost(props: Props) {
     );
   }
 
+  if (props.screenKey === "admin.staff_management") {
+    const p = payload as {
+      pendingApprovals?: Array<{ membershipId: string; fullName: string | null; email: string | null; role: string }>;
+      pendingInvitations?: Array<{ id: string; fullName: string; email: string; intendedRole: string }>;
+      members?: Array<{ id: string; role: string; status: string; email: string | null }>;
+      accessPolicy?: { maxManagers: number; allowManagersToInviteManagers: boolean };
+    };
+    return (
+      <ProfileScreenContainer topInset={props.topInset} bottomInset={props.bottomInset}>
+        <SectionLabel variant="me">Pending approvals</SectionLabel>
+        {(p.pendingApprovals ?? []).length === 0 ? (
+          <Text style={styles.body}>No accounts awaiting approval.</Text>
+        ) : (
+          (p.pendingApprovals ?? []).map((row) => (
+            <View key={row.membershipId} style={styles.card}>
+              <Text style={styles.cardTitle}>{row.fullName ?? row.email ?? "Team member"}</Text>
+              <Text style={styles.cardSub}>
+                {row.role} · Awaiting approval
+              </Text>
+            </View>
+          ))
+        )}
+        <SectionLabel variant="me">Open invitations</SectionLabel>
+        {(p.pendingInvitations ?? []).length === 0 ? (
+          <Text style={styles.body}>No pending invites. Use the API or web admin to invite team members.</Text>
+        ) : (
+          (p.pendingInvitations ?? []).map((inv) => (
+            <View key={inv.id} style={styles.card}>
+              <Text style={styles.cardTitle}>{inv.fullName}</Text>
+              <Text style={styles.cardSub}>
+                {inv.intendedRole} · {inv.email}
+              </Text>
+            </View>
+          ))
+        )}
+        <SectionLabel variant="me">Active team</SectionLabel>
+        {(p.members ?? [])
+          .filter((m) => m.status === "ACTIVE")
+          .map((m) => (
+            <View key={m.id} style={styles.card}>
+              <Text style={styles.cardTitle}>{m.email ?? m.id}</Text>
+              <Text style={styles.cardSub}>{m.role}</Text>
+            </View>
+          ))}
+      </ProfileScreenContainer>
+    );
+  }
+
   if (props.screenKey === "shared.help" || props.screenKey === "shared.about") {
     return (
       <ProfilePlaceholderScreen

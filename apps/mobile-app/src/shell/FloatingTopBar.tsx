@@ -40,6 +40,8 @@ type Props =
       searchSheetFullyExpanded?: boolean;
       /** First taps on the search field call this (no keyboard); typing works once the sheet is fully open. */
       onSearchExpandSheet?: () => void;
+      notificationCount?: number;
+      onNotifications?: () => void;
       onMenu?: () => void;
     };
 
@@ -86,6 +88,8 @@ function CustomerTopBarChrome({
   onSearchSubmit,
   searchSheetFullyExpanded,
   onSearchExpandSheet,
+  notificationCount = 0,
+  onNotifications,
   onMenu
 }: CustomerChromeProps) {
   const expandFirst = typeof onSearchExpandSheet === "function";
@@ -120,6 +124,25 @@ function CustomerTopBarChrome({
           />
         ) : null}
       </View>
+      {onNotifications ? (
+        <Pressable
+          onPress={onNotifications}
+          style={styles.iconBtn}
+          hitSlop={12}
+          accessibilityLabel="Notifications"
+        >
+          <IconBell color={iconColor} />
+          {notificationCount > 0 ? (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText} numberOfLines={1}>
+                {notificationCount > 99 ? "99+" : String(notificationCount)}
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.badgeDot} />
+          )}
+        </Pressable>
+      ) : null}
       <Pressable onPress={onMenu} style={styles.iconBtn} hitSlop={12} accessibilityLabel="Menu">
         <IconMenu color={iconColor} />
       </Pressable>

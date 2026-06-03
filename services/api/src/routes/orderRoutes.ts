@@ -4,19 +4,14 @@ import websocket from "@fastify/websocket";
 import jwt from "jsonwebtoken";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { z } from "zod";
-import {
-  type OrderEventPayload,
-  publishOrderEventToUpstash
-} from "@serveos/core-upstash";
+import { notifyOrderCreated, notifyOrderUpdated } from "../notifications/integrations/orders.js";
 import { priceMenuItemLineInput, type ModifierSnap } from "../lib/menuItemLinePricing.js";
 import { autoTerminateStaleActiveOrdersForCustomer } from "../lib/autoTerminateStaleActiveOrders.js";
 import { markCustomerMessagesDeliveredForOrder } from "../lib/chatReceipts.js";
-import { emitChatEvent } from "../lib/chatRealtime.js";
+import { notifyChatMessage } from "../notifications/integrations/chat.js";
 import { syncOrderRoomSystemMessage } from "../lib/customerChatHub.js";
 import { isVenueMembershipRole } from "../lib/membershipAccess.js";
 import { serializeMessage } from "../lib/chatMessageService.js";
-
-export type { OrderEventPayload };
 
 function roomOrder(id: string) {
   return `order:${id}`;
@@ -32,9 +27,10 @@ export async function registerOrderRoutes(
   app: FastifyInstance,
   prisma: PrismaClient,
   orderBus: EventEmitter,
-  chatBus: EventEmitter
+  chatBus: EventEmitter,
+  domainEventBus: EventEmitter
 ) {
-  async function publishOrderEvent(orderId: string) {
+  async function publishOrderEvent(orderId: string, created = false) {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
       select: {
@@ -47,28 +43,20 @@ export async function registerOrderRoutes(
       }
     });
     if (!order) return;
-    const payload: OrderEventPayload = {
-      type: "order_updated",
+    const input = {
       orderId: order.id,
       restaurantId: order.restaurantId,
       status: order.status,
       totalCents: order.totalCents,
-      restaurantName: order.restaurant.name
+      restaurantName: order.restaurant.name,
+      customerUserId: order.customerUserId
     };
-    orderBus.emit(roomOrder(order.id), payload);
-    orderBus.emit(roomRestaurant(order.restaurantId), payload);
-    if (order.customerUserId) {
-      orderBus.emit(roomCustomer(order.customerUserId), payload);
-    }
+    if (created) await notifyOrderCreated(domainEventBus, input);
+    else await notifyOrderUpdated(domainEventBus, input);
     app.log.info(
-      { orderId: order.id, restaurantId: order.restaurantId, status: order.status },
-      "order_event_broadcast"
+      { orderId: order.id, restaurantId: order.restaurantId, status: order.status, created },
+      "order_event_routed_to_notifications"
     );
-    try {
-      await publishOrderEventToUpstash(payload, order.customerUserId);
-    } catch (err) {
-      app.log.warn({ err }, "upstash_redis_publish_failed");
-    }
   }
 
   function requireUser(req: { headers: { authorization?: string } }) {
@@ -301,7 +289,7 @@ export async function registerOrderRoutes(
       return o;
     });
 
-    await publishOrderEvent(order.id);
+    await publishOrderEvent(order.id, true);
 
     return {
       ok: true,
@@ -452,7 +440,16 @@ export async function registerOrderRoutes(
             customerLastReadAt: room?.customerLastReadAt ?? null
           }
         );
-        emitChatEvent(chatBus, chatRoom.id, order.customerUserId, { type: "new_message", message });
+        if (order.customerUserId) {
+          await notifyChatMessage(domainEventBus, {
+            chatRoomId: chatRoom.id,
+            restaurantId: order.restaurantId,
+            customerUserId: order.customerUserId,
+            actorUserId: order.customerUserId,
+            preview: message.content ?? "Order update",
+            wsPayload: { type: "new_message", message }
+          });
+        }
       }
     }
     await publishOrderEvent(order.id);

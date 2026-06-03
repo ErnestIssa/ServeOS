@@ -94,3 +94,18 @@ export async function publishOrderEventToUpstash(
 
   await Promise.all(channels.map((ch) => r.publish(ch, body)));
 }
+
+/** Central domain-event bus channel (notification processor consumers). */
+export const SERVEOS_DOMAIN_EVENTS_CHANNEL = "serveos:domain-events";
+
+export async function publishDomainEventToUpstash(event: unknown): Promise<void> {
+  const r = getUpstashRedis();
+  if (!r) return;
+  await r.publish(SERVEOS_DOMAIN_EVENTS_CHANNEL, JSON.stringify(event));
+}
+
+export async function publishUserNotificationToUpstash(userId: string, payload: unknown): Promise<void> {
+  const r = getUpstashRedis();
+  if (!r) return;
+  await r.publish(`serveos:user:${userId}:notifications`, JSON.stringify(payload));
+}

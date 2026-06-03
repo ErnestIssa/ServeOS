@@ -20,7 +20,8 @@ import {
   markCustomerRead,
   serializeMessage
 } from "../lib/chatMessageService.js";
-import { emitChatEvent } from "../lib/chatRealtime.js";
+import type { ChatWsPayload } from "../lib/chatRealtime.js";
+import { notifyChatMessage } from "../notifications/integrations/chat.js";
 import {
   buildThreadFeed,
   ensureCustomerChatRoom,
@@ -69,7 +70,33 @@ const postImagesSchema = z.object({
     .max(CHAT_MAX_IMAGES_PER_SEND)
 });
 
-export function registerCustomerChatRoutes(app: FastifyInstance, prisma: PrismaClient, chatBus: EventEmitter) {
+export function registerCustomerChatRoutes(
+  app: FastifyInstance,
+  prisma: PrismaClient,
+  _chatBus: EventEmitter,
+  domainEventBus: EventEmitter
+) {
+  async function pushChatMessage(input: {
+    chatRoomId: string;
+    restaurantId: string;
+    customerUserId: string | null;
+    actorUserId: string;
+    message: { content?: string | null };
+    wsPayload: ChatWsPayload;
+  }) {
+    const preview =
+      typeof input.message.content === "string" && input.message.content.trim()
+        ? input.message.content.trim().slice(0, 120)
+        : "New message";
+    await notifyChatMessage(domainEventBus, {
+      chatRoomId: input.chatRoomId,
+      restaurantId: input.restaurantId,
+      customerUserId: input.customerUserId,
+      actorUserId: input.actorUserId,
+      preview,
+      wsPayload: input.wsPayload
+    });
+  }
   app.addHook("preHandler", async (req, reply) => {
     if (!req.url.startsWith("/customer/chat")) return;
     try {
@@ -245,9 +272,13 @@ export function registerCustomerChatRoutes(app: FastifyInstance, prisma: PrismaC
             customerLastReadAt: room?.customerLastReadAt ?? null
           }
         );
-        emitChatEvent(chatBus, chatRoomId, pl.sub, {
-          type: "new_message",
-          message: serializedSeed
+        await pushChatMessage({
+          chatRoomId,
+          restaurantId: activeOrder.restaurantId,
+          customerUserId: pl.sub,
+          actorUserId: pl.sub,
+          message: serializedSeed,
+          wsPayload: { type: "new_message", message: serializedSeed }
         });
       }
     }
@@ -431,7 +462,14 @@ export function registerCustomerChatRoutes(app: FastifyInstance, prisma: PrismaC
       customerLastReadAt: room?.customerLastReadAt ?? null
     });
 
-    emitChatEvent(chatBus, chatRoomId, pl.sub, { type: "new_message", message });
+    await pushChatMessage({
+      chatRoomId,
+      restaurantId,
+      customerUserId: pl.sub,
+      actorUserId: pl.sub,
+      message,
+      wsPayload: { type: "new_message", message }
+    });
 
     return { ok: true, message };
   });
@@ -544,7 +582,14 @@ export function registerCustomerChatRoutes(app: FastifyInstance, prisma: PrismaC
       serializeMessage(row, { userId: pl.sub, role: "CUSTOMER" }, readCtx)
     );
     for (const message of messages) {
-      emitChatEvent(chatBus, chatRoomId, pl.sub, { type: "new_message", message });
+      await pushChatMessage({
+        chatRoomId,
+        restaurantId,
+        customerUserId: pl.sub,
+        actorUserId: pl.sub,
+        message,
+        wsPayload: { type: "new_message", message }
+      });
     }
 
     return {

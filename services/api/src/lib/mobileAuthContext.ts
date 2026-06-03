@@ -4,18 +4,22 @@ import {
   buildMobileExperienceManifest,
   userHasPermission,
   type MobileExperienceManifest,
-  type MobileRoleType
+  type MobileRoleType,
+  type VenueAccessState
 } from "./mobileExperience.js";
 import { readPreferredRestaurantIdFromProfile } from "./customerPreferredVenue.js";
 import { mergePreferredRestaurantIntoProfile } from "./customerSignupProfile.js";
+import { resolveMembershipPermissions } from "./venuePermissions.js";
 
 export type MobileAuthContext = {
   userId: string;
   dbRole: string;
   experience: MobileExperienceManifest;
   membershipRoles: string[];
-  memberships: Array<{ restaurantId: string; role: string; restaurantName: string }>;
+  memberships: Array<{ restaurantId: string; role: string; restaurantName: string; status: string }>;
   activeRestaurantId: string | null;
+  grantedPermissions: string[];
+  venueAccessState: VenueAccessState;
 };
 
 export async function loadMobileAuthContext(
@@ -28,29 +32,56 @@ export async function loadMobileAuthContext(
       role: true,
       signupProfile: true,
       memberships: {
-        select: { restaurantId: true, role: true, restaurant: { select: { name: true } } }
+        select: {
+          restaurantId: true,
+          role: true,
+          status: true,
+          permissions: true,
+          restaurant: { select: { name: true } }
+        }
       }
     }
   });
   if (!user) return null;
 
-  const membershipRoles = user.memberships.map((m) => m.role);
-  const experience = buildMobileExperienceManifest({
-    userRole: user.role,
-    membershipRoles,
-    signupProfile: user.signupProfile
-  });
+  const activeMemberships = user.memberships.filter((m) => m.status === "ACTIVE");
+  const pendingMemberships = user.memberships.filter((m) => m.status === "PENDING_APPROVAL");
+  const membershipRoles = activeMemberships.map((m) => m.role);
 
   const preferred = readPreferredRestaurantIdFromProfile(user.signupProfile);
-  const firstMembership = user.memberships[0]?.restaurantId ?? null;
-  let activeRestaurantId = preferred ?? firstMembership;
+  const firstActive = activeMemberships[0]?.restaurantId ?? null;
+  let activeRestaurantId = preferred ?? firstActive;
 
   if (
     activeRestaurantId &&
-    !user.memberships.some((m) => m.restaurantId === activeRestaurantId)
+    !activeMemberships.some((m) => m.restaurantId === activeRestaurantId)
   ) {
-    activeRestaurantId = firstMembership;
+    activeRestaurantId = firstActive;
   }
+
+  let grantedPermissions: string[] = [];
+  let venueAccessState: VenueAccessState = "none";
+  let pendingVenueName: string | undefined;
+
+  if (activeMemberships.length > 0) {
+    venueAccessState = "active";
+    const atVenue =
+      activeMemberships.find((m) => m.restaurantId === activeRestaurantId) ?? activeMemberships[0]!;
+    grantedPermissions = resolveMembershipPermissions(atVenue.role, atVenue.permissions);
+  } else if (pendingMemberships.length > 0) {
+    venueAccessState = "pending_approval";
+    pendingVenueName = pendingMemberships[0]!.restaurant.name;
+    activeRestaurantId = pendingMemberships[0]!.restaurantId;
+  }
+
+  const experience = buildMobileExperienceManifest({
+    userRole: user.role,
+    membershipRoles,
+    signupProfile: user.signupProfile,
+    grantedPermissions,
+    venueAccessState,
+    pendingVenueName
+  });
 
   if (experience.roleType === "CUSTOMER") {
     activeRestaurantId = preferred ?? null;
@@ -64,9 +95,12 @@ export async function loadMobileAuthContext(
     memberships: user.memberships.map((m) => ({
       restaurantId: m.restaurantId,
       role: m.role,
-      restaurantName: m.restaurant.name
+      restaurantName: m.restaurant.name,
+      status: m.status
     })),
-    activeRestaurantId
+    activeRestaurantId,
+    grantedPermissions,
+    venueAccessState
   };
 }
 
@@ -108,9 +142,11 @@ export async function requireVenueMembership(
   restaurantId: string
 ): Promise<{ restaurantId: string; role: string }> {
   const rid = restaurantId.trim();
-  const m = ctx.memberships.find((x) => x.restaurantId === rid);
-  if (!m) throw Object.assign(new Error("venue_access_denied"), { statusCode: 403 });
-  return { restaurantId: rid, role: m.role };
+  const row = await prisma.membership.findFirst({
+    where: { userId: ctx.userId, restaurantId: rid, status: "ACTIVE" }
+  });
+  if (!row) throw Object.assign(new Error("venue_access_denied"), { statusCode: 403 });
+  return { restaurantId: rid, role: row.role };
 }
 
 export async function setActiveRestaurantForUser(

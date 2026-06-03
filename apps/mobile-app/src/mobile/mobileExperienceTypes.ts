@@ -79,9 +79,15 @@ export type SettingsDetailKey =
   | "navigation"
   | "sounds_voice";
 
+export type VenueAccessState = "none" | "active" | "pending_approval";
+
 export type MobileExperienceManifest = {
   roleType: MobileRoleType;
   permissions: string[];
+  venueAccess?: {
+    state: VenueAccessState;
+    pendingVenueName?: string;
+  };
   screens: Record<string, WorkspaceScreenManifest>;
   /** Primary workspace screen per tab — set by API for admin/staff. */
   tabScreens?: Partial<Record<MobileTabId, string>>;

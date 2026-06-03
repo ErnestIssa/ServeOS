@@ -1,10 +1,28 @@
 import fp from "fastify-plugin";
 import jwt from "jsonwebtoken";
 
+/** Matches Prisma `Role` enum — stored in JWT for auth checks. */
+export type JwtRole = "OWNER" | "MANAGER" | "STAFF" | "KITCHEN" | "CASHIER" | "CUSTOMER";
+
 export type JwtUser = {
   sub: string;
-  role: "OWNER" | "STAFF" | "CUSTOMER";
+  role: JwtRole;
 };
+
+export function toJwtRole(role: string): JwtRole {
+  const u = role.trim().toUpperCase();
+  if (
+    u === "OWNER" ||
+    u === "MANAGER" ||
+    u === "STAFF" ||
+    u === "KITCHEN" ||
+    u === "CASHIER" ||
+    u === "CUSTOMER"
+  ) {
+    return u;
+  }
+  return "CUSTOMER";
+}
 
 declare module "fastify" {
   interface FastifyRequest {

@@ -16,6 +16,22 @@ enum Role {
   CUSTOMER
 }
 
+/// Venue membership lifecycle — restaurant access requires ACTIVE.
+enum MembershipStatus {
+  PENDING_APPROVAL
+  ACTIVE
+  SUSPENDED
+  REJECTED
+}
+
+/// Staff invitation delivery / acceptance state (notifications sent separately).
+enum StaffInvitationStatus {
+  PENDING
+  ACCEPTED
+  CANCELLED
+  EXPIRED
+}
+
 model User {
   id        String   @id @default(cuid())
   email     String?  @unique
@@ -29,6 +45,8 @@ model User {
   updatedAt DateTime @updatedAt
 
   memberships   Membership[]
+  notifications Notification[]
+  notificationPreference UserNotificationPreference?
   customerOrders Order[] @relation("CustomerOrders")
   shoppingCarts ShoppingCart[]
   customerChatRooms ChatRoom[] @relation("CustomerChatRooms")
@@ -59,11 +77,14 @@ model Restaurant {
   venueSubtypeOther       String?
   establishmentLocation    String?
   offeringsDescription    String?
+  /// Owner-configured caps: maxManagers, allowManagersToInviteManagers, etc.
+  accessPolicy            Json?
 
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  memberships    Membership[]
+  memberships       Membership[]
+  staffInvitations  StaffInvitation[]
   menuCategories MenuCategory[]
   orders         Order[]
   shoppingCarts  ShoppingCart[]
@@ -118,17 +139,53 @@ model CustomerReservation {
 }
 
 model Membership {
-  id           String     @id @default(cuid())
+  id           String           @id @default(cuid())
   userId       String
   restaurantId String
   role         Role
-  createdAt    DateTime   @default(now())
+  status       MembershipStatus @default(ACTIVE)
+  /// Granular venue permissions (string keys). Backend-enforced source of truth.
+  permissions  Json?
+  invitedByUserId   String?
+  approvedByUserId  String?
+  approvedAt        DateTime?
+  suspendedAt       DateTime?
+  rejectedAt        DateTime?
+  staffInvitationId String?          @unique
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
 
-  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  restaurant      Restaurant       @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  staffInvitation StaffInvitation? @relation(fields: [staffInvitationId], references: [id], onDelete: SetNull)
 
   @@unique([userId, restaurantId])
-  @@index([restaurantId])
+  @@index([restaurantId, status])
+}
+
+/// Restaurant-controlled staff invite — must be accepted + approved before venue access.
+model StaffInvitation {
+  id             String               @id @default(cuid())
+  restaurantId   String
+  fullName       String
+  email          String
+  phone          String?
+  intendedRole   Role
+  permissions    Json
+  tokenHash      String               @unique
+  status         StaffInvitationStatus @default(PENDING)
+  expiresAt      DateTime
+  invitedByUserId String
+  acceptedByUserId String?
+  acceptedAt     DateTime?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  restaurant Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  membership Membership?
+
+  @@index([restaurantId, status])
+  @@index([email])
 }
 
 model MenuCategory {
@@ -325,5 +382,83 @@ model ModifierOption {
   group ModifierGroup @relation(fields: [modifierGroupId], references: [id], onDelete: Cascade)
 
   @@index([modifierGroupId])
+}
+
+enum NotificationCategory {
+  ORDER
+  CHAT
+  RESERVATION
+  SYSTEM
+  PAYMENT
+  STAFF
+}
+
+enum NotificationPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum NotificationDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+/// In-app notification inbox — all alerts persist here regardless of channel.
+model Notification {
+  id           String               @id @default(cuid())
+  userId       String
+  restaurantId String?
+  category     NotificationCategory
+  eventKey     String
+  title        String
+  body         String
+  payload      Json
+  priority     NotificationPriority @default(MEDIUM)
+  channels     Json
+  readAt       DateTime?
+  createdAt    DateTime             @default(now())
+
+  user       User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries NotificationDelivery[]
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+  @@index([restaurantId])
+}
+
+/// Per-channel delivery attempts (email, push, SMS, etc.).
+model NotificationDelivery {
+  id             String                     @id @default(cuid())
+  notificationId String
+  channel        String
+  status         NotificationDeliveryStatus @default(PENDING)
+  attempts       Int                        @default(0)
+  lastError      String?
+  externalId     String?
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([notificationId])
+  @@index([channel, status])
+}
+
+/// User delivery preferences — CRITICAL events bypass these in the routing engine.
+model UserNotificationPreference {
+  userId          String   @id
+  pushEnabled     Boolean  @default(true)
+  emailEnabled    Boolean  @default(true)
+  smsEnabled      Boolean  @default(false)
+  whatsappEnabled Boolean  @default(false)
+  quietHours      Json?
+  categoryFlags   Json?
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 

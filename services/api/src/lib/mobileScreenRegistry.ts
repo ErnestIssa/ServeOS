@@ -70,9 +70,9 @@ export const WORKSPACE_SCREENS: Record<string, WorkspaceScreenDef> = {
   },
   "admin.staff_management": {
     title: "Staff management",
-    subtitle: "Team roster",
+    subtitle: "Invites, approvals, and permissions",
     permission: "admin.staff_management",
-    status: "coming_soon",
+    status: "live",
     roleTypes: ["ADMIN"]
   },
   "staff.assigned_orders": {

@@ -165,6 +165,19 @@ export async function loadWorkspaceScreenData(
         payload: { restaurant: r }
       };
     }
+    case "admin.staff_management": {
+      const { listVenueStaff } = await import("./staffMembershipService.js");
+      const { loadRestaurantPolicy } = await import("./venueAccessGuard.js");
+      const staff = await listVenueStaff(prisma, ctx, restaurantId);
+      const accessPolicy = await loadRestaurantPolicy(prisma, restaurantId);
+      return {
+        screenKey,
+        status: "live" as const,
+        title: def.title,
+        subtitle: def.subtitle,
+        payload: { ...staff, accessPolicy }
+      };
+    }
     case "admin.menu": {
       const categories = await prisma.menuCategory.findMany({
         where: { restaurantId, isActive: true },

@@ -1,9 +1,13 @@
 import bcrypt from "bcrypt";
+import type { EventEmitter } from "node:events";
 import type { FastifyInstance } from "fastify";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { z } from "zod";
+import { toJwtRole } from "../plugins/auth.js";
 import { readPreferredRestaurantIdFromProfile } from "../lib/customerPreferredVenue.js";
-import { buildMobileExperienceManifest } from "../lib/mobileExperience.js";
+import { loadMobileAuthContext } from "../lib/mobileAuthContext.js";
+import { acceptStaffInvitation } from "../lib/staffInvitationService.js";
+import { notifyStaffPendingApproval } from "../notifications/integrations/staff.js";
 
 /** Fields that exist on every deployed DB revision (safe for signup response + fallbacks). */
 const USER_CORE_SELECT = {
@@ -31,17 +35,14 @@ function publicUserFromDbRow(row: {
 }
 
 async function enrichUserWithExperience(prisma: PrismaClient, userId: string, base: ReturnType<typeof publicUserFromDbRow>) {
-  const row = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { role: true, signupProfile: true, memberships: { select: { role: true } } }
-  });
-  if (!row) return base;
-  const experience = buildMobileExperienceManifest({
-    userRole: row.role,
-    membershipRoles: row.memberships.map((m) => m.role),
-    signupProfile: row.signupProfile
-  });
-  return { ...base, roleType: experience.roleType, mobileExperience: experience };
+  const ctx = await loadMobileAuthContext(prisma, userId);
+  if (!ctx) return base;
+  return {
+    ...base,
+    roleType: ctx.experience.roleType,
+    mobileExperience: ctx.experience,
+    venueAccessState: ctx.venueAccessState
+  };
 }
 
 async function findUserForAuthMe(prisma: PrismaClient, sub: string) {
@@ -56,12 +57,7 @@ async function findUserForAuthMe(prisma: PrismaClient, sub: string) {
     });
     if (!row) return null;
     const base = publicUserFromDbRow(row);
-    const experience = buildMobileExperienceManifest({
-      userRole: row.role,
-      membershipRoles: row.memberships.map((m) => m.role),
-      signupProfile: row.signupProfile
-    });
-    return { ...base, roleType: experience.roleType, mobileExperience: experience };
+    return enrichUserWithExperience(prisma, sub, base);
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2022") {
       const row = await prisma.user.findUnique({
@@ -70,12 +66,7 @@ async function findUserForAuthMe(prisma: PrismaClient, sub: string) {
       });
       if (!row) return null;
       const base = publicUserFromDbRow({ ...row, signupProfile: null });
-      const experience = buildMobileExperienceManifest({
-        userRole: row.role,
-        membershipRoles: row.memberships.map((m) => m.role),
-        signupProfile: null
-      });
-      return { ...base, roleType: experience.roleType, mobileExperience: experience };
+      return enrichUserWithExperience(prisma, sub, base);
     }
     throw e;
   }
@@ -110,12 +101,17 @@ const businessSignupProvisionSchema = z
     }
   });
 
-export function registerAuthRoutes(app: FastifyInstance, prisma: PrismaClient) {
+export function registerAuthRoutes(
+  app: FastifyInstance,
+  prisma: PrismaClient,
+  domainEventBus: EventEmitter
+) {
   const signupSchema = z.object({
     email: z.string().email().optional(),
     phone: z.string().min(6).optional(),
     password: z.string().min(8),
-    role: z.enum(["OWNER", "STAFF", "CUSTOMER"]).default("OWNER"),
+  /** Open signup: CUSTOMER self-serve, OWNER business bootstrap. Staff must use invitation. */
+    role: z.enum(["OWNER", "CUSTOMER"]).default("CUSTOMER"),
     registrationProfile: z.record(z.string(), z.any()).optional()
   });
 
@@ -216,12 +212,18 @@ export function registerAuthRoutes(app: FastifyInstance, prisma: PrismaClient) {
               venueSubtype: businessProvision!.businessType,
               venueSubtypeOther: otherDesc,
               establishmentLocation: businessProvision!.establishmentLocation.trim(),
-              offeringsDescription: businessProvision!.offeringsDescription.trim()
+              offeringsDescription: businessProvision!.offeringsDescription.trim(),
+              accessPolicy: { maxManagers: 3, allowManagersToInviteManagers: false }
             },
             select: { id: true }
           });
           await tx.membership.create({
-            data: { userId: dbUser.id, restaurantId: restaurant.id, role: "OWNER" }
+            data: {
+              userId: dbUser.id,
+              restaurantId: restaurant.id,
+              role: "OWNER",
+              status: "ACTIVE"
+            }
           });
         });
       } catch (e) {
@@ -232,7 +234,7 @@ export function registerAuthRoutes(app: FastifyInstance, prisma: PrismaClient) {
 
     const token = app.signJwt({
       sub: dbUser.id,
-      role: dbUser.role as "OWNER" | "STAFF" | "CUSTOMER"
+      role: toJwtRole(dbUser.role)
     });
     const user = await enrichUserWithExperience(prisma, dbUser.id, publicUserFromDbRow(dbUser));
     return { ok: true, user, token };
@@ -281,7 +283,7 @@ export function registerAuthRoutes(app: FastifyInstance, prisma: PrismaClient) {
       return reply.status(401).send({ ok: false, error: "invalid_credentials" });
     }
 
-    const token = app.signJwt({ sub: user.id, role: user.role });
+    const token = app.signJwt({ sub: user.id, role: toJwtRole(user.role) });
     const base = publicUserFromDbRow({
       id: user.id,
       email: user.email,
@@ -291,6 +293,67 @@ export function registerAuthRoutes(app: FastifyInstance, prisma: PrismaClient) {
     });
     const enriched = await enrichUserWithExperience(prisma, user.id, base);
     return { ok: true, user: enriched, token };
+  });
+
+  const acceptInvitationSchema = z.object({
+    token: z.string().min(16),
+    password: z.string().min(8),
+    email: z.string().email().optional(),
+    phone: z.string().min(6).optional(),
+    fullName: z.string().min(2).optional()
+  });
+
+  app.post("/auth/accept-invitation", async (req, reply) => {
+    const body = acceptInvitationSchema.parse(req.body);
+    const passwordHash = await bcrypt.hash(body.password, SALT_ROUNDS);
+    try {
+      const result = await acceptStaffInvitation(prisma, {
+        token: body.token,
+        passwordHash,
+        email: body.email,
+        phone: body.phone,
+        fullName: body.fullName
+      });
+      const dbUser = await prisma.user.findUnique({
+        where: { id: result.userId },
+        select: { ...USER_CORE_SELECT, signupProfile: true }
+      });
+      const token = app.signJwt({
+        sub: result.userId,
+        role: toJwtRole(dbUser?.role ?? "STAFF")
+      });
+      const user = await enrichUserWithExperience(
+        prisma,
+        result.userId,
+        publicUserFromDbRow(dbUser ?? { id: result.userId, email: body.email ?? null, phone: body.phone ?? null, role: "STAFF", signupProfile: null })
+      );
+      const venue = await prisma.restaurant.findUnique({
+        where: { id: result.restaurantId },
+        select: { name: true }
+      });
+      const membership = await prisma.membership.findUnique({
+        where: { id: result.membershipId },
+        select: { role: true }
+      });
+      await notifyStaffPendingApproval(domainEventBus, {
+        restaurantId: result.restaurantId,
+        restaurantName: venue?.name ?? "Venue",
+        membershipId: result.membershipId,
+        userId: result.userId,
+        fullName: body.fullName ?? null,
+        role: membership?.role ?? "STAFF"
+      });
+      return {
+        ok: true,
+        token,
+        user,
+        pendingApproval: true,
+        restaurantId: result.restaurantId
+      };
+    } catch (e: unknown) {
+      const err = e as { statusCode?: number; message?: string };
+      return reply.status(err.statusCode ?? 400).send({ ok: false, error: err.message ?? "accept_failed" });
+    }
   });
 
   app.get("/auth/me", async (req, reply) => {

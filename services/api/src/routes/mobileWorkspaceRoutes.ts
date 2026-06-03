@@ -18,6 +18,9 @@ export function registerMobileWorkspaceRoutes(app: FastifyInstance, prisma: Pris
     if (ctx.experience.roleType === "CUSTOMER") {
       return reply.status(403).send({ ok: false, error: "customer_use_customer_routes" });
     }
+    if (ctx.venueAccessState !== "active") {
+      return reply.status(403).send({ ok: false, error: "pending_approval" });
+    }
     return { ok: true, context: await buildWorkspaceContext(prisma, ctx) };
   });
 
@@ -26,6 +29,9 @@ export function registerMobileWorkspaceRoutes(app: FastifyInstance, prisma: Pris
     const body = z.object({ restaurantId: z.string().min(1) }).parse(req.body);
     if (ctx.experience.roleType === "CUSTOMER") {
       return reply.status(403).send({ ok: false, error: "customer_use_customer_routes" });
+    }
+    if (ctx.venueAccessState !== "active") {
+      return reply.status(403).send({ ok: false, error: "pending_approval" });
     }
     const m = ctx.memberships.find((x) => x.restaurantId === body.restaurantId.trim());
     if (!m) return reply.status(403).send({ ok: false, error: "venue_access_denied" });

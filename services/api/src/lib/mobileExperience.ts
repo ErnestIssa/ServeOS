@@ -11,6 +11,8 @@ import {
 
 export type MobileRoleType = "CUSTOMER" | "ADMIN" | "STAFF";
 
+export type VenueAccessState = "none" | "active" | "pending_approval";
+
 export type MobileTabId = "home" | "bookings" | "orders" | "messages" | "account";
 
 export type MeHubRowAction =
@@ -92,6 +94,11 @@ export type SettingsDetailKey =
 export type MobileExperienceManifest = {
   roleType: MobileRoleType;
   permissions: string[];
+  /** Venue membership gate — pending users must not access operational APIs. */
+  venueAccess: {
+    state: VenueAccessState;
+    pendingVenueName?: string;
+  };
   /** Screen catalog the user may open (keys → metadata). */
   screens: Record<string, WorkspaceScreenManifest>;
   /** Primary workspace screen per tab (admin/staff only). */
@@ -162,6 +169,12 @@ const PERMS = {
     menu: "admin.menu",
     modifiers: "admin.modifiers",
     staffMgmt: "admin.staff_management",
+    staffInvite: "admin.staff_invite",
+    staffApprove: "admin.staff_approve",
+    staffPermissionsEdit: "admin.staff_permissions_edit",
+    staffSuspend: "admin.staff_suspend",
+    staffRemove: "admin.staff_remove",
+    staffInviteManager: "admin.staff_invite_manager",
     roles: "admin.roles_permissions",
     devices: "admin.devices",
     kds: "admin.kds",
@@ -190,8 +203,8 @@ const PERMS = {
   }
 } as const;
 
-function permissionsForRoleType(roleType: MobileRoleType, staffFlags: StaffCapabilityFlags): string[] {
-  const p = new Set<string>([
+function sharedPermissionBaseline(): string[] {
+  return [
     PERMS.shared.help,
     PERMS.shared.safety,
     PERMS.shared.settings,
@@ -205,7 +218,11 @@ function permissionsForRoleType(roleType: MobileRoleType, staffFlags: StaffCapab
     PERMS.shared.notifications,
     PERMS.shared.profile,
     PERMS.shared.support
-  ]);
+  ];
+}
+
+function permissionsForRoleType(roleType: MobileRoleType, staffFlags: StaffCapabilityFlags): string[] {
+  const p = new Set<string>(sharedPermissionBaseline());
 
   if (roleType === "CUSTOMER") {
     for (const k of Object.values(PERMS.customer)) p.add(k);
@@ -214,11 +231,10 @@ function permissionsForRoleType(roleType: MobileRoleType, staffFlags: StaffCapab
 
   if (roleType === "ADMIN") {
     for (const k of Object.values(PERMS.admin)) p.add(k);
-    for (const k of Object.values(PERMS.shared)) p.add(k);
     return [...p];
   }
 
-  // STAFF
+  // STAFF (legacy defaults when no DB-granted list)
   p.add(PERMS.staff.assignedOrders);
   p.add(PERMS.staff.shift);
   p.add(PERMS.staff.reservations);
@@ -228,6 +244,20 @@ function permissionsForRoleType(roleType: MobileRoleType, staffFlags: StaffCapab
   if (staffFlags.checkout) p.add(PERMS.staff.checkout);
 
   return [...p];
+}
+
+function permissionsFromGranted(granted: string[]): string[] {
+  const p = new Set<string>([...sharedPermissionBaseline(), ...granted]);
+  return [...p];
+}
+
+function staffFlagsFromGranted(granted: string[]): StaffCapabilityFlags {
+  return {
+    kitchen: granted.includes(PERMS.staff.kitchen),
+    checkout: granted.includes(PERMS.staff.checkout),
+    reservations: granted.includes(PERMS.staff.reservations),
+    tables: granted.includes(PERMS.staff.tables)
+  };
 }
 
 export type StaffCapabilityFlags = {
@@ -915,11 +945,47 @@ export function buildMobileExperienceManifest(input: {
   userRole: string;
   membershipRoles: string[];
   signupProfile: unknown;
+  grantedPermissions?: string[];
+  venueAccessState?: VenueAccessState;
+  pendingVenueName?: string;
 }): MobileExperienceManifest {
+  const venueAccessState = input.venueAccessState ?? (input.membershipRoles.length ? "active" : "none");
+
+  if (venueAccessState === "pending_approval") {
+    const customerPerms = permissionsForRoleType("CUSTOMER", readStaffCapabilityFlags(input.signupProfile, []));
+    return {
+      roleType: "CUSTOMER",
+      permissions: customerPerms,
+      venueAccess: {
+        state: "pending_approval",
+        pendingVenueName: input.pendingVenueName
+      },
+      screens: screenKeysForManifest("CUSTOMER", customerPerms),
+      tabScreens: {},
+      tabs: tabsForRole("CUSTOMER"),
+      meHub: {
+        sections: buildCustomerMeHub(),
+        showNotificationToggles: true,
+        showVenueLine: true
+      },
+      controlCentre: {
+        ...buildCustomerControlCentre(),
+        showDarkModeToggle: true
+      },
+      settings: settingsForRole("CUSTOMER")
+    };
+  }
+
   const roleStrings = [input.userRole, ...input.membershipRoles];
   const roleType = resolveMobileRoleType(roleStrings);
-  const staffFlags = readStaffCapabilityFlags(input.signupProfile, input.membershipRoles);
-  const permissions = permissionsForRoleType(roleType, staffFlags);
+  const staffFlags =
+    input.grantedPermissions && input.grantedPermissions.length > 0
+      ? staffFlagsFromGranted(input.grantedPermissions)
+      : readStaffCapabilityFlags(input.signupProfile, input.membershipRoles);
+  const permissions =
+    input.grantedPermissions && input.grantedPermissions.length > 0
+      ? permissionsFromGranted(input.grantedPermissions)
+      : permissionsForRoleType(roleType, staffFlags);
   const permSet = new Set(permissions);
 
   let meHubSections: MeHubSectionManifest[];
@@ -958,6 +1024,7 @@ export function buildMobileExperienceManifest(input: {
   return {
     roleType,
     permissions,
+    venueAccess: { state: venueAccessState === "active" ? "active" : "none" },
     screens,
     tabScreens: tabScreensForRole(roleType, permSet, staffFlags),
     tabs: tabsForRole(roleType),

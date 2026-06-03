@@ -110,6 +110,13 @@ import { computeNavSheetSnapDims, SHEET_SPRING_CONFIG } from "./src/shell/NavExp
 import { CustomerMeStack } from "./src/customer/profile/CustomerMeStack";
 import { loadProfileAvatarUri } from "./src/customer/profile/profileAvatarStorage";
 import { CustomerNavMenuPage } from "./src/shell/CustomerNavMenuPage";
+import { NotificationsInboxPage } from "./src/shell/NotificationsInboxPage";
+import {
+  connectNotificationSocket,
+  disconnectNotificationSocket,
+  subscribeNotificationRelay
+} from "./src/notifications/notificationSocket";
+import { fetchNotificationUnreadCount } from "./src/notifications/notificationsApi";
 import { FloatingTopBar, FLOATING_TOP_BAR_HEIGHT } from "./src/shell/FloatingTopBar";
 import { createAppStyles } from "./src/theme/createAppStyles";
 import { R } from "./src/theme";
@@ -173,6 +180,10 @@ export default function App() {
   const [customerSearchQuery, setCustomerSearchQuery] = React.useState("");
   /** Full-screen page from customer top-bar menu (hamburger); back restores prior tab/screen. */
   const [customerNavMenuOpen, setCustomerNavMenuOpen] = React.useState(false);
+  const [notificationsInboxOpen, setNotificationsInboxOpen] = React.useState(false);
+  const [platformNotificationCount, setPlatformNotificationCount] = React.useState(0);
+  const notificationsInboxOpenRef = React.useRef(false);
+  notificationsInboxOpenRef.current = notificationsInboxOpen;
   const [menuRid, setMenuRid] = React.useState("");
   const [menuPreview, setMenuPreview] = React.useState<any>(null);
   const [localCart, setLocalCart] = React.useState<Array<{ menuItemId: string; quantity: number; modifierOptionIds: string[] }>>(
@@ -310,8 +321,47 @@ export default function App() {
     };
   }, [token, isCustomerSession, sessionUser?.id]);
 
+  const refreshPlatformNotificationCount = React.useCallback(async () => {
+    if (!token) {
+      setPlatformNotificationCount(0);
+      return;
+    }
+    const res = await fetchNotificationUnreadCount(token);
+    if (res.ok && typeof res.count === "number") setPlatformNotificationCount(res.count);
+  }, [token]);
+
+  const openNotificationsInbox = React.useCallback(() => {
+    Keyboard.dismiss();
+    if (sheetBackdropActive) closeSheetFromBackdrop();
+    setNotificationsInboxOpen(true);
+  }, [sheetBackdropActive, closeSheetFromBackdrop]);
+
+  React.useEffect(() => {
+    if (!token) {
+      disconnectNotificationSocket();
+      setPlatformNotificationCount(0);
+      return;
+    }
+    connectNotificationSocket(token);
+    void refreshPlatformNotificationCount();
+    const poll = setInterval(() => void refreshPlatformNotificationCount(), 60_000);
+    const off = subscribeNotificationRelay((payload) => {
+      if (payload.type !== "notification") return;
+      void refreshPlatformNotificationCount();
+      if (!notificationsInboxOpenRef.current) {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    });
+    return () => {
+      clearInterval(poll);
+      off();
+      disconnectNotificationSocket();
+    };
+  }, [token, refreshPlatformNotificationCount]);
+
   const customerSignOut = React.useCallback(async () => {
     disconnectCustomerChatSocket();
+    disconnectNotificationSocket();
     await cacheInvalidate(authScope(sessionUser?.id));
     await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
     await AsyncStorage.removeItem(CUSTOMER_VENUE_KEY);
@@ -322,6 +372,8 @@ export default function App() {
     setMyOrders([]);
     setMeAvatarUri(null);
     setCustomerNavMenuOpen(false);
+    setNotificationsInboxOpen(false);
+    setPlatformNotificationCount(0);
   }, [sessionUser?.id]);
 
   const customerHomeScrollRef = React.useRef<ScrollView | null>(null);
@@ -1558,6 +1610,8 @@ export default function App() {
             searchSheetFullyExpanded={sheetOpenStage === 2}
             onSearchExpandSheet={expandCustomerNavSheetFullFromSearch}
             onSearchSubmit={() => void appendNavSearchRecent(customerSearchQuery.trim())}
+            notificationCount={platformNotificationCount}
+            onNotifications={openNotificationsInbox}
             onMenu={() => {
               Keyboard.dismiss();
               if (sheetBackdropActive) closeSheetFromBackdrop();
@@ -1573,10 +1627,10 @@ export default function App() {
               navGradient={navGradient}
               leftLabel={leftLabel}
               centerTitle={pageTitle}
-              notificationCount={0}
+              notificationCount={platformNotificationCount}
               onLeftPress={() => setTab("account")}
               onSearch={() => setStatus("search")}
-              onNotifications={() => setStatus("notifications")}
+              onNotifications={openNotificationsInbox}
               onMenu={() => {
                 Keyboard.dismiss();
                 setCustomerNavMenuOpen(true);
@@ -1590,10 +1644,10 @@ export default function App() {
             navGradient={navGradient}
             leftLabel={leftLabel}
             centerTitle={pageTitle}
-            notificationCount={0}
+            notificationCount={platformNotificationCount}
             onLeftPress={() => setTab("account")}
             onSearch={() => setStatus("search")}
-            onNotifications={() => setStatus("notifications")}
+            onNotifications={openNotificationsInbox}
             onMenu={() => setStatus("menu")}
           />
         )}
@@ -2196,6 +2250,18 @@ export default function App() {
             else if (workspaceContext && workspaceContext.memberships.length > 1) setTab("home");
             else setTab("orders");
           }}
+        />
+      ) : null}
+
+      {token ? (
+        <NotificationsInboxPage
+          visible={notificationsInboxOpen}
+          ambientTab={tab}
+          topInset={insets.top}
+          bottomInset={contentBottomInset(insets.bottom)}
+          authToken={token}
+          onBack={() => setNotificationsInboxOpen(false)}
+          onUnreadCountChange={setPlatformNotificationCount}
         />
       ) : null}
 
