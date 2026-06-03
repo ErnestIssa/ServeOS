@@ -7,6 +7,7 @@ export type DomainEventType =
   | "order.updated"
   | "order.delivered"
   | "chat.message_sent"
+  | "ocl.updated"
   | "reservation.created"
   | "reservation.confirmed"
   | "reservation.cancelled"

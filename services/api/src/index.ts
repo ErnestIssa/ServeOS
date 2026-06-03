@@ -127,7 +127,7 @@ async function main() {
 
   registerAuthRoutes(app, prisma, domainEventBus);
   registerMobileExperienceRoutes(app, prisma);
-  registerMobileWorkspaceRoutes(app, prisma);
+  registerMobileWorkspaceRoutes(app, prisma, chatBus, domainEventBus);
   registerStaffAccessRoutes(app, prisma, domainEventBus);
   registerRestaurantRoutes(app, prisma);
   registerRestaurantChatRoutes(app, prisma, chatBus);

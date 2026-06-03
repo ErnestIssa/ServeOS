@@ -44,6 +44,14 @@ export const ROUTING_RULES: Record<DomainEventType, RouteRule> = {
     title: () => "Order ready",
     body: () => "Your order is ready for pickup or delivery"
   },
+  "ocl.updated": {
+    category: "ORDER",
+    priority: "LOW",
+    channels: ["IN_APP"],
+    recipients: "order_participants",
+    title: () => "Operational update",
+    body: () => "Thread updated"
+  },
   "chat.message_sent": {
     category: "CHAT",
     priority: "MEDIUM",

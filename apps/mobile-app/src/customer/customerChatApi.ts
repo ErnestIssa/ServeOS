@@ -76,7 +76,7 @@ export type CustomerChatHubResponse = {
     restaurant: { id: string; name: string };
     lines: Array<{ name: string; quantity: number; lineTotalCents: number }>;
   }>;
-  timeline?: Array<{ key: string; content: string; kind: string }>;
+  timeline?: Array<{ key: string; content: string; kind: string; at?: string }>;
   messages?: CustomerChatHubMessage[];
   threadFeed?: ThreadFeedItem[];
   chatRoomId?: string | null;

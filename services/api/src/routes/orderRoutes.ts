@@ -6,11 +6,8 @@ import { z } from "zod";
 import { notifyOrderCreated, notifyOrderUpdated } from "../notifications/integrations/orders.js";
 import { priceMenuItemLineInput, type ModifierSnap } from "../lib/menuItemLinePricing.js";
 import { autoTerminateStaleActiveOrdersForCustomer } from "../lib/autoTerminateStaleActiveOrders.js";
-import { markCustomerMessagesDeliveredForOrder } from "../lib/chatReceipts.js";
-import { notifyChatMessage } from "../notifications/integrations/chat.js";
-import { syncOrderRoomSystemMessage } from "../lib/customerChatHub.js";
 import { isVenueMembershipRole } from "../lib/membershipAccess.js";
-import { serializeMessage } from "../lib/chatMessageService.js";
+import { applyOrderStatusOcl, loadCustomerOrderOcl } from "../lib/orderOcl.js";
 
 function roomOrder(id: string) {
   return `order:${id}`;
@@ -149,8 +146,11 @@ export async function registerOrderRoutes(
         return;
       }
 
-      const onEvent = (payload: OrderEventPayload) => send(payload);
+      const onEvent = (payload: OrderEventPayload | { type?: string }) => send(payload as OrderEventPayload);
       orderBus.on(room!, onEvent);
+      if (orderId) {
+        orderBus.on(`ocl:order:${orderId}`, onEvent);
+      }
 
       if (orderId) {
         const o = await prisma.order.findUnique({
@@ -177,6 +177,7 @@ export async function registerOrderRoutes(
 
       socket.on("close", () => {
         orderBus.off(room!, onEvent);
+        if (orderId) orderBus.off(`ocl:order:${orderId}`, onEvent);
       });
     }
   );
@@ -406,50 +407,33 @@ export async function registerOrderRoutes(
     const body = patchStatusSchema.parse(req.body);
     const existing = await prisma.order.findUnique({ where: { id: orderId } });
     if (!existing) throw Object.assign(new Error("order_not_found"), { statusCode: 404 });
-    await requireStaff(req, existing.restaurantId);
-    const order = await prisma.order.update({
-      where: { id: orderId },
-      data: { status: body.status },
-      include: { lines: true, restaurant: { select: { name: true } } }
-    });
-    if (
-      existing.status === "PENDING" &&
-      body.status !== "PENDING" &&
-      body.status !== "CANCELLED"
-    ) {
-      await markCustomerMessagesDeliveredForOrder(prisma, chatBus, order.id);
-    }
-    const chatRoom = await prisma.chatRoom.findUnique({ where: { orderId: order.id } });
-    if (chatRoom && order.customerUserId) {
-      const seeded = await syncOrderRoomSystemMessage(
-        prisma,
-        chatRoom.id,
-        body.status,
-        order.restaurant.name
-      );
-      if (seeded) {
-        const room = await prisma.chatRoom.findUnique({ where: { id: chatRoom.id } });
-        const message = serializeMessage(
-          seeded,
-          { userId: order.customerUserId, role: "CUSTOMER" },
-          {
-            restaurantLastReadAt: room?.restaurantLastReadAt ?? null,
-            customerLastReadAt: room?.customerLastReadAt ?? null
-          }
-        );
-        if (order.customerUserId) {
-          await notifyChatMessage(domainEventBus, {
-            chatRoomId: chatRoom.id,
-            restaurantId: order.restaurantId,
-            customerUserId: order.customerUserId,
-            actorUserId: order.customerUserId,
-            preview: message.content ?? "Order update",
-            wsPayload: { type: "new_message", message }
-          });
-        }
+    const user = await requireStaff(req, existing.restaurantId);
+    const order = await applyOrderStatusOcl(
+      prisma,
+      { orderId, status: body.status, actorUserId: user.sub },
+      { chatBus, domainEventBus }
+    );
+    return {
+      ok: true,
+      order: {
+        ...order,
+        lines: await prisma.orderLineItem.findMany({ where: { orderId: order.id } })
       }
+    };
+  });
+
+  app.get("/customer/orders/:orderId/ocl", async (req, reply) => {
+    const user = requireUser(req);
+    if (user.role !== "CUSTOMER") {
+      return reply.status(403).send({ ok: false, error: "customer_only" });
     }
-    await publishOrderEvent(order.id);
-    return { ok: true, order };
+    const { orderId } = req.params as { orderId: string };
+    try {
+      const snapshot = await loadCustomerOrderOcl(prisma, user.sub, orderId);
+      return { ok: true, ...snapshot };
+    } catch (e) {
+      const err = e as { statusCode?: number; message?: string };
+      return reply.status(err.statusCode ?? 500).send({ ok: false, error: err.message ?? "error" });
+    }
   });
 }

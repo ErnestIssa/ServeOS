@@ -21,6 +21,9 @@ import Animated, {
 import { R } from "../theme";
 import { menuImageSourceForKey } from "../menu/menuCardAssets";
 import { OrderLiveStatusView } from "./OrderLiveStatusView";
+import { OclTimelineStrip } from "./chat/OclTimelineStrip";
+import { fetchCustomerOrderOcl } from "./customerOclApi";
+import { API_URL, apiHttpToWsBase } from "../api";
 
 const SHEET_OPEN_MS = 520;
 const SHEET_CLOSE_MS = 420;
@@ -94,6 +97,7 @@ function shortOrderLabel(id: string): string {
 type Props = {
   orders: CustomerMineOrder[];
   activeVenueId: string;
+  token: string;
   money: (cents: number) => string;
   onBrowseMenu: () => void;
   onNeedHelp: () => void;
@@ -250,6 +254,12 @@ export function CustomerOrderTrackingSection(props: Props) {
           variant="hero"
         />
       </View>
+
+      {timelineRows.length > 0 ? (
+        <View style={{ marginTop: 12 }}>
+          <OclTimelineStrip rows={timelineRows} />
+        </View>
+      ) : null}
 
       <Pressable
         style={({ pressed }) => [styles.expandPlain, pressed && styles.pressed]}

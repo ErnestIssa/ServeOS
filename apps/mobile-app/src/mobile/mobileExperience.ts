@@ -1,7 +1,12 @@
 import type { AuthUser } from "../api";
-import type { MobileExperienceManifest, MobileRoleType, MobileTabId } from "./mobileExperienceTypes";
+import type { MobileExperienceManifest, MobileRoleType, MobileTabManifest } from "./mobileExperienceTypes";
 
-export type { MobileExperienceManifest, MobileRoleType, MobileTabId } from "./mobileExperienceTypes";
+export type {
+  MobileExperienceManifest,
+  MobileRoleType,
+  MobileTabManifest,
+  MobileTabIconKey
+} from "./mobileExperienceTypes";
 
 export async function fetchMobileExperience(jwt: string): Promise<MobileExperienceManifest | null> {
   const { apiFetch } = await import("../api");
@@ -23,9 +28,20 @@ export function mobileRoleTypeFromUser(user: AuthUser | null | undefined): Mobil
   return null;
 }
 
-export function visibleTabsFromUser(user: AuthUser | null | undefined): MobileTabId[] | null {
-  const exp = mobileExperienceFromUser(user);
-  return exp?.tabs ?? null;
+export function navTabsFromExperience(
+  exp: MobileExperienceManifest | null | undefined
+): MobileTabManifest[] {
+  if (!exp?.tabs?.length) return [];
+  return exp.tabs.filter((t) => t.visible !== false);
+}
+
+export function navTabsFromUser(user: AuthUser | null | undefined): MobileTabManifest[] {
+  return navTabsFromExperience(mobileExperienceFromUser(user));
+}
+
+export function defaultNavTabKey(exp: MobileExperienceManifest | null | undefined): string {
+  const tabs = navTabsFromExperience(exp);
+  return tabs[0]?.key ?? "home";
 }
 
 export function hasPermission(user: AuthUser | null | undefined, perm: string): boolean {
@@ -34,12 +50,29 @@ export function hasPermission(user: AuthUser | null | undefined, perm: string): 
 
 export function workspaceScreenForTab(
   exp: MobileExperienceManifest | null | undefined,
-  tab: MobileTabId
+  tabKey: string
 ): { screenKey: string; title: string; subtitle: string } | null {
   if (!exp?.tabScreens) return null;
-  const screenKey = exp.tabScreens[tab];
+  const screenKey = exp.tabScreens[tabKey];
   if (!screenKey) return null;
   const def = exp.screens[screenKey];
   if (!def) return null;
   return { screenKey, title: def.title, subtitle: def.subtitle };
+}
+
+export function navTabLabel(
+  exp: MobileExperienceManifest | null | undefined,
+  tabKey: string
+): string | null {
+  return exp?.tabs.find((t) => t.key === tabKey)?.label ?? null;
+}
+
+/** Profile tab keys across role shells. */
+export function isProfileNavTab(tabKey: string): boolean {
+  return tabKey === "account" || tabKey === "profile";
+}
+
+/** Chat tab keys (customer `messages`, staff `chat`). */
+export function isChatNavTab(tabKey: string): boolean {
+  return tabKey === "messages" || tabKey === "chat";
 }

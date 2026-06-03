@@ -2,6 +2,27 @@
 
 export type MobileRoleType = "CUSTOMER" | "ADMIN" | "STAFF";
 
+export type MobileTabIconKey =
+  | "home"
+  | "bookings"
+  | "orders"
+  | "messages"
+  | "profile"
+  | "dashboard"
+  | "tasks"
+  | "chat"
+  | "schedule"
+  | "menu"
+  | "staff";
+
+export type MobileTabManifest = {
+  key: string;
+  label: string;
+  icon: MobileTabIconKey;
+  visible: boolean;
+};
+
+/** @deprecated Customer legacy keys only — use `MobileTabManifest.key`. */
 export type MobileTabId = "home" | "bookings" | "orders" | "messages" | "account";
 
 export type MeHubRowAction =
@@ -89,9 +110,8 @@ export type MobileExperienceManifest = {
     pendingVenueName?: string;
   };
   screens: Record<string, WorkspaceScreenManifest>;
-  /** Primary workspace screen per tab — set by API for admin/staff. */
-  tabScreens?: Partial<Record<MobileTabId, string>>;
-  tabs: MobileTabId[];
+  tabScreens?: Partial<Record<string, string>>;
+  tabs: MobileTabManifest[];
   meHub: {
     sections: MeHubSectionManifest[];
     showNotificationToggles: boolean;

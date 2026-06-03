@@ -213,6 +213,7 @@ export function CustomerOrdersVenueScreen(props: Props) {
       <CustomerOrderTrackingSection
         orders={customerOrders}
         activeVenueId={aid}
+        token={token}
         money={money}
         onBrowseMenu={onBrowseMenu}
         onNeedHelp={onNeedHelp}

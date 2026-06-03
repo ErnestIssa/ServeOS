@@ -22,6 +22,7 @@ import {
 } from "../lib/chatMessageService.js";
 import type { ChatWsPayload } from "../lib/chatRealtime.js";
 import { notifyChatMessage } from "../notifications/integrations/chat.js";
+import { splitRoomMessagesForOcl, buildCustomerHubTimeline } from "../lib/orderOcl.js";
 import {
   buildThreadFeed,
   ensureCustomerChatRoom,
@@ -284,9 +285,26 @@ export function registerCustomerChatRoutes(
     }
 
     const roomRow = await prisma.chatRoom.findUnique({ where: { id: chatRoomId } });
-    const serialized = await listRoomMessages(prisma, chatRoomId, { userId: pl.sub, role: "CUSTOMER" });
+    const rawRows = await prisma.chatMessage.findMany({
+      where: { chatRoomId },
+      orderBy: { createdAt: "asc" },
+      take: 120
+    });
+    const { humanIds } = splitRoomMessagesForOcl(rawRows);
+    const serialized = rawRows
+      .filter((m) => humanIds.has(m.id))
+      .map((m) =>
+        serializeMessage(m, { userId: pl.sub, role: "CUSTOMER" }, {
+          restaurantLastReadAt: roomRow?.restaurantLastReadAt ?? null,
+          customerLastReadAt: roomRow?.customerLastReadAt ?? null
+        })
+      );
     const messages: ThreadFeedItem[] = serialized.map((m) => ({ kind: "message" as const, ...m }));
     const threadFeed = buildThreadFeed(messages);
+    const timeline =
+      scene === "active_order" && activeOrder
+        ? buildCustomerHubTimeline(activeOrder.status, restaurant.name, rawRows)
+        : [];
     const roomUnreadCount = await countRoomUnreadForCustomer(prisma, chatRoomId, pl.sub);
     const customerImageCount = await countCustomerChatImagesInRoom(prisma, chatRoomId);
 
@@ -355,7 +373,7 @@ export function registerCustomerChatRoutes(
       cart: cartPayload,
       activeOrder: activeOrderPayload,
       recentOrders,
-      timeline: [],
+      timeline,
       messages,
       threadFeed,
       chatRoomId,

@@ -133,6 +133,7 @@ model CustomerReservation {
 
   user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  chatRoom   ChatRoom?
 
   @@index([userId, status, startsAt])
   @@index([restaurantId])
@@ -285,6 +286,7 @@ model Order {
 
 enum ChatRoomType {
   ORDER
+  RESERVATION
   VENUE
   STAFF
   SUPPORT
@@ -302,6 +304,7 @@ model ChatRoom {
   type           ChatRoomType
   restaurantId   String
   orderId        String?      @unique
+  reservationId  String?    @unique
   customerUserId String?
   lastMessageAt          DateTime?
   lastMessagePreview     String?
@@ -312,8 +315,9 @@ model ChatRoom {
   updatedAt      DateTime     @updatedAt
 
   restaurant Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  order      Order?        @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  customer   User?         @relation("CustomerChatRooms", fields: [customerUserId], references: [id], onDelete: Cascade)
+  order        Order?               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  reservation  CustomerReservation? @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  customer     User?                @relation("CustomerChatRooms", fields: [customerUserId], references: [id], onDelete: Cascade)
   messages   ChatMessage[]
 
   @@unique([type, restaurantId, customerUserId])

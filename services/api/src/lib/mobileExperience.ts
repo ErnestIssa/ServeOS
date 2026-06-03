@@ -13,7 +13,29 @@ export type MobileRoleType = "CUSTOMER" | "ADMIN" | "STAFF";
 
 export type VenueAccessState = "none" | "active" | "pending_approval";
 
+/** @deprecated Use tab manifest `key` from `MobileExperienceManifest.tabs`. */
 export type MobileTabId = "home" | "bookings" | "orders" | "messages" | "account";
+
+/** Icon id sent to mobile — frontend maps to SVG glyphs only (no role logic). */
+export type MobileTabIconKey =
+  | "home"
+  | "bookings"
+  | "orders"
+  | "messages"
+  | "profile"
+  | "dashboard"
+  | "tasks"
+  | "chat"
+  | "schedule"
+  | "menu"
+  | "staff";
+
+export type MobileTabManifest = {
+  key: string;
+  label: string;
+  icon: MobileTabIconKey;
+  visible: boolean;
+};
 
 export type MeHubRowAction =
   | "open_reservations"
@@ -101,9 +123,10 @@ export type MobileExperienceManifest = {
   };
   /** Screen catalog the user may open (keys → metadata). */
   screens: Record<string, WorkspaceScreenManifest>;
-  /** Primary workspace screen per tab (admin/staff only). */
-  tabScreens: Partial<Record<MobileTabId, string>>;
-  tabs: MobileTabId[];
+  /** Primary workspace screen per tab key (admin/staff operational tabs). */
+  tabScreens: Partial<Record<string, string>>;
+  /** Bottom navigation — order, labels, icons, visibility (single source of truth). */
+  tabs: MobileTabManifest[];
   meHub: {
     sections: MeHubSectionManifest[];
     showNotificationToggles: boolean;
@@ -285,14 +308,32 @@ export function readStaffCapabilityFlags(signupProfile: unknown, membershipRoles
   };
 }
 
-function tabsForRole(roleType: MobileRoleType): MobileTabId[] {
+function buildTabsForRole(roleType: MobileRoleType): MobileTabManifest[] {
   switch (roleType) {
     case "CUSTOMER":
-      return ["home", "bookings", "orders", "messages", "account"];
-    case "ADMIN":
-      return ["home", "orders", "messages", "account"];
+      return [
+        { key: "home", label: "Home", icon: "home", visible: true },
+        { key: "bookings", label: "Book", icon: "bookings", visible: true },
+        { key: "orders", label: "Orders", icon: "orders", visible: true },
+        { key: "messages", label: "Chat", icon: "messages", visible: true },
+        { key: "account", label: "Profile", icon: "profile", visible: true }
+      ];
     case "STAFF":
-      return ["orders", "messages", "account"];
+      return [
+        { key: "orders", label: "Orders", icon: "orders", visible: true },
+        { key: "tasks", label: "Tasks", icon: "tasks", visible: true },
+        { key: "chat", label: "Chat", icon: "chat", visible: true },
+        { key: "schedule", label: "Schedule", icon: "schedule", visible: true },
+        { key: "profile", label: "Profile", icon: "profile", visible: true }
+      ];
+    case "ADMIN":
+      return [
+        { key: "dashboard", label: "Dashboard", icon: "dashboard", visible: true },
+        { key: "orders", label: "Orders", icon: "orders", visible: true },
+        { key: "menu", label: "Menu", icon: "menu", visible: true },
+        { key: "staff", label: "Staff", icon: "staff", visible: true },
+        { key: "profile", label: "Profile", icon: "profile", visible: true }
+      ];
   }
 }
 
@@ -300,23 +341,24 @@ function tabScreensForRole(
   roleType: MobileRoleType,
   permSet: Set<string>,
   staffFlags: StaffCapabilityFlags
-): Partial<Record<MobileTabId, string>> {
+): Partial<Record<string, string>> {
   if (roleType === "ADMIN") {
-    const out: Partial<Record<MobileTabId, string>> = {};
-    if (permSet.has(PERMS.admin.dashboard)) out.home = "admin.dashboard";
+    const out: Partial<Record<string, string>> = {};
+    if (permSet.has(PERMS.admin.dashboard)) out.dashboard = "admin.dashboard";
     if (permSet.has(PERMS.admin.liveOrders)) out.orders = "admin.live_orders";
+    if (permSet.has(PERMS.admin.menu)) out.menu = "admin.menu";
+    if (permSet.has(PERMS.admin.staffMgmt)) out.staff = "admin.staff_management";
+    out.profile = "admin.profile";
     return out;
   }
   if (roleType === "STAFF") {
-    const out: Partial<Record<MobileTabId, string>> = {};
-    if (staffFlags.kitchen && !staffFlags.checkout && permSet.has(PERMS.staff.kitchen)) {
-      out.orders = "staff.kitchen_queue";
-    } else if (staffFlags.checkout && !staffFlags.kitchen && permSet.has(PERMS.staff.checkout)) {
-      out.orders = "staff.checkout_queue";
-    } else if (permSet.has(PERMS.staff.assignedOrders)) {
-      out.orders = "staff.assigned_orders";
-    }
-    return out;
+    return {
+      orders: "staff.orders",
+      tasks: "staff.tasks",
+      chat: "staff.chat",
+      schedule: "staff.schedule",
+      profile: "staff.profile"
+    };
   }
   return {};
 }
@@ -962,7 +1004,7 @@ export function buildMobileExperienceManifest(input: {
       },
       screens: screenKeysForManifest("CUSTOMER", customerPerms),
       tabScreens: {},
-      tabs: tabsForRole("CUSTOMER"),
+      tabs: buildTabsForRole("CUSTOMER"),
       meHub: {
         sections: buildCustomerMeHub(),
         showNotificationToggles: true,
@@ -1027,7 +1069,7 @@ export function buildMobileExperienceManifest(input: {
     venueAccess: { state: venueAccessState === "active" ? "active" : "none" },
     screens,
     tabScreens: tabScreensForRole(roleType, permSet, staffFlags),
-    tabs: tabsForRole(roleType),
+    tabs: buildTabsForRole(roleType),
     meHub: {
       sections: enrichedMe.sections,
       showNotificationToggles,

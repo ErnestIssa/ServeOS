@@ -117,3 +117,73 @@ export function NavIconAccount({ size = 22, color }: IconProps) {
     </Svg>
   );
 }
+
+/** Profile tab — same silhouette as account. */
+export function NavIconProfile({ size = 22, color }: IconProps) {
+  return <NavIconAccount size={size} color={color} />;
+}
+
+/** Admin dashboard — grid KPI tiles */
+export function NavIconDashboard({ size = 22, color }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path
+        fill={color}
+        d="M3 3h8v8H3V3zm10 0h8v5h-8V3zM3 13h5v8H3v-8zm7 0h11v8H10v-8z"
+      />
+    </Svg>
+  );
+}
+
+/** Staff tasks — checklist */
+export function NavIconTasks({ size = 22, color }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path
+        fill={color}
+        d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2zM7 3H5v2H3v2h2v2h2V7h2V5H7V3zm12 0h-2v2h-2v2h2v2h2V7h2V5h-2V3z"
+      />
+    </Svg>
+  );
+}
+
+/** Staff/admin chat — same glyph family as customer messages */
+export function NavIconChat({ size = 22, color }: IconProps) {
+  return <NavIconMessages size={size} color={color} />;
+}
+
+/** Staff schedule — calendar */
+export function NavIconSchedule({ size = 22, color }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path
+        fill={color}
+        d="M7 2v2H5a2 2 0 0 0-2 2v1h18V6a2 2 0 0 0-2-2h-2V2h-2v2H9V2H7zm14 8H3v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V10zm-2 4h-5v5h5v-5z"
+      />
+    </Svg>
+  );
+}
+
+/** Admin menu — open book / list */
+export function NavIconMenu({ size = 22, color }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path
+        fill={color}
+        d="M4 4h7v16H6a2 2 0 0 1-2-2V4zm9 0h7v14a2 2 0 0 1-2 2h-5V4zM6 6v12h3V6H6zm9 2v10h3V8h-3z"
+      />
+    </Svg>
+  );
+}
+
+/** Admin staff — people */
+export function NavIconStaff({ size = 22, color }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path
+        fill={color}
+        d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5C15 14.17 10.33 13 8 13zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"
+      />
+    </Svg>
+  );
+}

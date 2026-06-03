@@ -25,6 +25,7 @@ import {
   saveCustomerReservationDraft
 } from "../lib/customerReservationDraftService.js";
 import { validateReservationStartInput } from "../lib/reservationStartValidation.js";
+import { ensureReservationChatRoom, loadCustomerReservationOcl } from "../lib/reservationOcl.js";
 
 function bearerToken(headers: { authorization?: string }): string | null {
   const auth = headers.authorization;
@@ -158,6 +159,12 @@ export function registerCustomerReservationRoutes(app: FastifyInstance, prisma: 
         include: { restaurant: { select: { id: true, name: true } } }
       });
 
+      await ensureReservationChatRoom(prisma, {
+        reservationId: row.id,
+        restaurantId,
+        customerUserId: user.sub
+      });
+
       await prisma.customerReservationDraft.upsert({
         where: { userId_restaurantId: { userId: user.sub, restaurantId } },
         create: {
@@ -199,6 +206,26 @@ export function registerCustomerReservationRoutes(app: FastifyInstance, prisma: 
       reservations: rows.map(serializeCustomerReservation)
     };
   });
+
+  app.get<{ Params: { reservationId: string } }>(
+    "/customer/reservations/:reservationId/ocl",
+    async (req, reply) => {
+      let user;
+      try {
+        user = requireCustomer(req, app);
+      } catch (e) {
+        const err = e as { statusCode?: number; message?: string };
+        return reply.status(err.statusCode ?? 401).send({ ok: false, error: err.message ?? "unauthorized" });
+      }
+      try {
+        const snapshot = await loadCustomerReservationOcl(prisma, user.sub, req.params.reservationId);
+        return { ok: true, ...snapshot };
+      } catch (e) {
+        const err = e as { statusCode?: number; message?: string };
+        return reply.status(err.statusCode ?? 500).send({ ok: false, error: err.message ?? "error" });
+      }
+    }
+  );
 
   app.get<{ Params: { reservationId: string } }>(
     "/customer/reservations/:reservationId",

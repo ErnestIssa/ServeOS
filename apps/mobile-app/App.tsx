@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { StatusBar } from "expo-status-bar";
-import { nativeNavBoldGradient, type AmbientNativeTab } from "@serveos/core-ambient/themes";
+import { nativeNavBoldGradient } from "@serveos/core-ambient/themes";
 import { ServeOSBrandScreenNative } from "@serveos/core-loading-native";
 import React from "react";
 import {
@@ -48,18 +48,20 @@ import { CustomerReservationFlow } from "./src/customer/reservations/CustomerRes
 import { fetchCustomerAppContext } from "./src/customer/customerAppApi";
 import {
   fetchMobileExperience,
+  isChatNavTab,
+  isProfileNavTab,
   mobileExperienceFromUser,
   mobileRoleTypeFromUser,
-  visibleTabsFromUser,
-  workspaceScreenForTab
+  navTabLabel,
+  navTabsFromUser
 } from "./src/mobile/mobileExperience";
+import { navKeyToAmbientTab } from "./src/mobile/navAmbient";
+import { RoleNavTabPanel } from "./src/workspace/RoleNavTabPanel";
 import {
   fetchWorkspaceContext,
   patchWorkspaceActiveRestaurant,
   type WorkspaceContext
 } from "./src/mobile/workspaceApi";
-import { WorkspaceScreenHost } from "./src/workspace/WorkspaceScreenHost";
-import { WorkspaceVenuePicker } from "./src/workspace/WorkspaceVenuePicker";
 import {
   countActiveCustomerOrders,
   isActiveOrderStatus,
@@ -155,9 +157,11 @@ export default function App() {
   const mobileRoleType = React.useMemo(() => mobileRoleTypeFromUser(sessionUser), [sessionUser]);
   /** Backend `roleType` — not raw DB role strings. */
   const isCustomerSession = mobileRoleType === "CUSTOMER";
-  const isAdminSession = mobileRoleType === "ADMIN";
-  const isStaffSession = mobileRoleType === "STAFF";
-  const visibleTabIds = visibleTabsFromUser(sessionUser) ?? undefined;
+  const navTabs = navTabsFromUser(sessionUser);
+  const profileTabKey = React.useMemo(
+    () => navTabs.find((t) => isProfileNavTab(t.key))?.key ?? "account",
+    [navTabs]
+  );
 
   const [restaurants, setRestaurants] = React.useState<Array<{ id: string; name: string; role: string; companyId?: string | null }>>([]);
   const [restaurantName, setRestaurantName] = React.useState("My Restaurant");
@@ -263,13 +267,8 @@ export default function App() {
     [token]
   );
 
-  const workspaceTabScreen = React.useMemo(
-    () => workspaceScreenForTab(mobileExperience, tab),
-    [mobileExperience, tab]
-  );
-
   React.useEffect(() => {
-    if (tab !== "account") setMeStackAtRoot(true);
+    if (!isProfileNavTab(tab)) setMeStackAtRoot(true);
   }, [tab]);
 
   React.useEffect(() => {
@@ -277,9 +276,9 @@ export default function App() {
   }, [refreshWorkspaceContext]);
 
   React.useEffect(() => {
-    if (!visibleTabIds?.length) return;
-    if (!visibleTabIds.includes(tab)) setTab(visibleTabIds[0]!);
-  }, [tab, visibleTabIds]);
+    if (!navTabs.length) return;
+    if (!navTabs.some((t) => t.key === tab)) setTab(navTabs[0]!.key);
+  }, [tab, navTabs]);
 
   React.useEffect(() => {
     if (!token || sessionUser?.mobileExperience) return;
@@ -1226,7 +1225,7 @@ export default function App() {
           primaryLabel: "Go to Account",
           onPrimary: () => {
             setActionModal((p) => ({ ...p, visible: false }));
-            setTab("account");
+            setTab(profileTabKey);
           },
           secondaryLabel: "Dismiss",
           onSecondary: () => setActionModal((p) => ({ ...p, visible: false }))
@@ -1386,12 +1385,15 @@ export default function App() {
           totalCents?: number;
           restaurantName?: string;
         };
-        if (data.type === "order_updated" && data.orderId === id) {
+        if (
+          (data.type === "order_updated" || data.type === "ocl_updated") &&
+          data.orderId === id
+        ) {
           setTrackResult((prev: any) => ({
             ok: true,
             orderId: data.orderId,
-            status: data.status,
-            totalCents: data.totalCents,
+            status: data.status ?? prev?.status,
+            totalCents: data.totalCents ?? prev?.totalCents,
             restaurantName: data.restaurantName ?? prev?.restaurantName
           }));
         }
@@ -1507,18 +1509,9 @@ export default function App() {
   const scrollBottom = contentBottomInset(insets.bottom);
   const scrollTopPad = R.space.sm + insets.top + FLOATING_TOP_BAR_HEIGHT + 18;
   const meCompactTopPad = insets.top + 8;
-  const hideProfileSubpageTopNav = !!token && mobileExperience && tab === "account" && !meStackAtRoot;
+  const hideProfileSubpageTopNav = !!token && mobileExperience && isProfileNavTab(tab) && !meStackAtRoot;
 
-  const pageTitle =
-    tab === "home"
-      ? "Home"
-      : tab === "orders"
-        ? "Orders"
-        : tab === "bookings"
-          ? "Bookings"
-          : tab === "messages"
-            ? "Messages"
-            : "Account";
+  const pageTitle = navTabLabel(mobileExperience, tab) ?? "ServeOS";
 
   const leftLabel =
     (menuPreview?.ok && menuPreview.restaurant?.name ? String(menuPreview.restaurant.name) : null) ??
@@ -1528,7 +1521,7 @@ export default function App() {
   /** One nav capsule look for all customer tabs (matches Home glass chrome). */
   const navGradient = isCustomerSession
     ? nativeNavBoldGradient("home")
-    : nativeNavBoldGradient(tab as AmbientNativeTab);
+    : nativeNavBoldGradient(navKeyToAmbientTab(tab));
   /** Home only: full-width menu rails. Orders keeps normal horizontal padding so layout matches other tabs. */
   const customerScreenEdgeBleed = isCustomerSession && tab === "home";
   /** Empty Orders: pause cart bounce + CTA rotation while customer search sheet is open. */
@@ -1595,7 +1588,7 @@ export default function App() {
       ) : null}
 
       <View style={styles.main}>
-        <ScrollMeshBackground tab={tab} scrollY={scrollY} />
+        <ScrollMeshBackground tab={navKeyToAmbientTab(tab)} scrollY={scrollY} />
         {!hideProfileSubpageTopNav ? <TopNavContentDimmer topInset={insets.top} /> : null}
         {isCustomerSession ? (
           !hideProfileSubpageTopNav ? (
@@ -1628,7 +1621,7 @@ export default function App() {
               leftLabel={leftLabel}
               centerTitle={pageTitle}
               notificationCount={platformNotificationCount}
-              onLeftPress={() => setTab("account")}
+              onLeftPress={() => setTab(profileTabKey)}
               onSearch={() => setStatus("search")}
               onNotifications={openNotificationsInbox}
               onMenu={() => {
@@ -1645,7 +1638,7 @@ export default function App() {
             leftLabel={leftLabel}
             centerTitle={pageTitle}
             notificationCount={platformNotificationCount}
-            onLeftPress={() => setTab("account")}
+            onLeftPress={() => setTab(profileTabKey)}
             onSearch={() => setStatus("search")}
             onNotifications={openNotificationsInbox}
             onMenu={() => setStatus("menu")}
@@ -1726,25 +1719,6 @@ export default function App() {
                   </View>
                 ) : null}
               </>
-            ) : token && workspaceTabScreen ? (
-              <View style={styles.customerHomeCopyInset}>
-                {workspaceContext && workspaceContext.memberships.length > 1 ? (
-                  <WorkspaceVenuePicker
-                    memberships={workspaceContext.memberships}
-                    activeRestaurantId={workspaceRestaurantId}
-                    onSelect={(id) => void setWorkspaceVenue(id)}
-                  />
-                ) : null}
-                <WorkspaceScreenHost
-                  screenKey={workspaceTabScreen.screenKey}
-                  authToken={token}
-                  restaurantId={workspaceRestaurantId}
-                  title={workspaceTabScreen.title}
-                  subtitle={workspaceTabScreen.subtitle}
-                  topInset={0}
-                  bottomInset={0}
-                />
-              </View>
             ) : (
               <>
                 <Text style={styles.heroGreeting}>{greeting()}</Text>
@@ -1763,7 +1737,7 @@ export default function App() {
                     >
                       <Text style={styles.pillPrimaryText}>Order food</Text>
                     </Pressable>
-                    <Pressable style={({ pressed }) => [styles.pillGhost, pressed && styles.pressed]} onPress={() => setTab("account")}>
+                    <Pressable style={({ pressed }) => [styles.pillGhost, pressed && styles.pressed]} onPress={() => setTab(profileTabKey)}>
                       <Text style={styles.pillGhostText}>Account</Text>
                     </Pressable>
                   </View>
@@ -1771,7 +1745,7 @@ export default function App() {
 
                 <Text style={styles.sectionLabel}>Quick actions</Text>
                 <View style={styles.tileRow}>
-                  <Pressable style={({ pressed }) => [styles.cardShell, styles.tile, pressed && styles.pressed]} onPress={() => setTab("account")}>
+                  <Pressable style={({ pressed }) => [styles.cardShell, styles.tile, pressed && styles.pressed]} onPress={() => setTab(profileTabKey)}>
                     <Text style={styles.tileEmoji}>✦</Text>
                     <Text style={styles.tileTitle}>Venues</Text>
                     <Text style={styles.tileSub}>Manage your restaurants</Text>
@@ -1812,28 +1786,6 @@ export default function App() {
             onRestoreScroll={restoreBookingsScroll}
             onReservationsChanged={() => void refreshCustomerAppContext()}
           />
-        ) : tab === "bookings" ? (
-          <Animated.ScrollView
-            style={styles.scrollLayer}
-            onScroll={onScroll}
-            scrollEventThrottle={16}
-            keyboardDismissMode={SCROLL_KEYBOARD_DISMISS_MODE}
-            contentContainerStyle={[styles.scrollPad, { paddingTop: scrollTopPad, paddingBottom: scrollBottom }]}
-            showsVerticalScrollIndicator={false}
-          >
-            <Text style={styles.pageTitle}>Bookings</Text>
-            <Text style={styles.pageSub}>Reserve tables and manage upcoming visits — staff & owner tools.</Text>
-            <View style={[styles.cardShell, styles.surfaceCard]}>
-              <View style={styles.premiumBadgeRow}>
-                <Text style={styles.premiumBadge}>Staff</Text>
-              </View>
-              <Text style={styles.cardHeadline}>Table & event bookings</Text>
-              <Text style={styles.cardBodyMuted}>
-                Reservation list, walk-ins, and capacity rules live in the web admin and staff workflows. Customer booking
-                uses the Book tab when signed in as a guest.
-              </Text>
-            </View>
-          </Animated.ScrollView>
         ) : null}
 
         {tab === "orders" &&
@@ -1874,7 +1826,7 @@ export default function App() {
               emptyMotionPaused={ordersEmptyMotionPaused}
             />
           </Animated.View>
-        ) : tab === "orders" ? (
+        ) : tab === "orders" && isCustomerSession ? (
           <Animated.ScrollView
             style={styles.scrollLayer}
             onScroll={onScroll}
@@ -1888,27 +1840,7 @@ export default function App() {
             ]}
             showsVerticalScrollIndicator={false}
           >
-            {token && workspaceTabScreen && tab === "orders" ? (
-              <View style={styles.customerHomeCopyInset}>
-                {workspaceContext && workspaceContext.memberships.length > 1 ? (
-                  <WorkspaceVenuePicker
-                    memberships={workspaceContext.memberships}
-                    activeRestaurantId={workspaceRestaurantId}
-                    onSelect={(id) => void setWorkspaceVenue(id)}
-                  />
-                ) : null}
-                <WorkspaceScreenHost
-                  screenKey={workspaceTabScreen.screenKey}
-                  authToken={token}
-                  restaurantId={workspaceRestaurantId}
-                  title={workspaceTabScreen.title}
-                  subtitle={workspaceTabScreen.subtitle}
-                  topInset={0}
-                  bottomInset={0}
-                />
-              </View>
-            ) : token && isCustomerSession ? (
-              <CustomerOrdersVenueScreen
+            <CustomerOrdersVenueScreen
                 token={token}
                 userDisplayName={customerDisplayName(sessionUser?.signupProfile, sessionUser?.email ?? undefined)}
                 activeId={activeRestaurantId()}
@@ -1933,114 +1865,13 @@ export default function App() {
                 ordersEmptySessionVisits={ordersEmptySessionVisitCount}
                 emptyMotionPaused={ordersEmptyMotionPaused}
               />
-            ) : (
-              <>
-                <Text style={styles.pageTitle}>Orders</Text>
-                <Text style={styles.pageSub}>Browse menus, place orders, and track status — same flow as customer web.</Text>
-
-                <View style={[styles.cardShell, styles.fieldCard]}>
-                  <Text style={styles.inputLabel}>Restaurant ID</Text>
-                  <TextInput
-                    value={menuRid}
-                    onChangeText={setMenuRid}
-                    placeholder="Paste venue ID"
-                    placeholderTextColor={themeColors.textMuted}
-                    style={styles.input}
-                    autoCapitalize="none"
-                  />
-                  <Pressable style={({ pressed }) => [styles.pillPrimary, styles.mtSm, pressed && styles.pressed]} onPress={() => void loadPublicMenu()}>
-                    <Text style={styles.pillPrimaryText}>Load menu</Text>
-                  </Pressable>
-                </View>
-
-                {menuPreview?.ok && menuPreview.restaurant ? (
-                  <CustomerMenuBrowsing
-                    key={`menu-${String(menuPreview.restaurant.id)}`}
-                    menuPreview={{
-                      ok: true,
-                      restaurant: menuPreview.restaurant,
-                      categories: menuPreview.categories ?? []
-                    }}
-                    money={money}
-                    restaurantId={String(menuPreview.restaurant.id)}
-                    filterQuery=""
-                    prefsVersion={menuPrefsSeq}
-                    addingItemIds={addingById}
-                    markedMenuItemIds={markedMenuItemIds}
-                    authToken={token}
-                    onMenuEngagement={() => setMenuPrefsSeq((s) => s + 1)}
-                    onAddItem={(it) => void addMenuLineFromBrowse(it.id)}
-                  />
-                ) : null}
-
-                <View style={[styles.cardShell, styles.fieldCard]}>
-                  <Text style={styles.inputLabel}>Cart · {localCart.length} line(s)</Text>
-                  <Pressable style={({ pressed }) => [styles.pillSecondary, pressed && styles.pressed]} onPress={addFirstMenuItemToCart}>
-                    <Text style={styles.pillSecondaryText}>Add first item to cart</Text>
-                  </Pressable>
-                  <Text style={styles.inputLabel}>Kitchen note</Text>
-                  <TextInput
-                    value={orderNote}
-                    onChangeText={setOrderNote}
-                    placeholder="Optional"
-                    placeholderTextColor={themeColors.textMuted}
-                    style={styles.input}
-                  />
-                  <Pressable style={({ pressed }) => [styles.pillPrimary, styles.mtSm, pressed && styles.pressed]} onPress={() => void submitOrder()}>
-                    <Text style={styles.pillPrimaryText}>Place order</Text>
-                  </Pressable>
-                </View>
-
-                <View style={[styles.cardShell, styles.surfaceCard, styles.mtSm]}>
-                  <Text style={styles.sectionLabelSmall}>Track an order</Text>
-                  <Text style={styles.inputLabel}>Order ID</Text>
-                  <TextInput
-                    value={trackId}
-                    onChangeText={setTrackId}
-                    placeholder="Paste order id"
-                    placeholderTextColor={themeColors.textMuted}
-                    style={styles.input}
-                    autoCapitalize="none"
-                  />
-                  <Pressable style={({ pressed }) => [styles.pillPrimary, styles.mtSm, pressed && styles.pressed]} onPress={() => void fetchTrack()}>
-                    <Text style={styles.pillPrimaryText}>Track</Text>
-                  </Pressable>
-                  {trackResult?.ok ? (
-                    <View style={styles.trackBox}>
-                      <Text style={styles.trackVenue}>{trackResult.restaurantName}</Text>
-                      <Text style={styles.trackLine}>
-                        {trackResult.status} · {money(trackResult.totalCents ?? 0)}
-                      </Text>
-                    </View>
-                  ) : null}
-                </View>
-
-                {token && isCustomerSession ? (
-                  <View style={[styles.cardShell, styles.surfaceCard, styles.mtSm]}>
-                    <Text style={styles.sectionLabelSmall}>Your orders</Text>
-                    {myOrders.length === 0 ? (
-                      <Text style={styles.itemDesc}>No orders yet.</Text>
-                    ) : (
-                      myOrders.map((o: any) => (
-                        <View key={o.id} style={styles.orderRow}>
-                          <Text style={styles.itemName}>{money(o.totalCents)}</Text>
-                          <Text style={styles.itemDesc}>{o.status}</Text>
-                        </View>
-                      ))
-                    )}
-                  </View>
-                ) : (
-                  <Text style={styles.hint}>Log in as a customer to see your order history here.</Text>
-                )}
-              </>
-            )}
           </Animated.ScrollView>
         ) : null}
 
         {token && isCustomerSession ? (
           <View
-            style={[styles.scrollLayer, tab !== "messages" ? { display: "none" } : null]}
-            pointerEvents={tab === "messages" ? "auto" : "none"}
+            style={[styles.scrollLayer, !isChatNavTab(tab) ? { display: "none" } : null]}
+            pointerEvents={isChatNavTab(tab) ? "auto" : "none"}
           >
           <CustomerChatScreen
             token={token}
@@ -2051,7 +1882,7 @@ export default function App() {
             onScroll={onScroll}
             scrollTopPad={scrollTopPad}
             scrollBottom={scrollBottom}
-            chatFocused={tab === "messages"}
+            chatFocused={isChatNavTab(tab)}
             onUnreadCountChange={(n) => {
               setChatUnreadCount(n);
               void setChatBadgeCount(n);
@@ -2076,31 +1907,25 @@ export default function App() {
             }}
           />
           </View>
-        ) : tab === "messages" ? (
-          <Animated.ScrollView
-            style={styles.scrollLayer}
-            onScroll={onScroll}
-            scrollEventThrottle={16}
-            keyboardDismissMode={SCROLL_KEYBOARD_DISMISS_MODE}
-            contentContainerStyle={[styles.scrollPad, { paddingTop: scrollTopPad, paddingBottom: scrollBottom }]}
-            showsVerticalScrollIndicator={false}
-          >
-            <Text style={styles.pageTitle}>Messages</Text>
-            <Text style={styles.pageSub}>Operational threads for your venues — order-linked, not social chat.</Text>
-            <View style={[styles.cardShell, styles.surfaceCard]}>
-              <View style={styles.premiumBadgeRow}>
-                <Text style={styles.premiumBadge}>Staff & owner</Text>
-              </View>
-              <Text style={styles.cardHeadline}>Venue operations inbox</Text>
-              <Text style={styles.cardBodyMuted}>
-                Guest order threads and internal coordination will appear here. Customer assistance lives in the customer Chat
-                tab.
-              </Text>
-            </View>
-          </Animated.ScrollView>
         ) : null}
 
-        {tab === "account" && token && mobileExperience ? (
+        {token && mobileExperience && !isCustomerSession && !isProfileNavTab(tab) && tab !== "home" ? (
+          <RoleNavTabPanel
+            tabKey={tab}
+            mobileExperience={mobileExperience}
+            authToken={token}
+            workspaceContext={workspaceContext}
+            workspaceRestaurantId={workspaceRestaurantId}
+            onSelectVenue={(id) => void setWorkspaceVenue(id)}
+            scrollTopPad={scrollTopPad}
+            scrollBottom={scrollBottom}
+            onScroll={onScroll}
+            onNavigateTab={setTab}
+            onSignOut={() => void customerSignOut()}
+          />
+        ) : null}
+
+        {isProfileNavTab(tab) && token && mobileExperience && isCustomerSession ? (
           <View style={styles.scrollLayer}>
             <CustomerMeStack
               topInset={scrollTopPad}
@@ -2113,13 +1938,30 @@ export default function App() {
               venueName={customerVenueDisplayName}
               activeOrderCount={activeOrderCount}
               onOpenOrders={() => setTab("orders")}
-              onOpenSupport={() => setTab("messages")}
+              onOpenSupport={() => {
+                const chatTab = navTabs.find((t) => isChatNavTab(t.key))?.key;
+                if (chatTab) setTab(chatTab);
+              }}
               onSignOut={() => void customerSignOut()}
               onAvatarSaved={setMeAvatarUri}
               onAtRootChange={setMeStackAtRoot}
             />
           </View>
-        ) : tab === "account" ? (
+        ) : isProfileNavTab(tab) && token && mobileExperience ? (
+          <RoleNavTabPanel
+            tabKey={tab}
+            mobileExperience={mobileExperience}
+            authToken={token}
+            workspaceContext={workspaceContext}
+            workspaceRestaurantId={workspaceRestaurantId}
+            onSelectVenue={(id) => void setWorkspaceVenue(id)}
+            scrollTopPad={scrollTopPad}
+            scrollBottom={scrollBottom}
+            onScroll={onScroll}
+            onNavigateTab={setTab}
+            onSignOut={() => void customerSignOut()}
+          />
+        ) : isProfileNavTab(tab) ? (
           <Animated.ScrollView
             style={styles.scrollLayer}
             onScroll={onScroll}
@@ -2236,7 +2078,7 @@ export default function App() {
       {token && mobileExperience ? (
         <CustomerNavMenuPage
           visible={customerNavMenuOpen}
-          ambientTab={tab}
+          ambientTab={navKeyToAmbientTab(tab)}
           topInset={insets.top}
           bottomInset={contentBottomInset(insets.bottom)}
           user={sessionUser}
@@ -2256,7 +2098,7 @@ export default function App() {
       {token ? (
         <NotificationsInboxPage
           visible={notificationsInboxOpen}
-          ambientTab={tab}
+          ambientTab={navKeyToAmbientTab(tab)}
           topInset={insets.top}
           bottomInset={contentBottomInset(insets.bottom)}
           authToken={token}
@@ -2283,7 +2125,7 @@ export default function App() {
         ordersActiveCount={ordersTabBadgeCount}
         bookingsUpcomingCount={bookTabBadgeCount}
         meAvatarUri={meAvatarUri}
-        visibleTabIds={visibleTabIds}
+        navTabs={navTabs}
       />
     </Animated.View>
   );

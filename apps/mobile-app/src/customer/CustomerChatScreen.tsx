@@ -39,6 +39,7 @@ import { ChatCollapsingHeader, chatListTopInset } from "./chat/ChatCollapsingHea
 import { playCartAddCue } from "./cartCueSound";
 import { confirmSendChatImages, pickChatImages, type PreparedChatImage } from "./chat/chatImageAttach";
 import { ChatTypingDots } from "./chat/ChatTypingDots";
+import { OclTimelineStrip } from "./chat/OclTimelineStrip";
 import { isIncomingMessage, isMessageUnread } from "./chat/chatUnreadHelpers";
 import { joinChatRoom, sendChatRead, sendChatTyping, subscribeChatRelay } from "./chat/customerChatSocket";
 import { ScreenErrorState } from "../errors";
@@ -523,6 +524,11 @@ export function CustomerChatScreen(props: Props) {
 
   const needsVenue = hub?.needsVenue === true;
 
+  const oclTimeline =
+    hub?.scene === "active_order" && (hub.timeline?.length ?? 0) > 0 ? (
+      <OclTimelineStrip rows={hub.timeline ?? []} />
+    ) : null;
+
   const listFooter = venueTyping ? (
     <View style={styles.footerPad}>
       <View style={styles.typingRow}>
@@ -594,6 +600,7 @@ export function CustomerChatScreen(props: Props) {
             scrollEventThrottle={16}
             keyboardShouldPersistTaps="never"
             keyboardDismissMode="on-drag"
+            ListHeaderComponent={oclTimeline}
             ListFooterComponent={listFooter}
             onScrollBeginDrag={dismissKeyboard}
             onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}

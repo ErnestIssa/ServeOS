@@ -32,27 +32,38 @@ import {
   FLOAT_MARGIN_SIDE,
   contentBottomInset
 } from "./navBottomMetrics";
+import type { MobileTabIconKey } from "../mobile/mobileExperienceTypes";
 import {
   NavIconAccount,
-  NavTabMeAvatar,
   NavIconBookings,
+  NavIconChat,
+  NavIconDashboard,
   NavIconHome,
+  NavIconMenu,
   NavIconMessages,
-  NavIconOrdersMark
+  NavIconOrdersMark,
+  NavIconProfile,
+  NavIconSchedule,
+  NavIconStaff,
+  NavIconTasks,
+  NavTabMeAvatar
 } from "./NavTabIcons";
 import { FLOATING_TOP_BAR_HEIGHT, FLOATING_TOP_GAP } from "./FloatingTopBar";
 import { computeNavSheetSnapDims, useNavSheetPanGestures } from "./NavExpandSheet";
 import { R } from "../theme";
 import { useAppTheme } from "../theme/AppThemeContext";
 
-export type TabId = "home" | "bookings" | "orders" | "messages" | "account";
+/** Active nav tab key — defined by backend `mobileExperience.tabs[].key`. */
+export type TabId = string;
 
-const TABS: ReadonlyArray<{ id: TabId; label: string }> = [
-  { id: "home", label: "Home" },
-  { id: "bookings", label: "Book" },
-  { id: "orders", label: "Orders" },
-  { id: "messages", label: "Chat" },
-  { id: "account", label: "ME" }
+type NavTabItem = { id: string; label: string; icon: MobileTabIconKey };
+
+const FALLBACK_CUSTOMER_TABS: ReadonlyArray<NavTabItem> = [
+  { id: "home", label: "Home", icon: "home" },
+  { id: "bookings", label: "Book", icon: "bookings" },
+  { id: "orders", label: "Orders", icon: "orders" },
+  { id: "messages", label: "Chat", icon: "messages" },
+  { id: "account", label: "Profile", icon: "profile" }
 ];
 
 /** Matches review mood slider — smooth glide, not bouncy spring. */
@@ -69,8 +80,8 @@ const PILL_DRAG_MIN_DISTANCE = 12;
 /** Horizontal travel before magnify while dragging. */
 const PILL_LIFT_TRANSLATION_X = 8;
 const PILL_INSET = 3;
-const TAB_COUNT = TABS.length;
-const TAB_LAST_INDEX = TAB_COUNT - 1;
+/** Max tabs in any role shell (customer, staff, admin all use five). */
+const TAB_LAST_INDEX = 4;
 const TAB_INDEX_INPUT = [0, 1, 2, 3, 4] as const;
 const ICON_SIZE = 30;
 
@@ -135,20 +146,23 @@ type Props = {
   bookingsUpcomingCount?: number;
   /** When set, ME tab shows the user's photo instead of the ME label. */
   meAvatarUri?: string | null;
-  /** Backend-authorized tabs only (defaults to all five). */
-  visibleTabIds?: TabId[];
+  /** Backend nav manifest (`mobileExperience.tabs`). */
+  navTabs?: ReadonlyArray<{ key: string; label: string; icon: MobileTabIconKey }>;
 };
 
 function TabGlyph({
-  id,
+  icon,
   color,
   meAvatarUri
 }: {
-  id: TabId;
+  icon: MobileTabIconKey;
   color: string;
   meAvatarUri?: string | null;
 }) {
-  switch (id) {
+  if (icon === "profile" && meAvatarUri?.trim()) {
+    return <NavTabMeAvatar size={ME_AVATAR_TAB_SIZE} uri={meAvatarUri.trim()} />;
+  }
+  switch (icon) {
     case "home":
       return <NavIconHome size={ICON_SIZE} color={color} />;
     case "bookings":
@@ -157,14 +171,27 @@ function TabGlyph({
       return <NavIconOrdersMark size={ICON_SIZE} color={color} />;
     case "messages":
       return <NavIconMessages size={ICON_SIZE} color={color} />;
-    case "account":
-      if (meAvatarUri?.trim()) {
-        return <NavTabMeAvatar size={ME_AVATAR_TAB_SIZE} uri={meAvatarUri.trim()} />;
-      }
-      return <NavIconAccount size={ICON_SIZE} color={color} />;
+    case "chat":
+      return <NavIconChat size={ICON_SIZE} color={color} />;
+    case "profile":
+      return <NavIconProfile size={ICON_SIZE} color={color} />;
+    case "dashboard":
+      return <NavIconDashboard size={ICON_SIZE} color={color} />;
+    case "tasks":
+      return <NavIconTasks size={ICON_SIZE} color={color} />;
+    case "schedule":
+      return <NavIconSchedule size={ICON_SIZE} color={color} />;
+    case "menu":
+      return <NavIconMenu size={ICON_SIZE} color={color} />;
+    case "staff":
+      return <NavIconStaff size={ICON_SIZE} color={color} />;
     default:
-      return null;
+      return <NavIconAccount size={ICON_SIZE} color={color} />;
   }
+}
+
+function isChatTabKey(key: string): boolean {
+  return key === "messages" || key === "chat";
 }
 
 export function FloatingGlassTabBar({
@@ -181,12 +208,14 @@ export function FloatingGlassTabBar({
   ordersActiveCount = 0,
   bookingsUpcomingCount = 0,
   meAvatarUri = null,
-  visibleTabIds
+  navTabs
 }: Props) {
-  const visibleTabs = React.useMemo(() => {
-    const allowed = visibleTabIds?.length ? new Set(visibleTabIds) : null;
-    return allowed ? TABS.filter((t) => allowed.has(t.id)) : TABS;
-  }, [visibleTabIds]);
+  const visibleTabs = React.useMemo((): ReadonlyArray<NavTabItem> => {
+    if (navTabs?.length) {
+      return navTabs.map((t) => ({ id: t.key, label: t.label, icon: t.icon }));
+    }
+    return FALLBACK_CUSTOMER_TABS;
+  }, [navTabs]);
   const tabCount = visibleTabs.length;
   const tabLastIndex = Math.max(0, tabCount - 1);
 
@@ -567,7 +596,7 @@ export function FloatingGlassTabBar({
     void Haptics.selectionAsync();
   };
 
-  const iconColorFor = (tabItem: (typeof TABS)[number], selected: boolean) => {
+  const iconColorFor = (tabItem: NavTabItem, selected: boolean) => {
     if (tabItem.id === "orders") {
       return selected ? theme.ordersNavPurpleBright : theme.ordersNavPurple;
     }
@@ -657,8 +686,8 @@ export function FloatingGlassTabBar({
                             }}
                           >
                             <View style={styles.tabGlyphWrap}>
-                              <TabGlyph id={t.id} color={iconColor} meAvatarUri={meAvatarUri} />
-                              {t.id === "messages" && messagesUnreadCount > 0 ? (
+                              <TabGlyph icon={t.icon} color={iconColor} meAvatarUri={meAvatarUri} />
+                              {isChatTabKey(t.id) && messagesUnreadCount > 0 ? (
                                 <View style={styles.tabBadge}>
                                   <Text style={styles.tabBadgeText}>
                                     {messagesUnreadCount > 99 ? "99+" : String(messagesUnreadCount)}

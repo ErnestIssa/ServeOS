@@ -7,6 +7,7 @@ import {
   type OrderEventPayload
 } from "@serveos/core-upstash";
 import { emitChatEvent, type ChatWsPayload } from "../../lib/chatRealtime.js";
+import { roomOclEntity, type OclUpdatedPayload } from "../../lib/oclRealtime.js";
 import type { DeliveryChannel, DomainEvent, InAppUserPayload, NotificationTarget } from "../types.js";
 
 export type ChannelContext = {
@@ -45,6 +46,29 @@ export async function deliverInApp(
       ctx.orderBus.emit(`restaurant:${payload.restaurantId}`, payload);
       if (customerUserId) ctx.orderBus.emit(`customer:${customerUserId}`, payload);
       await publishOrderEventToUpstash(payload, customerUserId);
+    }
+
+    if (event.type === "ocl.updated") {
+      const p = event.payload;
+      const entityType = p.entityType === "reservation" ? "reservation" : "order";
+      const entityId = String(p.entityId ?? "");
+      const restaurantId = String(p.restaurantId ?? event.restaurantId ?? "");
+      const orderId = typeof p.orderId === "string" ? p.orderId : entityType === "order" ? entityId : undefined;
+      const reservationId =
+        typeof p.reservationId === "string" ? p.reservationId : entityType === "reservation" ? entityId : undefined;
+      const customerUserId = typeof p.customerUserId === "string" ? p.customerUserId : null;
+      const payload: OclUpdatedPayload = {
+        type: "ocl_updated",
+        entityType,
+        entityId,
+        restaurantId,
+        orderId,
+        reservationId
+      };
+      ctx.orderBus.emit(roomOclEntity(entityType, entityId), payload);
+      if (orderId) ctx.orderBus.emit(`order:${orderId}`, payload);
+      if (restaurantId) ctx.orderBus.emit(`restaurant:${restaurantId}`, payload);
+      if (customerUserId) ctx.orderBus.emit(`customer:${customerUserId}`, payload);
     }
 
     if (event.type === "chat.message_sent") {
