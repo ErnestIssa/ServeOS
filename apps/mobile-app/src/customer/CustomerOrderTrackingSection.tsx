@@ -22,7 +22,7 @@ import { R } from "../theme";
 import { menuImageSourceForKey } from "../menu/menuCardAssets";
 import { OrderLiveStatusView } from "./OrderLiveStatusView";
 import { OclTimelineStrip } from "./chat/OclTimelineStrip";
-import { fetchCustomerOrderOcl } from "./customerOclApi";
+import { fetchCustomerOrderOcl, type CustomerOclTimelineRow } from "./customerOclApi";
 import { API_URL, apiHttpToWsBase } from "../api";
 
 const SHEET_OPEN_MS = 520;
@@ -206,16 +206,68 @@ function OrderDetailsSheet(props: {
   );
 }
 
+function mapOclTimeline(
+  timeline: Array<{ id: string; kind: string; at: string; title: string; detail?: string }>
+): CustomerOclTimelineRow[] {
+  return timeline.map((row) => ({
+    key: row.id,
+    kind: row.kind,
+    at: row.at,
+    content: row.detail ? `${row.title} — ${row.detail}` : row.title
+  }));
+}
+
 export function CustomerOrderTrackingSection(props: Props) {
-  const { orders, activeVenueId, money, onBrowseMenu, onNeedHelp } = props;
+  const { orders, activeVenueId, token, money, onBrowseMenu, onNeedHelp } = props;
   const { width: winW, height: winH } = useWindowDimensions();
   const order = React.useMemo(() => pickActiveOrder(orders, activeVenueId), [orders, activeVenueId]);
   const [detailsOpen, setDetailsOpen] = React.useState(false);
+  const [timelineRows, setTimelineRows] = React.useState<CustomerOclTimelineRow[]>([]);
 
   const heroStripHeight = React.useMemo(
     () => Math.round(Math.min(Math.max(winH * 0.44, 300), 480, winW * 0.98)),
     [winH, winW]
   );
+
+  const loadOclTimeline = React.useCallback(async () => {
+    const orderId = order?.id?.trim();
+    const auth = token.trim();
+    if (!orderId || !auth) {
+      setTimelineRows([]);
+      return;
+    }
+    const res = await fetchCustomerOrderOcl(auth, orderId);
+    if (res.ok && Array.isArray(res.timeline)) {
+      setTimelineRows(mapOclTimeline(res.timeline));
+    } else {
+      setTimelineRows([]);
+    }
+  }, [order?.id, token]);
+
+  React.useEffect(() => {
+    void loadOclTimeline();
+  }, [loadOclTimeline]);
+
+  React.useEffect(() => {
+    const orderId = order?.id?.trim();
+    if (!orderId) return;
+    const url = `${apiHttpToWsBase(API_URL)}/orders/events?${new URLSearchParams({ orderId }).toString()}`;
+    const ws = new WebSocket(url);
+    ws.onmessage = (ev) => {
+      try {
+        const data = JSON.parse(String(ev.data)) as { type?: string; orderId?: string };
+        if (
+          (data.type === "ocl_updated" || data.type === "order_updated") &&
+          data.orderId === orderId
+        ) {
+          void loadOclTimeline();
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    return () => ws.close();
+  }, [order?.id, loadOclTimeline]);
 
   const milestone = order ? orderStatusMilestone(order.status) : 0;
   if (!order) {

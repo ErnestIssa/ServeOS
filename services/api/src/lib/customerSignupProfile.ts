@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { resolveCurrencyCode, type SupportedCurrencyCode } from "@serveos/core-shared";
 
 export const PREFERRED_RESTAURANT_KEY = "preferredRestaurantId";
 export const CUSTOMER_PREFERENCES_KEY = "customerAppSettings";
@@ -11,6 +12,8 @@ export type CustomerQuickPrefs = {
 };
 
 export type CustomerAppSettings = {
+  /** Display currency — amounts in DB remain cents; default Swedish krona. */
+  currency: SupportedCurrencyCode;
   privacy: { profileVisibility: "public" | "venues" | "private"; shareAnalytics: boolean };
   accessibility: { reduceMotion: boolean; boldText: boolean };
   nightMode: "system" | "light" | "dark";
@@ -22,6 +25,7 @@ export type CustomerAppSettings = {
 };
 
 export const DEFAULT_CUSTOMER_APP_SETTINGS: CustomerAppSettings = {
+  currency: "SEK",
   privacy: { profileVisibility: "venues", shareAnalytics: true },
   accessibility: { reduceMotion: false, boldText: false },
   nightMode: "system",
@@ -101,6 +105,7 @@ export function readAppSettingsFromProfile(signupProfile: unknown): CustomerAppS
   return {
     ...DEFAULT_CUSTOMER_APP_SETTINGS,
     ...parsed,
+    currency: resolveCurrencyCode(parsed.currency ?? DEFAULT_CUSTOMER_APP_SETTINGS.currency),
     privacy: { ...DEFAULT_CUSTOMER_APP_SETTINGS.privacy, ...parsed.privacy },
     accessibility: { ...DEFAULT_CUSTOMER_APP_SETTINGS.accessibility, ...parsed.accessibility },
     shortcuts: { ...DEFAULT_CUSTOMER_APP_SETTINGS.shortcuts, ...parsed.shortcuts },

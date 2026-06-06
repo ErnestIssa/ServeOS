@@ -13,6 +13,7 @@ import {
   View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { formatDisplayMoney } from "../../formatMoney";
 import { useAppTheme } from "../../theme/AppThemeContext";
 import { API_URL } from "../../api";
 import {
@@ -228,7 +229,7 @@ export function OrderWorkspaceScreen(props: Props) {
               <Text style={styles.meta}>
                 {String(h.customerLabel ?? "")}
                 {typeof h.elapsedMinutes === "number" ? ` · ${h.elapsedMinutes}m` : ""}
-                {typeof h.totalCents === "number" ? ` · ${(h.totalCents / 100).toFixed(2)}` : ""}
+                {typeof h.totalCents === "number" ? ` · ${formatDisplayMoney(h.totalCents)}` : ""}
                 {typeof h.startsAt === "string" ? ` · ${new Date(h.startsAt).toLocaleString()}` : ""}
               </Text>
               {h.note ? (
@@ -261,7 +262,7 @@ export function OrderWorkspaceScreen(props: Props) {
                 <Text style={styles.sectionLabel}>Items</Text>
                 {thread.lines.map((l) => (
                   <Text key={l.id} style={styles.line}>
-                    {l.quantity}× {l.name} · {(l.lineTotalCents / 100).toFixed(2)}
+                    {l.quantity}× {l.name} · {formatDisplayMoney(l.lineTotalCents)}
                   </Text>
                 ))}
               </View>

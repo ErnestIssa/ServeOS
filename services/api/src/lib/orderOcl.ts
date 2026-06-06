@@ -18,6 +18,7 @@ import { notifyChatMessage } from "../notifications/integrations/chat.js";
 import { notifyOclUpdated } from "../notifications/integrations/ocl.js";
 import { notifyOrderUpdated } from "../notifications/integrations/orders.js";
 import type { EventEmitter } from "node:events";
+import { formatMoneyCentsPlain } from "./formatMoney.js";
 
 export type OclTimelineEvent = {
   id: string;
@@ -164,7 +165,7 @@ export async function loadOrderOclThread(
       kind: "system",
       at: order.createdAt.toISOString(),
       title: "Order received",
-      detail: `${order.lines.length} items · ${(order.totalCents / 100).toFixed(2)}`
+      detail: `${order.lines.length} items · ${formatMoneyCentsPlain(order.totalCents)}`
     },
     ...markerTimeline
   ];
@@ -378,7 +379,7 @@ export async function loadCustomerOrderOcl(prisma: PrismaClient, customerUserId:
       kind: "system",
       at: order.createdAt.toISOString(),
       title: "Order received",
-      detail: `${order.lines.length} items · ${(order.totalCents / 100).toFixed(2)}`
+      detail: `${order.lines.length} items · ${formatMoneyCentsPlain(order.totalCents)}`
     },
     ...markerTimeline
   ];

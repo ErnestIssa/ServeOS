@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { getUpstashRedis } from "@serveos/core-upstash";
+import { formatMoneyCentsPlain } from "./formatMoney.js";
 
 export type StaffTaskRow = {
   id: string;
@@ -101,7 +102,7 @@ export async function buildStaffTasks(
       id,
       type: "order_accept",
       title: "Order needs acceptance",
-      subtitle: `${o.lines.length} items · ${(o.totalCents / 100).toFixed(2)}`,
+      subtitle: `${o.lines.length} items · ${formatMoneyCentsPlain(o.totalCents)}`,
       urgency: ageMin > 8 ? "high" : "medium",
       dueAt: o.createdAt.toISOString(),
       relatedOrderId: o.id,

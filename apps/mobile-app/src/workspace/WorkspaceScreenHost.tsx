@@ -7,6 +7,7 @@ import {
   Text,
   View
 } from "react-native";
+import { formatDisplayMoney } from "../formatMoney";
 import { useAppTheme } from "../theme/AppThemeContext";
 import { fetchWorkspaceScreen, patchOrderStatus, type WorkspaceScreenResponse } from "../mobile/workspaceApi";
 import { ProfilePlaceholderScreen } from "../customer/profile/ProfilePlaceholderScreen";
@@ -159,7 +160,7 @@ export function WorkspaceScreenHost(props: Props) {
           </View>
         </View>
         <Text style={[styles.cardSub, { marginTop: 8 }]}>
-          Active queue value: {(p.revenueActiveCents / 100).toFixed(2)}
+          Active queue value: {formatDisplayMoney(p.revenueActiveCents)}
         </Text>
       </ProfileScreenContainer>
     );
@@ -237,7 +238,7 @@ export function WorkspaceScreenHost(props: Props) {
               {c.items.map((item) => (
                 <View key={item.name} style={styles.card}>
                   <Text style={styles.cardTitle}>{item.name}</Text>
-                  <Text style={styles.cardSub}>{(item.priceCents / 100).toFixed(2)}</Text>
+                  <Text style={styles.cardSub}>{formatDisplayMoney(item.priceCents)}</Text>
                 </View>
               ))}
             </View>

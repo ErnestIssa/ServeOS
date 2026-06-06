@@ -15,7 +15,8 @@ export default defineConfig({
       "/auth": { target: "http://127.0.0.1:3000", changeOrigin: true },
       "/restaurants": { target: "http://127.0.0.1:3000", changeOrigin: true },
       "/orders": { target: "http://127.0.0.1:3000", changeOrigin: true, ws: true },
-      "/health": { target: "http://127.0.0.1:3000", changeOrigin: true }
+      "/health": { target: "http://127.0.0.1:3000", changeOrigin: true },
+      "/api": { target: "http://127.0.0.1:3000", changeOrigin: true }
     }
   }
 });

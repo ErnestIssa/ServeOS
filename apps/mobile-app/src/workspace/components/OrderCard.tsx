@@ -1,5 +1,6 @@
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { formatDisplayMoney } from "../../formatMoney";
 import { useAppTheme } from "../../theme/AppThemeContext";
 
 export type OrderCardData = {
@@ -72,7 +73,7 @@ export function OrderCard(props: Props) {
       </View>
       <Text style={styles.title}>
         {o.serviceLabel}
-        {o.tableLabel ? ` · ${o.tableLabel}` : ""} · {(o.totalCents / 100).toFixed(2)}
+        {o.tableLabel ? ` · ${o.tableLabel}` : ""} · {formatDisplayMoney(o.totalCents)}
       </Text>
       <Text style={styles.sub}>
         {o.lineCount} item{o.lineCount === 1 ? "" : "s"} · {o.elapsedMinutes}m ago

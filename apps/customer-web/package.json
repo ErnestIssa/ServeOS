@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@serveos/core-ambient": "0.0.0",
+    "@serveos/core-shared": "0.0.0",
     "@serveos/core-loading": "0.0.0",
     "@serveos/core-theme": "0.0.0",
     "framer-motion": "^12.23.12",

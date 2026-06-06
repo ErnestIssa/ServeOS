@@ -124,21 +124,59 @@ function MeshLayers({ variant, scrollY }: { variant: AmbientWebVariant; scrollY:
   );
 }
 
+function MeshLayersStatic({ variant }: { variant: AmbientWebVariant }) {
+  const p = ambientWebPalettes[variant];
+  const base = buildLinearBase(p.baseStops);
+
+  return (
+    <div className="pointer-events-none fixed inset-0 z-0 isolate overflow-hidden" aria-hidden>
+      <div className="absolute inset-0" style={{ background: base }} />
+      <div
+        className="absolute -left-[22%] -top-[16%] h-[min(110vw,720px)] w-[min(110vw,720px)] rounded-full opacity-90"
+        style={{ background: softBlobCss(p.blobA, "42% 38%"), filter: "blur(72px)" }}
+      />
+      <div
+        className="absolute -right-[12%] top-[4%] h-[min(100vw,640px)] w-[min(100vw,640px)] rounded-full opacity-85"
+        style={{ background: softBlobCss(p.blobB, "55% 42%"), filter: "blur(78px)" }}
+      />
+      <div
+        className="absolute bottom-[-24%] left-[4%] h-[min(105vw,680px)] w-[min(105vw,680px)] rounded-full opacity-80"
+        style={{ background: softBlobCss(p.blobC, "50% 52%", "122%"), filter: "blur(84px)" }}
+      />
+      <div
+        className="absolute inset-0 opacity-[0.18] mix-blend-soft-light md:opacity-[0.11]"
+        style={{
+          background: `radial-gradient(ellipse 100% 70% at 82% 4%, ${p.warmAccent}, transparent 62%)`
+        }}
+      />
+      <div
+        className="absolute inset-0 opacity-[0.028] mix-blend-overlay md:opacity-[0.018]"
+        style={{ backgroundImage: `url("data:image/svg+xml,${NOISE_SVG}")`, backgroundSize: "256px 256px" }}
+      />
+    </div>
+  );
+}
+
+function MeshLayersParallax({ variant }: { variant: AmbientWebVariant }) {
+  const { scrollY } = useScroll();
+  return <MeshLayers variant={variant} scrollY={scrollY} />;
+}
+
 export function AmbientWebShell({
   variant,
   children,
-  className
+  className,
+  /** Disable scroll-linked springs — smoother long marketing pages. */
+  parallax = true
 }: {
   variant: AmbientWebVariant;
   children: ReactNode;
   className?: string;
+  parallax?: boolean;
 }) {
-  /** Window scroll — nested overflow-y on a min-height box trapped wheel/touch scroll on web. */
-  const { scrollY } = useScroll();
-
   return (
     <div className="relative min-h-[100dvh] w-full bg-transparent text-slate-900">
-      <MeshLayers variant={variant} scrollY={scrollY} />
+      {parallax ? <MeshLayersParallax variant={variant} /> : <MeshLayersStatic variant={variant} />}
       <div
         className={`relative z-10 min-h-[100dvh] overflow-x-hidden pt-[env(safe-area-inset-top,0px)] ${className ?? ""}`}
       >

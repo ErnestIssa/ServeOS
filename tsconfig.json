@@ -47,6 +47,12 @@
       ],
       "@serveos/core-ambient/*": [
         "core/ambient/src/*"
+      ],
+      "@serveos/core-shared": [
+        "core/shared/src/index.ts"
+      ],
+      "@serveos/core-shared/*": [
+        "core/shared/src/*"
       ]
     }
   },

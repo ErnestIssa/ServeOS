@@ -15,6 +15,7 @@
     "@serveos/core-ambient": "0.0.0",
     "@serveos/core-loading": "0.0.0",
     "@serveos/core-loading-native": "0.0.0",
+    "@serveos/core-shared": "0.0.0",
     "expo": "~54.0.33",
     "expo-av": "~16.0.8",
     "expo-blur": "~15.0.8",

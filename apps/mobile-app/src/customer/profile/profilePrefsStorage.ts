@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { resolveCurrencyCode, type SupportedCurrencyCode } from "@serveos/core-shared";
 import { fetchCustomerPreferences, patchCustomerPreferences } from "../customerAppApi";
 
 export type ProfileStackRoute =
@@ -21,6 +22,7 @@ export type SettingsDetailKey =
   | "sounds_voice";
 
 export type AppSettings = {
+  currency: SupportedCurrencyCode;
   privacy: { profileVisibility: "public" | "venues" | "private"; shareAnalytics: boolean };
   accessibility: { reduceMotion: boolean; boldText: boolean };
   nightMode: "system" | "light" | "dark";
@@ -32,6 +34,7 @@ export type AppSettings = {
 };
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
+  currency: "SEK",
   privacy: { profileVisibility: "venues", shareAnalytics: true },
   accessibility: { reduceMotion: false, boldText: false },
   nightMode: "system",
@@ -82,6 +85,7 @@ export async function loadAppSettings(): Promise<AppSettings> {
     return {
       ...DEFAULT_APP_SETTINGS,
       ...parsed,
+      currency: resolveCurrencyCode(parsed.currency ?? DEFAULT_APP_SETTINGS.currency),
       privacy: { ...DEFAULT_APP_SETTINGS.privacy, ...parsed.privacy },
       accessibility: { ...DEFAULT_APP_SETTINGS.accessibility, ...parsed.accessibility },
       shortcuts: { ...DEFAULT_APP_SETTINGS.shortcuts, ...parsed.shortcuts },

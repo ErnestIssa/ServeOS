@@ -9,6 +9,7 @@ import { listVenueChatThreads } from "./staffVenueChat.js";
 import { listVenueStaff } from "./staffMembershipService.js";
 import { loadRestaurantPolicy } from "./venueAccessGuard.js";
 import { PERMISSION_GROUPS } from "./venuePermissions.js";
+import { formatMoneyCentsPlain } from "./formatMoney.js";
 
 const ACTIVE_ORDER_STATUSES = ["PENDING", "CONFIRMED", "PREPARING", "READY"] as const;
 
@@ -281,7 +282,7 @@ export async function loadWorkspaceTabData(
           .map((o) => ({
             id: `pending:${o.id}`,
             title: "Order waiting acceptance",
-            body: `${o.lines.length} items · ${(o.totalCents / 100).toFixed(2)}`
+            body: `${o.lines.length} items · ${formatMoneyCentsPlain(o.totalCents)}`
           }));
 
         return {
@@ -290,7 +291,11 @@ export async function loadWorkspaceTabData(
           view: "admin_dashboard",
           payload: {
             kpis: [
-              { id: "revenue", label: "Revenue today", value: ((revenueToday._sum.totalCents ?? 0) / 100).toFixed(2) },
+              {
+                id: "revenue",
+                label: "Revenue today",
+                value: formatMoneyCentsPlain(revenueToday._sum.totalCents ?? 0)
+              },
               { id: "orders", label: "Orders today", value: String(completedToday + active.length) },
               { id: "active", label: "Active orders", value: String(active.length) },
               { id: "bookings", label: "Upcoming bookings", value: String(upcomingReservations) }

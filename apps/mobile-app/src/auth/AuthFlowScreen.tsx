@@ -570,6 +570,7 @@ export function AuthFlowScreen({ onAuthed }: Props) {
     ]).start(() => {
       setWizardOpen(false);
       setWizErr(null);
+      setMode("signin");
     });
   };
 
@@ -1408,7 +1409,12 @@ export function AuthFlowScreen({ onAuthed }: Props) {
       Animated.parallel([
         Animated.timing(modeOpacity, { toValue: 1, duration: 320, useNativeDriver: true }),
         Animated.timing(modeX, { toValue: 0, duration: 360, useNativeDriver: true })
-      ]).start();
+      ]).start(() => {
+        if (m === "signup") {
+          pickExperience("GUEST");
+          openWizard("GUEST");
+        }
+      });
     });
   };
 
@@ -1633,42 +1639,10 @@ export function AuthFlowScreen({ onAuthed }: Props) {
                 </Text>
               </View>
             ) : (
-              <Animated.View style={[styles.signupStage, wizardOpen || wizardExitInfiniteLoader ? styles.signupHidden : null]}>
-                <Text style={[styles.signupHeader, { paddingTop: Math.max(18, insets.top + 12) }]}>Create your account</Text>
-
-                <View style={styles.signupCenter}>
-                  <Text style={styles.signupTitle}>Select your experience</Text>
-                  <View style={styles.experienceRow}>
-                    <Pressable
-                      onPress={() => {
-                        pickExperience("BUSINESS");
-                        openWizard("BUSINESS");
-                      }}
-                      style={({ pressed }) => [styles.expBtn, styles.expBusiness, pressed && { opacity: 0.92 }]}
-                      accessibilityRole="button"
-                    >
-                      <Text style={styles.expBtnText}>Business Account</Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => {
-                        pickExperience("GUEST");
-                        openWizard("GUEST");
-                      }}
-                      style={({ pressed }) => [styles.expBtn, styles.expGuest, pressed && { opacity: 0.92 }]}
-                      accessibilityRole="button"
-                    >
-                      <Text style={styles.expBtnText}>Guest Account</Text>
-                    </Pressable>
-                  </View>
-                </View>
-
-                <Text style={styles.signupFooter}>
-                  Already have an account?{" "}
-                  <Text style={styles.link} onPress={() => switchMode("signin")}>
-                    Sign in
-                  </Text>
-                </Text>
-              </Animated.View>
+              <Animated.View
+                style={[styles.signupStage, wizardOpen || wizardExitInfiniteLoader ? styles.signupHidden : null]}
+                pointerEvents="none"
+              />
             )}
           </Animated.View>
         </Animated.View>

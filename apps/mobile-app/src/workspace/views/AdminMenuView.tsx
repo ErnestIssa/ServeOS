@@ -1,6 +1,7 @@
 import * as Haptics from "expo-haptics";
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { formatDisplayMoney } from "../../formatMoney";
 import { useAppTheme } from "../../theme/AppThemeContext";
 import { patchMenuItemActive } from "../../mobile/workspaceApi";
 
@@ -70,7 +71,7 @@ export function AdminMenuView(props: Props) {
             <View key={item.id} style={styles.item}>
               <View style={{ flex: 1, paddingRight: 8 }}>
                 <Text style={{ fontWeight: "700", color: item.isActive ? t.text : t.textMuted }}>{item.name}</Text>
-                <Text style={{ color: t.textSecondary, fontSize: 13 }}>{(item.priceCents / 100).toFixed(2)}</Text>
+                <Text style={{ color: t.textSecondary, fontSize: 13 }}>{formatDisplayMoney(item.priceCents)}</Text>
               </View>
               {props.canEdit ? (
                 <Pressable

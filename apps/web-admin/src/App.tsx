@@ -2,6 +2,7 @@ import { AmbientWebShell } from "@serveos/core-ambient";
 import { useEffect, useMemo, useState } from "react";
 import { LoadingScreen } from "@serveos/core-loading/LoadingScreen";
 import { MobileFloatingDock } from "./MobileFloatingDock";
+import { formatMoneyCents } from "@serveos/core-shared";
 import {
   createCategory,
   createMenuItem,
@@ -21,7 +22,7 @@ import {
 } from "./api";
 
 function formatMoney(cents: number) {
-  return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(cents / 100);
+  return formatMoneyCents(cents);
 }
 
 export function App() {
@@ -348,7 +349,7 @@ export function App() {
               />
               <input
                 className="mt-2 w-full rounded-lg border border-slate-200/85 bg-white/90 px-3 py-2 text-sm outline-none"
-                placeholder="Price USD"
+                placeholder="Price (SEK)"
                 value={itemPrice}
                 onChange={(e) => setItemPrice(e.target.value)}
               />
@@ -438,7 +439,7 @@ export function App() {
               />
               <input
                 className="mt-2 w-full rounded-lg border border-slate-200/85 bg-white/90 px-3 py-2 text-sm outline-none"
-                placeholder="Extra price USD"
+                placeholder="Extra price (SEK)"
                 value={modOptionDelta}
                 onChange={(e) => setModOptionDelta(e.target.value)}
               />
