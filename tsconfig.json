@@ -51,6 +51,12 @@
       "@serveos/core-shared": [
         "core/shared/src/index.ts"
       ],
+      "@serveos/core-shared/currency": [
+        "core/shared/src/currency.ts"
+      ],
+      "@serveos/core-shared/signup-wizard": [
+        "core/shared/src/signupWizard.ts"
+      ],
       "@serveos/core-shared/*": [
         "core/shared/src/*"
       ]

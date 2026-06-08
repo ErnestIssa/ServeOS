@@ -75,7 +75,7 @@ export function SetupFinderSection({ onFindSetup }: Props) {
       <div className={`relative z-10 mx-auto max-w-6xl text-center lg:max-w-none ${pageGutter}`}>
         <Reveal>
           <h2 className="font-display text-4xl font-extrabold leading-[1.05] tracking-tight text-white drop-shadow-[0_4px_24px_rgba(0,0,0,0.45)] sm:text-5xl md:text-6xl lg:text-7xl xl:text-[5.75rem]">
-            Which <ServeOsWordmark /> setup fits your restaurant?
+            How much <ServeOsWordmark /> do you need?
           </h2>
           <div className="mt-10 sm:mt-12">
             <BtnPrimary

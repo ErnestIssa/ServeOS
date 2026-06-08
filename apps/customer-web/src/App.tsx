@@ -1,20 +1,31 @@
 import { AmbientWebShell } from "@serveos/core-ambient";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AccountSignupPage } from "./AccountSignupPage";
+import { type AppView, syncUrlForView, viewFromPath } from "./appNavigation";
 import { HowServeOSWorksPage } from "./HowServeOSWorksPage";
 import { LandingPage } from "./LandingPage";
 import { SupportPopup } from "./marketing/SupportPopup";
 import { useSupportPopup } from "./marketing/useSupportPopup";
 import { scrollToId } from "./marketing/ui";
 
-type View = "landing" | "how-it-works" | "signup";
-
 export function App() {
-  const [view, setView] = useState<View>("landing");
+  const [view, setView] = useState<AppView>(() => viewFromPath(window.location.pathname));
   const { isVisible: isSupportVisible, onOpen: onSupportOpen, onClose: onSupportClose } = useSupportPopup();
 
+  const setAppView = useCallback((next: AppView, replace = false) => {
+    setView(next);
+    syncUrlForView(next, replace);
+    if (next !== "landing") window.scrollTo({ top: 0, behavior: "auto" });
+  }, []);
+
+  useEffect(() => {
+    const onPopState = () => setView(viewFromPath(window.location.pathname));
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
   function goLanding(sectionId?: string) {
-    setView("landing");
+    setAppView("landing");
     if (sectionId) {
       requestAnimationFrame(() => scrollToId(sectionId));
     }
@@ -26,14 +37,13 @@ export function App() {
   }
 
   function goSignup() {
-    setView("signup");
-    window.scrollTo({ top: 0, behavior: "auto" });
+    setAppView("signup");
   }
 
   return (
     <AmbientWebShell variant="customer" parallax={false} className="font-ui">
       {view === "landing" ? (
-        <LandingPage onHowItWorks={() => setView("how-it-works")} onFindSetup={goSignup} />
+        <LandingPage onHowItWorks={() => setAppView("how-it-works")} onFindSetup={goSignup} />
       ) : null}
       {view === "how-it-works" ? (
         <HowServeOSWorksPage
@@ -42,13 +52,7 @@ export function App() {
           onGoPricing={() => goLanding("pricing")}
         />
       ) : null}
-      {view === "signup" ? (
-        <AccountSignupPage
-          onHome={() => goLanding("top")}
-          onHowItWorks={() => setView("how-it-works")}
-          onGoPricing={goPricing}
-        />
-      ) : null}
+      {view === "signup" ? <AccountSignupPage onBack={() => goLanding("pricing")} /> : null}
 
       <SupportPopup
         isVisible={isSupportVisible}
@@ -57,7 +61,7 @@ export function App() {
         onHowItWorks={
           view === "how-it-works"
             ? () => scrollToId("top")
-            : () => setView("how-it-works")
+            : () => setAppView("how-it-works")
         }
         onViewPricing={goPricing}
         onFindSetup={goSignup}

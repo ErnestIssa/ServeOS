@@ -28,6 +28,26 @@ body {
   font-family: Poppins, Inter, system-ui, sans-serif;
 }
 
+/* Signup password fields: hide browser-native reveal/clear so only our toggle shows */
+.signup-password-input::-ms-reveal,
+.signup-password-input::-ms-clear {
+  display: none;
+}
+
+.signup-password-input::-webkit-credentials-auto-fill-button,
+.signup-password-input::-webkit-strong-password-auto-fill-button {
+  visibility: hidden;
+  display: none !important;
+  pointer-events: none;
+  height: 0;
+  width: 0;
+  margin: 0;
+}
+
+.signup-password-input[type="password"]::-webkit-textfield-decoration-container {
+  display: none;
+}
+
 .marketing-site {
   color: #0f172a;
   overflow-x: hidden;
@@ -264,7 +284,112 @@ body {
   .ftu-float-f,
   .ftu-float-g,
   .ftu-float-h,
-  .ftu-flow-line {
+  .ftu-flow-line,
+  .signup-loader-phrase {
     animation: none !important;
+  }
+
+  .signup-modal-backdrop,
+  .signup-modal-panel {
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+@keyframes signup-phase-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.signup-phase {
+  animation: signup-phase-in 0.38s ease-out both;
+}
+
+.signup-modal-backdrop {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.signup-modal-backdrop.is-active {
+  opacity: 1;
+}
+
+.signup-modal-panel {
+  opacity: 0;
+  transform: translateY(14px) scale(0.97);
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.signup-modal-panel.is-active {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+@keyframes signup-loader-phrase-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.signup-loader-phrase {
+  animation: signup-loader-phrase-in 0.55s ease-out both;
+}
+
+.signup-slot {
+  min-height: min(32rem, calc(100dvh - 9rem));
+}
+
+.signup-wizard-stage {
+  min-height: min(32rem, calc(100dvh - 9rem));
+}
+
+.signup-registration-loader,
+.signup-inline-loader {
+  aspect-ratio: 2;
+  --_g: no-repeat radial-gradient(circle closest-side, #334155 90%, #0000);
+  background:
+    var(--_g) 0% 50%,
+    var(--_g) 50% 50%,
+    var(--_g) 100% 50%;
+  background-size: calc(100% / 3) 50%;
+  animation: signup-registration-loader-l3 1s infinite linear;
+}
+
+.signup-registration-loader {
+  width: 84px;
+}
+
+.signup-inline-loader {
+  width: 18px;
+  flex-shrink: 0;
+  translate: 0 1px;
+}
+
+@keyframes signup-registration-loader-l3 {
+  20% {
+    background-position: 0% 0%, 50% 50%, 100% 50%;
+  }
+  40% {
+    background-position: 0% 100%, 50% 0%, 100% 50%;
+  }
+  60% {
+    background-position: 0% 50%, 50% 100%, 100% 0%;
+  }
+  80% {
+    background-position: 0% 50%, 50% 50%, 100% 100%;
   }
 }

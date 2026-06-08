@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { StatusBar } from "expo-status-bar";
 import { nativeNavBoldGradient } from "@serveos/core-ambient/themes";
-import { formatMoneyCents } from "@serveos/core-shared";
+import { formatMoneyCents } from "@serveos/core-shared/currency";
 import { ServeOSBrandScreenNative } from "@serveos/core-loading-native";
 import React from "react";
 import {

@@ -36,7 +36,14 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     const res = await fetch(`${getApiBaseUrl()}${path}`, init);
     const text = await res.text();
     try {
-      return JSON.parse(text) as T;
+      const data = JSON.parse(text) as T & { ok?: boolean; error?: string };
+      if (data && typeof data === "object" && "ok" in data) {
+        if (!res.ok && data.ok !== false) {
+          return { ...data, ok: false, error: data.error ?? `http_error_${res.status}` } as T;
+        }
+        return data as T;
+      }
+      return { ok: res.ok, ...(data as object) } as T;
     } catch {
       return { ok: false, error: text ? "bad_response" : "empty_response" } as T;
     }

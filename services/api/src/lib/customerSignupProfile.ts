@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import { resolveCurrencyCode, type SupportedCurrencyCode } from "@serveos/core-shared";
+import { resolveCurrencyCode, type SupportedCurrencyCode } from "@serveos/core-shared/currency";
 
 export const PREFERRED_RESTAURANT_KEY = "preferredRestaurantId";
 export const CUSTOMER_PREFERENCES_KEY = "customerAppSettings";

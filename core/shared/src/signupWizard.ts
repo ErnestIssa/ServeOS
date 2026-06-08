@@ -70,10 +70,16 @@ export type SignupFormState = {
   bizAddress: string;
   bizType: EstablishmentBizType;
   bizVenueTradingName: string;
+  bizVenueWebsite: string;
+  bizVenuePostalCode: string;
+  bizVenueCity: string;
+  bizVenueCountry: AllowedCountry;
   bizTypeOtherDescribe: string;
   bizEstablishmentLocation: string;
   bizOfferingsDescription: string;
+  bizBusinessCategory: string;
   bizLocations: string;
+  bizStaffCount: string;
   bizMonthlyOrders: string;
   bizNeedBookings: boolean;
   bizNeedDelivery: boolean;
@@ -116,6 +122,127 @@ export function normalizeCityFromRegistry(country: AllowedCountry, raw: string |
 
 export function citiesForCountry(country: AllowedCountry): string[] {
   return CITIES.filter((c) => c.country === country).map((c) => c.name);
+}
+
+export const BIZ_LOCATION_BANDS = [
+  { value: "1", label: "Just this location" },
+  { value: "2-5", label: "2–5 locations" },
+  { value: "6+", label: "6+ locations" }
+] as const;
+
+export const BIZ_CATEGORY_PRESETS = [
+  { value: "restaurant", label: "Restaurant" },
+  { value: "cafe", label: "Café" },
+  { value: "bar", label: "Bar" },
+  { value: "bakery", label: "Bakery" },
+  { value: "food-truck", label: "Food Truck" },
+  { value: "hotel-restaurant", label: "Hotel Restaurant" }
+] as const;
+
+export const BIZ_TEAM_SETUP_OPTIONS = [
+  { value: "just-me", label: "Just me" },
+  { value: "2-5", label: "2–5 staff" },
+  { value: "6-20", label: "6–20 staff" },
+  { value: "20+", label: "20+" }
+] as const;
+
+export const BIZ_STAFF_COUNT_OPTIONS = [
+  "0–10",
+  "11–25",
+  "26–50",
+  "51–100",
+  "100+"
+] as const;
+
+export function businessCategoryPatch(
+  category: string,
+  otherText = ""
+): Pick<SignupFormState, "bizBusinessCategory" | "bizType" | "bizTypeOtherDescribe"> {
+  if (category === "other") {
+    return {
+      bizBusinessCategory: "other",
+      bizType: "Other",
+      bizTypeOtherDescribe: otherText.trim()
+    };
+  }
+
+  const preset = BIZ_CATEGORY_PRESETS.find((p) => p.value === category);
+  if (!preset) {
+    return { bizBusinessCategory: category, bizType: "Restaurant", bizTypeOtherDescribe: "" };
+  }
+
+  if (category === "restaurant") {
+    return { bizBusinessCategory: category, bizType: "Restaurant", bizTypeOtherDescribe: "" };
+  }
+  if (category === "cafe") {
+    return { bizBusinessCategory: category, bizType: "Cafe", bizTypeOtherDescribe: "" };
+  }
+  if (category === "bakery") {
+    return { bizBusinessCategory: category, bizType: "Bakery", bizTypeOtherDescribe: "" };
+  }
+
+  return {
+    bizBusinessCategory: category,
+    bizType: "Other",
+    bizTypeOtherDescribe: preset.label
+  };
+}
+
+export function venueStepTitle(form: SignupFormState): string {
+  if (form.bizBusinessCategory === "other") return "Tell us about your venue";
+  const preset = BIZ_CATEGORY_PRESETS.find((p) => p.value === form.bizBusinessCategory);
+  if (preset) return `Tell us about your ${preset.label}`;
+  return "Tell us about your venue";
+}
+
+export function venueNameFieldLabel(form: SignupFormState): string {
+  if (form.bizBusinessCategory === "other") return "Venue name";
+  const preset = BIZ_CATEGORY_PRESETS.find((p) => p.value === form.bizBusinessCategory);
+  if (preset) return `${preset.label} name`;
+  return "Venue name";
+}
+
+export function companyAddressForVenueCopy(
+  form: SignupFormState
+): Pick<SignupFormState, "bizEstablishmentLocation" | "bizVenuePostalCode" | "bizVenueCity" | "bizVenueCountry"> {
+  return {
+    bizEstablishmentLocation: form.bizAddress.trim(),
+    bizVenuePostalCode: form.bizPostalLocked.trim(),
+    bizVenueCity: form.bizCity.trim(),
+    bizVenueCountry: form.bizCountry
+  };
+}
+
+/** Web wizard step 2 venue → API establishmentLocation (backend SSOT at signup). */
+export function formatVenueEstablishmentLocation(form: SignupFormState): string {
+  const street = form.bizEstablishmentLocation.trim();
+  const postal = form.bizVenuePostalCode.trim();
+  const city = form.bizVenueCity.trim();
+  const country = form.bizVenueCountry;
+  const parts = [street];
+  const line2 = [postal, city].filter(Boolean).join(" ");
+  if (line2) parts.push(line2);
+  if (country) parts.push(country);
+  return parts.join(", ");
+}
+
+/** Minimal offerings text required by business signup provision when step 5+ were removed on web. */
+export function defaultOfferingsDescription(form: SignupFormState): string {
+  if (form.bizBusinessCategory === "other" && form.bizTypeOtherDescribe.trim()) {
+    return form.bizTypeOtherDescribe.trim();
+  }
+  const preset = BIZ_CATEGORY_PRESETS.find((p) => p.value === form.bizBusinessCategory);
+  if (preset) return `${preset.label} services`;
+  if (form.bizVenueTradingName.trim()) return `Services at ${form.bizVenueTradingName.trim()}`;
+  return "Hospitality services";
+}
+
+export function locationsCountFromBand(band: string): string {
+  if (band === "1") return "1";
+  if (band === "2-5") return "3";
+  if (band === "6+") return "6";
+  const n = Number(band);
+  return Number.isFinite(n) && n > 0 ? String(Math.trunc(n)) : "1";
 }
 
 function isValidEmail(t: string): boolean {
@@ -194,33 +321,67 @@ export function businessWizardStepValidation(
 
   if (stepIndex === 1) {
     if (!form.bizName.trim()) missing.push("bizName");
+    const categoryOk =
+      BIZ_CATEGORY_PRESETS.some((p) => p.value === form.bizBusinessCategory) ||
+      form.bizBusinessCategory === "other";
+    if (!categoryOk) {
+      missing.push("bizBusinessCategory");
+      msg = "Select your business type";
+    }
+    if (form.bizBusinessCategory === "other" && !form.bizTypeOtherDescribe.trim()) {
+      missing.push("bizTypeOtherDescribe");
+      msg = msg ?? "Describe your business type";
+    }
+    if (!BIZ_TEAM_SETUP_OPTIONS.some((o) => o.value === form.bizStaffCount)) {
+      missing.push("bizStaffCount");
+      msg = msg ?? "Select team size";
+    }
+    return { missing, msg };
+  }
+  if (stepIndex === 2) {
+    if (!form.bizVenueTradingName.trim() || form.bizVenueTradingName.trim().length < 2) {
+      missing.push("bizVenueTradingName");
+      msg = "Enter venue name";
+    }
+    if (!form.bizEstablishmentLocation.trim() || form.bizEstablishmentLocation.trim().length < 2) {
+      missing.push("bizEstablishmentLocation");
+      msg = msg ?? "Enter address";
+    }
+    if (!NORDIC_COUNTRIES.includes(form.bizVenueCountry)) {
+      missing.push("bizVenueCountry");
+      msg = msg ?? "Select country";
+    }
+    if (!form.bizVenuePostalCode.trim()) {
+      missing.push("bizVenuePostalCode");
+      msg = msg ?? "Enter postal code";
+    }
+    if (!form.bizVenueCity.trim()) {
+      missing.push("bizVenueCity");
+      msg = msg ?? "Enter city";
+    }
+    if (!["1", "2-5", "6+"].includes(form.bizLocations)) {
+      missing.push("bizLocations");
+      msg = msg ?? "Select how many locations you operate";
+    }
+    return { missing, msg };
+  }
+  if (stepIndex === 3) {
     if (!form.bizContact.trim()) missing.push("bizContact");
     if (!emailT) missing.push("bizEmail");
     else if (!isValidEmail(emailT)) {
       missing.push("bizEmail");
       msg = "Enter a valid email";
     }
-    const ph = form.bizPhone.trim();
-    if (!ph) missing.push("bizPhone");
-    else if (ph.length < MIN_WIZARD_PHONE_LEN) {
-      missing.push("bizPhone");
-      msg = msg ?? `Phone needs at least ${MIN_WIZARD_PHONE_LEN} characters`;
+    const issue = strongPasswordIssue(form.password);
+    if (issue) {
+      missing.push("bizPassword");
+      msg = msg ?? issue;
     }
-    return { missing, msg };
-  }
-  if (stepIndex === 2) {
-    if (!form.bizCity.trim()) {
-      missing.push("bizCity");
-      msg = "Select city";
+    if (!form.password2.trim()) missing.push("bizPassword2");
+    else if (form.password !== form.password2) {
+      missing.push("bizPassword2");
+      msg = msg ?? "Passwords do not match";
     }
-    if (!form.bizLocations.trim() || !intOk(form.bizLocations.trim())) {
-      missing.push("bizLocations");
-      if (!msg) msg = "Enter locations";
-    }
-    return { missing, msg };
-  }
-  if (stepIndex === 3) {
-    if (!form.bizCompanyFieldsLocked && !form.bizAddress.trim()) missing.push("bizAddress");
     return { missing, msg };
   }
   if (stepIndex === 4) {
@@ -231,18 +392,6 @@ export function businessWizardStepValidation(
     return { missing, msg };
   }
   if (stepIndex === 5) {
-    if (!form.bizVenueTradingName.trim() || form.bizVenueTradingName.trim().length < 2) {
-      missing.push("bizVenueTradingName");
-      if (!msg) msg = `Enter ${establishmentKindLabel(form.bizType).toLowerCase()} name`;
-    }
-    if (form.bizType === "Other" && !form.bizTypeOtherDescribe.trim()) {
-      missing.push("bizTypeOtherDescribe");
-      msg = "Describe what type of venue this is";
-    }
-    if (!form.bizEstablishmentLocation.trim() || form.bizEstablishmentLocation.trim().length < 2) {
-      missing.push("bizEstablishmentLocation");
-      if (!msg) msg = "Enter physical location";
-    }
     if (!form.bizOfferingsDescription.trim() || form.bizOfferingsDescription.trim().length < 2) {
       missing.push("bizOfferingsDescription");
       if (!msg) msg = "Describe what you serve or provide";
@@ -258,16 +407,6 @@ export function businessWizardStepValidation(
     return { missing, msg };
   }
   if (stepIndex === 7) {
-    const issue = strongPasswordIssue(form.password);
-    if (issue) {
-      missing.push("bizPassword");
-      msg = issue;
-    }
-    if (!form.password2.trim()) missing.push("bizPassword2");
-    else if (form.password !== form.password2) {
-      missing.push("bizPassword2");
-      msg = "Passwords do not match";
-    }
     if (!form.bizAcceptTerms) missing.push("bizAcceptTerms");
     if (!form.bizAuthorized) missing.push("bizAuthorized");
     return { missing, msg };
@@ -295,6 +434,7 @@ export function evaluateGuestSignupForFinish(
       phone: form.guestPhone.trim(),
       registrationProfile: {
         wizardVersion: 1,
+        signupSurface: "mobile",
         flow: "GUEST",
         firstName: form.guestFirst.trim(),
         lastName: form.guestLast.trim(),
@@ -313,40 +453,65 @@ export function evaluateBusinessSignupForFinish(
 ):
   | { ok: true; payload: WizardSignupPayload }
   | { ok: false; stepIndex: number; message: string; missing: string[] } {
-  for (let s = 1; s <= 7; s++) {
+  if (!form.bizOrgNumber.trim()) {
+    return {
+      ok: false,
+      stepIndex: 0,
+      message: "Enter organization number",
+      missing: ["bizOrgNumber"]
+    };
+  }
+
+  for (let s = 1; s <= 3; s++) {
     const b = businessWizardStepValidation(s, form);
     if (b.missing.length > 0) {
       return { ok: false, stepIndex: s, message: b.msg ?? "Fill required fields", missing: b.missing };
     }
   }
+
+  if (!ESTABLISHMENT_TYPES.includes(form.bizType)) {
+    return {
+      ok: false,
+      stepIndex: 1,
+      message: "Select your business type",
+      missing: ["bizBusinessCategory"]
+    };
+  }
+
+  const establishmentLocation = formatVenueEstablishmentLocation(form);
+  const offeringsDescription =
+    form.bizOfferingsDescription.trim() || defaultOfferingsDescription(form);
+  const companyCity = form.bizCity.trim() || form.bizVenueCity.trim();
+
   return {
     ok: true,
     payload: {
       email: form.email.trim(),
       password: form.password,
       role: "OWNER",
-      phone: form.bizPhone.trim(),
       registrationProfile: {
-        wizardVersion: 1,
+        wizardVersion: 2,
+        signupSurface: "web",
         flow: "BUSINESS",
         orgNumber: form.bizOrgNumber.trim(),
         companyName: form.bizName.trim(),
         contactPerson: form.bizContact.trim(),
-        phone: form.bizPhone.trim(),
-        country: form.bizCountry,
-        city: normalizeCityFromRegistry(form.bizCountry, form.bizCity),
-        address: form.bizAddress.trim(),
-        locationsCount: form.bizLocations.trim(),
+        country: form.bizVenueCountry || form.bizCountry,
+        city: normalizeCityFromRegistry(form.bizVenueCountry || form.bizCountry, companyCity),
+        address: form.bizAddress.trim() || form.bizEstablishmentLocation.trim(),
+        locationsCount: locationsCountFromBand(form.bizLocations.trim() || "1"),
+        businessCategory: form.bizBusinessCategory.trim() || undefined,
+        staffCountEstimate: form.bizStaffCount.trim() || undefined,
         businessType: form.bizType,
         venueTradingName: form.bizVenueTradingName.trim(),
         businessTypeOtherDescription:
           form.bizType === "Other" ? form.bizTypeOtherDescribe.trim() : undefined,
-        establishmentLocation: form.bizEstablishmentLocation.trim(),
-        offeringsDescription: form.bizOfferingsDescription.trim(),
-        monthlyOrdersEstimate: form.bizMonthlyOrders.trim(),
-        wantsBookings: form.bizNeedBookings,
-        wantsDelivery: form.bizNeedDelivery,
-        currentSystem: form.bizCurrentSystem.trim(),
+        establishmentLocation,
+        offeringsDescription,
+        venuePostalCode: form.bizVenuePostalCode.trim() || undefined,
+        venueCity: form.bizVenueCity.trim() || undefined,
+        venueCountry: form.bizVenueCountry,
+        venueWebsite: form.bizVenueWebsite.trim() || undefined,
         postalCodeFromRegistry: form.bizPostalLocked || undefined,
         legalFormFromRegistry: form.bizLegalFormLocked || undefined,
         registrationStatusFromRegistry: form.bizRegStatusLocked || undefined,
@@ -377,10 +542,16 @@ export function createInitialSignupForm(): SignupFormState {
     bizAddress: "",
     bizType: "Restaurant",
     bizVenueTradingName: "",
+    bizVenueWebsite: "",
+    bizVenuePostalCode: "",
+    bizVenueCity: "",
+    bizVenueCountry: "Sweden",
     bizTypeOtherDescribe: "",
     bizEstablishmentLocation: "",
     bizOfferingsDescription: "",
-    bizLocations: "1",
+    bizBusinessCategory: "",
+    bizLocations: "",
+    bizStaffCount: "",
     bizMonthlyOrders: "",
     bizNeedBookings: true,
     bizNeedDelivery: true,
@@ -399,7 +570,9 @@ export const AUTH_ERROR_MESSAGES: Record<string, string> = {
   email_or_phone_required: "Email or phone is required.",
   sign_up_failed: "Could not create your account. Try again.",
   invalid_registration_profile:
-    "Signup data was rejected. Complete all business steps and try again."
+    "Signup data was rejected. Complete all business steps and try again.",
+  guest_signup_mobile_only: "Guest accounts can only be created in the ServeOS mobile app.",
+  business_signup_web_only: "Business accounts can only be created on the ServeOS website."
 };
 
 export function readableAuthFailure(message: string): string {

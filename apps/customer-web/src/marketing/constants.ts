@@ -1,4 +1,10 @@
 export const WEB_ADMIN_URL = (import.meta.env.VITE_WEB_ADMIN_URL as string | undefined)?.trim() || "";
+/** Placeholder until the dedicated policy page ships. */
+export const PRIVACY_POLICY_PATH = "/privacy";
+/** Placeholder until the dedicated terms page ships. */
+export const TERMS_OF_SERVICE_PATH = "/terms";
+/** Placeholder until the pre-business onboarding page ships. */
+export const NO_BUSINESS_YET_PATH = "/no-business-yet";
 export const DEMO_MAILTO = "mailto:hello@serveos.com?subject=ServeOS%20demo%20request";
 
 export const TAGLINE = "One platform. Every restaurant operation. Connected in real time.";
@@ -19,6 +25,45 @@ export const ECOSYSTEM_STACK = [
   "Kitchen screen",
   "Checkout",
   "Customer mobile"
+] as const;
+
+export const CONNECTED_MODULES = [
+  {
+    id: "orders",
+    title: "Orders",
+    icon: "◎",
+    body: "Real-time order flow from dine-in, takeaway, delivery, and more — one live stream for the whole venue."
+  },
+  {
+    id: "reservations",
+    title: "Reservations",
+    icon: "◷",
+    body: "Bookings, waitlists, table context, and guest profiles connected to service and kitchen."
+  },
+  {
+    id: "kitchen",
+    title: "Kitchen",
+    icon: "▣",
+    body: "KDS tickets and prep workflows synchronized with the floor the moment orders confirm."
+  },
+  {
+    id: "payments",
+    title: "Payments",
+    icon: "◇",
+    body: "Stripe, Swish, and terminal workflows tied to orders and reporting in one financial layer."
+  },
+  {
+    id: "staff",
+    title: "Staff",
+    icon: "◆",
+    body: "Roles, permissions, and accountability across managers, kitchen, and front-of-house."
+  },
+  {
+    id: "cx",
+    title: "Customer Experience",
+    icon: "✦",
+    body: "Menus, ordering, chat, and reservations in one connected guest journey."
+  }
 ] as const;
 
 export const PRODUCT_SURFACES = [

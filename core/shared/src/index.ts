@@ -6,10 +6,16 @@ export {
   resolveCurrencyCode,
   resolveLocaleForCurrency,
   type SupportedCurrencyCode
-} from "./currency.js";
+} from "./currency";
 
 export {
   AUTH_ERROR_MESSAGES,
+  BIZ_CATEGORY_PRESETS,
+  BIZ_LOCATION_BANDS,
+  BIZ_STAFF_COUNT_OPTIONS,
+  BIZ_TEAM_SETUP_OPTIONS,
+  businessCategoryPatch,
+  companyAddressForVenueCopy,
   BUSINESS_TOTAL_STEPS,
   CITIES,
   ESTABLISHMENT_TYPES,
@@ -23,7 +29,10 @@ export {
   evaluateBusinessSignupForFinish,
   evaluateGuestSignupForFinish,
   guestWizardStepValidation,
+  locationsCountFromBand,
   normalizeCityFromRegistry,
+  venueNameFieldLabel,
+  venueStepTitle,
   readableAuthFailure,
   strongPasswordIssue,
   type AllowedCountry,
@@ -31,4 +40,4 @@ export {
   type SignupFlow,
   type SignupFormState,
   type WizardSignupPayload
-} from "./signupWizard.js";
+} from "./signupWizard";

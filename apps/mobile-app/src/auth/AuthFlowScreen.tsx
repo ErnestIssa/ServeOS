@@ -101,7 +101,9 @@ function readableAuthFailure(message: string): string {
     failed_to_fetch_orders: "Could not load your orders. Try again.",
     missing_token: "Session expired. Sign in again.",
     invalid_registration_profile:
-      "Signup data was rejected. Complete all business steps and try again, or update the app."
+      "Signup data was rejected. Complete all business steps and try again, or update the app.",
+    guest_signup_mobile_only: "Guest accounts can only be created in the ServeOS mobile app.",
+    business_signup_web_only: "Business accounts can only be created on the ServeOS website."
   };
   const s = map[message];
   if (s) return s;
@@ -505,7 +507,8 @@ export function AuthFlowScreen({ onAuthed }: Props) {
     [ensureWizardFieldVisible]
   );
 
-  const openWizard = (flow: WizardFlow) => {
+  const openWizard = (flow: WizardFlow = "GUEST") => {
+    if (flow !== "GUEST") return;
     void Haptics.selectionAsync();
     stopWizardExitSpinLoop();
     wizardExitInfiniteFlightRef.current = false;
@@ -1206,6 +1209,7 @@ export function AuthFlowScreen({ onAuthed }: Props) {
         phone: guestPhone.trim(),
         registrationProfile: {
           wizardVersion: 1,
+          signupSurface: "mobile",
           flow: "GUEST",
           firstName: guestFirst.trim(),
           lastName: guestLast.trim(),

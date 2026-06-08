@@ -144,6 +144,18 @@ export function registerAuthRoutes(
     };
 
     const reg = body.registrationProfile;
+    const regFlow =
+      reg && typeof reg === "object" ? (reg as { flow?: unknown }).flow : undefined;
+    const regSurface =
+      reg && typeof reg === "object" ? (reg as { signupSurface?: unknown }).signupSurface : undefined;
+
+    if (body.role === "CUSTOMER" && regFlow === "GUEST" && regSurface !== "mobile") {
+      return reply.status(400).send({ ok: false, error: "guest_signup_mobile_only" });
+    }
+    if (body.role === "OWNER" && regFlow === "BUSINESS" && regSurface !== "web") {
+      return reply.status(400).send({ ok: false, error: "business_signup_web_only" });
+    }
+
     const needsBusinessBootstrap =
       body.role === "OWNER" &&
       reg &&

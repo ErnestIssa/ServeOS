@@ -2,7 +2,7 @@ import { AmbientWebShell } from "@serveos/core-ambient";
 import { useEffect, useMemo, useState } from "react";
 import { LoadingScreen } from "@serveos/core-loading/LoadingScreen";
 import { MobileFloatingDock } from "./MobileFloatingDock";
-import { formatMoneyCents } from "@serveos/core-shared";
+import { formatMoneyCents } from "@serveos/core-shared/currency";
 import {
   createCategory,
   createMenuItem,
@@ -20,6 +20,7 @@ import {
   type MenuTree,
   type OrderRow
 } from "./api";
+import { consumeTokenFromUrl, persistAdminToken, readStoredAdminToken } from "./authStorage";
 
 function formatMoney(cents: number) {
   return formatMoneyCents(cents);
@@ -67,6 +68,16 @@ export function App() {
     }
     setRestaurants(res.restaurants ?? []);
   }
+
+  useEffect(() => {
+    const urlToken = consumeTokenFromUrl();
+    const stored = urlToken ?? readStoredAdminToken();
+    if (!stored) return;
+    setToken(stored);
+    setStatus("Signed in");
+    void refreshRestaurants(stored);
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }, []);
 
   async function refreshMenu(t: string, restaurantId: string) {
     const res = await getMenuAdmin(t, restaurantId);
@@ -149,62 +160,97 @@ export function App() {
           </div>
         </div>
 
-        <div id="auth" className="mt-10 grid scroll-mt-28 gap-4 md:grid-cols-2 lg:scroll-mt-0">
-          <section className="rounded-2xl border border-white/55 bg-white/65 p-5 shadow-[0_16px_50px_rgba(15,23,42,0.08)] backdrop-blur-xl">
-            <div className="text-sm font-semibold text-slate-900">Auth (demo)</div>
-            <div className="mt-3 grid gap-3">
-              <label className="grid gap-1 text-xs text-slate-600">
-                Email
-                <input
-                  className="rounded-xl border border-slate-200/90 bg-white/90 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </label>
-              <label className="grid gap-1 text-xs text-slate-600">
-                Password
-                <input
-                  className="rounded-xl border border-slate-200/90 bg-white/90 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  type="password"
-                />
-              </label>
-              <div className="flex gap-2">
-                <button
-                  className="rounded-xl bg-accent px-3 py-2 text-sm font-semibold text-white shadow-glow-blue hover:bg-[#2563EB]"
-                  onClick={async () => {
-                    setStatus("Signing up…");
-                    const res = await signup({ email, password, role: "OWNER" });
-                    if (!res.ok || !res.token) return setStatus(mapApiErrorToMessage(res.error) ?? "signup_failed");
-                    setToken(res.token);
-                    setStatus("Signed up");
-                    await refreshRestaurants(res.token);
-                  }}
-                >
-                  Sign up
-                </button>
-                <button
-                  className="rounded-xl border border-slate-200/90 bg-white/85 px-3 py-2 text-sm font-semibold text-slate-900 hover:bg-white"
-                  onClick={async () => {
-                    setStatus("Logging in…");
-                    const res = await login({ email, password });
-                    if (!res.ok || !res.token) return setStatus(mapApiErrorToMessage(res.error) ?? "login_failed");
-                    setToken(res.token);
-                    setStatus("Logged in");
-                    await refreshRestaurants(res.token);
-                  }}
-                >
-                  Log in
-                </button>
-              </div>
-              {token ? <div className="text-xs text-slate-600 break-all">Token: {token.slice(0, 18)}…</div> : null}
-              {status ? <div className="text-xs text-slate-600">Status: {status}</div> : null}
-            </div>
+        {token ? (
+          <section className="mt-10 rounded-2xl border border-emerald-200/70 bg-emerald-50/80 p-5 shadow-[0_16px_50px_rgba(15,23,42,0.06)] backdrop-blur-xl">
+            <div className="text-sm font-semibold text-emerald-900">You&apos;re signed in</div>
+            <p className="mt-2 text-sm text-emerald-800/90">
+              Manage your venues, menu, and orders below. Your session stays active in this browser.
+            </p>
+            <button
+              type="button"
+              className="mt-4 rounded-full border border-emerald-300/80 bg-white/80 px-4 py-2 text-xs font-bold text-emerald-900 transition hover:bg-white"
+              onClick={() => {
+                setToken(null);
+                try {
+                  sessionStorage.removeItem("serveos.admin.token");
+                } catch {
+                  /* ignore */
+                }
+                setRestaurants([]);
+                setSelectedRestaurantId("");
+                setMenu(null);
+                setOrders([]);
+                setStatus("Signed out");
+              }}
+            >
+              Sign out
+            </button>
           </section>
+        ) : null}
 
-          <section className="rounded-2xl border border-white/55 bg-white/65 p-5 shadow-[0_16px_50px_rgba(15,23,42,0.08)] backdrop-blur-xl">
-            <div className="text-sm font-semibold text-slate-900">Restaurant onboarding (demo)</div>
+        <div
+          id="auth"
+          className={`grid scroll-mt-28 gap-4 md:grid-cols-2 lg:scroll-mt-0 ${token ? "mt-6" : "mt-10"}`}
+        >
+          {!token ? (
+            <section className="rounded-2xl border border-white/55 bg-white/65 p-5 shadow-[0_16px_50px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+              <div className="text-sm font-semibold text-slate-900">Auth (demo)</div>
+              <div className="mt-3 grid gap-3">
+                <label className="grid gap-1 text-xs text-slate-600">
+                  Email
+                  <input
+                    className="rounded-xl border border-slate-200/90 bg-white/90 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </label>
+                <label className="grid gap-1 text-xs text-slate-600">
+                  Password
+                  <input
+                    className="rounded-xl border border-slate-200/90 bg-white/90 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    type="password"
+                  />
+                </label>
+                <div className="flex gap-2">
+                  <button
+                    className="rounded-xl bg-accent px-3 py-2 text-sm font-semibold text-white shadow-glow-blue hover:bg-[#2563EB]"
+                    onClick={async () => {
+                      setStatus("Signing up…");
+                      const res = await signup({ email, password, role: "OWNER" });
+                      if (!res.ok || !res.token) return setStatus(mapApiErrorToMessage(res.error) ?? "signup_failed");
+                      persistAdminToken(res.token);
+                      setToken(res.token);
+                      setStatus("Signed up");
+                      await refreshRestaurants(res.token);
+                    }}
+                  >
+                    Sign up
+                  </button>
+                  <button
+                    className="rounded-xl border border-slate-200/90 bg-white/85 px-3 py-2 text-sm font-semibold text-slate-900 hover:bg-white"
+                    onClick={async () => {
+                      setStatus("Logging in…");
+                      const res = await login({ email, password });
+                      if (!res.ok || !res.token) return setStatus(mapApiErrorToMessage(res.error) ?? "login_failed");
+                      persistAdminToken(res.token);
+                      setToken(res.token);
+                      setStatus("Logged in");
+                      await refreshRestaurants(res.token);
+                    }}
+                  >
+                    Log in
+                  </button>
+                </div>
+                {status ? <div className="text-xs text-slate-600">Status: {status}</div> : null}
+              </div>
+            </section>
+          ) : null}
+
+          {!token ? (
+            <section className="rounded-2xl border border-white/55 bg-white/65 p-5 shadow-[0_16px_50px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+              <div className="text-sm font-semibold text-slate-900">Restaurant onboarding (demo)</div>
             <div className="mt-3 grid gap-3">
               <label className="grid gap-1 text-xs text-slate-600">
                 Restaurant name
@@ -258,7 +304,8 @@ export function App() {
                 {restaurants.length === 0 ? <div className="text-xs text-slate-500">None yet.</div> : null}
               </div>
             </div>
-          </section>
+            </section>
+          ) : null}
         </div>
 
         <section

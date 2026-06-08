@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { resolveCurrencyCode, type SupportedCurrencyCode } from "@serveos/core-shared";
+import { resolveCurrencyCode, type SupportedCurrencyCode } from "@serveos/core-shared/currency";
 import { fetchCustomerPreferences, patchCustomerPreferences } from "../customerAppApi";
 
 export type ProfileStackRoute =
