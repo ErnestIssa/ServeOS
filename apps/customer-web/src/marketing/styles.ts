@@ -47,4 +47,4 @@ export const linkHoverShift =
 
 export const linkHoverShiftGroup =
   "inline-block text-left transition-[transform,color] duration-200 ease-out group-hover:translate-x-1";
-
+

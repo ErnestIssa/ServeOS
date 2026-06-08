@@ -1,17 +1,28 @@
 import { animate, motion, useMotionValue, useSpring } from "framer-motion";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-const LINKS = [
-  { href: "#top", label: "Top" },
-  { href: "#auth", label: "Auth" },
+const LINKS_SIGNED_IN = [
+  { href: "#top", label: "Home" },
   { href: "#menu-admin", label: "Menu" },
   { href: "#orders", label: "Orders" }
 ] as const;
 
-export function MobileFloatingDock() {
+const LINKS_SIGNED_OUT = [
+  { href: "#top", label: "Home" },
+  { href: "#auth", label: "Sign in" },
+  { href: "#menu-admin", label: "Menu" },
+  { href: "#orders", label: "Orders" }
+] as const;
+
+/**
+ * Mobile / tablet: floating glass bar with a **draggable liquid pill** (spring snap, backdrop blur).
+ * Desktop: hidden (`lg:hidden`).
+ */
+export function MobileFloatingDock({ signedIn = false }: { signedIn?: boolean }) {
+  const links = signedIn ? LINKS_SIGNED_IN : LINKS_SIGNED_OUT;
   const trackRef = useRef<HTMLDivElement>(null);
   const [trackW, setTrackW] = useState(0);
-  const n = LINKS.length;
+  const n = links.length;
   const seg = trackW > 0 ? trackW / n : 0;
 
   const x = useMotionValue(0);
@@ -30,6 +41,10 @@ export function MobileFloatingDock() {
   }, []);
 
   useEffect(() => {
+    setActive((prev) => Math.min(prev, n - 1));
+  }, [n]);
+
+  useEffect(() => {
     if (seg <= 0) return;
     void animate(x, active * seg, { type: "spring", stiffness: 440, damping: 32 });
   }, [active, seg, x]);
@@ -37,7 +52,7 @@ export function MobileFloatingDock() {
   const snapToIndex = (idx: number) => {
     const clamped = Math.max(0, Math.min(n - 1, idx));
     setActive(clamped);
-    const id = LINKS[clamped]?.href.slice(1);
+    const id = links[clamped]?.href.slice(1);
     if (id) {
       window.location.hash = id;
       document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -85,7 +100,7 @@ export function MobileFloatingDock() {
     >
       <div
         ref={trackRef}
-        className="pointer-events-auto relative min-h-[56px] touch-pan-y rounded-[28px] border border-white/50 bg-white/45 shadow-[0_16px_48px_rgba(15,23,42,0.18)] backdrop-blur-2xl"
+        className="pointer-events-auto relative min-h-[56px] touch-pan-y rounded-[28px] border border-white/50 bg-white/45 shadow-[0_16px_48px_rgba(15,23,42,0.16)] backdrop-blur-2xl"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
@@ -104,13 +119,13 @@ export function MobileFloatingDock() {
           />
         ) : null}
 
-        <div className="relative z-10 flex min-h-[52px] items-stretch justify-between gap-1 px-1.5 py-1.5">
-          {LINKS.map((l, i) => (
+        <div className="relative z-10 flex min-h-[52px] items-stretch justify-between gap-0.5 px-1 py-1">
+          {links.map((l, i) => (
             <a
               key={l.href}
               data-dock-link
               href={l.href}
-              className={`flex min-h-[44px] min-w-0 flex-1 items-center justify-center rounded-[22px] px-1 text-center text-[10px] font-semibold leading-tight transition-colors hover:bg-white/35 sm:text-[11px] ${active === i ? "text-slate-900" : "text-slate-600"}`}
+              className={`flex min-h-[44px] min-w-0 flex-1 items-center justify-center rounded-[22px] px-1 text-center text-[10px] font-semibold leading-tight transition-colors hover:bg-white/35 sm:text-[11px] ${active === i ? "text-violet-800" : "text-slate-600"}`}
               onClick={(e) => {
                 e.preventDefault();
                 setActive(i);

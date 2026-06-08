@@ -1,15 +1,36 @@
 {
-  "extends": "../../tsconfig.json",
+  "extends": "expo/tsconfig.base",
   "compilerOptions": {
-    "types": [],
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
+    "allowJs": false,
+    "checkJs": false,
     "jsx": "react-jsx",
-    "lib": [
-      "ES2022"
-    ],
-    "strict": true
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": [],
+    "baseUrl": "../..",
+    "paths": {
+      "@serveos/types": ["packages/types/src/index.ts"],
+      "@serveos/utils": ["packages/utils/src/index.ts"],
+      "@serveos/ui": ["packages/ui/src/index.ts"],
+      "@serveos/core-loading": ["core/loading/src/index.ts"],
+      "@serveos/core-loading/*": ["core/loading/src/*"],
+      "@serveos/core-loading-native": ["core/loading-native/src/index.ts"],
+      "@serveos/core-loading-native/*": ["core/loading-native/src/*"],
+      "@serveos/core-theme": ["core/theme/src/index.ts"],
+      "@serveos/core-theme/*": ["core/theme/src/*"],
+      "@serveos/core-ambient": ["core/ambient/src/index.ts"],
+      "@serveos/core-ambient/*": ["core/ambient/src/*"],
+      "@serveos/core-shared": ["core/shared/src/index.ts"],
+      "@serveos/core-shared/currency": ["core/shared/src/currency.ts"],
+      "@serveos/core-shared/signup-wizard": ["core/shared/src/signupWizard.ts"],
+      "@serveos/core-shared/*": ["core/shared/src/*"]
+    }
   },
-  "include": [
-    "**/*.ts",
-    "**/*.tsx"
-  ]
+  "include": ["**/*.ts", "**/*.tsx"]
 }

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { DEMO_MAILTO, WEB_ADMIN_URL } from "./constants";
+import { ADMIN_APP_PATH, DEMO_MAILTO, WEB_ADMIN_URL } from "./constants";
 import { glassPanel, eyebrow, sectionTitle, btnPrimary, btnSecondary } from "./styles";
 
 export function scrollToId(id: string) {
@@ -75,7 +75,7 @@ export function startFreeTrial() {
     window.open(WEB_ADMIN_URL, "_blank", "noopener,noreferrer");
     return;
   }
-  scrollToId("pricing");
+  window.location.assign(ADMIN_APP_PATH);
 }
 
 export function bookDemo() {
@@ -87,5 +87,5 @@ export function loginControlCenter() {
     window.open(WEB_ADMIN_URL, "_blank", "noopener,noreferrer");
     return;
   }
-  scrollToId("final-cta");
+  window.location.assign(ADMIN_APP_PATH);
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { iconPath } from "./marketing/assetPaths";
-import { PRIVACY_POLICY_PATH, WEB_ADMIN_URL } from "./marketing/constants";
+import { ADMIN_APP_PATH, PRIVACY_POLICY_PATH } from "./marketing/constants";
 import { BtnPrimary, BtnSecondary } from "./marketing/ui";
 import { SignupCancelModal } from "./signup/SignupCancelModal";
 import {
@@ -150,11 +150,7 @@ export function AccountSignupPage({ onBack }: Props) {
                 Your company, venue, and owner account were created. Open the admin dashboard to manage operations.
               </p>
               <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:justify-center">
-                {WEB_ADMIN_URL ? (
-                  <BtnPrimary onClick={() => window.open(WEB_ADMIN_URL, "_blank", "noopener,noreferrer")}>
-                    Open admin dashboard
-                  </BtnPrimary>
-                ) : null}
+                <BtnPrimary onClick={() => window.location.assign(ADMIN_APP_PATH)}>Open admin dashboard</BtnPrimary>
                 <BtnSecondary onClick={onBack}>Back to home</BtnSecondary>
               </div>
             </div>

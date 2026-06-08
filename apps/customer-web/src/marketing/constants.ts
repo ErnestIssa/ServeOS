@@ -1,4 +1,6 @@
 export const WEB_ADMIN_URL = (import.meta.env.VITE_WEB_ADMIN_URL as string | undefined)?.trim() || "";
+/** In-app admin dashboard route on customer-web (default when VITE_WEB_ADMIN_URL is unset). */
+export const ADMIN_APP_PATH = "/admin";
 /** Placeholder until the dedicated policy page ships. */
 export const PRIVACY_POLICY_PATH = "/privacy";
 /** Placeholder until the dedicated terms page ships. */

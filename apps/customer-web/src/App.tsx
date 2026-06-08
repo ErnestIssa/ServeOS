@@ -1,5 +1,6 @@
 import { AmbientWebShell } from "@serveos/core-ambient";
 import { useCallback, useEffect, useState } from "react";
+import { AdminDashboardPage } from "./admin/AdminDashboardPage";
 import { AccountSignupPage } from "./AccountSignupPage";
 import { type AppView, syncUrlForView, viewFromPath } from "./appNavigation";
 import { HowServeOSWorksPage } from "./HowServeOSWorksPage";
@@ -53,19 +54,22 @@ export function App() {
         />
       ) : null}
       {view === "signup" ? <AccountSignupPage onBack={() => goLanding("pricing")} /> : null}
+      {view === "admin" ? <AdminDashboardPage onHome={() => goLanding("top")} /> : null}
 
-      <SupportPopup
-        isVisible={isSupportVisible}
-        onOpen={onSupportOpen}
-        onClose={onSupportClose}
-        onHowItWorks={
-          view === "how-it-works"
-            ? () => scrollToId("top")
-            : () => setAppView("how-it-works")
-        }
-        onViewPricing={goPricing}
-        onFindSetup={goSignup}
-      />
+      {view !== "admin" ? (
+        <SupportPopup
+          isVisible={isSupportVisible}
+          onOpen={onSupportOpen}
+          onClose={onSupportClose}
+          onHowItWorks={
+            view === "how-it-works"
+              ? () => scrollToId("top")
+              : () => setAppView("how-it-works")
+          }
+          onViewPricing={goPricing}
+          onFindSetup={goSignup}
+        />
+      ) : null}
     </AmbientWebShell>
   );
 }

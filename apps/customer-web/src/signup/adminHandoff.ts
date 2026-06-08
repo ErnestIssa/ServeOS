@@ -1,22 +1,23 @@
-import { WEB_ADMIN_URL } from "../marketing/constants";
+import { ADMIN_APP_PATH, WEB_ADMIN_URL } from "../marketing/constants";
+import { ADMIN_AUTH_TOKEN_KEY } from "../authStorage";
 
-/** Session key read by web-admin after business signup handoff. */
-export const ADMIN_AUTH_TOKEN_KEY = "serveos.admin.token";
-
-/** Redirect to web-admin with JWT so the owner lands logged in (backend-issued token). */
+/** Redirect to the admin dashboard with JWT so the owner lands logged in. */
 export function handoffToAdminApp(token: string): void {
   sessionStorage.setItem(ADMIN_AUTH_TOKEN_KEY, token);
 
   const base = WEB_ADMIN_URL.trim();
-  if (!base) {
-    return;
+  if (base) {
+    try {
+      const url = new URL(base);
+      url.searchParams.set("token", token);
+      window.location.assign(url.toString());
+      return;
+    } catch {
+      /* fall through to same-origin admin */
+    }
   }
 
-  try {
-    const url = new URL(base);
-    url.searchParams.set("token", token);
-    window.location.assign(url.toString());
-  } catch {
-    /* WEB_ADMIN_URL invalid — token remains in sessionStorage for same-origin fallback */
-  }
+  const adminUrl = new URL(ADMIN_APP_PATH, window.location.origin);
+  adminUrl.searchParams.set("token", token);
+  window.location.assign(adminUrl.toString());
 }

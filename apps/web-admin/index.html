@@ -3,7 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>ServeOS Admin</title>
+    <title>ServeOS Admin — Your restaurant workspace</title>
+    <meta
+      name="description"
+      content="ServeOS Admin — manage your venues, menu, and live orders from one workspace."
+    />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -17,6 +21,27 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Vite returns 504 while deps re-optimize; reload once they are ready (prevents blank page).
+      window.addEventListener("vite:preloadError", function (event) {
+        event.preventDefault();
+        var key = "serveos.vite.preloadReload";
+        if (!sessionStorage.getItem(key)) {
+          sessionStorage.setItem(key, "1");
+          window.location.reload();
+          return;
+        }
+        sessionStorage.removeItem(key);
+        var root = document.getElementById("root");
+        if (root) {
+          root.innerHTML =
+            '<div style="min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px;font-family:system-ui,sans-serif;background:#020617;color:#e2e8f0;text-align:center">' +
+            '<div style="max-width:28rem"><p style="font-size:1.25rem;font-weight:800;margin:0 0 12px">ServeOS could not load</p>' +
+            '<p style="margin:0 0 16px;font-size:0.9rem;line-height:1.5;color:#94a3b8">Dev dependencies are still rebuilding. Stop the dev server, run <code style="color:#c4b5fd">npm run dev</code> again in web-admin, then reload.</p>' +
+            '<button type="button" onclick="location.reload()" style="border:0;border-radius:9999px;padding:10px 18px;font-weight:700;background:#7c3aed;color:white;cursor:pointer">Reload page</button></div></div>';
+        }
+      });
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

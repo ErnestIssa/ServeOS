@@ -1,6 +1,24 @@
 import { AmbientWebShell } from "@serveos/core-ambient";
 import { useEffect, useMemo, useState } from "react";
-import { LoadingScreen } from "@serveos/core-loading/LoadingScreen";
+import { LoadingScreen } from "@serveos/core-loading";
+import {
+  AdminBtnPrimary,
+  AdminBtnPrimaryLg,
+  AdminBtnSecondary,
+  AdminBtnSecondaryLg,
+  AdminEmptyState,
+  AdminHeader,
+  AdminInput,
+  AdminLabel,
+  AdminPanel,
+  AdminSectionHeader,
+  AdminSelect,
+  AdminStatusLine,
+  AdminVenueCard,
+  AdminWelcomeBanner,
+  adminMain,
+  subPanelCls
+} from "./admin/AdminUi";
 import { MobileFloatingDock } from "./MobileFloatingDock";
 import { formatMoneyCents } from "@serveos/core-shared/currency";
 import {
@@ -49,6 +67,8 @@ export function App() {
   const [modOptionName, setModOptionName] = useState("Large");
   const [modOptionDelta, setModOptionDelta] = useState("1.50");
   const [orders, setOrders] = useState<OrderRow[]>([]);
+
+  const activeVenueName = restaurants.find((r) => r.id === selectedRestaurantId)?.name;
 
   useEffect(() => {
     let cancelled = false;
@@ -148,74 +168,57 @@ export function App() {
     return () => ws.close();
   }, [token, selectedRestaurantId]);
 
+  function signOut() {
+    setToken(null);
+    try {
+      sessionStorage.removeItem("serveos.admin.token");
+    } catch {
+      /* ignore */
+    }
+    setRestaurants([]);
+    setSelectedRestaurantId("");
+    setMenu(null);
+    setOrders([]);
+    setStatus("Signed out");
+  }
+
   return (
-    <AmbientWebShell variant="admin" className="font-ui">
+    <AmbientWebShell variant="customer" className="font-ui marketing-site">
       <LoadingScreen appReady={appReady} />
 
-      <main className="relative mx-auto max-w-5xl scroll-smooth px-6 pb-28 pt-6 text-slate-900 lg:max-w-6xl lg:pb-10 lg:pt-10 xl:max-w-7xl xl:px-10">
-        <div id="top" className="flex scroll-mt-28 flex-wrap items-center justify-between gap-3 lg:scroll-mt-0">
-          <div className="text-xl font-extrabold tracking-tight text-slate-900">ServeOS</div>
-          <div className="rounded-full border border-slate-200/80 bg-white/60 px-3 py-1 text-xs text-slate-600 backdrop-blur-md">
-            Admin
-          </div>
-        </div>
+      <AdminHeader signedIn={!!token} activeVenue={activeVenueName} onSignOut={signOut} />
 
+      <main id="top" className={adminMain}>
         {token ? (
-          <section className="mt-10 rounded-2xl border border-emerald-200/70 bg-emerald-50/80 p-5 shadow-[0_16px_50px_rgba(15,23,42,0.06)] backdrop-blur-xl">
-            <div className="text-sm font-semibold text-emerald-900">You&apos;re signed in</div>
-            <p className="mt-2 text-sm text-emerald-800/90">
-              Manage your venues, menu, and orders below. Your session stays active in this browser.
-            </p>
-            <button
-              type="button"
-              className="mt-4 rounded-full border border-emerald-300/80 bg-white/80 px-4 py-2 text-xs font-bold text-emerald-900 transition hover:bg-white"
-              onClick={() => {
-                setToken(null);
-                try {
-                  sessionStorage.removeItem("serveos.admin.token");
-                } catch {
-                  /* ignore */
-                }
-                setRestaurants([]);
-                setSelectedRestaurantId("");
-                setMenu(null);
-                setOrders([]);
-                setStatus("Signed out");
-              }}
-            >
-              Sign out
-            </button>
-          </section>
+          <div className="mt-6 sm:mt-8">
+            <AdminWelcomeBanner />
+          </div>
         ) : null}
 
-        <div
-          id="auth"
-          className={`grid scroll-mt-28 gap-4 md:grid-cols-2 lg:scroll-mt-0 ${token ? "mt-6" : "mt-10"}`}
-        >
-          {!token ? (
-            <section className="rounded-2xl border border-white/55 bg-white/65 p-5 shadow-[0_16px_50px_rgba(15,23,42,0.08)] backdrop-blur-xl">
-              <div className="text-sm font-semibold text-slate-900">Auth (demo)</div>
-              <div className="mt-3 grid gap-3">
-                <label className="grid gap-1 text-xs text-slate-600">
+        {!token ? (
+          <div id="auth" className="mt-8 grid scroll-mt-28 gap-6 lg:grid-cols-2 lg:scroll-mt-24">
+            <AdminPanel>
+              <AdminSectionHeader
+                eyebrowText="Access"
+                title="Sign in"
+                description="Use your owner account to open your ServeOS workspace."
+              />
+              <div className="mt-6 grid gap-4">
+                <AdminLabel>
                   Email
-                  <input
-                    className="rounded-xl border border-slate-200/90 bg-white/90 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                  />
-                </label>
-                <label className="grid gap-1 text-xs text-slate-600">
+                  <AdminInput value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+                </AdminLabel>
+                <AdminLabel>
                   Password
-                  <input
-                    className="rounded-xl border border-slate-200/90 bg-white/90 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                  <AdminInput
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     type="password"
+                    autoComplete="current-password"
                   />
-                </label>
-                <div className="flex gap-2">
-                  <button
-                    className="rounded-xl bg-accent px-3 py-2 text-sm font-semibold text-white shadow-glow-blue hover:bg-[#2563EB]"
+                </AdminLabel>
+                <div className="flex flex-wrap gap-3 pt-1">
+                  <AdminBtnPrimaryLg
                     onClick={async () => {
                       setStatus("Signing up…");
                       const res = await signup({ email, password, role: "OWNER" });
@@ -227,9 +230,8 @@ export function App() {
                     }}
                   >
                     Sign up
-                  </button>
-                  <button
-                    className="rounded-xl border border-slate-200/90 bg-white/85 px-3 py-2 text-sm font-semibold text-slate-900 hover:bg-white"
+                  </AdminBtnPrimaryLg>
+                  <AdminBtnSecondaryLg
                     onClick={async () => {
                       setStatus("Logging in…");
                       const res = await login({ email, password });
@@ -241,87 +243,75 @@ export function App() {
                     }}
                   >
                     Log in
-                  </button>
+                  </AdminBtnSecondaryLg>
                 </div>
-                {status ? <div className="text-xs text-slate-600">Status: {status}</div> : null}
+                <AdminStatusLine>{status ? <>Status: {status}</> : null}</AdminStatusLine>
               </div>
-            </section>
-          ) : null}
+            </AdminPanel>
 
-          {!token ? (
-            <section className="rounded-2xl border border-white/55 bg-white/65 p-5 shadow-[0_16px_50px_rgba(15,23,42,0.08)] backdrop-blur-xl">
-              <div className="text-sm font-semibold text-slate-900">Restaurant onboarding (demo)</div>
-            <div className="mt-3 grid gap-3">
-              <label className="grid gap-1 text-xs text-slate-600">
-                Restaurant name
-                <input
-                  className="rounded-xl border border-slate-200/90 bg-white/90 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400"
-                  value={restaurantName}
-                  onChange={(e) => setRestaurantName(e.target.value)}
-                />
-              </label>
-              <div className="flex gap-2">
-                <button
-                  className="rounded-xl bg-accent px-3 py-2 text-sm font-semibold text-white shadow-glow-blue hover:bg-[#2563EB]"
-                  disabled={!token}
+            <AdminPanel>
+              <AdminSectionHeader
+                eyebrowText="Venues"
+                title="Restaurant onboarding"
+                description="Create your first venue after signing in, or refresh your venue list."
+              />
+              <div className="mt-6 grid gap-4">
+                <AdminLabel>
+                  Restaurant name
+                  <AdminInput value={restaurantName} onChange={(e) => setRestaurantName(e.target.value)} />
+                </AdminLabel>
+                <div className="flex flex-wrap gap-3">
+                  <AdminBtnPrimary
+                    disabled={!token}
                     onClick={async () => {
-                    if (!token) return;
-                    setStatus("Creating restaurant…");
-                    const companyId = restaurants.map((r) => r.companyId).find((id) => typeof id === "string" && id.length > 0);
-                    const res = await createRestaurant(token, { name: restaurantName, ...(companyId ? { companyId } : {}) });
-                    if (!res.ok) return setStatus(res.error ?? "create_restaurant_failed");
-                    setStatus("Restaurant created");
-                    await refreshRestaurants(token);
-                  }}
-                >
-                  Create restaurant
-                </button>
-                <button
-                  className="rounded-xl border border-slate-200/90 bg-white/85 px-3 py-2 text-sm font-semibold text-slate-900 hover:bg-white"
-                  disabled={!token}
-                  onClick={async () => {
-                    if (!token) return;
-                    setStatus("Refreshing…");
-                    await refreshRestaurants(token);
-                    setStatus("Refreshed");
-                  }}
-                >
-                  Refresh
-                </button>
-              </div>
-              <div className="text-xs text-slate-600">Your restaurants:</div>
-              <div className="grid gap-2">
-                {restaurants.map((r) => (
-                  <div
-                    key={r.id}
-                    className="rounded-xl border border-slate-200/85 bg-white/82 px-3 py-2 text-sm text-slate-900"
+                      if (!token) return;
+                      setStatus("Creating restaurant…");
+                      const companyId = restaurants.map((r) => r.companyId).find((id) => typeof id === "string" && id.length > 0);
+                      const res = await createRestaurant(token, { name: restaurantName, ...(companyId ? { companyId } : {}) });
+                      if (!res.ok) return setStatus(res.error ?? "create_restaurant_failed");
+                      setStatus("Restaurant created");
+                      await refreshRestaurants(token);
+                    }}
                   >
-                    <div className="font-semibold">{r.name}</div>
-                    <div className="text-xs text-slate-600 font-mono break-all">ID: {r.id}</div>
-                    <div className="text-xs text-slate-600">Role: {r.role}</div>
+                    Create restaurant
+                  </AdminBtnPrimary>
+                  <AdminBtnSecondary
+                    disabled={!token}
+                    onClick={async () => {
+                      if (!token) return;
+                      setStatus("Refreshing…");
+                      await refreshRestaurants(token);
+                      setStatus("Refreshed");
+                    }}
+                  >
+                    Refresh
+                  </AdminBtnSecondary>
+                </div>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Your restaurants</p>
+                  <div className="mt-3 grid gap-3">
+                    {restaurants.map((r) => (
+                      <AdminVenueCard key={r.id} name={r.name} id={r.id} role={r.role} />
+                    ))}
+                    {restaurants.length === 0 ? <AdminEmptyState>None yet — sign in and create one.</AdminEmptyState> : null}
                   </div>
-                ))}
-                {restaurants.length === 0 ? <div className="text-xs text-slate-500">None yet.</div> : null}
+                </div>
               </div>
-            </div>
-            </section>
-          ) : null}
-        </div>
+            </AdminPanel>
+          </div>
+        ) : null}
 
-        <section
-          id="menu-admin"
-          className="mt-8 scroll-mt-28 rounded-2xl border border-white/55 bg-white/65 p-5 shadow-[0_16px_50px_rgba(15,23,42,0.08)] backdrop-blur-xl lg:scroll-mt-0"
-        >
-          <div className="text-sm font-semibold text-slate-900">Menu management</div>
-          <p className="mt-1 text-xs text-slate-600">
-            Select a venue, add categories and items, then modifier groups/options. Copy the restaurant ID into the customer app to preview the public menu.
-          </p>
+        <AdminPanel id="menu-admin" className="mt-8">
+          <AdminSectionHeader
+            eyebrowText="Catalog"
+            title="Menu management"
+            description="Select a venue, add categories and items, then modifier groups and options. Use the restaurant ID in the customer app to preview the public menu."
+          />
 
-          <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-end">
-            <label className="grid flex-1 gap-1 text-xs text-slate-600">
+          <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-end">
+            <AdminLabel className="flex-1">
               Active restaurant
-              <select
-                className="rounded-xl border border-slate-200/85 bg-white/82 px-3 py-2 text-sm text-slate-900 outline-none"
+              <AdminSelect
                 disabled={!token || restaurants.length === 0}
                 value={selectedRestaurantId}
                 onChange={(e) => setSelectedRestaurantId(e.target.value)}
@@ -332,200 +322,177 @@ export function App() {
                     {r.name}
                   </option>
                 ))}
-              </select>
-            </label>
-            <button
-              type="button"
-              className="rounded-xl border border-slate-200/85 bg-white/82 px-3 py-2 text-sm font-semibold text-slate-900 hover:bg-white disabled:opacity-40"
+              </AdminSelect>
+            </AdminLabel>
+            <AdminBtnSecondary
               disabled={!token || !selectedRestaurantId}
               onClick={() => token && selectedRestaurantId && void refreshMenu(token, selectedRestaurantId)}
             >
               Reload menu
-            </button>
+            </AdminBtnSecondary>
           </div>
 
-          <div className="mt-6 grid gap-4 border-t border-slate-200/80 pt-6 md:grid-cols-2">
-            <div className="rounded-xl border border-slate-200/85 bg-white/82 p-4">
-              <div className="text-xs font-semibold text-slate-600">New category</div>
-              <input
-                className="mt-2 w-full rounded-lg border border-slate-200/85 bg-white/90 px-3 py-2 text-sm outline-none"
-                value={newCategoryName}
-                onChange={(e) => setNewCategoryName(e.target.value)}
-              />
-              <button
-                type="button"
-                className="mt-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#2563EB] disabled:opacity-40"
-                disabled={!token || !selectedRestaurantId}
-                onClick={async () => {
-                  if (!token || !selectedRestaurantId) return;
-                  const res = await createCategory(token, selectedRestaurantId, { name: newCategoryName });
-                  if (!res.ok) return setStatus(res.error ?? "category_failed");
-                  setStatus("Category added");
-                  await refreshMenu(token, selectedRestaurantId);
-                }}
-              >
-                Add category
-              </button>
+          <div className="mt-8 grid gap-5 border-t border-slate-200/70 pt-8 md:grid-cols-2">
+            <div className={subPanelCls}>
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">New category</p>
+              <AdminInput className="mt-3" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} />
+              <div className="mt-3">
+                <AdminBtnPrimary
+                  disabled={!token || !selectedRestaurantId}
+                  onClick={async () => {
+                    if (!token || !selectedRestaurantId) return;
+                    const res = await createCategory(token, selectedRestaurantId, { name: newCategoryName });
+                    if (!res.ok) return setStatus(res.error ?? "category_failed");
+                    setStatus("Category added");
+                    await refreshMenu(token, selectedRestaurantId);
+                  }}
+                >
+                  Add category
+                </AdminBtnPrimary>
+              </div>
             </div>
 
-            <div className="rounded-xl border border-slate-200/85 bg-white/82 p-4">
-              <div className="text-xs font-semibold text-slate-600">New item</div>
-              <select
-                className="mt-2 w-full rounded-lg border border-slate-200/85 bg-white/90 px-3 py-2 text-sm outline-none"
-                value={itemCategoryId}
-                onChange={(e) => setItemCategoryId(e.target.value)}
-              >
+            <div className={subPanelCls}>
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">New item</p>
+              <AdminSelect className="mt-3" value={itemCategoryId} onChange={(e) => setItemCategoryId(e.target.value)}>
                 <option value="">Category…</option>
                 {categoryOptions.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
                   </option>
                 ))}
-              </select>
-              <input
-                className="mt-2 w-full rounded-lg border border-slate-200/85 bg-white/90 px-3 py-2 text-sm outline-none"
-                placeholder="Name"
-                value={itemName}
-                onChange={(e) => setItemName(e.target.value)}
-              />
-              <input
-                className="mt-2 w-full rounded-lg border border-slate-200/85 bg-white/90 px-3 py-2 text-sm outline-none"
+              </AdminSelect>
+              <AdminInput className="mt-3" placeholder="Name" value={itemName} onChange={(e) => setItemName(e.target.value)} />
+              <AdminInput
+                className="mt-3"
                 placeholder="Description (optional)"
                 value={itemDescription}
                 onChange={(e) => setItemDescription(e.target.value)}
               />
-              <input
-                className="mt-2 w-full rounded-lg border border-slate-200/85 bg-white/90 px-3 py-2 text-sm outline-none"
+              <AdminInput
+                className="mt-3"
                 placeholder="Price (SEK)"
                 value={itemPrice}
                 onChange={(e) => setItemPrice(e.target.value)}
               />
-              <button
-                type="button"
-                className="mt-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#2563EB] disabled:opacity-40"
-                disabled={!token || !selectedRestaurantId || !itemCategoryId}
-                onClick={async () => {
-                  if (!token || !selectedRestaurantId || !itemCategoryId) return;
-                  const dollars = Number.parseFloat(itemPrice);
-                  if (Number.isNaN(dollars)) return setStatus("Invalid price");
-                  const priceCents = Math.round(dollars * 100);
-                  const res = await createMenuItem(token, selectedRestaurantId, {
-                    categoryId: itemCategoryId,
-                    name: itemName,
-                    description: itemDescription || undefined,
-                    priceCents
-                  });
-                  if (!res.ok) return setStatus(res.error ?? "item_failed");
-                  setStatus("Item added");
-                  await refreshMenu(token, selectedRestaurantId);
-                }}
-              >
-                Add item
-              </button>
+              <div className="mt-3">
+                <AdminBtnPrimary
+                  disabled={!token || !selectedRestaurantId || !itemCategoryId}
+                  onClick={async () => {
+                    if (!token || !selectedRestaurantId || !itemCategoryId) return;
+                    const dollars = Number.parseFloat(itemPrice);
+                    if (Number.isNaN(dollars)) return setStatus("Invalid price");
+                    const priceCents = Math.round(dollars * 100);
+                    const res = await createMenuItem(token, selectedRestaurantId, {
+                      categoryId: itemCategoryId,
+                      name: itemName,
+                      description: itemDescription || undefined,
+                      priceCents
+                    });
+                    if (!res.ok) return setStatus(res.error ?? "item_failed");
+                    setStatus("Item added");
+                    await refreshMenu(token, selectedRestaurantId);
+                  }}
+                >
+                  Add item
+                </AdminBtnPrimary>
+              </div>
             </div>
 
-            <div className="rounded-xl border border-slate-200/85 bg-white/82 p-4">
-              <div className="text-xs font-semibold text-slate-600">Modifier group (per item)</div>
-              <select
-                className="mt-2 w-full rounded-lg border border-slate-200/85 bg-white/90 px-3 py-2 text-sm outline-none"
-                value={modItemId}
-                onChange={(e) => setModItemId(e.target.value)}
-              >
+            <div className={subPanelCls}>
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Modifier group</p>
+              <AdminSelect className="mt-3" value={modItemId} onChange={(e) => setModItemId(e.target.value)}>
                 <option value="">Item…</option>
                 {flatItems.map((x) => (
                   <option key={x.id} value={x.id}>
                     {x.label}
                   </option>
                 ))}
-              </select>
-              <input
-                className="mt-2 w-full rounded-lg border border-slate-200/85 bg-white/90 px-3 py-2 text-sm outline-none"
+              </AdminSelect>
+              <AdminInput
+                className="mt-3"
                 placeholder="Group name (e.g. Size)"
                 value={modGroupName}
                 onChange={(e) => setModGroupName(e.target.value)}
               />
-              <button
-                type="button"
-                className="mt-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#2563EB] disabled:opacity-40"
-                disabled={!token || !selectedRestaurantId || !modItemId}
-                onClick={async () => {
-                  if (!token || !selectedRestaurantId || !modItemId) return;
-                  const res = await createModifierGroup(token, selectedRestaurantId, modItemId, {
-                    name: modGroupName,
-                    minSelect: 1,
-                    maxSelect: 1
-                  });
-                  if (!res.ok) return setStatus(res.error ?? "group_failed");
-                  setStatus("Modifier group added");
-                  await refreshMenu(token, selectedRestaurantId);
-                }}
-              >
-                Add group
-              </button>
+              <div className="mt-3">
+                <AdminBtnPrimary
+                  disabled={!token || !selectedRestaurantId || !modItemId}
+                  onClick={async () => {
+                    if (!token || !selectedRestaurantId || !modItemId) return;
+                    const res = await createModifierGroup(token, selectedRestaurantId, modItemId, {
+                      name: modGroupName,
+                      minSelect: 1,
+                      maxSelect: 1
+                    });
+                    if (!res.ok) return setStatus(res.error ?? "group_failed");
+                    setStatus("Modifier group added");
+                    await refreshMenu(token, selectedRestaurantId);
+                  }}
+                >
+                  Add group
+                </AdminBtnPrimary>
+              </div>
             </div>
 
-            <div className="rounded-xl border border-slate-200/85 bg-white/82 p-4">
-              <div className="text-xs font-semibold text-slate-600">Modifier option</div>
-              <select
-                className="mt-2 w-full rounded-lg border border-slate-200/85 bg-white/90 px-3 py-2 text-sm outline-none"
-                value={modGroupId}
-                onChange={(e) => setModGroupId(e.target.value)}
-              >
+            <div className={subPanelCls}>
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Modifier option</p>
+              <AdminSelect className="mt-3" value={modGroupId} onChange={(e) => setModGroupId(e.target.value)}>
                 <option value="">Group…</option>
                 {flatGroups.map((x) => (
                   <option key={x.id} value={x.id}>
                     {x.label}
                   </option>
                 ))}
-              </select>
-              <input
-                className="mt-2 w-full rounded-lg border border-slate-200/85 bg-white/90 px-3 py-2 text-sm outline-none"
+              </AdminSelect>
+              <AdminInput
+                className="mt-3"
                 placeholder="Option name"
                 value={modOptionName}
                 onChange={(e) => setModOptionName(e.target.value)}
               />
-              <input
-                className="mt-2 w-full rounded-lg border border-slate-200/85 bg-white/90 px-3 py-2 text-sm outline-none"
+              <AdminInput
+                className="mt-3"
                 placeholder="Extra price (SEK)"
                 value={modOptionDelta}
                 onChange={(e) => setModOptionDelta(e.target.value)}
               />
-              <button
-                type="button"
-                className="mt-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#2563EB] disabled:opacity-40"
-                disabled={!token || !selectedRestaurantId || !modGroupId}
-                onClick={async () => {
-                  if (!token || !selectedRestaurantId || !modGroupId) return;
-                  const d = Number.parseFloat(modOptionDelta);
-                  if (Number.isNaN(d)) return setStatus("Invalid option price");
-                  const res = await createModifierOption(token, selectedRestaurantId, modGroupId, {
-                    name: modOptionName,
-                    priceDeltaCents: Math.round(d * 100)
-                  });
-                  if (!res.ok) return setStatus(res.error ?? "option_failed");
-                  setStatus("Option added");
-                  await refreshMenu(token, selectedRestaurantId);
-                }}
-              >
-                Add option
-              </button>
+              <div className="mt-3">
+                <AdminBtnPrimary
+                  disabled={!token || !selectedRestaurantId || !modGroupId}
+                  onClick={async () => {
+                    if (!token || !selectedRestaurantId || !modGroupId) return;
+                    const d = Number.parseFloat(modOptionDelta);
+                    if (Number.isNaN(d)) return setStatus("Invalid option price");
+                    const res = await createModifierOption(token, selectedRestaurantId, modGroupId, {
+                      name: modOptionName,
+                      priceDeltaCents: Math.round(d * 100)
+                    });
+                    if (!res.ok) return setStatus(res.error ?? "option_failed");
+                    setStatus("Option added");
+                    await refreshMenu(token, selectedRestaurantId);
+                  }}
+                >
+                  Add option
+                </AdminBtnPrimary>
+              </div>
             </div>
           </div>
 
           {menu?.categories?.length ? (
-            <div className="mt-8 rounded-xl border border-slate-200/85 bg-white/82 p-4">
-              <div className="text-xs font-semibold text-slate-600">Live menu (admin view)</div>
-              <div className="mt-3 max-h-80 space-y-4 overflow-y-auto text-sm">
+            <div className={`${subPanelCls} mt-8`}>
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Live menu preview</p>
+              <div className="mt-4 max-h-80 space-y-5 overflow-y-auto text-sm">
                 {menu.categories.map((cat) => (
                   <div key={cat.id}>
-                    <div className="font-bold text-slate-900">
+                    <div className="font-display text-base font-bold text-slate-900">
                       {cat.name}{" "}
                       {!cat.isActive ? <span className="text-xs font-normal text-slate-500">(hidden)</span> : null}
                     </div>
-                    <ul className="mt-2 space-y-2 pl-2">
+                    <ul className="mt-2 space-y-3 pl-1">
                       {cat.items.map((item) => (
-                        <li key={item.id} className="border-l-2 border-slate-200/80 pl-3">
-                          <span className="font-semibold">{item.name}</span>{" "}
+                        <li key={item.id} className="border-l-2 border-violet-200/80 pl-3">
+                          <span className="font-semibold text-slate-900">{item.name}</span>{" "}
                           <span className="text-slate-600">{formatMoney(item.priceCents)}</span>
                           {!item.isActive ? <span className="text-xs text-slate-500"> (inactive)</span> : null}
                           {item.modifierGroups.length ? (
@@ -545,50 +512,47 @@ export function App() {
               </div>
             </div>
           ) : (
-            <div className="mt-6 text-xs text-slate-500">No menu data yet — add a category first.</div>
-          )}
-        </section>
-
-        <section
-          id="orders"
-          className="mt-8 scroll-mt-28 rounded-2xl border border-white/55 bg-white/65 p-5 shadow-[0_16px_50px_rgba(15,23,42,0.08)] backdrop-blur-xl lg:scroll-mt-0"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="text-sm font-semibold text-slate-900">Orders</div>
-              <p className="mt-1 text-xs text-slate-600">
-                Live orders for the selected restaurant (updates automatically; change status for the kitchen flow).
-              </p>
+            <div className="mt-6">
+              <AdminEmptyState>No menu data yet — add a category first.</AdminEmptyState>
             </div>
-            <button
-              type="button"
-              className="rounded-xl border border-slate-200/85 bg-white/82 px-3 py-2 text-xs font-semibold text-slate-900 hover:bg-white disabled:opacity-40"
-              disabled={!token || !selectedRestaurantId}
-              onClick={() => token && selectedRestaurantId && void refreshOrders(token, selectedRestaurantId)}
-            >
-              Refresh orders
-            </button>
-          </div>
-          <div className="mt-4 overflow-x-auto">
+          )}
+        </AdminPanel>
+
+        <AdminPanel id="orders" className="mt-8">
+          <AdminSectionHeader
+            eyebrowText="Operations"
+            title="Orders"
+            description="Live orders for the selected restaurant. Updates automatically — change status for the kitchen flow."
+            action={
+              <AdminBtnSecondary
+                disabled={!token || !selectedRestaurantId}
+                onClick={() => token && selectedRestaurantId && void refreshOrders(token, selectedRestaurantId)}
+              >
+                Refresh orders
+              </AdminBtnSecondary>
+            }
+          />
+
+          <div className="mt-6 overflow-x-auto rounded-xl border border-slate-200/80 bg-white/85">
             <table className="w-full min-w-[640px] text-left text-sm">
               <thead>
-                <tr className="border-b border-slate-200/80 text-xs text-slate-600">
-                  <th className="py-2 pr-3">When</th>
-                  <th className="py-2 pr-3">Order</th>
-                  <th className="py-2 pr-3">Total</th>
-                  <th className="py-2 pr-3">Status</th>
-                  <th className="py-2">Lines</th>
+                <tr className="border-b border-slate-200/80 bg-slate-50/80 text-xs font-bold uppercase tracking-wide text-slate-500">
+                  <th className="px-4 py-3">When</th>
+                  <th className="px-4 py-3">Order</th>
+                  <th className="px-4 py-3">Total</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Lines</th>
                 </tr>
               </thead>
               <tbody>
                 {orders.map((o) => (
-                  <tr key={o.id} className="border-b border-slate-200/50 align-top">
-                    <td className="py-2 pr-3 text-xs text-slate-600">{new Date(o.createdAt).toLocaleString()}</td>
-                    <td className="py-2 pr-3 font-mono text-xs">{o.id.slice(0, 12)}…</td>
-                    <td className="py-2 pr-3">{formatMoney(o.totalCents)}</td>
-                    <td className="py-2 pr-3">
-                      <select
-                        className="rounded-lg border border-slate-200/85 bg-white/82 px-2 py-1 text-xs text-slate-900"
+                  <tr key={o.id} className="border-b border-slate-200/50 align-top transition hover:bg-violet-50/30">
+                    <td className="px-4 py-3 text-xs text-slate-600">{new Date(o.createdAt).toLocaleString()}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-slate-700">{o.id.slice(0, 12)}…</td>
+                    <td className="px-4 py-3 font-semibold text-slate-900">{formatMoney(o.totalCents)}</td>
+                    <td className="px-4 py-3">
+                      <AdminSelect
+                        className="!py-1.5 text-xs"
                         value={o.status}
                         onChange={async (e) => {
                           if (!token) return;
@@ -603,9 +567,9 @@ export function App() {
                             {s}
                           </option>
                         ))}
-                      </select>
+                      </AdminSelect>
                     </td>
-                    <td className="py-2 text-xs text-slate-600">
+                    <td className="px-4 py-3 text-xs leading-relaxed text-slate-600">
                       {o.lines.map((l, i) => (
                         <div key={`${o.id}-line-${i}`}>
                           {l.quantity}× {l.name} ({formatMoney(l.lineTotalCents)})
@@ -616,12 +580,22 @@ export function App() {
                 ))}
               </tbody>
             </table>
-            {orders.length === 0 ? <div className="mt-3 text-xs text-slate-500">No orders yet — place one from the customer app.</div> : null}
+            {orders.length === 0 ? (
+              <div className="px-4 py-6">
+                <AdminEmptyState>No orders yet — place one from the customer app.</AdminEmptyState>
+              </div>
+            ) : null}
           </div>
-        </section>
+
+          {token && status ? (
+            <div className="mt-4">
+              <AdminStatusLine>Status: {status}</AdminStatusLine>
+            </div>
+          ) : null}
+        </AdminPanel>
       </main>
 
-      <MobileFloatingDock />
+      <MobileFloatingDock signedIn={!!token} />
     </AmbientWebShell>
   );
 }

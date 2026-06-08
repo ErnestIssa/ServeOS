@@ -7,6 +7,7 @@ html {
   min-height: 100dvh;
   min-height: -webkit-fill-available;
   background: transparent;
+  overflow-x: hidden;
 }
 
 body,
@@ -15,9 +16,380 @@ body,
   min-height: 100dvh;
   min-height: -webkit-fill-available;
   background: transparent;
+  overflow-x: hidden;
 }
 
 body {
   color: #0f172a;
   font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+.font-display {
+  font-family: Poppins, Inter, system-ui, sans-serif;
+}
+
+/* Signup password fields: hide browser-native reveal/clear so only our toggle shows */
+.signup-password-input::-ms-reveal,
+.signup-password-input::-ms-clear {
+  display: none;
+}
+
+.signup-password-input::-webkit-credentials-auto-fill-button,
+.signup-password-input::-webkit-strong-password-auto-fill-button {
+  visibility: hidden;
+  display: none !important;
+  pointer-events: none;
+  height: 0;
+  width: 0;
+  margin: 0;
+}
+
+.signup-password-input[type="password"]::-webkit-textfield-decoration-container {
+  display: none;
+}
+
+.marketing-site {
+  color: #0f172a;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.marketing-site details summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Hide horizontal scrollbars; vertical scrollbar stays native and thin */
+.marketing-site,
+.marketing-site * {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.35) transparent;
+}
+
+.marketing-site *::-webkit-scrollbar {
+  width: 6px;
+  height: 0;
+}
+
+.marketing-site *::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.35);
+  border-radius: 999px;
+}
+
+/*
+ * Hero → ambient: single vertical layer (180deg). Dark holds top ~50%, then
+ * fades straight down to transparent so the mesh shows through — no diagonal
+ * overlays, no light-color bands, no section overlap.
+ */
+.marketing-hero-vignette {
+  background: linear-gradient(
+    180deg,
+    #1a1638 0%,
+    #0f172a 16%,
+    #0f172a 50%,
+    rgba(15, 23, 42, 0.55) 68%,
+    rgba(15, 23, 42, 0.22) 82%,
+    rgba(15, 23, 42, 0) 100%
+  );
+}
+
+@supports (background: linear-gradient(in oklab, #000, #fff)) {
+  .marketing-hero-vignette {
+    background: linear-gradient(
+      in oklab 180deg,
+      #1a1638 0%,
+      #0f172a 18%,
+      #0f172a 52%,
+      transparent 100%
+    );
+  }
+}
+
+.marketing-reveal {
+  animation: marketing-fade-in 0.55s ease-out both;
+}
+
+@keyframes marketing-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.marketing-gradient-text {
+  background-size: 200% auto;
+}
+
+/* Fragmented → Unified (desktop landing) */
+.ftu-float-a {
+  animation: ftu-float-a 5.2s ease-in-out infinite;
+}
+.ftu-float-b {
+  animation: ftu-float-b 6.1s ease-in-out infinite;
+}
+.ftu-float-c {
+  animation: ftu-float-c 4.8s ease-in-out infinite;
+}
+.ftu-float-d {
+  animation: ftu-float-d 5.6s ease-in-out infinite;
+}
+.ftu-float-e {
+  animation: ftu-float-e 6.4s ease-in-out infinite;
+}
+.ftu-float-f {
+  animation: ftu-float-f 5s ease-in-out infinite;
+}
+.ftu-float-g {
+  animation: ftu-float-g 6.8s ease-in-out infinite;
+}
+.ftu-float-h {
+  animation: ftu-float-h 5.4s ease-in-out infinite;
+}
+
+@keyframes ftu-float-a {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(14px, -16px);
+  }
+}
+@keyframes ftu-float-b {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(-13px, 15px);
+  }
+}
+@keyframes ftu-float-c {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(16px, 12px);
+  }
+}
+@keyframes ftu-float-d {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(-15px, -11px);
+  }
+}
+@keyframes ftu-float-e {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(11px, 18px);
+  }
+}
+@keyframes ftu-float-f {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(-14px, 14px);
+  }
+}
+@keyframes ftu-float-g {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(17px, -13px);
+  }
+}
+@keyframes ftu-float-h {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(-12px, -15px);
+  }
+}
+
+.ftu-flow-line {
+  stroke: rgba(124, 58, 237, 0.42);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-dasharray: 7 16;
+  animation: ftu-line-flow 2.6s linear infinite;
+}
+
+.ftu-arrow-fill {
+  fill: rgba(124, 58, 237, 0.72);
+}
+
+@keyframes ftu-line-flow {
+  to {
+    stroke-dashoffset: -46;
+  }
+}
+
+.setup-marquee-left {
+  animation: setup-marquee-left linear infinite;
+}
+
+.setup-marquee-right {
+  animation: setup-marquee-right linear infinite;
+}
+
+@keyframes setup-marquee-left {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes setup-marquee-right {
+  from {
+    transform: translateX(-50%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marketing-reveal {
+    animation: none;
+  }
+
+  .setup-marquee-left,
+  .setup-marquee-right {
+    animation: none !important;
+  }
+
+  .ftu-float-a,
+  .ftu-float-b,
+  .ftu-float-c,
+  .ftu-float-d,
+  .ftu-float-e,
+  .ftu-float-f,
+  .ftu-float-g,
+  .ftu-float-h,
+  .ftu-flow-line,
+  .signup-loader-phrase {
+    animation: none !important;
+  }
+
+  .signup-modal-backdrop,
+  .signup-modal-panel {
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+@keyframes signup-phase-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.signup-phase {
+  animation: signup-phase-in 0.38s ease-out both;
+}
+
+.signup-modal-backdrop {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.signup-modal-backdrop.is-active {
+  opacity: 1;
+}
+
+.signup-modal-panel {
+  opacity: 0;
+  transform: translateY(14px) scale(0.97);
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.signup-modal-panel.is-active {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+@keyframes signup-loader-phrase-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.signup-loader-phrase {
+  animation: signup-loader-phrase-in 0.55s ease-out both;
+}
+
+.signup-slot {
+  min-height: min(32rem, calc(100dvh - 9rem));
+}
+
+.signup-wizard-stage {
+  min-height: min(32rem, calc(100dvh - 9rem));
+}
+
+.signup-registration-loader,
+.signup-inline-loader {
+  aspect-ratio: 2;
+  --_g: no-repeat radial-gradient(circle closest-side, #334155 90%, #0000);
+  background:
+    var(--_g) 0% 50%,
+    var(--_g) 50% 50%,
+    var(--_g) 100% 50%;
+  background-size: calc(100% / 3) 50%;
+  animation: signup-registration-loader-l3 1s infinite linear;
+}
+
+.signup-registration-loader {
+  width: 84px;
+}
+
+.signup-inline-loader {
+  width: 18px;
+  flex-shrink: 0;
+  translate: 0 1px;
+}
+
+@keyframes signup-registration-loader-l3 {
+  20% {
+    background-position: 0% 0%, 50% 50%, 100% 50%;
+  }
+  40% {
+    background-position: 0% 100%, 50% 0%, 100% 50%;
+  }
+  60% {
+    background-position: 0% 50%, 50% 100%, 100% 0%;
+  }
+  80% {
+    background-position: 0% 50%, 50% 50%, 100% 100%;
+  }
 }

@@ -1,14 +1,15 @@
-﻿import {
-  CONNECTED_MODULES,
+import {
   FAQ_ITEMS,
   INDUSTRIES,
-  PRODUCT_SURFACES,
   TESTIMONIALS
 } from "./marketing/constants";
 import { EcosystemStack } from "./marketing/EcosystemStack";
+import { FragmentedToUnifiedVisual } from "./marketing/FragmentedToUnifiedVisual";
+import { OperationalModulesCarousel } from "./marketing/OperationalModulesCarousel";
+import { ProductEcosystemShowcase } from "./marketing/ProductEcosystemShowcase";
+import { SetupFinderSection } from "./marketing/SetupFinderSection";
 import { FlowPipeline } from "./marketing/FlowPipeline";
 import { Reveal } from "./marketing/motion";
-import { SetupFinderSection } from "./marketing/SetupFinderSection";
 import { SiteFooter } from "./marketing/SiteFooter";
 import { MobileCtaBar, SiteNav } from "./marketing/SiteNav";
 import {
@@ -98,23 +99,16 @@ export function LandingPage({ onHowItWorks, onFindSetup }: Props) {
         </div>
       </section>
 
-      <section id="features" className={pageSection}>
+      <section id="features" className={`${pageSection} overflow-visible`}>
         <div className={`${contentWrap} ${pageGutter}`}>
           <Reveal>
-            <SectionEyebrow>Everything connected</SectionEyebrow>
-            <SectionTitle>One OS. Six operational modules.</SectionTitle>
+            <SectionTitle>One Platform. Every Operation.</SectionTitle>
             <p className={`mt-4 max-w-2xl lg:max-w-3xl ${bodyMuted}`}>
-              Operating-system style modules — not marketing fluff. Each layer shares the same live data.
+              Every operational layer working from the same live data.
             </p>
           </Reveal>
-          <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {CONNECTED_MODULES.map((m) => (
-              <OsCard key={m.id} title={m.title} icon={m.icon}>
-                {m.body}
-              </OsCard>
-            ))}
-          </div>
         </div>
+        <OperationalModulesCarousel />
       </section>
 
       <section className={pageSection}>
@@ -143,56 +137,27 @@ export function LandingPage({ onHowItWorks, onFindSetup }: Props) {
 
       <section className={pageSection}>
         <div className={`${contentWrap} ${pageGutter}`}>
-          <Reveal>
-            <SectionEyebrow>Why restaurants switch</SectionEyebrow>
-            <SectionTitle>Stop paying for five disconnected systems</SectionTitle>
+          <Reveal className="text-center">
+            <SectionTitle>One System. Every Operation.</SectionTitle>
+            <p className={`mx-auto mt-4 max-w-2xl ${bodyMuted}`}>
+              Every workflow connected through a single operational engine.
+            </p>
           </Reveal>
-          <div className="mt-10 grid gap-6 lg:grid-cols-3">
-            <article className={`${glassPanel} p-6`}>
-              <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500">Traditional setup</h3>
-              <ul className="mt-4 space-y-2 text-sm text-slate-700">
-                {["POS vendor", "Reservation vendor", "KDS vendor", "Staff app", "Loyalty app"].map((x) => (
-                  <li key={x} className="flex gap-2">
-                    <span className="text-slate-400">—</span>
-                    {x}
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-6 font-display text-2xl font-black text-slate-300">5 systems</p>
-            </article>
-            <article className="rounded-2xl border border-violet-300/40 bg-gradient-to-br from-violet-600 to-blue-600 p-6 text-white shadow-[0_4px_24px_rgba(124,58,237,0.22)]">
-              <h3 className="text-sm font-bold uppercase tracking-wide text-violet-200">ServeOS</h3>
-              <ul className="mt-4 space-y-3 text-sm font-semibold">
-                <li>One login</li>
-                <li>One platform</li>
-                <li>One data source</li>
-              </ul>
-            </article>
-            <article className={`${glassPanel} p-6`}>
-              <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500">Result</h3>
-              <ul className="mt-4 space-y-3 text-sm font-semibold text-slate-800">
-                <li>Faster service</li>
-                <li>Lower total cost of tools</li>
-                <li>Better guest experience</li>
-              </ul>
-            </article>
+          <div className="mt-12">
+            <FragmentedToUnifiedVisual />
           </div>
         </div>
       </section>
 
       <section className={pageSection}>
         <div className={`${contentWrap} ${pageGutter}`}>
-          <Reveal>
-            <SectionEyebrow>Product ecosystem</SectionEyebrow>
-            <SectionTitle>Bigger than reservations or POS alone</SectionTitle>
+          <Reveal className="text-center">
+            <SectionTitle>One Platform. Every Restaurant Surface.</SectionTitle>
+            <p className={`mx-auto mt-4 max-w-3xl ${bodyMuted}`}>
+              ServeOS runs every part of the restaurant experience — from the guest&apos;s phone to the kitchen screen.
+            </p>
           </Reveal>
-          <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {PRODUCT_SURFACES.map((p, i) => (
-              <OsCard key={p.title} title={p.title} icon={["📱", "🖥", "▣", "◎", "⬡"][i]}>
-                {p.body}
-              </OsCard>
-            ))}
-          </div>
+          <ProductEcosystemShowcase />
         </div>
       </section>
 
