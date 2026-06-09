@@ -3,7 +3,6 @@ import { lockPageScroll } from "./lockPageScroll";
 import { MarketingSearchPanel, useMarketingSearchQuery } from "./MarketingSearchPanel";
 import { useSearchPanelHeight } from "./useSearchPanelHeight";
 import { MobileMarketingNav } from "./MobileMarketingNav";
-import { NavLoginMenu } from "./NavLoginMenu";
 import { NavMegaMenuPanel } from "./NavMegaMenuPanel";
 import { NAV_MEGA_MENUS } from "./navContent";
 import type { NavHandlers } from "./navActions";
@@ -17,6 +16,7 @@ type Props = {
   onHome: () => void;
   onHowItWorks: () => void;
   onGoPricing?: () => void;
+  onGoLogin?: () => void;
   heroMode?: boolean;
 };
 
@@ -47,12 +47,11 @@ function SearchIcon({ className }: { className?: string }) {
   );
 }
 
-export function SiteNav({ onHome, onHowItWorks, onGoPricing, heroMode = false }: Props) {
+export function SiteNav({ onHome, onHowItWorks, onGoPricing, onGoLogin, heroMode = false }: Props) {
   const scrolled = useNavScrollState(heroMode);
   const darkNav = heroMode && !scrolled;
 
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
-  const [loginOpen, setLoginOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchDark, setSearchDark] = useState(false);
   const [searchContentH, setSearchContentH] = useState(0);
@@ -80,8 +79,19 @@ export function SiteNav({ onHome, onHowItWorks, onGoPricing, heroMode = false }:
 
   const closeMenus = useCallback(() => {
     setActiveMenu(null);
-    setLoginOpen(false);
   }, []);
+
+  const goLogin = useCallback(() => {
+    closeMenus();
+    if (onGoLogin) {
+      onGoLogin();
+      return;
+    }
+    if (window.location.pathname !== "/login") {
+      window.history.pushState({ view: "login" }, "", "/login");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    }
+  }, [closeMenus, onGoLogin]);
 
   const closeSearch = useCallback(() => {
     setSearchOpen(false);
@@ -149,7 +159,6 @@ export function SiteNav({ onHome, onHowItWorks, onGoPricing, heroMode = false }:
   const openMenu = (id: string) => {
     if (searchOpen) return;
     if (closeTimer.current) clearTimeout(closeTimer.current);
-    setLoginOpen(false);
     setActiveMenu(id);
   };
 
@@ -322,24 +331,13 @@ export function SiteNav({ onHome, onHowItWorks, onGoPricing, heroMode = false }:
                     <SearchIcon className="h-5 w-5" />
                   </button>
 
-                  <div className="relative hidden sm:block">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveMenu(null);
-                        setLoginOpen((v) => !v);
-                      }}
-                      className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${textMuted}`}
-                      aria-expanded={loginOpen}
-                    >
-                      Login
-                    </button>
-                    <NavLoginMenu
-                      open={loginOpen}
-                      onClose={() => setLoginOpen(false)}
-                      darkSurface={chromeDark}
-                    />
-                  </div>
+                  <button
+                    type="button"
+                    onClick={goLogin}
+                    className={`hidden rounded-lg px-3 py-2 text-sm font-semibold transition sm:inline-flex ${textMuted}`}
+                  >
+                    Login
+                  </button>
 
                   <button
                     type="button"
@@ -443,6 +441,7 @@ export function SiteNav({ onHome, onHowItWorks, onGoPricing, heroMode = false }:
         onClose={() => setMobileOpen(false)}
         handlers={handlers}
         onOpenSearch={openSearch}
+        onGoLogin={onGoLogin}
       />
     </>
   );

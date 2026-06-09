@@ -8,6 +8,7 @@ import { readPreferredRestaurantIdFromProfile } from "../lib/customerPreferredVe
 import { loadMobileAuthContext } from "../lib/mobileAuthContext.js";
 import { acceptStaffInvitation } from "../lib/staffInvitationService.js";
 import { notifyStaffPendingApproval } from "../notifications/integrations/staff.js";
+import { isAuthTokenRevoked, revokeAuthToken } from "../lib/authTokenRevocation.js";
 
 /** Fields that exist on every deployed DB revision (safe for signup response + fallbacks). */
 const USER_CORE_SELECT = {
@@ -373,9 +374,37 @@ export function registerAuthRoutes(
     if (!auth?.startsWith("Bearer ")) return reply.status(401).send({ ok: false, error: "missing_token" });
     const token = auth.slice("Bearer ".length);
 
+    if (await isAuthTokenRevoked(token)) {
+      return reply.status(401).send({ ok: false, error: "token_revoked" });
+    }
+
     const payload = app.verifyJwt(token);
     const user = await findUserForAuthMe(prisma, payload.sub);
     if (!user) return reply.status(404).send({ ok: false, error: "user_not_found" });
     return { ok: true, user };
+  });
+
+  app.post("/auth/logout", async (req, reply) => {
+    const auth = req.headers.authorization;
+    if (!auth?.startsWith("Bearer ")) {
+      return reply.status(401).send({ ok: false, error: "missing_token" });
+    }
+    const token = auth.slice("Bearer ".length).trim();
+    if (!token) {
+      return reply.status(401).send({ ok: false, error: "missing_token" });
+    }
+
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      return reply.status(500).send({ ok: false, error: "server_misconfigured" });
+    }
+
+    try {
+      await revokeAuthToken(token, secret);
+    } catch {
+      return reply.status(401).send({ ok: false, error: "invalid_token" });
+    }
+
+    return { ok: true };
   });
 }

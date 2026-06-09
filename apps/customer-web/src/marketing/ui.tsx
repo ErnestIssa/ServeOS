@@ -83,9 +83,5 @@ export function bookDemo() {
 }
 
 export function loginControlCenter() {
-  if (WEB_ADMIN_URL) {
-    window.open(WEB_ADMIN_URL, "_blank", "noopener,noreferrer");
-    return;
-  }
-  window.location.assign(ADMIN_APP_PATH);
+  window.location.assign("/login");
 }

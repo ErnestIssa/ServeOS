@@ -20,15 +20,17 @@ type Props = {
   onHome: () => void;
   onGoFeatures: () => void;
   onGoPricing: () => void;
+  onGoLogin: () => void;
 };
 
-export function HowServeOSWorksPage({ onHome, onGoFeatures, onGoPricing }: Props) {
+export function HowServeOSWorksPage({ onHome, onGoFeatures, onGoPricing, onGoLogin }: Props) {
   return (
     <div className={`${marketingRoot} pb-24 md:pb-0`}>
       <SiteNav
         onHome={onHome}
         onHowItWorks={onHome}
         onGoPricing={onGoPricing}
+        onGoLogin={onGoLogin}
       />
 
       <section className={`${pageSection} pb-12 pt-24 sm:pt-28`}>

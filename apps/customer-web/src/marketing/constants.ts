@@ -76,6 +76,33 @@ export const PRODUCT_SURFACES = [
   { title: "Integrations", body: "Work with the hardware and payment stack you already use." }
 ] as const;
 
+export const PRICING_TIERS = [
+  {
+    name: "Venue",
+    for: "Single-location restaurants, cafés, and food trucks",
+    price: "1 990 kr",
+    period: "/month",
+    featured: false,
+    highlights: ["Orders & kitchen flow", "Reservations", "Staff access", "14-day trial"]
+  },
+  {
+    name: "Multi",
+    for: "Growing brands with multiple venues",
+    price: "4 990 kr",
+    period: "/month",
+    featured: true,
+    highlights: ["Everything in Venue", "Multi-location switching", "Shared reporting", "Priority onboarding"]
+  },
+  {
+    name: "Network",
+    for: "Chains and hotel F&B groups",
+    price: "Custom",
+    period: "",
+    featured: false,
+    highlights: ["Enterprise permissions", "Audit & export", "Dedicated support", "Custom hardware rollout"]
+  }
+] as const;
+
 export const INDUSTRIES = [
   { title: "Restaurants", body: "Full-service dining with reservations, orders, and floor coordination." },
   { title: "Cafés", body: "Quick turnover, simple menus, and line-busting mobile order flow." },

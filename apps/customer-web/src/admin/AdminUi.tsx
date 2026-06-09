@@ -4,6 +4,9 @@ import { btnPrimary, btnSecondary, contentWrap, eyebrow, glassPanel, pageGutter,
 
 export const adminMain = `relative mx-auto w-full max-w-6xl pb-28 pt-6 lg:max-w-none lg:pb-10 lg:pt-8 ${pageGutter}`;
 
+export const adminWorkspaceMain =
+  "admin-workspace-content relative mx-auto w-full max-w-[96rem] space-y-6 sm:space-y-8";
+
 export const inputBase =
   "w-full rounded-xl border border-slate-200/90 bg-white/90 px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-violet-400 focus:ring-2 focus:ring-violet-200/60 disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -80,7 +83,7 @@ export function AdminPanel({ id, children, className = "" }: { id?: string; chil
   return (
     <section
       id={id}
-      className={`scroll-mt-28 ${glassPanel} p-6 shadow-[0_16px_50px_rgba(15,23,42,0.06)] backdrop-blur-xl sm:p-7 lg:scroll-mt-24 ${className}`}
+      className={`admin-panel scroll-mt-28 ${glassPanel} p-6 shadow-[0_16px_50px_rgba(15,23,42,0.06)] backdrop-blur-xl sm:p-7 lg:scroll-mt-24 ${className}`}
     >
       {children}
     </section>
@@ -107,6 +110,32 @@ export function AdminSectionHeader({
       </div>
       {action ? <div className="shrink-0">{action}</div> : null}
     </div>
+  );
+}
+
+export function AdminControlRoomPanel() {
+  return (
+    <AdminPanel id="control-room" className="admin-control-room-panel">
+      <AdminSectionHeader
+        eyebrowText="Control room"
+        title="Live overview"
+        description="Mission control for your venue — live orders, floor status, reservations, alerts, and staff on shift. Full widgets ship next; this is your default landing zone."
+      />
+      <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          { label: "Live orders", value: "—", hint: "Unified KDS + orders" },
+          { label: "Tables active", value: "—", hint: "Floor map coming" },
+          { label: "Reservations tonight", value: "—", hint: "Operations engine" },
+          { label: "Staff on shift", value: "—", hint: "Quick roster view" }
+        ].map((card) => (
+          <div key={card.label} className="admin-stat-card rounded-xl border p-4 shadow-sm">
+            <p className="admin-stat-label text-[10px] font-bold uppercase tracking-[0.14em]">{card.label}</p>
+            <p className="admin-stat-value mt-2 font-display text-2xl font-bold">{card.value}</p>
+            <p className="admin-stat-hint mt-1 text-xs">{card.hint}</p>
+          </div>
+        ))}
+      </div>
+    </AdminPanel>
   );
 }
 

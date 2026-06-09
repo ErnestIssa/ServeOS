@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 type Props = {
-  mode?: "company-lookup" | "registration" | "account-creation";
+  mode?: "company-lookup" | "registration" | "account-creation" | "logout" | "sign-in";
   onInteract?: () => void;
 };
 
@@ -16,9 +16,16 @@ const ACCOUNT_CREATION_ROTATION = [
 ] as const;
 const ACCOUNT_CREATION_PHRASE_MS = 2000;
 
+const LOGOUT_MESSAGE = "logging out";
+const SIGN_IN_MESSAGE = "Signing in";
+
+function rotatingPhrase(elapsedMs: number, phrases: readonly string[]): string {
+  const index = Math.floor(elapsedMs / ACCOUNT_CREATION_PHRASE_MS) % phrases.length;
+  return phrases[index];
+}
+
 function accountCreationPhrase(elapsedMs: number): string {
-  const index = Math.floor(elapsedMs / ACCOUNT_CREATION_PHRASE_MS) % ACCOUNT_CREATION_ROTATION.length;
-  return ACCOUNT_CREATION_ROTATION[index];
+  return rotatingPhrase(elapsedMs, ACCOUNT_CREATION_ROTATION);
 }
 
 export function SignupRegistrationLoader({ mode = "registration", onInteract }: Props) {
@@ -27,10 +34,22 @@ export function SignupRegistrationLoader({ mode = "registration", onInteract }: 
       ? LOOKUP_INITIAL
       : mode === "account-creation"
         ? ACCOUNT_CREATION_ROTATION[0]
-        : ""
+        : mode === "logout"
+          ? LOGOUT_MESSAGE
+          : mode === "sign-in"
+            ? SIGN_IN_MESSAGE
+            : ""
   );
 
   useEffect(() => {
+    if (mode === "logout") {
+      setMessage(LOGOUT_MESSAGE);
+      return;
+    }
+    if (mode === "sign-in") {
+      setMessage(SIGN_IN_MESSAGE);
+      return;
+    }
     if (mode === "account-creation") {
       const startedAt = Date.now();
       const tick = () => setMessage(accountCreationPhrase(Date.now() - startedAt));

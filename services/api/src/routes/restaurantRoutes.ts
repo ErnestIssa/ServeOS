@@ -85,6 +85,7 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
           id: r.id,
           name: r.name,
           role: m.role,
+          status: m.status,
           companyId: r.companyId
         };
       })

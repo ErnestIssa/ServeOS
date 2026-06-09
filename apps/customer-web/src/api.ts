@@ -11,6 +11,7 @@ export type AuthUser = {
   phone?: string | null;
   role: string;
   signupProfile?: unknown | null;
+  preferredRestaurantId?: string | null;
 };
 
 export type AuthResponse = { ok: boolean; token?: string; user?: AuthUser; error?: string };
@@ -87,6 +88,9 @@ export async function lookupCompany(orgNumber: string): Promise<CompanyLookupRes
 export function mapApiErrorToMessage(err?: string): string {
   if (!err) return "Request failed";
   if (err === "user_already_exists") return "That email is already registered — use Log in instead.";
+  if (err === "token_revoked") return "Your session has ended. Please sign in again.";
+  if (err === "invalid_token") return "Your session is no longer valid. Please sign in again.";
+  if (err === "invalid_credentials") return "Email or password is incorrect. Check your details and try again.";
   if (err.startsWith("bad_response") || err.startsWith("http_error")) {
     return "Could not reach the API. Check VITE_API_URL or try again later.";
   }
@@ -128,6 +132,13 @@ export async function fetchMe(token: string): Promise<AuthResponse> {
   });
 }
 
+export async function logout(token: string): Promise<{ ok: boolean; error?: string }> {
+  return apiFetch<{ ok: boolean; error?: string }>("/auth/logout", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
 export async function signup(params: { email: string; password: string; role: "OWNER" | "STAFF" | "CUSTOMER" }) {
   return apiFetch<AuthResponse>("/auth/signup", {
     method: "POST",
@@ -139,7 +150,13 @@ export async function signup(params: { email: string; password: string; role: "O
 export async function listRestaurants(token: string) {
   return apiFetch<{
     ok: boolean;
-    restaurants?: Array<{ id: string; name: string; role: string; companyId?: string | null }>;
+    restaurants?: Array<{
+      id: string;
+      name: string;
+      role: string;
+      status?: string;
+      companyId?: string | null;
+    }>;
     error?: string;
   }>("/restaurants/restaurants", { headers: { Authorization: `Bearer ${token}` } });
 }
@@ -255,4 +272,15 @@ export async function patchOrderStatus(token: string, orderId: string, status: O
     headers: authHeaders(token),
     body: JSON.stringify({ status })
   });
+}
+
+export async function setActiveRestaurant(token: string, restaurantId: string) {
+  return apiFetch<{ ok: boolean; activeRestaurantId?: string | null; error?: string }>(
+    "/workspace/active-restaurant",
+    {
+      method: "PATCH",
+      headers: authHeaders(token),
+      body: JSON.stringify({ restaurantId })
+    }
+  );
 }

@@ -27,6 +27,7 @@ import { registerNotificationRoutes } from "./routes/notificationRoutes.js";
 import { registerNotificationRealtime } from "./routes/notificationRealtime.js";
 import { initNotificationSystem } from "./notifications/initNotifications.js";
 import { ensureChatMessageImageEnum } from "./lib/chatImageEnum.js";
+import { isAuthTokenRevoked } from "./lib/authTokenRevocation.js";
 
 const port = Number(process.env.PORT ?? process.env.API_GATEWAY_PORT ?? 3000);
 /** Render / Docker: set `HOST=0.0.0.0` so the service accepts external connections. */
@@ -72,6 +73,17 @@ async function main() {
   });
 
   await app.register(authPlugin);
+
+  app.addHook("onRequest", async (req, reply) => {
+    const auth = req.headers.authorization;
+    if (!auth?.startsWith("Bearer ")) return;
+    const token = auth.slice("Bearer ".length).trim();
+    if (!token) return;
+    if (await isAuthTokenRevoked(token)) {
+      return reply.status(401).send({ ok: false, error: "token_revoked" });
+    }
+  });
+
   await app.register(websocket);
 
   for (let attempt = 1; attempt <= 3; attempt++) {

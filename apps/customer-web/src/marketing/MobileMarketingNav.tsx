@@ -8,9 +8,10 @@ type Props = {
   onClose: () => void;
   handlers: NavHandlers;
   onOpenSearch: () => void;
+  onGoLogin?: () => void;
 };
 
-export function MobileMarketingNav({ open, onClose, handlers, onOpenSearch }: Props) {
+export function MobileMarketingNav({ open, onClose, handlers, onOpenSearch, onGoLogin }: Props) {
   const [expanded, setExpanded] = useState<string | null>(null);
 
   if (!open) return null;
@@ -75,6 +76,23 @@ export function MobileMarketingNav({ open, onClose, handlers, onOpenSearch }: Pr
             }}
           >
             Pricing
+          </button>
+          <button
+            type="button"
+            className="mt-1 w-full rounded-lg px-3 py-2.5 text-left text-sm font-bold text-slate-900"
+            onClick={() => {
+              onClose();
+              if (onGoLogin) {
+                onGoLogin();
+                return;
+              }
+              if (window.location.pathname !== "/login") {
+                window.history.pushState({ view: "login" }, "", "/login");
+                window.dispatchEvent(new PopStateEvent("popstate"));
+              }
+            }}
+          >
+            Login
           </button>
         </nav>
         <div className="flex flex-col gap-2 border-t border-slate-200/80 p-4">

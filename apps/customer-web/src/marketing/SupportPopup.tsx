@@ -5,6 +5,8 @@ import {
   SUPPORT_POPUP_SUBTITLE,
   SUPPORT_POPUP_TITLE
 } from "./supportPopupContent";
+import { fabToneClasses } from "./fabTone";
+import { useAdminWorkspaceFabTone } from "./useAdminWorkspaceFabTone";
 import { useSupportFabTone } from "./useSupportFabTone";
 import { bookDemo, scrollToId, startFreeTrial } from "./ui";
 
@@ -13,6 +15,10 @@ type Props = {
   onOpen: () => void;
   onClose: () => void;
   marketingScrollTone?: boolean;
+  workspaceLocked?: boolean;
+  /** Admin dashboard chrome — uses theme-aware FAB colors (independent of session lock). */
+  adminWorkspaceChrome?: boolean;
+  fabClassName?: string;
   onHowItWorks?: () => void;
   onViewPricing?: () => void;
   onFindSetup?: () => void;
@@ -35,12 +41,21 @@ export function SupportPopup({
   onOpen,
   onClose,
   marketingScrollTone = true,
+  workspaceLocked = false,
+  adminWorkspaceChrome = false,
+  fabClassName = "bottom-24 right-4 md:bottom-6 md:right-6",
   onHowItWorks,
   onViewPricing,
   onFindSetup
 }: Props) {
   const [openFaqs, setOpenFaqs] = useState<Record<string, boolean>>({});
-  const lightFab = useSupportFabTone(marketingScrollTone && !isVisible);
+  const scrollLightFab = useSupportFabTone(!isVisible && !adminWorkspaceChrome);
+  const adminFabTone = useAdminWorkspaceFabTone(adminWorkspaceChrome);
+  const fabTone = adminWorkspaceChrome
+    ? adminFabTone
+    : marketingScrollTone && scrollLightFab
+      ? "light"
+      : "dark";
 
   useEffect(() => {
     if (!isVisible) return;
@@ -64,22 +79,18 @@ export function SupportPopup({
     setOpenFaqs((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const fabTone = lightFab
-    ? "border-white/20 bg-white text-slate-900 shadow-[0_8px_32px_rgba(0,0,0,0.35)] hover:bg-slate-50"
-    : "border-violet-500/30 bg-slate-900 text-white shadow-[0_8px_32px_rgba(124,58,237,0.35)] hover:bg-slate-800";
-
   return (
     <>
       <button
         type="button"
         data-support-icon
-        data-support-fab-tone={lightFab ? "light" : "dark"}
+        data-support-fab-tone={fabTone}
         onClick={onOpen}
         aria-label="Open support"
         aria-expanded={isVisible}
-        className={`fixed bottom-24 right-4 z-50 flex h-14 w-14 items-center justify-center rounded-full border transition-all duration-300 hover:scale-110 md:bottom-6 md:right-6 ${
+        className={`fixed z-[91] flex h-14 w-14 items-center justify-center rounded-full border backdrop-blur-md transition-all duration-300 hover:scale-110 ${fabClassName} ${
           isVisible ? "pointer-events-none scale-0 opacity-0" : "scale-100 opacity-100"
-        } ${fabTone}`}
+        } ${fabToneClasses(fabTone)}`}
       >
         <ChatIcon className="h-6 w-6" />
       </button>
@@ -190,32 +201,41 @@ export function SupportPopup({
               ) : null}
             </div>
 
-            <div className="mt-6 rounded-xl border border-slate-200/80 bg-slate-50/80 p-3 md:p-4">
-              <p className="text-xs font-bold text-slate-800 md:text-sm">Sales & onboarding</p>
-              <p className="mt-1 text-xs text-slate-500 md:text-sm">
-                Monday–Friday 09:00–17:00 · {FOOTER_SUPPORT_EMAIL}
-              </p>
-              <button
-                type="button"
-                className="mt-3 w-full rounded-full bg-gradient-to-r from-violet-600 to-blue-600 py-2 text-xs font-bold text-white transition hover:from-violet-500 hover:to-blue-500 md:py-2.5 md:text-sm"
-                onClick={() => {
-                  startFreeTrial();
-                  onClose();
-                }}
-              >
-                Start free trial
-              </button>
-              <button
-                type="button"
-                className="mt-2 w-full text-xs font-semibold text-violet-700 hover:text-violet-900 md:text-sm"
-                onClick={() => {
-                  (onViewPricing ?? (() => scrollToId("pricing")))();
-                  onClose();
-                }}
-              >
-                View pricing →
-              </button>
-            </div>
+            {!workspaceLocked ? (
+              <div className="mt-6 rounded-xl border border-slate-200/80 bg-slate-50/80 p-3 md:p-4">
+                <p className="text-xs font-bold text-slate-800 md:text-sm">Sales & onboarding</p>
+                <p className="mt-1 text-xs text-slate-500 md:text-sm">
+                  Monday–Friday 09:00–17:00 · {FOOTER_SUPPORT_EMAIL}
+                </p>
+                <button
+                  type="button"
+                  className="mt-3 w-full rounded-full bg-gradient-to-r from-violet-600 to-blue-600 py-2 text-xs font-bold text-white transition hover:from-violet-500 hover:to-blue-500 md:py-2.5 md:text-sm"
+                  onClick={() => {
+                    startFreeTrial();
+                    onClose();
+                  }}
+                >
+                  Start free trial
+                </button>
+                <button
+                  type="button"
+                  className="mt-2 w-full text-xs font-semibold text-violet-700 hover:text-violet-900 md:text-sm"
+                  onClick={() => {
+                    (onViewPricing ?? (() => scrollToId("pricing")))();
+                    onClose();
+                  }}
+                >
+                  View pricing →
+                </button>
+              </div>
+            ) : (
+              <div className="mt-6 rounded-xl border border-slate-200/80 bg-slate-50/80 p-3 md:p-4">
+                <p className="text-xs font-bold text-slate-800 md:text-sm">Workspace support</p>
+                <p className="mt-1 text-xs text-slate-500 md:text-sm">
+                  Monday–Friday 09:00–17:00 · {FOOTER_SUPPORT_EMAIL}
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>

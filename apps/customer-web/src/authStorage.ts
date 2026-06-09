@@ -1,4 +1,11 @@
 export const ADMIN_AUTH_TOKEN_KEY = "serveos.admin.token";
+export const ADMIN_SESSION_EVENT = "serveos:admin-session";
+
+function notifyAdminSessionChange() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(ADMIN_SESSION_EVENT));
+  }
+}
 
 export function readStoredAdminToken(): string | null {
   try {
@@ -8,11 +15,25 @@ export function readStoredAdminToken(): string | null {
   }
 }
 
+export function hasActiveAdminSession(): boolean {
+  return Boolean(readStoredAdminToken());
+}
+
 export function persistAdminToken(token: string): void {
   try {
     sessionStorage.setItem(ADMIN_AUTH_TOKEN_KEY, token);
+    notifyAdminSessionChange();
   } catch {
     /* ignore quota / privacy mode */
+  }
+}
+
+export function clearAdminToken(): void {
+  try {
+    sessionStorage.removeItem(ADMIN_AUTH_TOKEN_KEY);
+    notifyAdminSessionChange();
+  } catch {
+    /* ignore */
   }
 }
 
