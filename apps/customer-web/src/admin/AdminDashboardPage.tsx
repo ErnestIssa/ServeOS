@@ -26,6 +26,7 @@ import {
   createModifierGroup,
   createModifierOption,
   createRestaurant,
+  fetchMe,
   getMenuAdmin,
   listRestaurantOrders,
   listRestaurants,
@@ -39,6 +40,8 @@ import {
 } from "../api";
 import { ADMIN_AUTH_TOKEN_KEY, consumeTokenFromUrl, persistAdminToken, readStoredAdminToken } from "../authStorage";
 import { marketingRoot } from "../marketing/styles";
+import { fetchWorkspaceDeploymentStatus, type DeploymentQuote } from "./deploymentApi";
+import { WorkspaceLaunchModal } from "./WorkspaceLaunchModal";
 
 function formatMoney(cents: number) {
   return formatMoneyCents(cents);
@@ -71,8 +74,19 @@ export function AdminDashboardPage({ onHome }: Props) {
   const [modOptionName, setModOptionName] = useState("Large");
   const [modOptionDelta, setModOptionDelta] = useState("1.50");
   const [orders, setOrders] = useState<OrderRow[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [hasWorkspaceDeployment, setHasWorkspaceDeployment] = useState(false);
+  const [launchModalOpen, setLaunchModalOpen] = useState(false);
 
   const activeVenueName = restaurants.find((r) => r.id === selectedRestaurantId)?.name;
+
+  async function hydrateUser(t: string) {
+    const res = await fetchMe(t);
+    if (!res.ok || !res.user?.id) return;
+    setUserId(res.user.id);
+    const status = await fetchWorkspaceDeploymentStatus(t);
+    setHasWorkspaceDeployment(Boolean(status.ok && status.hasDeployment));
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -100,8 +114,26 @@ export function AdminDashboardPage({ onHome }: Props) {
     setToken(stored);
     setStatus("Signed in");
     void refreshRestaurants(stored);
+    void hydrateUser(stored);
     window.scrollTo({ top: 0, behavior: "auto" });
   }, []);
+
+  useEffect(() => {
+    if (!token || !userId || hasWorkspaceDeployment) {
+      setLaunchModalOpen(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setLaunchModalOpen(true), 5000);
+    return () => clearTimeout(timer);
+  }, [token, userId, hasWorkspaceDeployment]);
+
+  function handleDeploymentConfirmed(quote: DeploymentQuote) {
+    setHasWorkspaceDeployment(true);
+    setLaunchModalOpen(false);
+    setStatus(
+      `${quote.planName} deployment confirmed — ${quote.trialDays}-day trial started (${Math.round(quote.totalMonthlyOre / 100).toLocaleString("sv-SE")} kr/month after trial).`
+    );
+  }
 
   async function refreshMenu(t: string, restaurantId: string) {
     const res = await getMenuAdmin(t, restaurantId);
@@ -174,6 +206,9 @@ export function AdminDashboardPage({ onHome }: Props) {
 
   function signOut() {
     setToken(null);
+    setUserId(null);
+    setHasWorkspaceDeployment(false);
+    setLaunchModalOpen(false);
     try {
       sessionStorage.removeItem(ADMIN_AUTH_TOKEN_KEY);
     } catch {
@@ -188,9 +223,13 @@ export function AdminDashboardPage({ onHome }: Props) {
   }
 
   return (
-    <div className={`${marketingRoot} marketing-site font-ui`}>
+    <div className={`${marketingRoot} marketing-site font-ui ${launchModalOpen ? "h-[100dvh] overflow-hidden" : ""}`}>
       <LoadingScreen appReady={appReady} />
+      {token ? (
+        <WorkspaceLaunchModal open={launchModalOpen} token={token} onConfirmed={handleDeploymentConfirmed} />
+      ) : null}
 
+      <div className={launchModalOpen ? "pointer-events-none select-none blur-[2px] transition-[filter] duration-300" : ""}>
       <AdminHeader signedIn={!!token} activeVenue={activeVenueName} onSignOut={signOut} onHome={onHome} />
 
       <main id="top" className={adminMain}>
@@ -231,6 +270,13 @@ export function AdminDashboardPage({ onHome }: Props) {
                       persistAdminToken(res.token);
                       setToken(res.token);
                       setStatus("Signed up");
+                      if (res.user?.id) {
+                        setUserId(res.user.id);
+                        const depStatus = await fetchWorkspaceDeploymentStatus(res.token);
+                        setHasWorkspaceDeployment(Boolean(depStatus.ok && depStatus.hasDeployment));
+                      } else {
+                        await hydrateUser(res.token);
+                      }
                       await refreshRestaurants(res.token);
                     }}
                   >
@@ -244,6 +290,13 @@ export function AdminDashboardPage({ onHome }: Props) {
                       persistAdminToken(res.token);
                       setToken(res.token);
                       setStatus("Logged in");
+                      if (res.user?.id) {
+                        setUserId(res.user.id);
+                        const depStatus = await fetchWorkspaceDeploymentStatus(res.token);
+                        setHasWorkspaceDeployment(Boolean(depStatus.ok && depStatus.hasDeployment));
+                      } else {
+                        await hydrateUser(res.token);
+                      }
                       await refreshRestaurants(res.token);
                     }}
                   >
@@ -601,6 +654,7 @@ export function AdminDashboardPage({ onHome }: Props) {
       </main>
 
       <MobileFloatingDock signedIn={!!token} />
+      </div>
     </div>
   );
 }

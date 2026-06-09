@@ -122,6 +122,12 @@ export async function login(params: { email: string; password: string }): Promis
   });
 }
 
+export async function fetchMe(token: string): Promise<AuthResponse> {
+  return apiFetch<AuthResponse>("/auth/me", {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
 export async function signup(params: { email: string; password: string; role: "OWNER" | "STAFF" | "CUSTOMER" }) {
   return apiFetch<AuthResponse>("/auth/signup", {
     method: "POST",

@@ -14,6 +14,7 @@ import { registerRestaurantChatRoutes } from "./routes/restaurantChatRoutes.js";
 import { registerOrderRoutes } from "./routes/orderRoutes.js";
 import { registerCartRoutes } from "./routes/cartRoutes.js";
 import { registerBusinessRoutes } from "./routes/businessRoutes.js";
+import { registerWorkspaceDeploymentRoutes } from "./routes/workspaceDeploymentRoutes.js";
 import { registerCustomerRoutes } from "./routes/customerRoutes.js";
 import { registerMobileExperienceRoutes } from "./routes/mobileExperienceRoutes.js";
 import { registerMobileWorkspaceRoutes } from "./routes/mobileWorkspaceRoutes.js";
@@ -114,7 +115,8 @@ async function main() {
       "/restaurants/*",
       "/orders/*",
       "/cart/*",
-      "/notifications/*"
+      "/notifications/*",
+      "/workspace-deployment/*"
     ]
   }));
 
@@ -141,6 +143,7 @@ async function main() {
   registerNotificationRealtime(app, notificationBus);
   registerCartRoutes(app, prisma);
   registerBusinessRoutes(app);
+  registerWorkspaceDeploymentRoutes(app, prisma);
 
   await app.listen({ port, host });
 }

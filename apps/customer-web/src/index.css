@@ -334,6 +334,28 @@ body {
   transform: translateY(0) scale(1);
 }
 
+.workspace-launch-backdrop {
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+
+.workspace-launch-backdrop.is-active {
+  opacity: 1;
+}
+
+.workspace-launch-panel {
+  opacity: 0;
+  transform: translateY(18px) scale(0.98);
+  transition:
+    opacity 0.35s ease,
+    transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.workspace-launch-panel.is-active {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
 @keyframes signup-loader-phrase-in {
   from {
     opacity: 0;

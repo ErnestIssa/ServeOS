@@ -69,5 +69,6 @@
     "packages",
     "infra",
     "docs"
-  ]
+  ],
+  "extends": "expo/tsconfig.base"
 }
