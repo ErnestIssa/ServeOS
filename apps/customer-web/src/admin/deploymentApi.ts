@@ -68,9 +68,35 @@ export type DeploymentQuote = {
 
 export type WorkspaceDeploymentRecord = WorkspaceDeploymentInput & {
   confirmedAt: string;
+  trialStartedAt?: string;
+  trialEndsAt?: string;
+  planName?: string;
   totalMonthlyOre: number;
   trialDays: number;
   currency: "SEK";
+  welcomeShownAt?: string | null;
+  dismissedNoticeIds?: string[];
+};
+
+export type TrialNoticeHelpPointer = {
+  label: string;
+  anchor: string;
+};
+
+export type TrialNoticePayload = {
+  id: string;
+  kind: "welcome" | "reminder";
+  title: string;
+  message: string;
+  planName: string;
+  companyName: string;
+  trialStartedAt: string;
+  trialEndsAt: string;
+  trialDays: number;
+  daysRemaining: number;
+  hoursRemaining: number;
+  dismissLabel: string;
+  helpPointers: TrialNoticeHelpPointer[];
 };
 
 async function deploymentFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -108,6 +134,31 @@ export async function fetchWorkspaceDeploymentStatus(token: string): Promise<{
 }> {
   return deploymentFetch("/workspace-deployment/status", {
     headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export async function fetchOwnerTrialNotice(token: string): Promise<{
+  ok: boolean;
+  notice?: TrialNoticePayload | null;
+  error?: string;
+}> {
+  return deploymentFetch("/workspace-deployment/trial-notice", {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export async function dismissOwnerTrialNotice(
+  token: string,
+  noticeId: string
+): Promise<{
+  ok: boolean;
+  nextNotice?: TrialNoticePayload | null;
+  error?: string;
+}> {
+  return deploymentFetch("/workspace-deployment/trial-notice/dismiss", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ noticeId })
   });
 }
 

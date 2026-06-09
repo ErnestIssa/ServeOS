@@ -16,9 +16,14 @@ export type WorkspaceDeploymentInput = {
 
 export type WorkspaceDeploymentRecord = WorkspaceDeploymentInput & {
   confirmedAt: string;
+  trialStartedAt: string;
+  trialEndsAt: string;
+  planName: string;
   totalMonthlyOre: number;
   trialDays: number;
   currency: "SEK";
+  welcomeShownAt?: string | null;
+  dismissedNoticeIds?: string[];
 };
 
 const HARDWARE_LABELS: Record<HardwareKind, string> = {
@@ -161,7 +166,7 @@ export const PLATFORM_INCLUDES = [
   "Hardware installation & onboarding"
 ] as const;
 
-function planById(planId: WorkspacePlanId): PlanDef {
+export function planById(planId: WorkspacePlanId): PlanDef {
   const plan = PLANS.find((p) => p.id === planId);
   if (!plan) throw Object.assign(new Error("invalid_plan"), { statusCode: 400 });
   return plan;
@@ -388,13 +393,23 @@ export async function confirmWorkspaceDeployment(
       ? (user.signupProfile as Record<string, unknown>)
       : {};
 
+  const confirmedAt = new Date().toISOString();
+  const trialEndsAt = new Date(
+    new Date(confirmedAt).getTime() + quote.trialDays * 24 * 60 * 60 * 1000
+  ).toISOString();
+
   const record: WorkspaceDeploymentRecord = {
     planId: input.planId,
     hardware,
-    confirmedAt: new Date().toISOString(),
+    confirmedAt,
+    trialStartedAt: confirmedAt,
+    trialEndsAt,
+    planName: quote.planName,
     totalMonthlyOre: quote.totalMonthlyOre,
     trialDays: quote.trialDays,
-    currency: "SEK"
+    currency: "SEK",
+    welcomeShownAt: null,
+    dismissedNoticeIds: []
   };
 
   const nextProfile: Prisma.InputJsonValue = {

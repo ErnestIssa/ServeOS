@@ -295,6 +295,16 @@ body {
     opacity: 1 !important;
     transform: none !important;
   }
+
+  .deployment-phase-in-forward,
+  .deployment-phase-in-back,
+  .deployment-phase-out-forward,
+  .deployment-phase-out-back,
+  .deployment-plan-card,
+  .deployment-hardware-row,
+  .deployment-review-block {
+    animation: none !important;
+  }
 }
 
 @keyframes signup-phase-in {
@@ -354,6 +364,145 @@ body {
 .workspace-launch-panel.is-active {
   opacity: 1;
   transform: translateY(0) scale(1);
+}
+
+/* Deployment modal — step transitions (matches signup wizard motion) */
+@keyframes deployment-phase-in-forward {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes deployment-phase-in-back {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes deployment-phase-out-forward {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+}
+
+@keyframes deployment-phase-out-back {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+
+@keyframes deployment-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.deployment-step-stage {
+  position: relative;
+  min-height: min(28rem, calc(100dvh - 10rem));
+}
+
+.deployment-phase-in-forward {
+  animation: deployment-phase-in-forward 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.deployment-phase-in-back {
+  animation: deployment-phase-in-back 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.deployment-phase-out-forward {
+  animation: deployment-phase-out-forward 0.34s cubic-bezier(0.4, 0, 0.2, 1) both;
+  pointer-events: none;
+}
+
+.deployment-phase-out-back {
+  animation: deployment-phase-out-back 0.34s cubic-bezier(0.4, 0, 0.2, 1) both;
+  pointer-events: none;
+}
+
+.deployment-plan-card {
+  animation: deployment-card-in 0.48s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.deployment-plan-card:nth-child(1) {
+  animation-delay: 0.06s;
+}
+
+.deployment-plan-card:nth-child(2) {
+  animation-delay: 0.13s;
+}
+
+.deployment-plan-card:nth-child(3) {
+  animation-delay: 0.2s;
+}
+
+.deployment-hardware-row {
+  animation: deployment-card-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.deployment-hardware-row:nth-child(1) {
+  animation-delay: 0.04s;
+}
+
+.deployment-hardware-row:nth-child(2) {
+  animation-delay: 0.08s;
+}
+
+.deployment-hardware-row:nth-child(3) {
+  animation-delay: 0.12s;
+}
+
+.deployment-hardware-row:nth-child(4) {
+  animation-delay: 0.16s;
+}
+
+.deployment-hardware-row:nth-child(5) {
+  animation-delay: 0.2s;
+}
+
+.deployment-review-block {
+  animation: deployment-card-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.deployment-review-block:nth-child(1) {
+  animation-delay: 0.05s;
+}
+
+.deployment-review-block:nth-child(2) {
+  animation-delay: 0.11s;
+}
+
+.deployment-review-block:nth-child(3) {
+  animation-delay: 0.17s;
+}
+
+.deployment-review-block:nth-child(4) {
+  animation-delay: 0.23s;
 }
 
 @keyframes signup-loader-phrase-in {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   cloneHardwareConfig,
@@ -18,6 +18,9 @@ import {
 } from "./deploymentApi";
 
 const EXIT_MS = 300;
+const STEP_TRANSITION_MS = 340;
+
+type StepDirection = "forward" | "back";
 
 const launchBtnCls =
   "bg-gradient-to-r from-violet-600 to-blue-600 text-white shadow-[0_4px_20px_rgba(124,58,237,0.28)] hover:from-violet-500 hover:to-blue-500";
@@ -29,6 +32,70 @@ type Props = {
   token: string;
   onConfirmed: (quote: DeploymentQuote) => void;
 };
+
+function useStepTransition(initial: Step) {
+  const [step, setStep] = useState(initial);
+  const [leavingStep, setLeavingStep] = useState<Step | null>(null);
+  const [direction, setDirection] = useState<StepDirection>("forward");
+  const timerRef = useRef<number | null>(null);
+
+  const transitionTo = useCallback(
+    (next: Step, dir: StepDirection = "forward") => {
+      if (next === step || leavingStep) return;
+      if (timerRef.current) window.clearTimeout(timerRef.current);
+      setDirection(dir);
+      setLeavingStep(step);
+      setStep(next);
+      timerRef.current = window.setTimeout(() => {
+        setLeavingStep(null);
+        timerRef.current = null;
+      }, STEP_TRANSITION_MS);
+    },
+    [step, leavingStep]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) window.clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  const reset = useCallback((next: Step = "choose-plan") => {
+    if (timerRef.current) window.clearTimeout(timerRef.current);
+    setLeavingStep(null);
+    setDirection("forward");
+    setStep(next);
+  }, []);
+
+  return { step, leavingStep, direction, transitionTo, reset };
+}
+
+function DeploymentStepLayer({
+  stepKey,
+  direction,
+  phase,
+  children
+}: {
+  stepKey: Step;
+  direction: StepDirection;
+  phase: "enter" | "exit";
+  children: ReactNode;
+}) {
+  const motionClass =
+    phase === "enter"
+      ? direction === "forward"
+        ? "deployment-phase-in-forward"
+        : "deployment-phase-in-back"
+      : direction === "forward"
+        ? "deployment-phase-out-forward"
+        : "deployment-phase-out-back";
+
+  return (
+    <div key={`${stepKey}-${phase}`} className={`w-full ${motionClass}`} aria-hidden={phase === "exit"}>
+      {children}
+    </div>
+  );
+}
 
 function PlanCard({
   plan,
@@ -50,7 +117,7 @@ function PlanCard({
           onSelect(plan.id);
         }
       }}
-      className={`relative flex cursor-pointer flex-col rounded-2xl border p-4 shadow-[0_6px_24px_rgba(15,23,42,0.08)] transition-all duration-200 sm:p-5 ${
+      className={`deployment-plan-card relative flex cursor-pointer flex-col rounded-2xl border p-4 shadow-[0_6px_24px_rgba(15,23,42,0.08)] transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] sm:p-5 ${
         selected
           ? `${launchBtnCls} border-transparent ring-2 ring-violet-400/40`
           : plan.recommended
@@ -115,7 +182,7 @@ function HardwareRow({
   onQuantityChange: (next: number) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200/80 bg-white/90 px-4 py-3 sm:flex-nowrap">
+    <div className="deployment-hardware-row flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200/80 bg-white/90 px-4 py-3 sm:flex-nowrap">
       <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
         <input
           type="checkbox"
@@ -157,7 +224,7 @@ function HardwareRow({
 export function WorkspaceLaunchModal({ open, token, onConfirmed }: Props) {
   const [mounted, setMounted] = useState(open);
   const [visible, setVisible] = useState(false);
-  const [step, setStep] = useState<Step>("choose-plan");
+  const { step, leavingStep, direction, transitionTo, reset } = useStepTransition("choose-plan");
   const [catalog, setCatalog] = useState<DeploymentCatalog | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [selectedPlanId, setSelectedPlanId] = useState<WorkspacePlanId>("multi");
@@ -205,7 +272,7 @@ export function WorkspaceLaunchModal({ open, token, onConfirmed }: Props) {
   useEffect(() => {
     if (open) {
       setMounted(true);
-      setStep("choose-plan");
+      reset("choose-plan");
       setQuote(null);
       setActionError(null);
       void loadCatalog();
@@ -270,7 +337,7 @@ export function WorkspaceLaunchModal({ open, token, onConfirmed }: Props) {
     const plan = plans.find((p) => p.id === selectedPlanId);
     if (!plan || !hardware) return;
     setHardware(cloneHardwareConfig(plan.defaultHardware));
-    setStep("configure-hardware");
+    transitionTo("configure-hardware", "forward");
   }
 
   function updateHardware(kind: HardwareKind, patch: Partial<HardwareSlot>) {
@@ -293,7 +360,7 @@ export function WorkspaceLaunchModal({ open, token, onConfirmed }: Props) {
       return;
     }
     setQuote(res.quote);
-    setStep("review");
+    transitionTo("review", "forward");
   }
 
   async function confirmDeployment() {
@@ -311,6 +378,193 @@ export function WorkspaceLaunchModal({ open, token, onConfirmed }: Props) {
 
   const hasEnabledHardware = hardwareCatalog.some((item) => hardware?.[item.id]?.enabled && (hardware[item.id]?.quantity ?? 0) > 0);
   const step2CtaLabel = quote?.needsReview ? "Review Changes" : "Start Free Trial";
+  const isStepTransitioning = Boolean(leavingStep);
+
+  function renderStepContent(activeStep: Step) {
+    if (!selectedPlan || !hardware) return null;
+
+    if (activeStep === "choose-plan") {
+      return (
+        <>
+          <header className="text-center">
+            <h2 id="workspace-launch-title" className="font-display text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">
+              Everything is ready. Now it&apos;s your move.
+            </h2>
+            <p className="mx-auto mt-2 max-w-2xl text-sm font-medium leading-relaxed text-slate-800 sm:text-base">
+              Choose the ServeOS setup that will power your operation from day one.
+            </p>
+          </header>
+
+          <p className="mx-auto mt-4 max-w-3xl rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-center text-sm leading-relaxed text-slate-800">
+            Every plan ships the full platform — customer app, staff tools, admin dashboard, orders, reservations, chat,
+            payments, and onboarding. Plans differ by{" "}
+            <span className="font-bold text-slate-900">locations</span>,{" "}
+            <span className="font-bold text-slate-900">hardware deployment</span>, and{" "}
+            <span className="font-bold text-slate-900">support level</span>.
+          </p>
+
+          <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3 md:gap-4">
+            {plans.map((plan) => (
+              <PlanCard key={plan.id} plan={plan} selected={selectedPlanId === plan.id} onSelect={selectPlan} />
+            ))}
+          </div>
+
+          <div className="mt-5 flex justify-center">
+            <button
+              type="button"
+              onClick={goToHardwareStep}
+              disabled={isStepTransitioning}
+              className={`rounded-full px-8 py-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-45 ${launchBtnCls}`}
+            >
+              Continue — configure hardware
+            </button>
+          </div>
+        </>
+      );
+    }
+
+    if (activeStep === "configure-hardware") {
+      return (
+        <>
+          <header>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-violet-700/90">Step 2 of 3</p>
+            <h2 id="workspace-launch-title" className="font-display mt-1 text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">
+              Configure your deployment
+            </h2>
+            <p className="mt-2 text-sm font-medium leading-relaxed text-slate-800 sm:text-base">
+              <span className="font-extrabold text-slate-900">{selectedPlan.name}</span> plan — {selectedPlan.locationSummary}.{" "}
+              Select the hardware ServeOS will install and configure for you. Need more than your plan includes? Add units
+              below — additional hardware is billed monthly.
+            </p>
+          </header>
+
+          <div className="mt-4 space-y-2">
+            {hardwareCatalog.map((item) => (
+              <HardwareRow
+                key={item.id}
+                item={item}
+                enabled={hardware[item.id].enabled}
+                quantity={hardware[item.id].quantity}
+                onToggle={(next) =>
+                  updateHardware(item.id, { enabled: next, quantity: next ? Math.max(1, hardware[item.id].quantity) : 0 })
+                }
+                onQuantityChange={(next) => updateHardware(item.id, { quantity: next, enabled: true })}
+              />
+            ))}
+          </div>
+
+          {actionError ? <p className="mt-3 text-center text-xs font-medium text-red-600">{actionError}</p> : null}
+
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => transitionTo("choose-plan", "back")}
+              disabled={isStepTransitioning}
+              className="rounded-full border border-slate-200/90 bg-white px-5 py-2.5 text-xs font-bold text-slate-700 transition hover:border-violet-200 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              ← Change plan
+            </button>
+            <button
+              type="button"
+              onClick={() => void goToReviewStep()}
+              disabled={!hasEnabledHardware || quoteLoading || isStepTransitioning}
+              className={`rounded-full px-8 py-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-45 ${launchBtnCls}`}
+            >
+              {quoteLoading ? "Calculating…" : step2CtaLabel}
+            </button>
+          </div>
+        </>
+      );
+    }
+
+    return (
+      <>
+        <header>
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-violet-700/90">Step 3 of 3</p>
+          <h2 id="workspace-launch-title" className="font-display mt-1 text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">
+            Review your deployment
+          </h2>
+          <p className="mt-2 text-sm font-medium leading-relaxed text-slate-800">
+            Confirm your plan, hardware, and monthly total before starting your free trial.
+          </p>
+        </header>
+
+        {quote ? (
+          <div className="mt-4 space-y-4">
+            <div className="deployment-review-block rounded-xl border border-violet-200 bg-violet-50/60 px-4 py-4">
+              <p className="text-xs font-bold uppercase tracking-wide text-violet-800">Monthly total</p>
+              <p className="font-display mt-1 text-3xl font-extrabold text-slate-900">{formatOreMonthly(quote.totalMonthlyOre)}</p>
+              <p className="mt-1 text-sm text-slate-700">{quote.trialDays}-day free trial · {quote.currency}</p>
+            </div>
+
+            <div className="deployment-review-block rounded-xl border border-slate-200 bg-white px-4 py-4">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Summary</p>
+              <ul className="mt-2 space-y-1.5">
+                {quote.summaryLines.map((line) => (
+                  <li key={line} className="text-sm text-slate-800">
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {quote.hardwareLines.length > 0 ? (
+              <div className="deployment-review-block rounded-xl border border-slate-200 bg-white px-4 py-4">
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Hardware</p>
+                <ul className="mt-2 space-y-2">
+                  {quote.hardwareLines.map((line) => (
+                    <li key={line.kind} className="flex flex-wrap items-baseline justify-between gap-2 text-sm text-slate-800">
+                      <span>
+                        {line.label} × {line.quantity}
+                        {line.additionalQuantity > 0 ? (
+                          <span className="ml-1 text-xs text-slate-500">(+{line.additionalQuantity} add-on)</span>
+                        ) : null}
+                      </span>
+                      {line.lineAddonMonthlyOre > 0 ? (
+                        <span className="text-xs font-semibold text-violet-700">+{formatOreMonthly(line.lineAddonMonthlyOre)}</span>
+                      ) : (
+                        <span className="text-xs text-emerald-700">Included</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {quote.suggestedPlanName && quote.suggestedPlanId !== quote.planId ? (
+              <p className="deployment-review-block rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+                Your hardware matches the <span className="font-bold">{quote.suggestedPlanName}</span> bundle. You can go back to
+                change plan if that fits better.
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <p className="mt-4 text-center text-sm text-slate-600">{quoteLoading ? "Loading quote…" : "Quote unavailable."}</p>
+        )}
+
+        {actionError ? <p className="mt-3 text-center text-xs font-medium text-red-600">{actionError}</p> : null}
+
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => transitionTo("configure-hardware", "back")}
+            disabled={isStepTransitioning}
+            className="rounded-full border border-slate-200/90 bg-white px-5 py-2.5 text-xs font-bold text-slate-700 transition hover:border-violet-200 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            ← Edit hardware
+          </button>
+          <button
+            type="button"
+            onClick={() => void confirmDeployment()}
+            disabled={!quote || confirming || isStepTransitioning}
+            className={`rounded-full px-8 py-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-45 ${launchBtnCls}`}
+          >
+            {confirming ? "Starting trial…" : "Start Free Trial"}
+          </button>
+        </div>
+      </>
+    );
+  }
 
   if (!mounted) return null;
 
@@ -325,177 +579,27 @@ export function WorkspaceLaunchModal({ open, token, onConfirmed }: Props) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="workspace-launch-title"
-        className={`workspace-launch-panel relative z-[1] w-full max-w-[min(98vw,72rem)] overflow-hidden rounded-[1.5rem] border border-slate-200/80 bg-white px-4 py-5 shadow-[0_32px_100px_rgba(15,23,42,0.22)] sm:px-6 sm:py-6 ${visible ? "is-active" : ""} ${step !== "choose-plan" ? "max-w-[min(98vw,52rem)]" : ""}`}
+        className={`workspace-launch-panel relative z-[1] w-full overflow-hidden rounded-[1.5rem] border border-slate-200/80 bg-white px-4 py-5 shadow-[0_32px_100px_rgba(15,23,42,0.22)] transition-[max-width] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] sm:px-6 sm:py-6 ${visible ? "is-active" : ""} ${step !== "choose-plan" ? "max-w-[min(98vw,52rem)]" : "max-w-[min(98vw,72rem)]"}`}
       >
         {catalogError ? (
           <p className="text-center text-sm font-medium text-red-600">{catalogError}</p>
         ) : !selectedPlan || !hardware ? (
-          <p className="text-center text-sm text-slate-600">Loading deployment options…</p>
-        ) : step === "choose-plan" ? (
-          <>
-            <header className="text-center">
-              <h2 id="workspace-launch-title" className="font-display text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">
-                Everything is ready. Now it&apos;s your move.
-              </h2>
-              <p className="mx-auto mt-2 max-w-2xl text-sm font-medium leading-relaxed text-slate-800 sm:text-base">
-                Choose the ServeOS setup that will power your operation from day one.
-              </p>
-            </header>
-
-            <p className="mx-auto mt-4 max-w-3xl rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-center text-sm leading-relaxed text-slate-800">
-              Every plan ships the full platform — customer app, staff tools, admin dashboard, orders, reservations, chat,
-              payments, and onboarding. Plans differ by{" "}
-              <span className="font-bold text-slate-900">locations</span>,{" "}
-              <span className="font-bold text-slate-900">hardware deployment</span>, and{" "}
-              <span className="font-bold text-slate-900">support level</span>.
-            </p>
-
-            <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3 md:gap-4">
-              {plans.map((plan) => (
-                <PlanCard key={plan.id} plan={plan} selected={selectedPlanId === plan.id} onSelect={selectPlan} />
-              ))}
-            </div>
-
-            <div className="mt-5 flex justify-center">
-              <button type="button" onClick={goToHardwareStep} className={`rounded-full px-8 py-3 text-sm font-bold transition ${launchBtnCls}`}>
-                Continue — configure hardware
-              </button>
-            </div>
-          </>
-        ) : step === "configure-hardware" ? (
-          <>
-            <header>
-              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-violet-700/90">Step 2 of 3</p>
-              <h2 id="workspace-launch-title" className="font-display mt-1 text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">
-                Configure your deployment
-              </h2>
-              <p className="mt-2 text-sm font-medium leading-relaxed text-slate-800 sm:text-base">
-                <span className="font-extrabold text-slate-900">{selectedPlan.name}</span> plan — {selectedPlan.locationSummary}.{" "}
-                Select the hardware ServeOS will install and configure for you. Need more than your plan includes? Add
-                units below — additional hardware is billed monthly.
-              </p>
-            </header>
-
-            <div className="mt-4 space-y-2">
-              {hardwareCatalog.map((item) => (
-                <HardwareRow
-                  key={item.id}
-                  item={item}
-                  enabled={hardware[item.id].enabled}
-                  quantity={hardware[item.id].quantity}
-                  onToggle={(next) =>
-                    updateHardware(item.id, { enabled: next, quantity: next ? Math.max(1, hardware[item.id].quantity) : 0 })
-                  }
-                  onQuantityChange={(next) => updateHardware(item.id, { quantity: next, enabled: true })}
-                />
-              ))}
-            </div>
-
-            {actionError ? <p className="mt-3 text-center text-xs font-medium text-red-600">{actionError}</p> : null}
-
-            <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-              <button
-                type="button"
-                onClick={() => setStep("choose-plan")}
-                className="rounded-full border border-slate-200/90 bg-white px-5 py-2.5 text-xs font-bold text-slate-700 transition hover:border-violet-200 hover:bg-violet-50"
-              >
-                ← Change plan
-              </button>
-              <button
-                type="button"
-                onClick={() => void goToReviewStep()}
-                disabled={!hasEnabledHardware || quoteLoading}
-                className={`rounded-full px-8 py-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-45 ${launchBtnCls}`}
-              >
-                {quoteLoading ? "Calculating…" : step2CtaLabel}
-              </button>
-            </div>
-          </>
+          <p className="signup-phase text-center text-sm text-slate-600">Loading deployment options…</p>
         ) : (
-          <>
-            <header>
-              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-violet-700/90">Step 3 of 3</p>
-              <h2 id="workspace-launch-title" className="font-display mt-1 text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">
-                Review your deployment
-              </h2>
-              <p className="mt-2 text-sm font-medium leading-relaxed text-slate-800">
-                Confirm your plan, hardware, and monthly total before starting your free trial.
-              </p>
-            </header>
-
-            {quote ? (
-              <div className="mt-4 space-y-4">
-                <div className="rounded-xl border border-violet-200 bg-violet-50/60 px-4 py-4">
-                  <p className="text-xs font-bold uppercase tracking-wide text-violet-800">Monthly total</p>
-                  <p className="font-display mt-1 text-3xl font-extrabold text-slate-900">{formatOreMonthly(quote.totalMonthlyOre)}</p>
-                  <p className="mt-1 text-sm text-slate-700">{quote.trialDays}-day free trial · {quote.currency}</p>
-                </div>
-
-                <div className="rounded-xl border border-slate-200 bg-white px-4 py-4">
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Summary</p>
-                  <ul className="mt-2 space-y-1.5">
-                    {quote.summaryLines.map((line) => (
-                      <li key={line} className="text-sm text-slate-800">
-                        {line}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                {quote.hardwareLines.length > 0 ? (
-                  <div className="rounded-xl border border-slate-200 bg-white px-4 py-4">
-                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Hardware</p>
-                    <ul className="mt-2 space-y-2">
-                      {quote.hardwareLines.map((line) => (
-                        <li key={line.kind} className="flex flex-wrap items-baseline justify-between gap-2 text-sm text-slate-800">
-                          <span>
-                            {line.label} × {line.quantity}
-                            {line.additionalQuantity > 0 ? (
-                              <span className="ml-1 text-xs text-slate-500">(+{line.additionalQuantity} add-on)</span>
-                            ) : null}
-                          </span>
-                          {line.lineAddonMonthlyOre > 0 ? (
-                            <span className="text-xs font-semibold text-violet-700">+{formatOreMonthly(line.lineAddonMonthlyOre)}</span>
-                          ) : (
-                            <span className="text-xs text-emerald-700">Included</span>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-
-                {quote.suggestedPlanName && quote.suggestedPlanId !== quote.planId ? (
-                  <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
-                    Your hardware matches the <span className="font-bold">{quote.suggestedPlanName}</span> bundle. You can go back
-                    to change plan if that fits better.
-                  </p>
-                ) : null}
+          <div className="deployment-step-stage">
+            {leavingStep ? (
+              <div className="absolute inset-x-0 top-0 z-0">
+                <DeploymentStepLayer stepKey={leavingStep} direction={direction} phase="exit">
+                  {renderStepContent(leavingStep)}
+                </DeploymentStepLayer>
               </div>
-            ) : (
-              <p className="mt-4 text-center text-sm text-slate-600">{quoteLoading ? "Loading quote…" : "Quote unavailable."}</p>
-            )}
-
-            {actionError ? <p className="mt-3 text-center text-xs font-medium text-red-600">{actionError}</p> : null}
-
-            <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-              <button
-                type="button"
-                onClick={() => setStep("configure-hardware")}
-                className="rounded-full border border-slate-200/90 bg-white px-5 py-2.5 text-xs font-bold text-slate-700 transition hover:border-violet-200 hover:bg-violet-50"
-              >
-                ← Edit hardware
-              </button>
-              <button
-                type="button"
-                onClick={() => void confirmDeployment()}
-                disabled={!quote || confirming}
-                className={`rounded-full px-8 py-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-45 ${launchBtnCls}`}
-              >
-                {confirming ? "Starting trial…" : "Start Free Trial"}
-              </button>
+            ) : null}
+            <div className={leavingStep ? "relative z-[1]" : ""}>
+              <DeploymentStepLayer stepKey={step} direction={direction} phase="enter">
+                {renderStepContent(step)}
+              </DeploymentStepLayer>
             </div>
-          </>
+          </div>
         )}
       </div>
     </div>

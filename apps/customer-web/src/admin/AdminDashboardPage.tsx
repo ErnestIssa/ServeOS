@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { LoadingScreen } from "@serveos/core-loading";
 import {
   AdminBtnPrimary,
@@ -40,7 +40,14 @@ import {
 } from "../api";
 import { ADMIN_AUTH_TOKEN_KEY, consumeTokenFromUrl, persistAdminToken, readStoredAdminToken } from "../authStorage";
 import { marketingRoot } from "../marketing/styles";
-import { fetchWorkspaceDeploymentStatus, type DeploymentQuote } from "./deploymentApi";
+import {
+  dismissOwnerTrialNotice,
+  fetchOwnerTrialNotice,
+  fetchWorkspaceDeploymentStatus,
+  type DeploymentQuote,
+  type TrialNoticePayload
+} from "./deploymentApi";
+import { OwnerTrialNoticeModal } from "./OwnerTrialNoticeModal";
 import { WorkspaceLaunchModal } from "./WorkspaceLaunchModal";
 
 function formatMoney(cents: number) {
@@ -77,8 +84,23 @@ export function AdminDashboardPage({ onHome }: Props) {
   const [userId, setUserId] = useState<string | null>(null);
   const [hasWorkspaceDeployment, setHasWorkspaceDeployment] = useState(false);
   const [launchModalOpen, setLaunchModalOpen] = useState(false);
+  const [trialNotice, setTrialNotice] = useState<TrialNoticePayload | null>(null);
+  const [trialNoticeOpen, setTrialNoticeOpen] = useState(false);
+  const [trialNoticeDismissing, setTrialNoticeDismissing] = useState(false);
 
   const activeVenueName = restaurants.find((r) => r.id === selectedRestaurantId)?.name;
+
+  const loadTrialNotice = useCallback(async (t: string) => {
+    const res = await fetchOwnerTrialNotice(t);
+    if (!res.ok) return;
+    if (res.notice) {
+      setTrialNotice(res.notice);
+      setTrialNoticeOpen(true);
+    } else {
+      setTrialNotice(null);
+      setTrialNoticeOpen(false);
+    }
+  }, []);
 
   async function hydrateUser(t: string) {
     const res = await fetchMe(t);
@@ -127,12 +149,38 @@ export function AdminDashboardPage({ onHome }: Props) {
     return () => clearTimeout(timer);
   }, [token, userId, hasWorkspaceDeployment]);
 
+  useEffect(() => {
+    if (!token || !hasWorkspaceDeployment || launchModalOpen) return;
+    const timer = window.setTimeout(() => {
+      void loadTrialNotice(token);
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [token, hasWorkspaceDeployment, launchModalOpen, loadTrialNotice]);
+
+  async function handleDismissTrialNotice() {
+    if (!token || !trialNotice) return;
+    setTrialNoticeDismissing(true);
+    const res = await dismissOwnerTrialNotice(token, trialNotice.id);
+    setTrialNoticeDismissing(false);
+    if (!res.ok) return;
+    if (res.nextNotice) {
+      setTrialNotice(res.nextNotice);
+      setTrialNoticeOpen(true);
+    } else {
+      setTrialNotice(null);
+      setTrialNoticeOpen(false);
+    }
+  }
+
   function handleDeploymentConfirmed(quote: DeploymentQuote) {
     setHasWorkspaceDeployment(true);
     setLaunchModalOpen(false);
     setStatus(
       `${quote.planName} deployment confirmed — ${quote.trialDays}-day trial started (${Math.round(quote.totalMonthlyOre / 100).toLocaleString("sv-SE")} kr/month after trial).`
     );
+    if (token) {
+      window.setTimeout(() => void loadTrialNotice(token), 400);
+    }
   }
 
   async function refreshMenu(t: string, restaurantId: string) {
@@ -209,6 +257,8 @@ export function AdminDashboardPage({ onHome }: Props) {
     setUserId(null);
     setHasWorkspaceDeployment(false);
     setLaunchModalOpen(false);
+    setTrialNotice(null);
+    setTrialNoticeOpen(false);
     try {
       sessionStorage.removeItem(ADMIN_AUTH_TOKEN_KEY);
     } catch {
@@ -223,7 +273,9 @@ export function AdminDashboardPage({ onHome }: Props) {
   }
 
   return (
-    <div className={`${marketingRoot} marketing-site font-ui ${launchModalOpen ? "h-[100dvh] overflow-hidden" : ""}`}>
+    <div
+      className={`${marketingRoot} marketing-site font-ui ${launchModalOpen || trialNoticeOpen ? "h-[100dvh] overflow-hidden" : ""}`}
+    >
       <LoadingScreen appReady={appReady} />
       {token ? (
         <WorkspaceLaunchModal open={launchModalOpen} token={token} onConfirmed={handleDeploymentConfirmed} />

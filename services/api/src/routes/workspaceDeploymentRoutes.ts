@@ -12,6 +12,10 @@ import {
   WORKSPACE_PLAN_IDS,
   type HardwareConfig
 } from "../lib/workspaceDeploymentService.js";
+import {
+  dismissOwnerTrialNotice,
+  getOwnerTrialNotice
+} from "../lib/workspaceTrialNoticeService.js";
 
 const hardwareSlotSchema = z.object({
   enabled: z.boolean(),
@@ -80,6 +84,30 @@ export function registerWorkspaceDeploymentRoutes(app: FastifyInstance, prisma: 
     } catch (e: unknown) {
       const err = e as { statusCode?: number; message?: string };
       return reply.status(err.statusCode ?? 401).send({ ok: false, error: err.message ?? "status_failed" });
+    }
+  });
+
+  app.get("/workspace-deployment/trial-notice", async (req, reply) => {
+    try {
+      const payload = requireOwner(req, app);
+      const notice = await getOwnerTrialNotice(prisma, payload.sub);
+      return { ok: true, notice };
+    } catch (e: unknown) {
+      const err = e as { statusCode?: number; message?: string };
+      return reply.status(err.statusCode ?? 401).send({ ok: false, error: err.message ?? "trial_notice_failed" });
+    }
+  });
+
+  app.post("/workspace-deployment/trial-notice/dismiss", async (req, reply) => {
+    const body = z.object({ noticeId: z.string().min(1) }).safeParse(req.body);
+    if (!body.success) return reply.status(400).send({ ok: false, error: "validation_error" });
+    try {
+      const payload = requireOwner(req, app);
+      const nextNotice = await dismissOwnerTrialNotice(prisma, payload.sub, body.data.noticeId);
+      return { ok: true, nextNotice };
+    } catch (e: unknown) {
+      const err = e as { statusCode?: number; message?: string };
+      return reply.status(err.statusCode ?? 400).send({ ok: false, error: err.message ?? "dismiss_failed" });
     }
   });
 
