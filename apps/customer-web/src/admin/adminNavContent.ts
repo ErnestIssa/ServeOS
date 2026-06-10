@@ -1,3 +1,11 @@
+import {
+  buildNavHref,
+  DEFAULT_ADMIN_HASH,
+  GROUP_WORKSPACE_MAP,
+  WORKSPACE_PRESETS,
+  type WorkspaceId
+} from "./adminWorkspaceRouting";
+
 export type AdminNavItem = {
   id: string;
   label: string;
@@ -10,129 +18,57 @@ export type AdminNavGroup = {
   label: string;
   /** Public icon path under /icons */
   icon: string;
+  workspaceId: WorkspaceId;
   items: AdminNavItem[];
 };
 
-export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
-  {
-    id: "control-room",
-    label: "CONTROL",
-    icon: "/icons/settings.png",
-    items: [
-      { id: "live-overview", label: "Live overview", href: "#control-room", description: "Mission control dashboard" },
-      { id: "live-orders", label: "Live orders", href: "#orders", description: "KDS + orders unified" },
-      { id: "table-status", label: "Table status", href: "#operations-tables" },
-      { id: "active-reservations", label: "Active reservations", href: "#operations-reservations" },
-      { id: "live-alerts", label: "Live alerts", href: "#control-alerts" },
-      { id: "staff-on-shift", label: "Staff on shift", href: "#control-staff" }
-    ]
-  },
-  {
-    id: "orders-system",
-    label: "ORDERS",
-    icon: "/icons/checkout.png",
-    items: [
-      { id: "all-orders", label: "All orders", href: "#orders" },
-      { id: "active-orders", label: "Active orders", href: "#orders" },
-      { id: "kitchen-view", label: "Kitchen view", href: "#orders", description: "KDS mode" },
-      { id: "completed-orders", label: "Completed orders", href: "#orders-history" },
-      { id: "order-history", label: "Order history", href: "#orders-history" }
-    ]
-  },
-  {
-    id: "operations",
-    label: "Operations",
-    icon: "/icons/system-update.png",
-    items: [
-      { id: "reservations", label: "Reservations", href: "#operations-reservations" },
-      { id: "tables", label: "Tables / seating", href: "#operations-tables" },
-      { id: "walk-ins", label: "Walk-ins", href: "#operations-walkins" },
-      { id: "queue", label: "Queue / waiting list", href: "#operations-queue" },
-      { id: "venue-timeline", label: "Venue timeline", href: "#operations-timeline" }
-    ]
-  },
-  {
-    id: "devices-hardware",
-    label: "DEVICES",
-    icon: "/icons/responsive.png",
-    items: [
-      { id: "all-devices", label: "All connected devices", href: "#devices-all" },
-      { id: "kds-status", label: "KDS screens status", href: "#devices-kds" },
-      { id: "pos-checkout", label: "POS / checkout devices", href: "#devices-pos" },
-      { id: "customer-displays", label: "Customer display screens", href: "#devices-customer-display" },
-      { id: "printer-status", label: "Printer status", href: "#devices-printers" },
-      { id: "network-health", label: "Network health per venue", href: "#devices-network" }
-    ]
-  },
+const GROUP_DEFS: Array<{ id: string; label: string; icon: string; workspaceId: WorkspaceId }> = [
+  { id: "control-room", label: "CONTROL", icon: "/icons/settings.png", workspaceId: "live-ops" },
+  { id: "orders-system", label: "ORDERS", icon: "/icons/checkout.png", workspaceId: "orders" },
+  { id: "operations", label: "Operations", icon: "/icons/system-update.png", workspaceId: "venue" },
+  { id: "devices-hardware", label: "DEVICES", icon: "/icons/responsive.png", workspaceId: "devices" },
   {
     id: "communication-hub",
     label: "Communication hub",
     icon: "/icons/notification-bell-on-svgrepo-com.svg",
-    items: [
-      { id: "order-chats", label: "Order chats", href: "#comms-order-chats", description: "Inside orders" },
-      { id: "staff-internal-chat", label: "Staff internal chat", href: "#comms-staff-chat" },
-      { id: "customer-inbox", label: "Customer messaging inbox", href: "#comms-customer-inbox" },
-      { id: "system-messages", label: "System messages", href: "#comms-system-messages", description: "Alerts & warnings" }
-    ]
+    workspaceId: "comms"
   },
-  {
-    id: "automations",
-    label: "Automations",
-    icon: "/icons/curved-arrows-svgrepo-com.svg",
-    items: [
-      { id: "auto-accept", label: "Auto-accept orders rules", href: "#automation-auto-accept" },
-      { id: "kitchen-routing", label: "Auto-route orders to kitchen stations", href: "#automation-kitchen-routing" },
-      { id: "auto-close", label: "Auto-close orders after payment", href: "#automation-auto-close" },
-      { id: "delay-notify", label: "Auto-notify delayed orders", href: "#automation-delay-notify" },
-      { id: "table-assign", label: "Auto-assign tables for reservations", href: "#automation-table-assign" }
-    ]
-  },
-  {
-    id: "configuration",
-    label: "Configuration",
-    icon: "/icons/configuration-svgrepo-com.svg",
-    items: [
-      { id: "restaurant-profile", label: "Restaurant profile", href: "#config-restaurant" },
-      { id: "locations", label: "Locations", href: "#config-locations" },
-      { id: "menu-builder", label: "Menu builder", href: "#menu-admin" },
-      { id: "categories", label: "Categories", href: "#menu-admin" },
-      { id: "items", label: "Items", href: "#menu-admin" },
-      { id: "modifiers", label: "Modifiers", href: "#menu-admin" },
-      { id: "staff-list", label: "Staff list", href: "#config-staff" },
-      { id: "roles", label: "Roles & permissions", href: "#config-roles" },
-      { id: "payment-methods", label: "Payment methods", href: "#config-payments" }
-    ]
-  },
-  {
-    id: "business-settings",
-    label: "BUSINESS",
-    icon: "/icons/company-svgrepo-com.svg",
-    items: [
-      { id: "subscription-billing", label: "Subscription & billing", href: "#business-billing" },
-      { id: "legal-entity", label: "Legal entity / company info", href: "#business-legal-entity" },
-      { id: "multi-location-rules", label: "Multi-location switching rules", href: "#business-multi-location" },
-      { id: "data-export", label: "Data export", href: "#business-data-export" },
-      { id: "audit-logs", label: "Audit logs", href: "#business-audit-logs" }
-    ]
-  },
-  {
-    id: "insights",
-    label: "Insights",
-    icon: "/icons/insights-svgrepo-com.svg",
-    items: [
-      { id: "sales-overview", label: "Sales overview", href: "#insights-sales" },
-      { id: "order-speed", label: "Order speed", href: "#insights-speed" },
-      { id: "peak-times", label: "Peak times", href: "#insights-peaks" },
-      { id: "best-sellers", label: "Best selling items", href: "#insights-items" },
-      { id: "staff-performance", label: "Staff performance", href: "#insights-staff" }
-    ]
-  }
+  { id: "automations", label: "Automations", icon: "/icons/curved-arrows-svgrepo-com.svg", workspaceId: "automations" },
+  { id: "configuration", label: "Configuration", icon: "/icons/configuration-svgrepo-com.svg", workspaceId: "config" },
+  { id: "business-settings", label: "BUSINESS", icon: "/icons/company-svgrepo-com.svg", workspaceId: "business" },
+  { id: "insights", label: "Insights", icon: "/icons/insights-svgrepo-com.svg", workspaceId: "analytics" }
 ];
 
+export const ADMIN_NAV_GROUPS: AdminNavGroup[] = GROUP_DEFS.map((group) => ({
+  id: group.id,
+  label: group.label,
+  icon: group.icon,
+  workspaceId: group.workspaceId,
+  items: WORKSPACE_PRESETS[group.workspaceId].map((preset) => ({
+    id: preset.id,
+    label: preset.label,
+    description: preset.description,
+    href: buildNavHref(group.workspaceId, preset.id)
+  }))
+}));
+
+export { GROUP_WORKSPACE_MAP };
+
+export {
+  ADMIN_TOP_HASHES,
+  ADMIN_VENUE_CONTROL_HASH,
+  adminFullPageKey,
+  isAdminFullPageHash,
+  isAdminTopPageHash,
+  type AdminTopHash
+} from "./adminTopHashes";
+
+export { DEFAULT_ADMIN_HASH } from "./adminWorkspaceRouting";
+
 export const ADMIN_QUICK_ACTIONS = [
-  { id: "create-order", label: "Create order", href: "#orders" },
-  { id: "add-reservation", label: "Add reservation", href: "#operations-reservations" },
-  { id: "add-staff", label: "Add staff", href: "#config-staff" }
+  { id: "create-order", label: "Create order", href: buildNavHref("orders", "active-orders") },
+  { id: "add-reservation", label: "Add reservation", href: buildNavHref("venue", "reservations") },
+  { id: "add-staff", label: "Add staff", href: "#top-add-staff" }
 ] as const;
 
 export const ADMIN_THEME_ICONS = {
@@ -207,8 +143,8 @@ const THEME_KEY = "serveos.admin.theme";
 export type AdminTheme = "light" | "dark";
 
 export function readAdminHash(): string {
-  if (typeof window === "undefined") return "#control-room";
-  return window.location.hash || "#control-room";
+  if (typeof window === "undefined") return DEFAULT_ADMIN_HASH;
+  return window.location.hash || DEFAULT_ADMIN_HASH;
 }
 
 export function readSidebarPinned(): boolean {
@@ -245,5 +181,5 @@ export function writeAdminTheme(theme: AdminTheme) {
 }
 
 export function defaultGroupHref(group: AdminNavGroup): string {
-  return group.items[0]?.href ?? "#control-room";
+  return group.items[0]?.href ?? DEFAULT_ADMIN_HASH;
 }

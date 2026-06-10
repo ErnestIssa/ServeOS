@@ -64,6 +64,7 @@ export default defineConfig({
     exclude: workspacePackages
   },
   server: {
+    host: true,
     port: 5174,
     fs: {
       allow: [appDir, repoRoot]

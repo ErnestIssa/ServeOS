@@ -1,5 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { readOwnerContactName } from "./adminNavContent";
+import { ADMIN_VENUE_CONTROL_HASH } from "./adminTopHashes";
+import { useAdminPopoverMount } from "./useAdminPopoverMount";
 
 type Venue = { id: string; name: string; status?: string };
 
@@ -33,6 +35,12 @@ function NavChevron({ open }: { open: boolean }) {
   );
 }
 
+function goVenueControlCentre(onDone?: () => void) {
+  onDone?.();
+  window.location.hash = ADMIN_VENUE_CONTROL_HASH;
+  window.scrollTo({ top: 0, behavior: "auto" });
+}
+
 export function buildAdminSearchPlaceholders(ownerName: string, restaurantName: string): string[] {
   const first = ownerName.split(/\s+/)[0] || ownerName;
   const venue = restaurantName || "your venue";
@@ -50,10 +58,12 @@ export function buildAdminSearchPlaceholders(ownerName: string, restaurantName: 
 
 export function AdminTypingSearch({
   ownerSignupProfile,
-  restaurantName
+  restaurantName,
+  onOpenSearch
 }: {
   ownerSignupProfile?: unknown;
   restaurantName: string;
+  onOpenSearch: () => void;
 }) {
   const ownerName = readOwnerContactName(ownerSignupProfile);
   const phrases = useMemo(
@@ -61,15 +71,12 @@ export function AdminTypingSearch({
     [ownerName, restaurantName]
   );
 
-  const [value, setValue] = useState("");
-  const [focused, setFocused] = useState(false);
   const [phraseIndex, setPhraseIndex] = useState(0);
   const [typed, setTyped] = useState("");
   const [phase, setPhase] = useState<TypingPhase>("typing");
-  const inputId = useId();
+  const triggerId = useId();
 
   useEffect(() => {
-    if (focused || value) return;
     const phrase = phrases[phraseIndex % phrases.length] ?? "";
     let timer: ReturnType<typeof setTimeout>;
 
@@ -91,7 +98,7 @@ export function AdminTypingSearch({
     }
 
     return () => clearTimeout(timer);
-  }, [focused, value, phrases, phraseIndex, typed, phase]);
+  }, [phrases, phraseIndex, typed, phase]);
 
   useEffect(() => {
     setTyped("");
@@ -99,35 +106,26 @@ export function AdminTypingSearch({
     setPhraseIndex(0);
   }, [phrases]);
 
-  const showGhost = !focused && !value;
-
   return (
-    <label className="admin-global-search group relative block w-full" htmlFor={inputId}>
-      <span className="sr-only">Global search</span>
+    <button
+      id={triggerId}
+      type="button"
+      onClick={onOpenSearch}
+      className="admin-global-search admin-search-trigger group relative block w-full text-left"
+      aria-label="Open workspace search"
+    >
       <img
         src="/icons/magnifying-glass.png"
         alt=""
         className="admin-search-icon pointer-events-none absolute left-3.5 top-1/2 z-[1] -translate-y-1/2"
         aria-hidden
       />
-      <input
-        id={inputId}
-        type="search"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        placeholder=""
-        className="admin-search-input relative z-[2] w-full rounded-2xl py-2 pl-10 pr-4 text-sm outline-none transition"
-        autoComplete="off"
-      />
-      {showGhost ? (
-        <span className="admin-search-ghost pointer-events-none absolute inset-y-0 left-10 right-4 z-[3] flex items-center truncate text-sm">
-          <span className="truncate">{typed}</span>
-          <span className="admin-search-cursor" aria-hidden />
-        </span>
-      ) : null}
-    </label>
+      <span className="admin-search-input admin-search-input--trigger pointer-events-none relative z-[2] block w-full rounded-2xl pl-10 pr-4 text-sm" aria-hidden />
+      <span className="admin-search-ghost pointer-events-none absolute inset-y-0 left-10 right-4 z-[3] flex items-center truncate text-sm">
+        <span className="truncate">{typed}</span>
+        <span className="admin-search-cursor" aria-hidden />
+      </span>
+    </button>
   );
 }
 
@@ -143,6 +141,7 @@ export function AdminRestaurantSelector({
   switching?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const { mounted, visible } = useAdminPopoverMount(open);
   const rootRef = useRef<HTMLDivElement>(null);
   const selected = restaurants.find((r) => r.id === selectedRestaurantId);
   const hasSelection = Boolean(selected);
@@ -186,12 +185,14 @@ export function AdminRestaurantSelector({
         <NavChevron open={open} />
       </button>
 
-      {open ? (
-        <div className="admin-top-bubble-anchor admin-top-bubble-anchor--center admin-venue-bubble-anchor">
+      {mounted ? (
+        <div
+          className={`admin-top-bubble-anchor admin-top-bubble-anchor--center admin-venue-bubble-anchor ${visible ? "admin-top-bubble-anchor--visible" : ""}`}
+        >
           <div className="admin-top-bubble admin-top-bubble--arrow-center admin-venue-bubble" role="menu" aria-label="Restaurant locations">
             <div className="admin-bubble-header">
               <p className="admin-bubble-title">Your venues</p>
-              <p className="admin-bubble-desc">Switch the active location for this workspace.</p>
+              <p className="admin-bubble-desc">Switch location or open the venue control centre.</p>
             </div>
             <div className="admin-bubble-body admin-bubble-body--menu">
               {restaurants.length === 0 ? (
@@ -209,23 +210,31 @@ export function AdminRestaurantSelector({
                       disabled={!canSelect}
                       className={`admin-venue-menu-item ${isSelected ? "admin-venue-menu-item--selected" : ""}`}
                       onClick={() => {
+                        if (isSelected) {
+                          goVenueControlCentre(() => setOpen(false));
+                          return;
+                        }
                         setOpen(false);
-                        if (canSelect && !isSelected) onSelectRestaurant(r.id);
+                        if (canSelect) onSelectRestaurant(r.id);
                       }}
                     >
                       <span className="admin-venue-menu-name truncate">{r.name}</span>
                       <span className={`admin-venue-status admin-venue-status--${venueStatus.tone}`}>
-                        {venueStatus.label}
+                        {isSelected ? "Control centre" : venueStatus.label}
                       </span>
                     </button>
                   );
                 })
               )}
               <div className="admin-bubble-divider" />
-              <a href="#config-restaurant" className="admin-bubble-add-btn" onClick={() => setOpen(false)}>
+              <button
+                type="button"
+                className="admin-bubble-add-btn w-full"
+                onClick={() => goVenueControlCentre(() => setOpen(false))}
+              >
                 <span className="admin-bubble-add-mark">+</span>
-                <span className="admin-bubble-add-mark">Add</span>
-              </a>
+                <span className="admin-bubble-add-mark">Open venue control centre</span>
+              </button>
             </div>
           </div>
         </div>

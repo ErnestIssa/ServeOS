@@ -5,7 +5,7 @@ import { btnPrimary, btnSecondary, contentWrap, eyebrow, glassPanel, pageGutter,
 export const adminMain = `relative mx-auto w-full max-w-6xl pb-28 pt-6 lg:max-w-none lg:pb-10 lg:pt-8 ${pageGutter}`;
 
 export const adminWorkspaceMain =
-  "admin-workspace-content relative mx-auto w-full max-w-[96rem] space-y-6 sm:space-y-8";
+  "admin-workspace-content relative w-full min-w-0 space-y-4 sm:space-y-5";
 
 export const inputBase =
   "w-full rounded-xl border border-slate-200/90 bg-white/90 px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-violet-400 focus:ring-2 focus:ring-violet-200/60 disabled:cursor-not-allowed disabled:opacity-50";
@@ -51,10 +51,10 @@ export function AdminHeader({
 
         {signedIn ? (
           <nav className="hidden items-center gap-1 md:flex" aria-label="Admin sections">
-            <a href="#menu-admin" className={navLink}>
+            <a href="#ws-config/menu-builder" className={navLink}>
               Menu
             </a>
-            <a href="#orders" className={navLink}>
+            <a href="#ws-orders/all-orders" className={navLink}>
               Orders
             </a>
           </nav>
@@ -83,7 +83,7 @@ export function AdminPanel({ id, children, className = "" }: { id?: string; chil
   return (
     <section
       id={id}
-      className={`admin-panel scroll-mt-28 ${glassPanel} p-6 shadow-[0_16px_50px_rgba(15,23,42,0.06)] backdrop-blur-xl sm:p-7 lg:scroll-mt-24 ${className}`}
+      className={`admin-panel admin-panel--flush scroll-mt-28 ${glassPanel} p-4 shadow-[0_16px_50px_rgba(15,23,42,0.06)] backdrop-blur-xl sm:p-5 lg:scroll-mt-24 ${className}`}
     >
       {children}
     </section>

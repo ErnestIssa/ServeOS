@@ -4,6 +4,7 @@ import {
   ADMIN_NAV_GROUPS,
   ADMIN_QUICK_ACTIONS,
   ADMIN_THEME_ICONS,
+  ADMIN_TOP_HASHES,
   ADMIN_TOP_ICONS,
   ADMIN_TOP_TOOL_HINTS,
   defaultGroupHref,
@@ -16,8 +17,10 @@ import {
   type AdminNavGroup,
   type AdminTheme
 } from "./adminNavContent";
+import { ADMIN_NAV_SYNC_EVENT, buildNavHref, parseAdminRoute } from "./adminWorkspaceRouting";
+import { AdminGlobalSearchModal } from "./AdminGlobalSearchModal";
 import { AdminRestaurantSelector, AdminTypingSearch } from "./adminTopChrome";
-import { FOOTER_SUPPORT_EMAIL } from "../marketing/footerContent";
+import { useAdminPopoverMount } from "./useAdminPopoverMount";
 import { ADMIN_WORKSPACE_FAB, fabToneClasses } from "../marketing/fabTone";
 import { useAdminWorkspaceFabTone } from "../marketing/useAdminWorkspaceFabTone";
 
@@ -55,13 +58,17 @@ export function AdminThemeFab({ theme, onToggle }: { theme: AdminTheme; onToggle
   );
 }
 
-function isItemActive(href: string, hash: string) {
-  if (!hash) return href === "#control-room";
-  return href === hash;
+/** Exactly one sidebar item is active — matched by preset id, not duplicate hrefs. */
+function isItemActive(itemId: string, hash: string) {
+  const route = parseAdminRoute(hash);
+  return route.kind === "workspace" && route.presetId === itemId;
 }
 
-function isGroupActive(group: AdminNavGroup, hash: string) {
-  return group.items.some((item) => isItemActive(item.href, hash));
+/** Group icon highlights only when collapsed; expanded nav shows item active state only. */
+function isGroupActive(group: AdminNavGroup, hash: string, expanded: boolean) {
+  if (expanded) return false;
+  const route = parseAdminRoute(hash);
+  return route.kind === "workspace" && route.workspaceId === group.workspaceId;
 }
 
 function NavGroupIcon({ src }: { src: string }) {
@@ -81,7 +88,7 @@ function NavGroupBlock({
   expanded: boolean;
   onNavigate?: () => void;
 }) {
-  const groupActive = isGroupActive(group, hash);
+  const groupActive = isGroupActive(group, hash, expanded);
   const groupHref = defaultGroupHref(group);
 
   return (
@@ -106,7 +113,7 @@ function NavGroupBlock({
       </a>
       <ul className="admin-side-group-items" aria-hidden={!expanded}>
         {group.items.map((item, itemIndex) => {
-          const active = isItemActive(item.href, hash);
+          const active = isItemActive(item.id, hash);
           return (
             <li
               key={item.id}
@@ -152,9 +159,17 @@ function AdminSideNav({
 
   useEffect(() => {
     const onHash = () => setHash(readAdminHash());
+    const onSync = (e: Event) => {
+      const detail = (e as CustomEvent<{ hash: string }>).detail;
+      if (detail?.hash) setHash(detail.hash);
+    };
     window.addEventListener("hashchange", onHash);
+    window.addEventListener(ADMIN_NAV_SYNC_EVENT, onSync);
     onHash();
-    return () => window.removeEventListener("hashchange", onHash);
+    return () => {
+      window.removeEventListener("hashchange", onHash);
+      window.removeEventListener(ADMIN_NAV_SYNC_EVENT, onSync);
+    };
   }, []);
 
   const expanded = pinned || hovered || variant === "mobile";
@@ -302,14 +317,14 @@ function AdminSideNav({
     return (
       <>
         <div
-          className={`admin-side-mobile-backdrop fixed inset-0 z-[65] bg-slate-950/50 backdrop-blur-[2px] transition-opacity lg:hidden ${
-            mobileOpen ? "opacity-100" : "pointer-events-none opacity-0"
+          className={`admin-side-mobile-backdrop fixed inset-0 z-[65] bg-slate-950/50 backdrop-blur-[2px] transition-opacity duration-300 ease-out lg:hidden ${
+            mobileOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
           }`}
           onClick={onMobileClose}
           aria-hidden={!mobileOpen}
         />
         <aside
-          className={`admin-side-mobile-drawer fixed bottom-0 left-0 top-0 z-[66] transition-transform duration-300 lg:hidden ${
+          className={`admin-side-mobile-drawer fixed bottom-0 left-0 top-0 z-[66] transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] lg:hidden ${
             mobileOpen ? "translate-x-0" : "-translate-x-full"
           }`}
         >
@@ -484,12 +499,14 @@ function AdminHoverBubble({
   children: ReactNode;
   panel: ReactNode;
 }) {
+  const { mounted, visible } = useAdminPopoverMount(open);
+
   return (
     <div className="relative" onMouseEnter={onOpenNow} onMouseLeave={onCloseSoon}>
       {children}
-      {open ? (
+      {mounted ? (
         <div
-          className={`admin-top-bubble-anchor admin-top-bubble-anchor--${anchor}`.trim()}
+          className={`admin-top-bubble-anchor admin-top-bubble-anchor--${anchor} ${visible ? "admin-top-bubble-anchor--visible" : ""}`.trim()}
           onMouseEnter={onOpenNow}
           onMouseLeave={onCloseSoon}
         >
@@ -534,10 +551,15 @@ function AdminToolBubbleButton({
         </>
       }
     >
-      <a href={href} aria-label={label} className="admin-top-tool-btn relative flex h-9 w-9 shrink-0 items-center justify-center transition">
+      <button
+        type="button"
+        aria-label={label}
+        aria-haspopup="dialog"
+        className="admin-top-tool-btn relative flex h-9 w-9 shrink-0 items-center justify-center transition"
+      >
         <AdminTopToolIcon src={src} />
         {badge ? <span className="admin-top-tool-badge" /> : null}
-      </a>
+      </button>
     </AdminHoverBubble>
   );
 }
@@ -557,17 +579,16 @@ function ProfileMenuPanel({
     <>
       <AdminBubbleHeader title={ADMIN_TOP_TOOL_HINTS.profile.title} description={ADMIN_TOP_TOOL_HINTS.profile.description} />
       {ownerEmail ? <p className="admin-profile-menu-email truncate px-3 pb-1 text-[11px]">{ownerEmail}</p> : null}
+      <div className="admin-bubble-body">
+        <AdminBubbleCta href={ADMIN_TOP_HASHES.profile} onClick={onNavigate}>
+          Open profile
+        </AdminBubbleCta>
+      </div>
       <div className="admin-bubble-body admin-bubble-body--menu">
         <AdminBubbleMenuItem
-          href="#config-restaurant"
-          title="Account"
-          description={ownerDisplayName}
-          onClick={onNavigate}
-        />
-        <AdminBubbleMenuItem
-          href="#config-restaurant"
-          title="Settings"
-          description="Restaurant configuration"
+          href={buildNavHref("config", "restaurant-profile")}
+          title="Restaurant settings"
+          description="Venue configuration"
           onClick={onNavigate}
         />
         <div className="admin-bubble-divider" />
@@ -586,6 +607,7 @@ function AdminTopNav({
   onLogoPress,
   onSignOut,
   onOpenMobileNav,
+  onOpenSearch,
   venueSwitching
 }: {
   restaurants: Restaurant[];
@@ -596,6 +618,7 @@ function AdminTopNav({
   onLogoPress: () => void;
   onSignOut: () => void;
   onOpenMobileNav?: () => void;
+  onOpenSearch: () => void;
   venueSwitching?: boolean;
 }) {
   const quickMenu = useHoverMenu();
@@ -604,8 +627,6 @@ function AdminTopNav({
   const ownerDisplayName = readOwnerContactName(ownerSignupProfile);
   const ownerInitial = (ownerDisplayName.charAt(0) || "O").toUpperCase();
   const selectedRestaurantName = restaurants.find((r) => r.id === selectedRestaurantId)?.name ?? "";
-  const platformHelpHref = `mailto:${FOOTER_SUPPORT_EMAIL}?subject=ServeOS%20platform%20help`;
-
   return (
     <header className="admin-top-nav fixed inset-x-0 top-0 z-[70]">
       <div className="flex h-[var(--admin-top-h)] items-center gap-2 px-3 sm:gap-3 sm:px-4">
@@ -642,7 +663,11 @@ function AdminTopNav({
 
         <div className="hidden min-w-0 flex-1 justify-center px-2 md:flex">
           <div className="w-full max-w-2xl lg:max-w-3xl">
-            <AdminTypingSearch ownerSignupProfile={ownerSignupProfile} restaurantName={selectedRestaurantName} />
+            <AdminTypingSearch
+              ownerSignupProfile={ownerSignupProfile}
+              restaurantName={selectedRestaurantName}
+              onOpenSearch={onOpenSearch}
+            />
           </div>
         </div>
 
@@ -651,26 +676,26 @@ function AdminTopNav({
             <AdminToolBubbleButton
               label="Platform help"
               src={ADMIN_TOP_ICONS.help}
-              href={platformHelpHref}
+              href={ADMIN_TOP_HASHES.platformHelp}
               hint={ADMIN_TOP_TOOL_HINTS.help}
             />
             <AdminToolBubbleButton
               label="Add staff"
               src={ADMIN_TOP_ICONS.addUser}
-              href="#config-staff"
+              href={ADMIN_TOP_HASHES.addStaff}
               hint={ADMIN_TOP_TOOL_HINTS.addUser}
             />
             <AdminToolBubbleButton
               label="Notifications"
               src={ADMIN_TOP_ICONS.notifications}
-              href="#control-alerts"
+              href={ADMIN_TOP_HASHES.notifications}
               hint={ADMIN_TOP_TOOL_HINTS.notifications}
               badge
             />
             <AdminToolBubbleButton
               label="Billing"
               src={ADMIN_TOP_ICONS.billing}
-              href="#config-payments"
+              href={ADMIN_TOP_HASHES.billing}
               hint={ADMIN_TOP_TOOL_HINTS.billing}
             />
             <AdminHoverBubble
@@ -788,6 +813,9 @@ export function AdminWorkspaceShell({
 }) {
   const { pinned, setPinned } = useAdminSidebarPinned();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const ownerDisplayName = readOwnerContactName(ownerSignupProfile);
+  const selectedRestaurantName = restaurants.find((r) => r.id === selectedRestaurantId)?.name ?? "";
 
   return (
     <div className="admin-workspace min-h-[100dvh]">
@@ -800,7 +828,15 @@ export function AdminWorkspaceShell({
         onLogoPress={onLogoPress}
         onSignOut={onSignOut}
         onOpenMobileNav={() => setMobileNavOpen(true)}
+        onOpenSearch={() => setSearchOpen(true)}
         venueSwitching={venueSwitching}
+      />
+
+      <AdminGlobalSearchModal
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        restaurantName={selectedRestaurantName}
+        ownerName={ownerDisplayName}
       />
 
       <AdminSideNav pinned={pinned} onPinnedChange={setPinned} />

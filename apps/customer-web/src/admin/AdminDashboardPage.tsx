@@ -51,6 +51,13 @@ import {
   type DeploymentQuote,
   type TrialNoticePayload
 } from "./deploymentApi";
+import { DEFAULT_ADMIN_HASH, readAdminHash, readOwnerContactName } from "./adminNavContent";
+import { AdminPageTransition } from "./AdminPageTransition";
+import { AdminVenueControlCentrePage } from "./AdminVenueControlCentre";
+import { AdminTopPageView } from "./AdminTopPages";
+import { AdminWorkspaceView } from "./AdminWorkspaces";
+import { ADMIN_VENUE_CONTROL_HASH, adminFullPageKey } from "./adminTopHashes";
+import { ADMIN_NAV_SYNC_EVENT, parseAdminRoute } from "./adminWorkspaceRouting";
 import { LogoutConfirmModal } from "./LogoutConfirmModal";
 import { OwnerTrialNoticeModal } from "./OwnerTrialNoticeModal";
 import { WorkspaceLaunchModal } from "./WorkspaceLaunchModal";
@@ -99,7 +106,25 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const [logoutBusy, setLogoutBusy] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
+  const [adminHash, setAdminHash] = useState(readAdminHash);
   const { theme, toggleTheme } = useAdminTheme();
+
+  useEffect(() => {
+    const onHash = () => {
+      setAdminHash(readAdminHash());
+      window.scrollTo({ top: 0, behavior: "auto" });
+    };
+    const onSync = (e: Event) => {
+      const detail = (e as CustomEvent<{ hash: string }>).detail;
+      if (detail?.hash) setAdminHash(detail.hash);
+    };
+    window.addEventListener("hashchange", onHash);
+    window.addEventListener(ADMIN_NAV_SYNC_EVENT, onSync);
+    return () => {
+      window.removeEventListener("hashchange", onHash);
+      window.removeEventListener(ADMIN_NAV_SYNC_EVENT, onSync);
+    };
+  }, []);
 
   const loadTrialNotice = useCallback(async (t: string) => {
     const res = await fetchOwnerTrialNotice(t);
@@ -277,7 +302,7 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
       setStatus(mapApiErrorToMessage(res.error) ?? "venue_switch_failed");
       return;
     }
-    window.location.hash = "#control-room";
+    window.location.hash = DEFAULT_ADMIN_HASH;
     window.location.reload();
   }
 
@@ -330,6 +355,11 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
     setLogoutModalOpen(false);
     onAfterLogout();
   }
+
+  const ownerDisplayName = readOwnerContactName(ownerUser?.signupProfile);
+  const adminRoute = parseAdminRoute(adminHash);
+  const showFullPage = adminRoute.kind === "full-page";
+  const selectedVenueName = restaurants.find((r) => r.id === selectedRestaurantId)?.name ?? "";
 
   const catalogAndOrders = (
     <>
@@ -681,8 +711,24 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
           venueSwitching={venueSwitching}
         >
           <main id="top" className={adminWorkspaceMain}>
-            <AdminControlRoomPanel />
-            {catalogAndOrders}
+            <AdminPageTransition
+              pageKey={showFullPage ? adminFullPageKey(adminHash) : `ws-${adminRoute.workspaceId}`}
+            >
+              {showFullPage ? (
+                adminHash === ADMIN_VENUE_CONTROL_HASH ? (
+                  <AdminVenueControlCentrePage venueName={selectedVenueName} venueId={selectedRestaurantId} />
+                ) : (
+                  <AdminTopPageView
+                    hash={adminHash}
+                    displayName={ownerDisplayName}
+                    email={ownerUser?.email}
+                    onSignOut={requestSignOut}
+                  />
+                )
+              ) : (
+                <AdminWorkspaceView workspaceId={adminRoute.workspaceId} presetId={adminRoute.presetId} />
+              )}
+            </AdminPageTransition>
           </main>
         </AdminWorkspaceShell>
       ) : (
