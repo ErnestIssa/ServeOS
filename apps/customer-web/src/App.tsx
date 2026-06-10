@@ -49,9 +49,8 @@ export function App() {
 
   useEffect(() => {
     if (!adminSession) return;
-    const pathView = viewFromPath(window.location.pathname);
-    if (pathView !== "admin") {
-      setView("admin");
+    setView("admin");
+    if (viewFromPath(window.location.pathname) !== "admin") {
       syncUrlForView("admin", true);
     }
   }, [adminSession]);
