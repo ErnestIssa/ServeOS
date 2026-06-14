@@ -11,6 +11,7 @@ import {
   subPanelCls
 } from "./AdminUi";
 import { ADMIN_TOP_HASHES } from "./adminTopHashes";
+import { AdminProfilePage } from "./profile/AdminProfilePage";
 
 type PageShellProps = {
   id: string;
@@ -396,162 +397,20 @@ export function AdminPlatformHelpPage() {
   );
 }
 
-type ProfilePageProps = {
-  displayName: string;
-  email?: string | null;
-  onSignOut?: () => void;
-};
-
-export function AdminProfilePage({ displayName, email, onSignOut }: ProfilePageProps) {
-  const initial = (displayName.charAt(0) || "O").toUpperCase();
-
-  return (
-    <AdminPageShell
-      id={ADMIN_TOP_HASHES.profile.slice(1)}
-      eyebrow="Account"
-      title="Your profile"
-      description="Personal details, security, sessions, and workspace preferences. Profile saves will route through the account API when enabled."
-      action={
-        onSignOut ? (
-          <AdminBtnSecondary onClick={onSignOut}>
-            Sign out
-          </AdminBtnSecondary>
-        ) : undefined
-      }
-    >
-      <div className="grid gap-5 xl:grid-cols-12">
-        <div className={`${subPanelCls} admin-top-page-card xl:col-span-4`}>
-          <div className="flex flex-col items-center text-center sm:flex-row sm:items-start sm:text-left sm:gap-4">
-            <span className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-blue-600 text-2xl font-bold text-white shadow-lg">
-              {initial}
-            </span>
-            <div className="mt-4 min-w-0 sm:mt-1">
-              <p className="font-display text-xl font-bold text-slate-900">{displayName}</p>
-              <p className="mt-1 truncate text-sm text-slate-600">{email ?? "owner@venue.com"}</p>
-              <Chip tone="violet">Owner</Chip>
-            </div>
-          </div>
-          <div className="mt-6 flex flex-wrap justify-center gap-2 sm:justify-start">
-            <AdminBtnSecondary>Upload photo</AdminBtnSecondary>
-            <AdminBtnSecondary>Change email</AdminBtnSecondary>
-          </div>
-        </div>
-
-        <div className={`${subPanelCls} admin-top-page-card xl:col-span-8`}>
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Personal information</p>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <AdminLabel>
-              Full name
-              <AdminInput defaultValue={displayName} />
-            </AdminLabel>
-            <AdminLabel>
-              Phone
-              <AdminInput type="tel" placeholder="+46 70 000 00 00" />
-            </AdminLabel>
-            <AdminLabel className="sm:col-span-2">
-              Job title
-              <AdminInput placeholder="Owner / General manager" />
-            </AdminLabel>
-          </div>
-          <div className="mt-4">
-            <AdminBtnPrimary>Save profile</AdminBtnPrimary>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-5 grid gap-5 lg:grid-cols-2">
-        <div className={`${subPanelCls} admin-top-page-card`}>
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Security</p>
-          <div className="mt-4 grid gap-4">
-            <AdminLabel>
-              Current password
-              <AdminInput type="password" autoComplete="current-password" />
-            </AdminLabel>
-            <AdminLabel>
-              New password
-              <AdminInput type="password" autoComplete="new-password" />
-            </AdminLabel>
-            <div className="flex flex-wrap gap-2">
-              <AdminBtnPrimary>Update password</AdminBtnPrimary>
-              <AdminBtnSecondary>Enable 2FA</AdminBtnSecondary>
-            </div>
-          </div>
-        </div>
-
-        <div className={`${subPanelCls} admin-top-page-card`}>
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Sessions & devices</p>
-          <ul className="mt-4 space-y-3">
-            <li className="admin-session-row rounded-xl border p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-sm font-semibold">This browser</p>
-                  <p className="text-xs text-slate-500">Windows · Chrome · Active now</p>
-                </div>
-                <Chip tone="success">Current</Chip>
-              </div>
-            </li>
-            <li className="admin-session-row rounded-xl border p-3 opacity-80">
-              <p className="text-sm font-semibold">iPhone 15</p>
-              <p className="text-xs text-slate-500">ServeOS mobile · Last active 2 days ago</p>
-            </li>
-          </ul>
-          <div className="mt-4">
-            <AdminBtnSecondary>Sign out other sessions</AdminBtnSecondary>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-5 grid gap-5 lg:grid-cols-3">
-        <div className={`${subPanelCls} admin-top-page-card`}>
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Notifications</p>
-          <p className="mt-2 text-sm text-slate-600">Choose which alerts reach your email and push devices.</p>
-          <a href={ADMIN_TOP_HASHES.notifications} className="admin-page-text-link mt-4 inline-block text-sm font-semibold">
-            Open notification settings →
-          </a>
-        </div>
-        <div className={`${subPanelCls} admin-top-page-card`}>
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Billing</p>
-          <p className="mt-2 text-sm text-slate-600">Subscription, invoices, and payment methods for your workspace.</p>
-          <a href={ADMIN_TOP_HASHES.billing} className="admin-page-text-link mt-4 inline-block text-sm font-semibold">
-            Open billing →
-          </a>
-        </div>
-        <div className={`${subPanelCls} admin-top-page-card`}>
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Venue access</p>
-          <p className="mt-2 text-sm text-slate-600">You have owner access to all venues in this workspace.</p>
-          <a href="#ws-config/locations" className="admin-page-text-link mt-4 inline-block text-sm font-semibold">
-            Manage locations →
-          </a>
-        </div>
-      </div>
-
-      <div className={`${subPanelCls} admin-top-page-card admin-danger-zone mt-5`}>
-        <p className="text-xs font-bold uppercase tracking-wide text-red-600/90">Danger zone</p>
-        <p className="mt-2 max-w-xl text-sm text-slate-600">
-          Transfer ownership or permanently close your workspace. These actions require verification and cannot be undone
-          from the UI alone.
-        </p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <AdminBtnSecondary>Transfer ownership</AdminBtnSecondary>
-          <button type="button" className="admin-page-danger-btn rounded-full px-4 py-2 text-xs font-bold">
-            Request account closure
-          </button>
-        </div>
-      </div>
-    </AdminPageShell>
-  );
-}
-
 export function AdminTopPageView({
   hash,
+  token,
   displayName,
   email,
-  onSignOut
+  onSignOut,
+  onEmailChanged
 }: {
   hash: string;
+  token: string;
   displayName: string;
   email?: string | null;
   onSignOut?: () => void;
+  onEmailChanged?: (email: string) => void;
 }) {
   switch (hash) {
     case ADMIN_TOP_HASHES.billing:
@@ -563,7 +422,15 @@ export function AdminTopPageView({
     case ADMIN_TOP_HASHES.platformHelp:
       return <AdminPlatformHelpPage />;
     case ADMIN_TOP_HASHES.profile:
-      return <AdminProfilePage displayName={displayName} email={email} onSignOut={onSignOut} />;
+      return (
+        <AdminProfilePage
+          token={token}
+          displayName={displayName}
+          email={email}
+          onSignOut={onSignOut}
+          onEmailChanged={onEmailChanged}
+        />
+      );
     default:
       return null;
   }

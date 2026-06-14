@@ -6,6 +6,7 @@ import { VENUE_PERMISSION as P } from "./venuePermissions.js";
 import {
   createChatTextMessage,
   serializeMessage,
+  serializeMessages,
   type SerializedChatMessage
 } from "./chatMessageService.js";
 import {
@@ -177,14 +178,14 @@ export async function loadOrderOclThread(
     ? await prisma.chatRoom.findUnique({ where: { id: chatRoomId } })
     : null;
 
-  const messages: SerializedChatMessage[] = allMessages
-    .filter((m) => humanIds.has(m.id))
-    .map((m) =>
-      serializeMessage(m, { userId: ctx.userId, role: viewerRole }, {
-        restaurantLastReadAt: room?.restaurantLastReadAt ?? null,
-        customerLastReadAt: room?.customerLastReadAt ?? null
-      })
-    );
+  const messages: SerializedChatMessage[] = await serializeMessages(
+    allMessages.filter((m) => humanIds.has(m.id)),
+    { userId: ctx.userId, role: viewerRole },
+    {
+      restaurantLastReadAt: room?.restaurantLastReadAt ?? null,
+      customerLastReadAt: room?.customerLastReadAt ?? null
+    }
+  );
 
   const next = NEXT_STATUS[order.status];
   const actions: OclAction[] = [];
@@ -257,7 +258,7 @@ async function publishOrderStatusChatMessage(
   );
   if (!seeded) return;
   const room = await prisma.chatRoom.findUnique({ where: { id: input.chatRoomId } });
-  const message = serializeMessage(
+  const message = await serializeMessage(
     seeded,
     { userId: input.order.customerUserId, role: "CUSTOMER" },
     {
@@ -465,7 +466,7 @@ export async function performOclStatusAction(
       });
       if (domainEventBus && order.customerUserId) {
         const room = await prisma.chatRoom.findUnique({ where: { id: chatRoomId } });
-        const message = serializeMessage(
+        const message = await serializeMessage(
           noteRow,
           { userId: order.customerUserId, role: "CUSTOMER" },
           {
@@ -524,7 +525,7 @@ export async function sendOclHumanMessage(
   });
   if (domainEventBus && order.customerUserId) {
     const room = await prisma.chatRoom.findUnique({ where: { id: thread.chatRoomId } });
-    const message = serializeMessage(
+    const message = await serializeMessage(
       noteRow,
       { userId: order.customerUserId, role: "CUSTOMER" },
       {

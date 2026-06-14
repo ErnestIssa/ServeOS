@@ -1,14 +1,20 @@
-const fromEnv = import.meta.env.VITE_API_URL?.trim();
-const PROD_DEFAULT = "https://serveos-api.onrender.com";
-export const API_URL = fromEnv || PROD_DEFAULT;
+import { captureClientApiError } from "./sentry";
+import { readApiMessage } from "./bootstrap/clientConfig";
 
-export function mapApiErrorToMessage(err?: string): string {
-  if (!err) return "Request failed";
-  if (err === "user_already_exists") return "That email is already registered — use Log in instead.";
-  if (err.startsWith("bad_response") || err.startsWith("non_json_") || err.startsWith("dev_proxy")) {
-    return "Could not reach the API. For local @serveos/api set VITE_API_URL=http://127.0.0.1:3000; default is the deployed Render API.";
-  }
-  return err;
+/** Deployment wiring only — all service setup (Sentry, URLs, capabilities) comes from `GET /config/client`. */
+const API_BASE =
+  (import.meta.env.VITE_API_URL as string | undefined)?.trim() || "https://serveos-api.onrender.com";
+
+export function getApiBaseUrl(): string {
+  return API_BASE.replace(/\/$/, "");
+}
+
+export const API_URL = getApiBaseUrl();
+
+export function mapApiErrorToMessage(res?: { message?: string; error?: string } | string | null): string {
+  if (!res) return "Request failed";
+  if (typeof res === "string") return res;
+  return readApiMessage(res);
 }
 
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -20,6 +26,9 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
     return { ok: false, error: "network_unreachable_is_backend_running" } as T;
   }
   const text = await res.text();
+  if (!res.ok && res.status >= 500) {
+    captureClientApiError(path, res.status, text.slice(0, 200) || undefined);
+  }
   const type = (res.headers.get("content-type") ?? "").toLowerCase();
   if (!type.includes("json") && res.status >= 400) {
     return {
@@ -75,6 +84,7 @@ export type AuthResponse = {
   token?: string;
   user?: { id: string; email?: string | null; phone?: string | null; role: string };
   error?: string;
+  message?: string;
 };
 
 export async function signup(params: { email: string; password: string; role: "OWNER" | "STAFF" | "CUSTOMER" }) {

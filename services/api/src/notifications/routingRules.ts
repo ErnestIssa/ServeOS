@@ -103,10 +103,17 @@ export const ROUTING_RULES: Record<DomainEventType, RouteRule> = {
   "staff.invited": {
     category: "STAFF",
     priority: "HIGH",
-    channels: ["IN_APP", "EMAIL", "SMS", "WHATSAPP"],
+    channels: ["SMS"],
     recipients: "invitee_contact",
     title: (p) => `Invitation to ${String(p.restaurantName ?? "venue")}`,
-    body: (p) => `You've been invited as ${String(p.intendedRole ?? "staff")}. Open the link to join.`
+    body: (p) => {
+      const role = String(p.intendedRole ?? "staff");
+      const venue = String(p.restaurantName ?? "venue");
+      const url = typeof p.acceptUrl === "string" ? p.acceptUrl : "";
+      return url
+        ? `You're invited as ${role} at ${venue}. Join: ${url}`
+        : `You're invited as ${role} at ${venue}.`;
+    }
   },
   "staff.pending_approval": {
     category: "STAFF",

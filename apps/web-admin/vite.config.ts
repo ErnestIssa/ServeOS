@@ -20,6 +20,7 @@ const workspacePackages = [
 ];
 
 export default defineConfig({
+  envDir: repoRoot,
   plugins: [react()],
   resolve: {
     preserveSymlinks: false,

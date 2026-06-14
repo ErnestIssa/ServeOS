@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ADMIN_APP_PATH, DEMO_MAILTO, WEB_ADMIN_URL } from "./constants";
+import { ADMIN_APP_PATH, DEMO_MAILTO, webAdminUrl } from "./constants";
 import { glassPanel, eyebrow, sectionTitle, btnPrimary, btnSecondary } from "./styles";
 
 export function scrollToId(id: string) {
@@ -71,8 +71,9 @@ export function BtnSecondary({
 }
 
 export function startFreeTrial() {
-  if (WEB_ADMIN_URL) {
-    window.open(WEB_ADMIN_URL, "_blank", "noopener,noreferrer");
+  const adminUrl = webAdminUrl();
+  if (adminUrl) {
+    window.open(adminUrl, "_blank", "noopener,noreferrer");
     return;
   }
   window.location.assign(ADMIN_APP_PATH);

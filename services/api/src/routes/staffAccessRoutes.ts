@@ -10,6 +10,8 @@ import {
   previewInvitation
 } from "../lib/staffInvitationService.js";
 import { notifyStaffInvited } from "../notifications/integrations/staff.js";
+import { sendStaffInvitationEmail } from "../lib/integrations/transactionalEmails.js";
+import { isSmsProviderConfigured } from "../lib/integrations/smsProvider.js";
 import {
   listVenueStaff,
   approveMembership,
@@ -41,7 +43,7 @@ export function registerStaffAccessRoutes(
     invitableRoles: INVITABLE_OPERATIONAL_ROLES,
     managerRole: "MANAGER",
     groups: PERMISSION_GROUPS,
-    note: "Notification delivery is not enabled yet; invitations return acceptUrl only."
+    note: "Staff invitation email is sent via Resend (primary). SMS is sent via Twilio when configured and a phone number is provided."
   }));
 
   app.get("/staff-invitations/preview", async (req, reply) => {
@@ -81,9 +83,25 @@ export function registerStaffAccessRoutes(
         where: { id: restaurantId },
         select: { name: true }
       });
+      const restaurantName = restaurant?.name ?? "Venue";
+      let emailResult: { id: string };
+      try {
+        emailResult = await sendStaffInvitationEmail({
+          to: body.email,
+          fullName: body.fullName,
+          restaurantName,
+          intendedRole: body.intendedRole,
+          acceptUrl: created.acceptUrl,
+          expiresAt: created.expiresAt.toISOString().slice(0, 10)
+        });
+      } catch (e: unknown) {
+        const err = e as { message?: string };
+        return reply.status(502).send({ ok: false, error: err.message ?? "email_send_failed" });
+      }
+
       await notifyStaffInvited(domainEventBus, {
         restaurantId,
-        restaurantName: restaurant?.name ?? "Venue",
+        restaurantName,
         invitationId: created.invitationId,
         fullName: body.fullName,
         email: body.email,
@@ -98,9 +116,12 @@ export function registerStaffAccessRoutes(
         expiresAt: created.expiresAt.toISOString(),
         acceptUrl: created.acceptUrl,
         delivery: {
-          queued: true,
-          channels: body.notifyChannels ?? ["email", "sms", "whatsapp"],
-          message: "routed_via_notification_service"
+          email: { sent: true, id: emailResult.id },
+          sms: {
+            queued: isSmsProviderConfigured() && Boolean(body.phone?.trim()),
+            requiresVerifiedNumber: true
+          },
+          channels: body.notifyChannels ?? ["email", "sms"]
         }
       };
     } catch (e: unknown) {

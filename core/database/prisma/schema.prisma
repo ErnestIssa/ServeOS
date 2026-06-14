@@ -47,11 +47,169 @@ model User {
   memberships   Membership[]
   notifications Notification[]
   notificationPreference UserNotificationPreference?
+  accountProfile UserAccountProfile?
+  appPreferences UserAppPreferences?
+  sessions      UserSession[]
+  securityActivity SecurityActivity[]
+  emailChangeRequests EmailChangeRequest[]
+  twoFactorAuth UserTwoFactorAuth?
+  accountClosureRequests AccountClosureRequest[]
+  ownershipTransferRequests OwnershipTransferRequest[] @relation("OwnershipTransferFrom")
+  passwordResetRequests PasswordResetRequest[]
   customerOrders Order[] @relation("CustomerOrders")
   shoppingCarts ShoppingCart[]
   customerChatRooms ChatRoom[] @relation("CustomerChatRooms")
   reservationDrafts CustomerReservationDraft[]
   customerReservations CustomerReservation[]
+  deviceTokens         UserDeviceToken[]
+}
+
+/// Owner/staff personal profile — SSOT for admin profile page (distinct from signupProfile snapshot).
+model UserAccountProfile {
+  userId          String   @id
+  fullName        String?
+  phone           String?
+  jobTitle        String?
+  profileImageUrl String?
+  profileImageKey String?
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Per-user locale / display preferences.
+model UserAppPreferences {
+  userId     String   @id
+  language   String   @default("en")
+  timezone   String   @default("Europe/Stockholm")
+  dateFormat String   @default("YYYY-MM-DD")
+  timeFormat String   @default("24h")
+  theme      String   @default("system")
+  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Active auth sessions per device/browser — keyed by JWT fingerprint.
+model UserSession {
+  id               String    @id @default(cuid())
+  userId           String
+  tokenFingerprint String    @unique
+  deviceName       String?
+  browser          String?
+  ipMasked         String?
+  location         String?
+  userAgent        String?
+  lastActiveAt     DateTime  @default(now())
+  createdAt        DateTime  @default(now())
+  revokedAt        DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, lastActiveAt])
+}
+
+enum SecurityActivityType {
+  LOGIN_SUCCESS
+  LOGIN_FAILED
+  PASSWORD_CHANGED
+  PASSWORD_RESET_REQUESTED
+  EMAIL_CHANGE_REQUESTED
+  EMAIL_CHANGED
+  TWO_FA_ENABLED
+  TWO_FA_DISABLED
+  SESSION_REVOKED
+  SESSIONS_REVOKED_ALL
+  OWNERSHIP_TRANSFER_REQUESTED
+  ACCOUNT_CLOSURE_REQUESTED
+  PROFILE_UPDATED
+}
+
+model SecurityActivity {
+  id        String               @id @default(cuid())
+  userId    String
+  type      SecurityActivityType
+  metadata  Json?
+  ipMasked  String?
+  createdAt DateTime             @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model EmailChangeRequest {
+  id                 String    @id @default(cuid())
+  userId             String
+  newEmail           String
+  tokenHash          String    @unique
+  passwordVerifiedAt DateTime?
+  expiresAt          DateTime
+  consumedAt         DateTime?
+  createdAt          DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model UserTwoFactorAuth {
+  userId         String    @id
+  secretEnc      String
+  enabled        Boolean   @default(false)
+  backupCodesHash Json?
+  lastVerifiedAt DateTime?
+  enabledAt      DateTime?
+  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AccountClosureRequest {
+  id           String   @id @default(cuid())
+  userId       String
+  reason       String?
+  status       String   @default("PENDING")
+  coolingUntil DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+}
+
+model PasswordResetRequest {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model OwnershipTransferRequest {
+  id                 String    @id @default(cuid())
+  fromUserId         String
+  toEmail            String
+  toUserId           String?
+  restaurantId       String
+  status             String    @default("PENDING")
+  passwordVerifiedAt DateTime?
+  twoFaVerifiedAt    DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  fromUser User @relation("OwnershipTransferFrom", fields: [fromUserId], references: [id], onDelete: Cascade)
+
+  @@index([fromUserId, status])
 }
 
 model Company {
@@ -65,10 +223,54 @@ model Company {
   restaurants Restaurant[]
 }
 
+enum StoredMediaScope {
+  PROFILE_IMAGE
+  RESTAURANT_IMAGE
+  MENU_IMAGE
+  CHAT_IMAGE
+  VIDEO
+  PDF
+  INVOICE
+  DOCUMENT
+  ATTACHMENT
+}
+
+enum StoredMediaVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+model StoredMedia {
+  id            String                @id @default(cuid())
+  objectKey     String                @unique
+  scope         StoredMediaScope
+  contentType   String
+  byteSize      Int
+  sha256Hex     String?
+  visibility    StoredMediaVisibility @default(PRIVATE)
+  originalName  String?
+  uploadedById  String?
+  restaurantId  String?
+  userId        String?
+  menuItemId    String?
+  chatRoomId    String?
+  chatMessageId String?               @unique
+  createdAt     DateTime              @default(now())
+
+  restaurant Restaurant? @relation(fields: [restaurantId], references: [id], onDelete: SetNull)
+  menuItem   MenuItem?   @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+
+  @@index([restaurantId, scope])
+  @@index([userId])
+  @@index([chatRoomId])
+}
+
 model Restaurant {
   id           String   @id @default(cuid())
   name         String
   openingHours String?  // later: structured JSON
+  logoImageKey  String?
+  coverImageKey String?
 
   companyId               String?
   company                 Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -91,6 +293,7 @@ model Restaurant {
   chatRooms      ChatRoom[]
   reservationDrafts CustomerReservationDraft[]
   customerReservations CustomerReservation[]
+  storedMedia        StoredMedia[]
 
   @@index([companyId])
 }
@@ -210,6 +413,7 @@ model MenuItem {
   name        String
   description String?
   priceCents  Int
+  imageKey    String?
   sortOrder   Int      @default(0)
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
@@ -219,6 +423,7 @@ model MenuItem {
   modifierGroups ModifierGroup[]
   orderLineItems OrderLineItem[]
   cartLines      CartLine[]
+  storedMedia    StoredMedia[]
 
   @@index([categoryId])
 }
@@ -450,6 +655,22 @@ model NotificationDelivery {
 
   @@index([notificationId])
   @@index([channel, status])
+}
+
+/// FCM device tokens for mobile/web push delivery (HTTP v1 via Firebase Admin SDK).
+model UserDeviceToken {
+  id         String    @id @default(cuid())
+  userId     String
+  token      String    @unique
+  platform   String?
+  deviceName String?
+  lastSeenAt DateTime  @default(now())
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
 }
 
 /// User delivery preferences — CRITICAL events bypass these in the routing engine.

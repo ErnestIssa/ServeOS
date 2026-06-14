@@ -1,8 +1,9 @@
 /**
- * Production API only (see `docs/deploymentArchitecture.md`). No local / env override —
- * a stray `EXPO_PUBLIC_API_URL` in `.env` was easy to misconfigure; use this constant for dev and release.
+ * Deployment wiring only — all service setup comes from `GET /config/client` on the API.
+ * Optional `EXPO_PUBLIC_API_URL` for local dev; production default is the Render API.
  */
-const API_BASE = "https://serveos-api.onrender.com";
+const API_BASE =
+  (process.env.EXPO_PUBLIC_API_URL as string | undefined)?.trim() || "https://serveos-api.onrender.com";
 
 export function getApiBaseUrl(): string {
   return API_BASE;
@@ -32,8 +33,8 @@ export type AuthUser = {
   preferredRestaurantId?: string | null;
 };
 
-export type AuthResponse = { ok: boolean; token?: string; user?: AuthUser; error?: string };
-export type MeResponse = { ok: boolean; user?: AuthUser; error?: string };
+export type AuthResponse = { ok: boolean; token?: string; user?: AuthUser; error?: string; message?: string };
+export type MeResponse = { ok: boolean; user?: AuthUser; error?: string; message?: string };
 
 export type CompanyLookupResponse =
   | {

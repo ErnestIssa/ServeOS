@@ -18,7 +18,8 @@ import {
   createChatTextMessage,
   listRoomMessages,
   markCustomerRead,
-  serializeMessage
+  serializeMessage,
+  serializeMessages
 } from "../lib/chatMessageService.js";
 import type { ChatWsPayload } from "../lib/chatRealtime.js";
 import { notifyChatMessage } from "../notifications/integrations/chat.js";
@@ -265,7 +266,7 @@ export function registerCustomerChatRoutes(
       );
       if (seeded) {
         const room = await prisma.chatRoom.findUnique({ where: { id: chatRoomId } });
-        const serializedSeed = serializeMessage(
+        const serializedSeed = await serializeMessage(
           seeded,
           { userId: pl.sub, role: "CUSTOMER" },
           {
@@ -291,14 +292,14 @@ export function registerCustomerChatRoutes(
       take: 120
     });
     const { humanIds } = splitRoomMessagesForOcl(rawRows);
-    const serialized = rawRows
-      .filter((m) => humanIds.has(m.id))
-      .map((m) =>
-        serializeMessage(m, { userId: pl.sub, role: "CUSTOMER" }, {
-          restaurantLastReadAt: roomRow?.restaurantLastReadAt ?? null,
-          customerLastReadAt: roomRow?.customerLastReadAt ?? null
-        })
-      );
+    const serialized = await serializeMessages(
+      rawRows.filter((m) => humanIds.has(m.id)),
+      { userId: pl.sub, role: "CUSTOMER" },
+      {
+        restaurantLastReadAt: roomRow?.restaurantLastReadAt ?? null,
+        customerLastReadAt: roomRow?.customerLastReadAt ?? null
+      }
+    );
     const messages: ThreadFeedItem[] = serialized.map((m) => ({ kind: "message" as const, ...m }));
     const threadFeed = buildThreadFeed(messages);
     const timeline =
@@ -475,7 +476,7 @@ export function registerCustomerChatRoutes(
     });
 
     const room = await prisma.chatRoom.findUnique({ where: { id: chatRoomId } });
-    const message = serializeMessage(row, { userId: pl.sub, role: "CUSTOMER" }, {
+    const message = await serializeMessage(row, { userId: pl.sub, role: "CUSTOMER" }, {
       restaurantLastReadAt: room?.restaurantLastReadAt ?? null,
       customerLastReadAt: room?.customerLastReadAt ?? null
     });
@@ -575,20 +576,20 @@ export function registerCustomerChatRoutes(
       });
     }
 
-    const dataUris: string[] = [];
+    const normalizedImages: Array<{ mimeType: ChatImageMime; dataBase64: string }> = [];
     for (const img of images) {
       const uri = buildImageDataUri(img.mimeType as ChatImageMime, img.dataBase64.trim());
       if (!parseImageDataUri(uri)) {
         return reply.status(400).send({ ok: false, error: "invalid_image" });
       }
-      dataUris.push(uri);
+      normalizedImages.push({ mimeType: img.mimeType as ChatImageMime, dataBase64: img.dataBase64.trim() });
     }
 
     const rows = await createChatImageMessages(prisma, {
       chatRoomId,
       senderUserId: pl.sub,
       senderRole: "CUSTOMER",
-      dataUris
+      images: normalizedImages
     });
 
     const room = await prisma.chatRoom.findUnique({ where: { id: chatRoomId } });
@@ -596,9 +597,7 @@ export function registerCustomerChatRoutes(
       restaurantLastReadAt: room?.restaurantLastReadAt ?? null,
       customerLastReadAt: room?.customerLastReadAt ?? null
     };
-    const messages = rows.map((row) =>
-      serializeMessage(row, { userId: pl.sub, role: "CUSTOMER" }, readCtx)
-    );
+    const messages = await serializeMessages(rows, { userId: pl.sub, role: "CUSTOMER" }, readCtx);
     for (const message of messages) {
       await pushChatMessage({
         chatRoomId,

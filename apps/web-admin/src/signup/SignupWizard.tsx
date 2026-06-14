@@ -15,19 +15,19 @@
   evaluateGuestSignupForFinish,
   guestWizardStepValidation,
   normalizeCityFromRegistry,
-  readableAuthFailure,
   type AllowedCountry,
   type SignupFlow,
   type SignupFormState
 } from "@serveos/core-shared/signup-wizard";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { authSignup, lookupCompany } from "../api";
+import { readApiMessage } from "../bootstrap/clientConfig";
 import { iconPath } from "../marketing/assetPaths";
 import {
   NO_BUSINESS_YET_PATH,
   PRIVACY_POLICY_PATH,
   TERMS_OF_SERVICE_PATH,
-  WEB_ADMIN_URL
+  webAdminUrl
 } from "../marketing/constants";
 import { BizOtherTypeModal } from "./BizOtherTypeModal";
 import {
@@ -328,7 +328,7 @@ export function SignupWizard({ flow, onExit, onSuccess, onAccountCreatingChange 
     const res = await authSignup(fin.payload);
     setBusy(false);
     if (!res.ok || !res.token) {
-      setBannerErr(readableAuthFailure(res.error ?? "sign_up_failed"));
+      setBannerErr(readApiMessage(res));
       return;
     }
     sessionStorage.setItem("serveos.signup.token", res.token);
@@ -362,7 +362,7 @@ export function SignupWizard({ flow, onExit, onSuccess, onAccountCreatingChange 
 
     if (!res.ok || !res.token) {
       setBizAccountCreating(false);
-      const msg = readableAuthFailure(res.error ?? "sign_up_failed");
+      const msg = readApiMessage(res);
       setBannerErr(msg);
       setBtnErr(msg);
       return;
@@ -371,7 +371,7 @@ export function SignupWizard({ flow, onExit, onSuccess, onAccountCreatingChange 
     clearSignupSession();
     handoffToAdminApp(res.token);
 
-    if (!WEB_ADMIN_URL) {
+    if (!webAdminUrl()) {
       setBizAccountCreating(false);
       onSuccess("OWNER");
     }

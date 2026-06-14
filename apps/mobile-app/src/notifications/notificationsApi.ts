@@ -60,3 +60,25 @@ export async function markAllNotificationsRead(jwt: string) {
     headers: { Authorization: `Bearer ${jwt}` }
   });
 }
+
+export async function registerDevicePushToken(
+  jwt: string,
+  body: { token: string; platform?: string; deviceName?: string }
+) {
+  return apiFetch<{ ok: true; deviceTokenId?: string } | { ok: false; error?: string }>(
+    "/notifications/device-tokens",
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }
+  );
+}
+
+export async function revokeDevicePushToken(jwt: string, token: string) {
+  return apiFetch<{ ok: true } | { ok: false; error?: string }>("/notifications/device-tokens", {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ token })
+  });
+}

@@ -1,4 +1,4 @@
-import { DEMO_MAILTO, WEB_ADMIN_URL } from "./constants";
+import { DEMO_MAILTO, webAdminUrl } from "./constants";
 
 export type NavAction =
   | { type: "scroll"; targetId: string }
@@ -182,13 +182,13 @@ export const LOGIN_OPTIONS = [
     id: "staff",
     label: "Restaurant staff",
     description: "Orders, tasks, and floor operations",
-    href: WEB_ADMIN_URL || undefined
+    href: webAdminUrl() || undefined
   },
   {
     id: "admin",
     label: "Restaurant admin",
     description: "Dashboard, menu, and venue control",
-    href: WEB_ADMIN_URL || undefined
+    href: webAdminUrl() || undefined
   }
 ] as const;
 

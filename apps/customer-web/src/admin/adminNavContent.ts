@@ -111,8 +111,7 @@ export const ADMIN_TOP_TOOL_HINTS = {
     kicker: "Create"
   },
   profile: {
-    title: "Your account",
-    description: "Profile, settings, and session."
+    title: "Your account"
   }
 } as const;
 

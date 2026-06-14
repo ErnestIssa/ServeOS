@@ -44,7 +44,9 @@ export function ChatMessageBubble({ item, groupWithNext, groupWithPrev, showNewL
   const mine = item.isMine ?? item.senderRole === "CUSTOMER";
   const r = radii(groupWithPrev, groupWithNext, mine);
   const timeLabel = formatTime(item.createdAt);
-  const isImage = item.type === "IMAGE" && item.content.startsWith("data:image/");
+  const isImage =
+    item.type === "IMAGE" &&
+    (item.content.startsWith("data:image/") || item.content.startsWith("http://") || item.content.startsWith("https://"));
 
   return (
     <View style={[styles.row, mine ? styles.rowMine : styles.rowTheirs]}>

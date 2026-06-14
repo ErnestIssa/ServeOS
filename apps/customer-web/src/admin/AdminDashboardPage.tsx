@@ -44,6 +44,7 @@ import {
   type OrderRow
 } from "../api";
 import { clearAdminToken, consumeTokenFromUrl, persistAdminToken, readStoredAdminToken } from "../authStorage";
+import { confirmEmailChange } from "./profile/accountApi";
 import {
   dismissOwnerTrialNotice,
   fetchOwnerTrialNotice,
@@ -178,6 +179,33 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
   }, []);
 
   useEffect(() => {
+    if (!token) return;
+    const params = new URLSearchParams(window.location.search);
+    const emailChangeToken = params.get("emailChangeToken")?.trim();
+    if (!emailChangeToken) return;
+
+    void (async () => {
+      const res = await confirmEmailChange(token, emailChangeToken);
+      params.delete("emailChangeToken");
+      const query = params.toString();
+      const clean = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
+      window.history.replaceState({}, "", clean);
+
+      if (res.ok && res.token) {
+        persistAdminToken(res.token);
+        setToken(res.token);
+        if (res.email) {
+          setOwnerUser((prev) => (prev ? { ...prev, email: res.email } : prev));
+        }
+        setStatus("Email updated. You are signed in with your new address.");
+        window.location.hash = "#top-profile";
+      } else {
+        setStatus(mapApiErrorToMessage(res));
+      }
+    })();
+  }, [token]);
+
+  useEffect(() => {
     const root = document.documentElement;
     root.dataset.adminTheme = theme;
     if (token) {
@@ -299,7 +327,7 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
     const res = await setActiveRestaurant(token, id);
     if (!res.ok) {
       setVenueSwitching(false);
-      setStatus(mapApiErrorToMessage(res.error) ?? "venue_switch_failed");
+      setStatus(mapApiErrorToMessage(res));
       return;
     }
     window.location.hash = DEFAULT_ADMIN_HASH;
@@ -347,7 +375,7 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
     const res = await logout(token);
     if (!res.ok) {
       setLogoutBusy(false);
-      setLogoutError(mapApiErrorToMessage(res.error) ?? "logout_failed");
+      setLogoutError(mapApiErrorToMessage(res));
       return;
     }
     clearLocalSession();
@@ -720,9 +748,13 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
                 ) : (
                   <AdminTopPageView
                     hash={adminHash}
+                    token={token}
                     displayName={ownerDisplayName}
                     email={ownerUser?.email}
                     onSignOut={requestSignOut}
+                    onEmailChanged={(nextEmail) =>
+                      setOwnerUser((prev) => (prev ? { ...prev, email: nextEmail } : prev))
+                    }
                   />
                 )
               ) : (
@@ -759,7 +791,7 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
                     onClick={async () => {
                       setStatus("Signing up…");
                       const res = await signup({ email, password, role: "OWNER" });
-                      if (!res.ok || !res.token) return setStatus(mapApiErrorToMessage(res.error) ?? "signup_failed");
+                      if (!res.ok || !res.token) return setStatus(mapApiErrorToMessage(res));
                       persistAdminToken(res.token);
                       setToken(res.token);
                       setStatus("Signed up");
@@ -780,7 +812,7 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
                     onClick={async () => {
                       setStatus("Logging in…");
                       const res = await login({ email, password });
-                      if (!res.ok || !res.token) return setStatus(mapApiErrorToMessage(res.error) ?? "login_failed");
+                      if (!res.ok || !res.token) return setStatus(mapApiErrorToMessage(res));
                       persistAdminToken(res.token);
                       setToken(res.token);
                       setStatus("Logged in");

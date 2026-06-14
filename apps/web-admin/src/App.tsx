@@ -222,7 +222,7 @@ export function App() {
                     onClick={async () => {
                       setStatus("Signing up…");
                       const res = await signup({ email, password, role: "OWNER" });
-                      if (!res.ok || !res.token) return setStatus(mapApiErrorToMessage(res.error) ?? "signup_failed");
+                      if (!res.ok || !res.token) return setStatus(mapApiErrorToMessage(res));
                       persistAdminToken(res.token);
                       setToken(res.token);
                       setStatus("Signed up");
@@ -235,7 +235,7 @@ export function App() {
                     onClick={async () => {
                       setStatus("Logging in…");
                       const res = await login({ email, password });
-                      if (!res.ok || !res.token) return setStatus(mapApiErrorToMessage(res.error) ?? "login_failed");
+                      if (!res.ok || !res.token) return setStatus(mapApiErrorToMessage(res));
                       persistAdminToken(res.token);
                       setToken(res.token);
                       setStatus("Logged in");

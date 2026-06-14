@@ -37,6 +37,7 @@ function serveosWorkspaceSource(): Plugin {
 }
 
 export default defineConfig({
+  envDir: repoRoot,
   plugins: [react(), serveosWorkspaceSource()],
   resolve: {
     // Symlinked workspace packages can resolve a second copy of React and blank the app.

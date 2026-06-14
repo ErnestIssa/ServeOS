@@ -1,5 +1,6 @@
-export const WEB_ADMIN_URL = (import.meta.env.VITE_WEB_ADMIN_URL as string | undefined)?.trim() || "";
-/** In-app admin dashboard route on customer-web (default when VITE_WEB_ADMIN_URL is unset). */
+import { getWebAdminUrl } from "../bootstrap/clientConfig";
+
+/** In-app admin dashboard route on customer-web (default when separate web-admin URL is unset). */
 export const ADMIN_APP_PATH = "/admin";
 /** Placeholder until the dedicated policy page ships. */
 export const PRIVACY_POLICY_PATH = "/privacy";
@@ -8,6 +9,11 @@ export const TERMS_OF_SERVICE_PATH = "/terms";
 /** Placeholder until the pre-business onboarding page ships. */
 export const NO_BUSINESS_YET_PATH = "/no-business-yet";
 export const DEMO_MAILTO = "mailto:hello@serveos.com?subject=ServeOS%20demo%20request";
+
+/** Backend-driven URL from `GET /config/client` (not frontend env). */
+export function webAdminUrl(): string {
+  return getWebAdminUrl();
+}
 
 export const TAGLINE = "One platform. Every restaurant operation. Connected in real time.";
 

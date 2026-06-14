@@ -143,12 +143,14 @@ function AdminSideNav({
   onPinnedChange,
   mobileOpen = false,
   onMobileClose,
+  onExpandedChange,
   variant = "desktop"
 }: {
   pinned: boolean;
   onPinnedChange: (pinned: boolean) => void;
   mobileOpen?: boolean;
   onMobileClose?: () => void;
+  onExpandedChange?: (expanded: boolean) => void;
   variant?: "desktop" | "mobile";
 }) {
   const [hovered, setHovered] = useState(false);
@@ -175,6 +177,14 @@ function AdminSideNav({
   const expanded = pinned || hovered || variant === "mobile";
   const isMobile = variant === "mobile";
   const lockPageScroll = isMobile ? mobileOpen : hovered;
+
+  useEffect(() => {
+    if (isMobile) {
+      onExpandedChange?.(false);
+      return;
+    }
+    onExpandedChange?.(expanded);
+  }, [expanded, isMobile, onExpandedChange]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -336,9 +346,7 @@ function AdminSideNav({
 
   return (
     <aside
-      className={`admin-side-shell fixed bottom-0 left-0 z-[60] hidden lg:block ${
-        pinned ? "admin-side-shell--pinned" : ""
-      }`}
+      className="admin-side-shell fixed bottom-0 left-0 z-[60] hidden lg:block"
       style={{ top: "var(--admin-top-h)" }}
     >
       {nav}
@@ -411,11 +419,21 @@ function AdminBubbleShell({
   );
 }
 
-function AdminBubbleHeader({ title, description }: { title: string; description?: string }) {
+function AdminBubbleHeader({
+  title,
+  description,
+  descriptionClassName
+}: {
+  title: string;
+  description?: string;
+  descriptionClassName?: string;
+}) {
   return (
     <div className="admin-bubble-header">
       <p className="admin-bubble-title">{title}</p>
-      {description ? <p className="admin-bubble-desc">{description}</p> : null}
+      {description ? (
+        <p className={`admin-bubble-desc ${descriptionClassName ?? ""}`.trim()}>{description}</p>
+      ) : null}
     </div>
   );
 }
@@ -577,8 +595,11 @@ function ProfileMenuPanel({
 }) {
   return (
     <>
-      <AdminBubbleHeader title={ADMIN_TOP_TOOL_HINTS.profile.title} description={ADMIN_TOP_TOOL_HINTS.profile.description} />
-      {ownerEmail ? <p className="admin-profile-menu-email truncate px-3 pb-1 text-[11px]">{ownerEmail}</p> : null}
+      <AdminBubbleHeader
+        title={ADMIN_TOP_TOOL_HINTS.profile.title}
+        description={ownerEmail?.trim() || undefined}
+        descriptionClassName="truncate"
+      />
       <div className="admin-bubble-body">
         <AdminBubbleCta href={ADMIN_TOP_HASHES.profile} onClick={onNavigate}>
           Open profile
@@ -814,11 +835,14 @@ export function AdminWorkspaceShell({
   const { pinned, setPinned } = useAdminSidebarPinned();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [sideExpanded, setSideExpanded] = useState(() => readSidebarPinned());
   const ownerDisplayName = readOwnerContactName(ownerSignupProfile);
   const selectedRestaurantName = restaurants.find((r) => r.id === selectedRestaurantId)?.name ?? "";
 
   return (
-    <div className="admin-workspace min-h-[100dvh]">
+    <div
+      className={`admin-workspace min-h-[100dvh] ${sideExpanded ? "admin-workspace--side-expanded" : ""}`}
+    >
       <AdminTopNav
         restaurants={restaurants}
         selectedRestaurantId={selectedRestaurantId}
@@ -839,7 +863,7 @@ export function AdminWorkspaceShell({
         ownerName={ownerDisplayName}
       />
 
-      <AdminSideNav pinned={pinned} onPinnedChange={setPinned} />
+      <AdminSideNav pinned={pinned} onPinnedChange={setPinned} onExpandedChange={setSideExpanded} />
       <AdminSideNav
         variant="mobile"
         pinned={false}
@@ -848,7 +872,7 @@ export function AdminWorkspaceShell({
         onMobileClose={() => setMobileNavOpen(false)}
       />
 
-      <div className={`admin-workspace-main transition-[margin] duration-300 ease-out ${pinned ? "admin-workspace-main--pinned" : ""}`}>
+      <div className="admin-workspace-main">
         {children}
       </div>
     </div>

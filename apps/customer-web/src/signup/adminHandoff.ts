@@ -1,9 +1,9 @@
-import { ADMIN_APP_PATH, WEB_ADMIN_URL } from "../marketing/constants";
+import { ADMIN_APP_PATH, webAdminUrl } from "../marketing/constants";
 import { persistAdminToken } from "../authStorage";
 
 /** Redirect to the admin dashboard with JWT so the owner lands logged in. */
 export function handoffToAdminApp(token: string): void {
-  const base = WEB_ADMIN_URL.trim();
+  const base = webAdminUrl().trim();
   if (base) {
     persistAdminToken(token);
     try {

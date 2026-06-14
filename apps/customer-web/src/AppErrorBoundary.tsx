@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { captureClientException } from "./sentry";
 
 type Props = {
   children: ReactNode;
@@ -17,6 +18,7 @@ export class AppErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error("ServeOS customer-web render error", error, info.componentStack);
+    captureClientException(error, { componentStack: info.componentStack ?? undefined });
   }
 
   private reload = () => {

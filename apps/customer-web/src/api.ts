@@ -1,3 +1,7 @@
+import { readApiMessage } from "./bootstrap/clientConfig";
+import { captureClientApiError } from "./sentry";
+
+/** Deployment wiring only — all service setup (Sentry, URLs, capabilities) comes from `GET /config/client`. */
 const API_BASE =
   (import.meta.env.VITE_API_URL as string | undefined)?.trim() || "https://serveos-api.onrender.com";
 
@@ -14,7 +18,7 @@ export type AuthUser = {
   preferredRestaurantId?: string | null;
 };
 
-export type AuthResponse = { ok: boolean; token?: string; user?: AuthUser; error?: string };
+export type AuthResponse = { ok: boolean; token?: string; user?: AuthUser; error?: string; message?: string };
 
 export type CompanyLookupResponse =
   | {
@@ -36,8 +40,11 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     const res = await fetch(`${getApiBaseUrl()}${path}`, init);
     const text = await res.text();
+    if (!res.ok && res.status >= 500) {
+      captureClientApiError(path, res.status, text.slice(0, 200) || undefined);
+    }
     try {
-      const data = JSON.parse(text) as T & { ok?: boolean; error?: string };
+      const data = JSON.parse(text) as T & { ok?: boolean; error?: string; message?: string };
       if (data && typeof data === "object" && "ok" in data) {
         if (!res.ok && data.ok !== false) {
           return { ...data, ok: false, error: data.error ?? `http_error_${res.status}` } as T;
@@ -85,16 +92,10 @@ export async function lookupCompany(orgNumber: string): Promise<CompanyLookupRes
   });
 }
 
-export function mapApiErrorToMessage(err?: string): string {
-  if (!err) return "Request failed";
-  if (err === "user_already_exists") return "That email is already registered — use Log in instead.";
-  if (err === "token_revoked") return "Your session has ended. Please sign in again.";
-  if (err === "invalid_token") return "Your session is no longer valid. Please sign in again.";
-  if (err === "invalid_credentials") return "Email or password is incorrect. Check your details and try again.";
-  if (err.startsWith("bad_response") || err.startsWith("http_error")) {
-    return "Could not reach the API. Check VITE_API_URL or try again later.";
-  }
-  return err;
+export function mapApiErrorToMessage(res?: { message?: string; error?: string } | string | null): string {
+  if (!res) return "Request failed";
+  if (typeof res === "string") return res;
+  return readApiMessage(res);
 }
 
 function authHeaders(token: string) {
@@ -124,6 +125,30 @@ export async function login(params: { email: string; password: string }): Promis
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params)
   });
+}
+
+export async function requestPasswordReset(email: string): Promise<{ ok: boolean; error?: string }> {
+  return apiFetch<{ ok: boolean; error?: string }>("/auth/password-reset/request", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: email.trim() })
+  });
+}
+
+export async function confirmPasswordReset(params: {
+  token: string;
+  newPassword: string;
+  confirmPassword: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  return apiFetch<{ ok: boolean; error?: string }>("/auth/password-reset/confirm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params)
+  });
+}
+
+export function mapPasswordResetError(res?: { message?: string; error?: string }): string {
+  return mapApiErrorToMessage(res);
 }
 
 export async function fetchMe(token: string): Promise<AuthResponse> {

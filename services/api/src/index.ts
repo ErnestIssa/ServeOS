@@ -1,7 +1,6 @@
-import { EventEmitter } from "node:events";
-import { loadServeOsEnv } from "@serveos/core-env";
-loadServeOsEnv();
+import "./instrument.js";
 
+import { EventEmitter } from "node:events";
 import { upstashRedisHealth } from "@serveos/core-upstash";
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
@@ -28,6 +27,15 @@ import { registerNotificationRealtime } from "./routes/notificationRealtime.js";
 import { initNotificationSystem } from "./notifications/initNotifications.js";
 import { ensureChatMessageImageEnum } from "./lib/chatImageEnum.js";
 import { isAuthTokenRevoked } from "./lib/authTokenRevocation.js";
+import { isSessionRevoked } from "./lib/account/sessionService.js";
+import { registerMeRoutes } from "./routes/meRoutes.js";
+import { registerMediaRoutes } from "./routes/mediaRoutes.js";
+import { captureApiError, captureException, flushSentry } from "./lib/integrations/sentry.js";
+import { isCloudflareCdnConfigured } from "./lib/integrations/cloudflareCdn.js";
+import { isObjectStorageConfigured } from "./lib/integrations/objectStorage.js";
+import { isSmsProviderConfigured } from "./lib/integrations/smsProvider.js";
+import { apiErrorMessage, apiFail, enrichApiPayload } from "./lib/apiErrors.js";
+import { registerConfigRoutes } from "./routes/configRoutes.js";
 
 const port = Number(process.env.PORT ?? process.env.API_GATEWAY_PORT ?? 3000);
 /** Render / Docker: set `HOST=0.0.0.0` so the service accepts external connections. */
@@ -44,7 +52,7 @@ domainEventBus.setMaxListeners(0);
 const notificationBus = new EventEmitter();
 notificationBus.setMaxListeners(0);
 
-app.setErrorHandler((err: unknown, _req, reply) => {
+app.setErrorHandler((err: unknown, req, reply) => {
   const e = err as {
     name?: string;
     statusCode?: number;
@@ -53,16 +61,40 @@ app.setErrorHandler((err: unknown, _req, reply) => {
     meta?: Record<string, unknown>;
   };
   if (e?.name === "ZodError") {
-    return reply.status(400).send({ ok: false, error: "validation_error" });
+    return reply.status(400).send({ ok: false, error: "validation_error", message: apiErrorMessage("validation_error") });
   }
   const code = e.statusCode ?? e.status ?? 500;
   const msg = e.message ?? "server_error";
-  if (code >= 500) app.log.error(err);
+  const errorCode = String(msg);
+  if (code >= 500) {
+    app.log.error(err);
+    captureException(err, { req, statusCode: code });
+  }
   return reply.status(code).send({
     ok: false,
-    error: String(msg),
+    error: errorCode,
+    message: apiErrorMessage(errorCode),
     ...(e.meta && typeof e.meta === "object" ? { meta: e.meta } : {})
   });
+});
+
+app.addHook("onSend", async (_req, _reply, payload) => {
+  if (typeof payload !== "string") return payload;
+  try {
+    const parsed = JSON.parse(payload) as { ok?: boolean; error?: string; message?: string };
+    if (parsed && typeof parsed === "object" && parsed.ok === false && parsed.error) {
+      return JSON.stringify(enrichApiPayload(parsed));
+    }
+  } catch {
+    /* not JSON */
+  }
+  return payload;
+});
+
+app.addHook("onResponse", async (req, reply) => {
+  if (reply.statusCode >= 500) {
+    captureApiError({ req, statusCode: reply.statusCode });
+  }
 });
 
 async function main() {
@@ -80,7 +112,10 @@ async function main() {
     const token = auth.slice("Bearer ".length).trim();
     if (!token) return;
     if (await isAuthTokenRevoked(token)) {
-      return reply.status(401).send({ ok: false, error: "token_revoked" });
+      return reply.status(401).send(apiFail("token_revoked"));
+    }
+    if (await isSessionRevoked(prisma, token)) {
+      return reply.status(401).send(apiFail("session_revoked"));
     }
   });
 
@@ -107,6 +142,11 @@ async function main() {
     return {
       ok,
       service: "serveos-api",
+      sentry: { configured: Boolean(process.env.SENTRY_DSN?.trim()) },
+      fcm: { configured: Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_KEY?.trim() || process.env.FIREBASE_SERVICE_ACCOUNT_PATH?.trim()) },
+      objectStorage: { configured: isObjectStorageConfigured() },
+      cloudflareCdn: { configured: isCloudflareCdnConfigured() },
+      sms: { configured: isSmsProviderConfigured() },
       upstashRedis: redis.configured
         ? { configured: true, ok: redis.ok, ...(redis.error ? { error: redis.error } : {}) }
         : { configured: false, mode: "skipped" }
@@ -119,7 +159,11 @@ async function main() {
     deployment: "unified",
     endpoints: [
       "/health",
+      "/config/client",
       "/auth/*",
+      "/auth/password-reset/*",
+      "/me/*",
+      "/media/*",
       "/customer/*",
       "/customer/context",
       "/mobile/experience",
@@ -139,7 +183,10 @@ async function main() {
     notificationBus
   });
 
+  registerConfigRoutes(app);
   registerAuthRoutes(app, prisma, domainEventBus);
+  registerMeRoutes(app, prisma);
+  registerMediaRoutes(app, prisma);
   registerMobileExperienceRoutes(app, prisma);
   registerMobileWorkspaceRoutes(app, prisma, chatBus, domainEventBus);
   registerStaffAccessRoutes(app, prisma, domainEventBus);
@@ -160,7 +207,9 @@ async function main() {
   await app.listen({ port, host });
 }
 
-void main().catch((err) => {
+void main().catch(async (err) => {
   app.log.error({ err }, "fatal_startup_error");
+  captureException(err, { tags: { area: "startup" } });
+  await flushSentry();
   process.exitCode = 1;
 });

@@ -9,6 +9,11 @@ import {
 import { emitChatEvent, type ChatWsPayload } from "../../lib/chatRealtime.js";
 import { roomOclEntity, type OclUpdatedPayload } from "../../lib/oclRealtime.js";
 import type { DeliveryChannel, DomainEvent, InAppUserPayload, NotificationTarget } from "../types.js";
+import { isEmailProviderConfigured } from "../../lib/integrations/emailProvider.js";
+import { sendNotificationEmail } from "../../lib/integrations/transactionalEmails.js";
+import { isPushProviderConfigured } from "../../lib/integrations/pushProvider.js";
+import { sendPushToUser } from "../../lib/deviceTokenService.js";
+import { isSmsProviderConfigured, sendSms } from "../../lib/integrations/smsProvider.js";
 
 export type ChannelContext = {
   prisma: PrismaClient;
@@ -94,57 +99,148 @@ export async function deliverInApp(
   }
 }
 
-/** Stub — plug FCM when `FCM_SERVER_KEY` is configured. */
+/** Firebase Admin SDK (FCM HTTP v1) push delivery. */
 export async function deliverPush(
   ctx: ChannelContext,
-  _event: DomainEvent,
+  event: DomainEvent,
   target: NotificationTarget,
   inApp?: InAppUserPayload
 ): Promise<DeliveryResult> {
-  if (!process.env.FCM_SERVER_KEY?.trim()) {
-    ctx.log.info({ channel: "PUSH", target, title: inApp?.title }, "notification_push_stub");
+  if (!isPushProviderConfigured()) {
     return { status: "SKIPPED", error: "fcm_not_configured" };
   }
-  return { status: "SKIPPED", error: "fcm_adapter_not_implemented" };
+  if (target.kind !== "user") {
+    return { status: "SKIPPED", error: "push_requires_user_target" };
+  }
+
+  const title = inApp?.title ?? "ServeOS";
+  const body = inApp?.body ?? "";
+  const data: Record<string, string> = {
+    eventType: event.type,
+    ...(inApp?.notificationId ? { notificationId: inApp.notificationId } : {}),
+    ...(inApp?.category ? { category: inApp.category } : {}),
+    ...(inApp?.eventKey ? { eventKey: inApp.eventKey } : {}),
+    ...(event.restaurantId ? { restaurantId: event.restaurantId } : {}),
+    ...(typeof event.payload.orderId === "string" ? { orderId: event.payload.orderId } : {}),
+    ...(typeof event.payload.chatRoomId === "string" ? { chatRoomId: event.payload.chatRoomId } : {})
+  };
+
+  try {
+    const result = await sendPushToUser(ctx.prisma, target.userId, { title, body, data });
+    if (result.status === "SENT") {
+      return { status: "SENT", externalId: result.externalId };
+    }
+    if (result.status === "SKIPPED") {
+      ctx.log.info({ channel: "PUSH", userId: target.userId, title }, "notification_push_skipped");
+      return { status: "SKIPPED", error: result.error };
+    }
+    ctx.log.warn({ channel: "PUSH", userId: target.userId, err: result.error }, "notification_push_failed");
+    return { status: "FAILED", error: result.error };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    ctx.log.warn({ err: msg, channel: "PUSH", event: event.type }, "notification_push_failed");
+    return { status: "FAILED", error: msg };
+  }
 }
 
-/** Stub — plug Resend/SendGrid when `EMAIL_API_KEY` is configured. */
+async function resolveTargetEmail(
+  ctx: ChannelContext,
+  target: NotificationTarget
+): Promise<string | null> {
+  if (target.kind === "contact") return target.email?.trim().toLowerCase() ?? null;
+  const user = await ctx.prisma.user.findUnique({
+    where: { id: target.userId },
+    select: { email: true }
+  });
+  return user?.email?.trim().toLowerCase() ?? null;
+}
+
+/** Resend-backed notification email delivery. */
 export async function deliverEmail(
   ctx: ChannelContext,
   event: DomainEvent,
   target: NotificationTarget,
   inApp?: InAppUserPayload
 ): Promise<DeliveryResult> {
-  if (!process.env.EMAIL_API_KEY?.trim()) {
-    ctx.log.info(
-      {
-        channel: "EMAIL",
-        to: target.kind === "contact" ? target.email : target.userId,
-        subject: inApp?.title ?? event.type,
-        acceptUrl: event.payload.acceptUrl
-      },
-      "notification_email_stub"
-    );
-    return { status: "SKIPPED", error: "email_not_configured" };
+  if (!isEmailProviderConfigured()) {
+    return { status: "FAILED", error: "resend_not_configured" };
   }
-  return { status: "SKIPPED", error: "email_adapter_not_implemented" };
+
+  const to = await resolveTargetEmail(ctx, target);
+  if (!to) return { status: "SKIPPED", error: "no_email" };
+
+  const title = inApp?.title ?? "ServeOS notification";
+  const body = inApp?.body ?? "";
+  const acceptUrl = typeof event.payload.acceptUrl === "string" ? event.payload.acceptUrl : undefined;
+
+  try {
+    const result = await sendNotificationEmail({
+      to,
+      subject: title,
+      title,
+      body,
+      actionUrl: acceptUrl,
+      actionLabel: acceptUrl ? "Open in ServeOS" : undefined
+    });
+    return { status: "SENT", externalId: result.id };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    ctx.log.warn({ err: msg, channel: "EMAIL", event: event.type, to }, "notification_email_failed");
+    return { status: "FAILED", error: msg };
+  }
 }
 
-/** Stub — plug Twilio SMS when `TWILIO_ACCOUNT_SID` is set. */
+/** Twilio SMS — staff invites, system alerts; skipped when not configured or trial-unverified. */
 export async function deliverSms(
   ctx: ChannelContext,
   event: DomainEvent,
   target: NotificationTarget,
   inApp?: InAppUserPayload
 ): Promise<DeliveryResult> {
-  if (!process.env.TWILIO_ACCOUNT_SID?.trim()) {
-    ctx.log.info(
-      { channel: "SMS", to: target.kind === "contact" ? target.phone : "user", body: inApp?.body },
-      "notification_sms_stub"
-    );
+  if (!isSmsProviderConfigured()) {
     return { status: "SKIPPED", error: "sms_not_configured" };
   }
-  return { status: "SKIPPED", error: "sms_adapter_not_implemented" };
+
+  const phone =
+    target.kind === "contact"
+      ? target.phone?.trim()
+      : (
+          await ctx.prisma.user.findUnique({
+            where: { id: target.userId },
+            select: { phone: true }
+          })
+        )?.phone?.trim();
+
+  if (!phone) return { status: "SKIPPED", error: "no_phone" };
+
+  let text = inApp?.body ?? "";
+  const acceptUrl = typeof event.payload.acceptUrl === "string" ? event.payload.acceptUrl : undefined;
+  if (acceptUrl && !text.includes(acceptUrl)) {
+    text = `${text} ${acceptUrl}`.trim();
+  }
+  if (inApp?.title && event.type === "staff.invited") {
+    text = `ServeOS: ${inApp.title}. ${text}`.trim();
+  } else if (inApp?.title && event.type === "system.alert") {
+    text = `ServeOS alert: ${inApp.title}. ${text}`.trim();
+  }
+
+  try {
+    const result = await sendSms({ to: phone, body: text });
+    if (result.skipped) return { status: "SKIPPED", error: "sms_not_configured" };
+    if (!result.ok) {
+      if (result.error === "sms_trial_unverified_number") {
+        ctx.log.info({ channel: "SMS", to: phone, event: event.type }, "notification_sms_trial_unverified");
+        return { status: "SKIPPED", error: result.error };
+      }
+      ctx.log.warn({ channel: "SMS", to: phone, err: result.error, event: event.type }, "notification_sms_failed");
+      return { status: "FAILED", error: result.error ?? "sms_send_failed" };
+    }
+    return { status: "SENT", externalId: result.messageSid };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    ctx.log.warn({ err: msg, channel: "SMS", event: event.type }, "notification_sms_failed");
+    return { status: "FAILED", error: msg };
+  }
 }
 
 /** Stub — plug Twilio WhatsApp when configured. */

@@ -3,6 +3,8 @@ import type { FastifyInstance } from "fastify";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { requireMobileAuth } from "../lib/mobileAuthContext.js";
+import { registerUserDeviceToken, revokeUserDeviceToken } from "../lib/deviceTokenService.js";
+import { isPushProviderConfigured } from "../lib/integrations/pushProvider.js";
 import { randomUUID } from "node:crypto";
 import { publishDomainEvent } from "../notifications/eventBus.js";
 import type { DomainEvent } from "../notifications/types.js";
@@ -152,5 +154,33 @@ export function registerNotificationRoutes(
       }
     });
     return { ok: true, preferences: row };
+  });
+
+  app.post("/notifications/device-tokens", async (req, reply) => {
+    const ctx = await requireMobileAuth(req, app, prisma);
+    const body = z
+      .object({
+        token: z.string().min(16),
+        platform: z.string().max(32).optional(),
+        deviceName: z.string().max(120).optional()
+      })
+      .parse(req.body);
+
+    const result = await registerUserDeviceToken(prisma, {
+      userId: ctx.userId,
+      token: body.token,
+      platform: body.platform,
+      deviceName: body.deviceName
+    });
+    if (!result.ok) return reply.status(400).send(result);
+    return { ok: true, deviceTokenId: result.deviceToken.id, pushConfigured: isPushProviderConfigured() };
+  });
+
+  app.delete("/notifications/device-tokens", async (req, reply) => {
+    const ctx = await requireMobileAuth(req, app, prisma);
+    const body = z.object({ token: z.string().min(16) }).parse(req.body);
+    const result = await revokeUserDeviceToken(prisma, ctx.userId, body.token);
+    if (!result.ok) return reply.status(404).send(result);
+    return { ok: true };
   });
 }

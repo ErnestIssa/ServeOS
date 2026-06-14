@@ -1,4 +1,9 @@
-export const WEB_ADMIN_URL = (import.meta.env.VITE_WEB_ADMIN_URL as string | undefined)?.trim() || "";
+import { getWebAdminUrl } from "../bootstrap/clientConfig";
+
+/** Backend-driven URL from `GET /config/client` (not frontend env). */
+export function webAdminUrl(): string {
+  return getWebAdminUrl();
+}
 /** Placeholder until the dedicated policy page ships. */
 export const PRIVACY_POLICY_PATH = "/privacy";
 /** Placeholder until the dedicated terms page ships. */

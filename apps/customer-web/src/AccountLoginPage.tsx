@@ -1,7 +1,8 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { iconPath } from "./marketing/assetPaths";
 import { BtnPrimary } from "./marketing/ui";
 import { LoginWizard } from "./login/LoginWizard";
+import { PasswordResetWizard } from "./login/PasswordResetWizard";
 import { ServeOsWordmark, SignupStepShell } from "./signup/SignupShell";
 
 type Props = {
@@ -9,7 +10,22 @@ type Props = {
   onGoSignup: () => void;
 };
 
+type LoginPhase = "intro" | "wizard" | "forgot" | "reset";
+
 const LOGIN_INTRO_ICON = iconPath("register-svgrepo-com.svg");
+
+function readResetToken(): string | null {
+  const token = new URLSearchParams(window.location.search).get("resetToken")?.trim();
+  return token && token.length >= 16 ? token : null;
+}
+
+function clearResetTokenFromUrl() {
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has("resetToken")) return;
+  url.searchParams.delete("resetToken");
+  const next = `${url.pathname}${url.search}${url.hash}`;
+  window.history.replaceState(window.history.state, "", next);
+}
 
 function LoginBackButton({ onClick }: { onClick: () => void }) {
   return (
@@ -27,16 +43,26 @@ function LoginBackButton({ onClick }: { onClick: () => void }) {
 }
 
 export function AccountLoginPage({ onBack, onGoSignup }: Props) {
-  const [phase, setPhase] = useState<"intro" | "wizard">("intro");
+  const [resetToken] = useState(readResetToken);
+  const [phase, setPhase] = useState<LoginPhase>(() => (resetToken ? "reset" : "intro"));
   const [hideBack, setHideBack] = useState(false);
 
+  useEffect(() => {
+    if (phase !== "reset") clearResetTokenFromUrl();
+  }, [phase]);
+
   const handleBack = useCallback(() => {
-    if (phase === "wizard") {
+    if (phase === "wizard" || phase === "forgot" || phase === "reset") {
       setPhase("intro");
       return;
     }
     onBack();
   }, [phase, onBack]);
+
+  const goSignIn = useCallback(() => {
+    clearResetTokenFromUrl();
+    setPhase("wizard");
+  }, []);
 
   return (
     <div className="relative min-h-[100dvh] w-full bg-white/92">
@@ -92,7 +118,24 @@ export function AccountLoginPage({ onBack, onGoSignup }: Props) {
           ) : null}
 
           {phase === "wizard" ? (
-            <LoginWizard onExit={() => setPhase("intro")} onSigningInChange={setHideBack} />
+            <LoginWizard
+              onExit={() => setPhase("intro")}
+              onForgotPassword={() => setPhase("forgot")}
+              onSigningInChange={setHideBack}
+            />
+          ) : null}
+
+          {phase === "forgot" ? (
+            <PasswordResetWizard mode="request" onExit={() => setPhase("wizard")} />
+          ) : null}
+
+          {phase === "reset" && resetToken ? (
+            <PasswordResetWizard
+              mode="confirm"
+              resetToken={resetToken}
+              onExit={() => setPhase("intro")}
+              onSuccess={goSignIn}
+            />
           ) : null}
         </div>
       </main>

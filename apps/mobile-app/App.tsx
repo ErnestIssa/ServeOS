@@ -24,6 +24,8 @@ import { Easing, runOnJS, useAnimatedReaction, useSharedValue, withSpring, withT
 import { ScrollMeshBackground } from "./src/ambient/ScrollMeshBackground";
 import { useAppTheme } from "./src/theme/AppThemeContext";
 import { apiFetch, apiHttpToWsBase, authMe, API_URL, type AuthUser } from "./src/api";
+import { loadClientConfig } from "./src/bootstrap/clientConfig";
+import { syncDevicePushTokenWithBackend } from "./src/notifications/devicePushRegistration";
 import {
   loadMyOrdersCached,
   prefetchCustomerSession,
@@ -705,6 +707,7 @@ export default function App() {
   React.useEffect(() => {
     let cancelled = false;
     void (async () => {
+      await loadClientConfig();
       if (!cancelled) setAppReady(true);
     })();
     return () => {
@@ -782,6 +785,7 @@ export default function App() {
       setToken(jwt);
       setUserRole(meUser.role);
       setStatus("");
+      void syncDevicePushTokenWithBackend(jwt);
     },
     [warmAuthenticatedSession]
   );
@@ -798,6 +802,7 @@ export default function App() {
             if (cancelled) return;
             setToken(stored);
             setUserRole(user.role);
+            void syncDevicePushTokenWithBackend(stored);
           } catch {
             await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
             if (!cancelled) {

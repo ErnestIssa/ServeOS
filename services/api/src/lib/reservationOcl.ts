@@ -3,7 +3,12 @@ import type { MobileAuthContext } from "./mobileAuthContext.js";
 import { assertPermission, requireVenueMembership } from "./mobileAuthContext.js";
 import { userHasPermission } from "./mobileExperience.js";
 import { VENUE_PERMISSION as P } from "./venuePermissions.js";
-import { createChatTextMessage, serializeMessage, type SerializedChatMessage } from "./chatMessageService.js";
+import {
+  createChatTextMessage,
+  serializeMessage,
+  serializeMessages,
+  type SerializedChatMessage
+} from "./chatMessageService.js";
 import { splitRoomMessagesForOcl, type OclAction, type OclTimelineEvent } from "./orderOcl.js";
 import { markRestaurantReadInRoom } from "./chatReceipts.js";
 import { notifyChatMessage } from "../notifications/integrations/chat.js";
@@ -88,7 +93,7 @@ async function publishReservationChatMessage(
 ) {
   if (!domainEventBus) return;
   const room = await prisma.chatRoom.findUnique({ where: { id: input.chatRoomId } });
-  const serialized = serializeMessage(input.message, { userId: input.customerUserId, role: "CUSTOMER" }, {
+  const serialized = await serializeMessage(input.message, { userId: input.customerUserId, role: "CUSTOMER" }, {
     restaurantLastReadAt: room?.restaurantLastReadAt ?? null,
     customerLastReadAt: room?.customerLastReadAt ?? null
   });
@@ -154,14 +159,14 @@ export async function loadReservationOclThread(
 
   const room = await prisma.chatRoom.findUnique({ where: { id: chatRoomId } });
   const viewerRole = isCustomer ? ("CUSTOMER" as const) : ("STAFF" as const);
-  const messages: SerializedChatMessage[] = allMessages
-    .filter((m) => humanIds.has(m.id))
-    .map((m) =>
-      serializeMessage(m, { userId: ctx.userId, role: viewerRole }, {
-        restaurantLastReadAt: room?.restaurantLastReadAt ?? null,
-        customerLastReadAt: room?.customerLastReadAt ?? null
-      })
-    );
+  const messages: SerializedChatMessage[] = await serializeMessages(
+    allMessages.filter((m) => humanIds.has(m.id)),
+    { userId: ctx.userId, role: viewerRole },
+    {
+      restaurantLastReadAt: room?.restaurantLastReadAt ?? null,
+      customerLastReadAt: room?.customerLastReadAt ?? null
+    }
+  );
 
   const next = NEXT_STATUS[row.status];
   const actions: OclAction[] = [];

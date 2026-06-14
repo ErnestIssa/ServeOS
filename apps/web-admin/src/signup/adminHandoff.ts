@@ -1,4 +1,4 @@
-import { WEB_ADMIN_URL } from "../marketing/constants";
+import { webAdminUrl } from "../marketing/constants";
 
 /** Session key read by web-admin after business signup handoff. */
 export const ADMIN_AUTH_TOKEN_KEY = "serveos.admin.token";
@@ -7,7 +7,7 @@ export const ADMIN_AUTH_TOKEN_KEY = "serveos.admin.token";
 export function handoffToAdminApp(token: string): void {
   sessionStorage.setItem(ADMIN_AUTH_TOKEN_KEY, token);
 
-  const base = WEB_ADMIN_URL.trim();
+  const base = webAdminUrl().trim();
   if (!base) {
     return;
   }

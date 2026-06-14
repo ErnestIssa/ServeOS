@@ -40,18 +40,10 @@ export function LogoutConfirmModal({ open, busy, error, ownerEmail, onStay, onCo
             ) : null}
 
             <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-              <button
-                type="button"
-                onClick={onStay}
-                className="rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-800 transition hover:border-violet-200 hover:bg-slate-50"
-              >
+              <button type="button" onClick={onStay} className="admin-profile-modal-btn admin-profile-modal-btn--ghost">
                 Stay signed in
               </button>
-              <button
-                type="button"
-                onClick={onConfirm}
-                className="rounded-full bg-gradient-to-r from-violet-600 to-blue-600 px-5 py-2.5 text-sm font-bold text-white shadow-[0_4px_20px_rgba(124,58,237,0.25)] transition hover:from-violet-500 hover:to-blue-500"
-              >
+              <button type="button" onClick={onConfirm} className="admin-profile-modal-btn admin-profile-modal-btn--danger">
                 Yes, sign out
               </button>
             </div>

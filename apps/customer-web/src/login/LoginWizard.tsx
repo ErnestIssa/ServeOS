@@ -1,4 +1,4 @@
-import { readableAuthFailure } from "@serveos/core-shared/signup-wizard";
+import { readApiMessage } from "../bootstrap/clientConfig";
 import { useState, type ReactNode } from "react";
 import { login } from "../api";
 import { iconPath } from "../marketing/assetPaths";
@@ -91,10 +91,11 @@ function isValidEmail(value: string): boolean {
 
 type Props = {
   onExit: () => void;
+  onForgotPassword?: () => void;
   onSigningInChange?: (signingIn: boolean) => void;
 };
 
-export function LoginWizard({ onExit, onSigningInChange }: Props) {
+export function LoginWizard({ onExit, onForgotPassword, onSigningInChange }: Props) {
   const [step, setStep] = useState(0);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -130,7 +131,7 @@ export function LoginWizard({ onExit, onSigningInChange }: Props) {
     if (!res.ok || !res.token) {
       setBusy(false);
       onSigningInChange?.(false);
-      setBtnErr(readableAuthFailure(res.error ?? "invalid_credentials"));
+      setBtnErr(readApiMessage(res));
       return;
     }
     handoffToAdminApp(res.token);
@@ -236,6 +237,17 @@ export function LoginWizard({ onExit, onSigningInChange }: Props) {
               onToggleShow={() => setShowPassword((s) => !s)}
             />
           </div>
+          {onForgotPassword ? (
+            <p className="text-right text-sm">
+              <button
+                type="button"
+                onClick={onForgotPassword}
+                className="font-semibold text-violet-700 underline decoration-violet-300 underline-offset-2 transition hover:text-violet-900"
+              >
+                Forgot password?
+              </button>
+            </p>
+          ) : null}
         </div>
       </SignupStepShell>
     );

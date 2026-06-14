@@ -21,6 +21,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { type AuthUser, authLogin, authSignup, lookupCompany } from "../api";
+import { readApiMessage } from "../bootstrap/clientConfig";
 import { BlurView } from "expo-blur";
 import { ThemedSwitch } from "../components/ThemedSwitch";
 import { CountrySelect, type AllowedCountry } from "../components/CountrySelect";
@@ -90,29 +91,6 @@ type WizardSignupPayload = {
   phone?: string;
   registrationProfile: Record<string, unknown>;
 };
-
-function readableAuthFailure(message: string): string {
-  const map: Record<string, string> = {
-    user_already_exists: "An account with this email or phone already exists.",
-    email_or_phone_required: "Email or phone is required.",
-    sign_up_failed: "Could not create your account. Try again.",
-    session_failed: "Could not verify your session. Try again.",
-    failed_to_list_restaurants: "Could not load your venues. Try again.",
-    failed_to_fetch_orders: "Could not load your orders. Try again.",
-    missing_token: "Session expired. Sign in again.",
-    invalid_registration_profile:
-      "Signup data was rejected. Complete all business steps and try again, or update the app.",
-    guest_signup_mobile_only: "Guest accounts can only be created in the ServeOS mobile app.",
-    business_signup_web_only: "Business accounts can only be created on the ServeOS website."
-  };
-  const s = map[message];
-  if (s) return s;
-  const m = message.trim();
-  if (/reach the API|reach the server|Network request failed|timed out|timeout|ECONNREFUSED|Failed to fetch|network/i.test(m)) {
-    return "Couldn't reach the server. Check Wi-Fi, or wait 30–60s if the backend was asleep, then try again.";
-  }
-  return message;
-}
 
 // Sign-in rotating subtitle (based on this device's last known preference)
 const GUEST_SIGNIN_SUBTITLES = ["Order smarter. Serve faster.", "Your table. Your time."] as const;
@@ -880,13 +858,15 @@ export function AuthFlowScreen({ onAuthed }: Props) {
           registrationProfile: pending.registrationProfile
         });
         if (!res.ok || !res.token || !res.user) {
-          throw new Error(res.error ?? "sign_up_failed");
+          setWizardExitLoaderErr(readApiMessage(res));
+          errorBuzz();
+          wizardExitInfiniteFlightRef.current = false;
+          return;
         }
         await Promise.resolve(onAuthed({ token: res.token, user: res.user as AuthUser }));
         wizardExitPendingSignupRef.current = null;
       } catch (e) {
-        const raw = e instanceof Error ? e.message : String(e);
-        setWizardExitLoaderErr(readableAuthFailure(raw));
+        setWizardExitLoaderErr(readApiMessage({ error: e instanceof Error ? e.message : String(e) }));
         errorBuzz();
         wizardExitInfiniteFlightRef.current = false;
       } finally {
@@ -1312,8 +1292,9 @@ export function AuthFlowScreen({ onAuthed }: Props) {
       const res = await authLogin({ email: email.trim(), password });
       if (!res.ok || !res.token || !res.user) {
         const code = res.error ?? "sign_in_failed";
+        const msg = readApiMessage(res);
         if (code === "invalid_credentials") {
-          setPasswordErr("Email or password is incorrect");
+          setPasswordErr(msg);
           setEmailErr(" ");
           animateFieldError("email", true);
           animateFieldError("password", true);
@@ -1323,20 +1304,20 @@ export function AuthFlowScreen({ onAuthed }: Props) {
           shake(emailShake, 2);
           shake(passwordShake, 2);
           shake(signinBtnShake, 2);
-          setSigninBtnErr("Wrong details");
+          setSigninBtnErr(msg);
           if (signinBtnErrTimer.current) clearTimeout(signinBtnErrTimer.current);
           signinBtnErrTimer.current = setTimeout(() => setSigninBtnErr(null), 1600);
           return;
         }
         if (code === "email_or_phone_required") {
-          setEmailErr("Enter your email");
+          setEmailErr(msg);
           animateFieldError("email", true);
           scheduleAutoClearError("email");
           errorBuzz();
           shake(emailShake, 1);
           return;
         }
-        setErr(readableAuthFailure(code));
+        setErr(msg);
         errorBuzz();
         return;
       }
@@ -1347,8 +1328,7 @@ export function AuthFlowScreen({ onAuthed }: Props) {
       void AsyncStorage.setItem("serveos.device.preferredExperience", pref);
       await Promise.resolve(onAuthed({ token: res.token, user: res.user as AuthUser }));
     } catch (e) {
-      const raw = e instanceof Error ? e.message : String(e);
-      setErr(readableAuthFailure(raw));
+      setErr(readApiMessage({ error: e instanceof Error ? e.message : String(e) }));
       errorBuzz();
     } finally {
       setBusy(false);
@@ -1367,14 +1347,13 @@ export function AuthFlowScreen({ onAuthed }: Props) {
       const role = experience === "BUSINESS" ? "OWNER" : "CUSTOMER";
       const res = await authSignup({ email: email.trim(), password, role });
       if (!res.ok || !res.token || !res.user) {
-        setErr(readableAuthFailure(res.error ?? "sign_up_failed"));
+        setErr(readApiMessage(res));
         errorBuzz();
         return;
       }
       await Promise.resolve(onAuthed({ token: res.token, user: res.user as AuthUser }));
     } catch (e) {
-      const raw = e instanceof Error ? e.message : String(e);
-      setErr(readableAuthFailure(raw));
+      setErr(readApiMessage({ error: e instanceof Error ? e.message : String(e) }));
       errorBuzz();
     } finally {
       setBusy(false);

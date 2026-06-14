@@ -1,6 +1,9 @@
 import type { ChatMessageType, PrismaClient } from "@prisma/client";
 import { ensureChatMessageImageEnum } from "./chatImageEnum.js";
+import type { ChatImageMime } from "./chatImageLimits.js";
 import { computeOutgoingDeliveryStatus, type OutgoingDeliveryStatus } from "./chatReadStatus.js";
+import { resolveClientMediaUrl } from "./integrations/objectStorage.js";
+import { uploadChatImageBase64 } from "./media/chatImageStorage.js";
 
 export type { OutgoingDeliveryStatus };
 
@@ -28,7 +31,7 @@ function displayContent(raw: string, type: ChatMessageType): string {
   return raw;
 }
 
-export function serializeMessage(
+export async function serializeMessage(
   row: {
     id: string;
     chatRoomId: string;
@@ -41,18 +44,23 @@ export function serializeMessage(
   },
   viewer: { userId: string; role: "CUSTOMER" | "STAFF" | "OWNER" },
   room: { restaurantLastReadAt: Date | null; customerLastReadAt: Date | null }
-): SerializedChatMessage {
+): Promise<SerializedChatMessage> {
   const isMine =
     viewer.role === "CUSTOMER"
       ? row.senderRole === "CUSTOMER"
       : row.senderRole === "STAFF" || row.senderRole === "OWNER";
+
+  let content = displayContent(row.content, row.type);
+  if (row.type === "IMAGE") {
+    content = await resolveClientMediaUrl(content);
+  }
 
   const out: SerializedChatMessage = {
     id: row.id,
     chatRoomId: row.chatRoomId,
     senderUserId: row.senderUserId,
     senderRole: row.senderRole,
-    content: displayContent(row.content, row.type),
+    content,
     type: row.type,
     createdAt: row.createdAt.toISOString()
   };
@@ -67,6 +75,23 @@ export function serializeMessage(
   }
 
   return out;
+}
+
+export async function serializeMessages(
+  rows: Array<{
+    id: string;
+    chatRoomId: string;
+    senderUserId: string | null;
+    senderRole: string;
+    content: string;
+    type: ChatMessageType;
+    createdAt: Date;
+    deliveredToVenueAt: Date | null;
+  }>,
+  viewer: { userId: string; role: "CUSTOMER" | "STAFF" | "OWNER" },
+  room: { restaurantLastReadAt: Date | null; customerLastReadAt: Date | null }
+): Promise<SerializedChatMessage[]> {
+  return Promise.all(rows.map((row) => serializeMessage(row, viewer, room)));
 }
 
 export async function createChatTextMessage(
@@ -111,10 +136,10 @@ export async function createChatImageMessages(
     chatRoomId: string;
     senderUserId: string;
     senderRole: string;
-    dataUris: string[];
+    images: Array<{ mimeType: ChatImageMime; dataBase64: string }>;
   }
 ) {
-  if (!input.dataUris.length) throw Object.assign(new Error("no_images"), { statusCode: 400 });
+  if (!input.images.length) throw Object.assign(new Error("no_images"), { statusCode: 400 });
 
   try {
     await ensureChatMessageImageEnum(prisma);
@@ -123,20 +148,44 @@ export async function createChatImageMessages(
   }
 
   const now = new Date();
-  const preview = input.dataUris.length > 1 ? `📷 ${input.dataUris.length} photos` : "📷 Photo";
+  const preview = input.images.length > 1 ? `📷 ${input.images.length} photos` : "📷 Photo";
 
   return prisma.$transaction(async (tx) => {
     const rows = [];
-    for (const content of input.dataUris) {
+    for (const image of input.images) {
+      const uploaded = await uploadChatImageBase64({
+        chatRoomId: input.chatRoomId,
+        mimeType: image.mimeType,
+        dataBase64: image.dataBase64
+      });
+      if (!uploaded.ok) {
+        throw Object.assign(new Error(uploaded.error), { statusCode: 400 });
+      }
+
       const msg = await tx.chatMessage.create({
         data: {
           chatRoomId: input.chatRoomId,
           senderUserId: input.senderUserId,
           senderRole: input.senderRole,
-          content,
+          content: uploaded.contentRef,
           type: "IMAGE"
         }
       });
+
+      await tx.storedMedia.create({
+        data: {
+          objectKey: uploaded.objectKey,
+          scope: "CHAT_IMAGE",
+          contentType: uploaded.contentType,
+          byteSize: uploaded.byteSize,
+          sha256Hex: uploaded.sha256Hex,
+          visibility: "PRIVATE",
+          uploadedById: input.senderUserId,
+          chatRoomId: input.chatRoomId,
+          chatMessageId: msg.id
+        }
+      });
+
       rows.push(msg);
     }
     await tx.chatRoom.update({
@@ -196,10 +245,14 @@ export async function listRoomMessages(
     take: 100
   });
 
-  return rows.map((m) =>
-    serializeMessage(m, viewer, {
-      restaurantLastReadAt: room.restaurantLastReadAt,
-      customerLastReadAt: room.customerLastReadAt
-    })
-  );
+  const messages: SerializedChatMessage[] = [];
+  for (const m of rows) {
+    messages.push(
+      await serializeMessage(m, viewer, {
+        restaurantLastReadAt: room.restaurantLastReadAt,
+        customerLastReadAt: room.customerLastReadAt
+      })
+    );
+  }
+  return messages;
 }

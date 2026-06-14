@@ -9,6 +9,16 @@ import { loadMobileAuthContext } from "../lib/mobileAuthContext.js";
 import { acceptStaffInvitation } from "../lib/staffInvitationService.js";
 import { notifyStaffPendingApproval } from "../notifications/integrations/staff.js";
 import { isAuthTokenRevoked, revokeAuthToken } from "../lib/authTokenRevocation.js";
+import { logSecurityActivity } from "../lib/account/securityActivity.js";
+import { confirmPasswordReset, requestPasswordReset } from "../lib/account/passwordResetService.js";
+import { maskIp, requestIp, upsertUserSession } from "../lib/account/sessionService.js";
+import { captureAuthFailure } from "../lib/integrations/sentry.js";
+import { verifyTwoFactorTotpCode } from "../lib/account/twoFactorService.js";
+import {
+  requestTwoFactorSmsCode,
+  verifyTwoFactorSmsCode
+} from "../lib/account/twoFactorSmsFallback.js";
+import { isSmsProviderConfigured } from "../lib/integrations/smsProvider.js";
 
 /** Fields that exist on every deployed DB revision (safe for signup response + fallbacks). */
 const USER_CORE_SELECT = {
@@ -249,6 +259,19 @@ export function registerAuthRoutes(
       sub: dbUser.id,
       role: toJwtRole(dbUser.role)
     });
+    const ua = typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : undefined;
+    await upsertUserSession(prisma, {
+      userId: dbUser.id,
+      token,
+      userAgent: ua,
+      ip: requestIp(req as { headers: Record<string, unknown>; ip?: string })
+    });
+    await logSecurityActivity(prisma, {
+      userId: dbUser.id,
+      type: "LOGIN_SUCCESS",
+      ipMasked: maskIp(requestIp(req as { headers: Record<string, unknown>; ip?: string })),
+      metadata: { method: "signup" }
+    });
     const user = await enrichUserWithExperience(prisma, dbUser.id, publicUserFromDbRow(dbUser));
     return { ok: true, user, token };
   });
@@ -256,7 +279,9 @@ export function registerAuthRoutes(
   const loginSchema = z.object({
     email: z.string().email().optional(),
     phone: z.string().min(6).optional(),
-    password: z.string().min(8)
+    password: z.string().min(8),
+    totpCode: z.string().min(6).max(8).optional(),
+    smsCode: z.string().min(6).max(8).optional()
   });
 
   app.post("/auth/login", async (req, reply) => {
@@ -275,6 +300,11 @@ export function registerAuthRoutes(
       select: { id: true, email: true, phone: true, role: true, password: true }
     });
     if (!user) {
+      captureAuthFailure({
+        reason: "invalid_credentials",
+        req,
+        email: body.email ?? null
+      });
       return reply.status(401).send({ ok: false, error: "invalid_credentials" });
     }
 
@@ -293,10 +323,61 @@ export function registerAuthRoutes(
     }
 
     if (!valid) {
+      await logSecurityActivity(prisma, {
+        userId: user.id,
+        type: "LOGIN_FAILED",
+        ipMasked: maskIp(requestIp(req as { headers: Record<string, unknown>; ip?: string })),
+        metadata: { email: body.email ?? null, phone: body.phone ?? null }
+      }).catch(() => undefined);
+      captureAuthFailure({
+        reason: "login_failed",
+        req,
+        userId: user.id,
+        email: user.email ?? body.email ?? null
+      });
       return reply.status(401).send({ ok: false, error: "invalid_credentials" });
     }
 
+    const twoFaRow = await prisma.userTwoFactorAuth.findUnique({
+      where: { userId: user.id },
+      select: { enabled: true }
+    });
+
+    if (twoFaRow?.enabled) {
+      const totp = body.totpCode?.trim();
+      const sms = body.smsCode?.trim();
+      if (!totp && !sms) {
+        return reply.status(401).send({
+          ok: false,
+          error: "2fa_required",
+          smsFallbackAvailable: isSmsProviderConfigured() && Boolean(user.phone?.trim())
+        });
+      }
+      let verified = false;
+      if (totp) {
+        verified = await verifyTwoFactorTotpCode(prisma, user.id, totp);
+      } else if (sms) {
+        verified = await verifyTwoFactorSmsCode(user.id, sms);
+      }
+      if (!verified) {
+        return reply.status(401).send({ ok: false, error: "invalid_2fa_code" });
+      }
+    }
+
     const token = app.signJwt({ sub: user.id, role: toJwtRole(user.role) });
+    const ua = typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : undefined;
+    await upsertUserSession(prisma, {
+      userId: user.id,
+      token,
+      userAgent: ua,
+      ip: requestIp(req as { headers: Record<string, unknown>; ip?: string })
+    });
+    await logSecurityActivity(prisma, {
+      userId: user.id,
+      type: "LOGIN_SUCCESS",
+      ipMasked: maskIp(requestIp(req as { headers: Record<string, unknown>; ip?: string })),
+      metadata: { method: "login" }
+    });
     const base = publicUserFromDbRow({
       id: user.id,
       email: user.email,
@@ -306,6 +387,54 @@ export function registerAuthRoutes(
     });
     const enriched = await enrichUserWithExperience(prisma, user.id, base);
     return { ok: true, user: enriched, token };
+  });
+
+  app.post("/auth/2fa/request-sms-code", async (req, reply) => {
+    const body = z
+      .object({
+        email: z.string().email().optional(),
+        phone: z.string().min(6).optional(),
+        password: z.string().min(8)
+      })
+      .parse(req.body);
+
+    if (!body.email && !body.phone) {
+      return reply.status(400).send({ ok: false, error: "email_or_phone_required" });
+    }
+
+    const user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          body.email ? { email: body.email } : undefined,
+          body.phone ? { phone: body.phone } : undefined
+        ].filter(Boolean) as Prisma.UserWhereInput[]
+      },
+      select: { id: true, password: true, phone: true }
+    });
+
+    if (!user) {
+      return reply.status(401).send({ ok: false, error: "invalid_credentials" });
+    }
+
+    let valid = false;
+    if (user.password.startsWith("$2")) {
+      valid = await bcrypt.compare(body.password, user.password);
+    } else {
+      valid = user.password === body.password;
+    }
+    if (!valid) {
+      return reply.status(401).send({ ok: false, error: "invalid_credentials" });
+    }
+
+    const result = await requestTwoFactorSmsCode(prisma, user.id);
+    if (!result.ok) {
+      const status =
+        result.error === "sms_not_configured" || result.error === "sms_fallback_unavailable"
+          ? 503
+          : 400;
+      return reply.status(status).send(result);
+    }
+    return { ok: true };
   });
 
   const acceptInvitationSchema = z.object({
@@ -382,6 +511,40 @@ export function registerAuthRoutes(
     const user = await findUserForAuthMe(prisma, payload.sub);
     if (!user) return reply.status(404).send({ ok: false, error: "user_not_found" });
     return { ok: true, user };
+  });
+
+  app.post("/auth/password-reset/request", async (req, reply) => {
+    const body = z.object({ email: z.string().email() }).parse(req.body);
+    const ip = maskIp(requestIp(req as { headers: Record<string, unknown>; ip?: string }));
+    try {
+      await requestPasswordReset(prisma, body.email, ip);
+      return { ok: true };
+    } catch (e: unknown) {
+      const err = e as { message?: string };
+      return reply.status(502).send({ ok: false, error: err.message ?? "email_send_failed" });
+    }
+  });
+
+  app.post("/auth/password-reset/confirm", async (req, reply) => {
+    const body = z
+      .object({
+        token: z.string().min(16),
+        newPassword: z.string().min(8),
+        confirmPassword: z.string().min(8)
+      })
+      .parse(req.body);
+    const auth = req.headers.authorization;
+    const currentToken = auth?.startsWith("Bearer ") ? auth.slice("Bearer ".length).trim() : undefined;
+    const ip = maskIp(requestIp(req as { headers: Record<string, unknown>; ip?: string }));
+    const result = await confirmPasswordReset(prisma, {
+      token: body.token,
+      newPassword: body.newPassword,
+      confirmPassword: body.confirmPassword,
+      currentToken,
+      ipMasked: ip
+    });
+    if (!result.ok) return reply.status(400).send(result);
+    return result;
   });
 
   app.post("/auth/logout", async (req, reply) => {

@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import { createChatTextMessage, serializeMessage } from "./chatMessageService.js";
+import { createChatTextMessage, serializeMessages } from "./chatMessageService.js";
 import type { MobileAuthContext } from "./mobileAuthContext.js";
 import { requireVenueMembership } from "./mobileAuthContext.js";
 
@@ -47,16 +47,10 @@ export async function listVenueRoomMessages(
     take: 120
   });
 
-  return rows.map((m) =>
-    serializeMessage(
-      m,
-      { userId: "", role: "STAFF" },
-      {
-        restaurantLastReadAt: room.restaurantLastReadAt,
-        customerLastReadAt: room.customerLastReadAt
-      }
-    )
-  );
+  return serializeMessages(rows, { userId: "", role: "STAFF" }, {
+    restaurantLastReadAt: room.restaurantLastReadAt,
+    customerLastReadAt: room.customerLastReadAt
+  });
 }
 
 export async function sendVenueStaffMessage(
