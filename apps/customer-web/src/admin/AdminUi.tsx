@@ -13,7 +13,7 @@ export const inputBase =
 export const labelCls = "grid gap-1.5 text-xs font-bold uppercase tracking-wide text-slate-500";
 
 export const subPanelCls =
-  "rounded-xl border border-slate-200/80 bg-white/85 p-5 shadow-[0_2px_12px_rgba(15,23,42,0.04)]";
+  "admin-sub-panel rounded-xl border border-slate-200/80 bg-white/85 p-5 shadow-[0_2px_12px_rgba(15,23,42,0.04)]";
 
 export const btnPrimarySm =
   "rounded-full bg-gradient-to-r from-violet-600 to-blue-600 px-4 py-2 text-xs font-bold text-white shadow-[0_4px_16px_rgba(124,58,237,0.22)] transition hover:from-violet-500 hover:to-blue-500 disabled:cursor-not-allowed disabled:opacity-45";

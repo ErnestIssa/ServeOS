@@ -15,6 +15,7 @@ import {
   type ActiveVenueMembership
 } from "./venueAccessGuard.js";
 import type { MobileAuthContext } from "./mobileAuthContext.js";
+import { logStaffAudit } from "./staffAuditService.js";
 
 const INVITE_TTL_DAYS = 14;
 
@@ -101,6 +102,17 @@ export async function createStaffInvitation(
       tokenHash: hashToken(token),
       expiresAt,
       invitedByUserId: ctx.userId
+    }
+  });
+
+  await logStaffAudit(prisma, {
+    restaurantId,
+    actorUserId: ctx.userId,
+    action: "INVITE_SENT",
+    metadata: {
+      invitationId: invitation.id,
+      email,
+      intendedRole: role
     }
   });
 
@@ -246,5 +258,12 @@ export async function cancelStaffInvitation(
   await prisma.staffInvitation.update({
     where: { id: inv.id },
     data: { status: "CANCELLED" }
+  });
+
+  await logStaffAudit(prisma, {
+    restaurantId,
+    actorUserId: ctx.userId,
+    action: "INVITE_CANCELLED",
+    metadata: { invitationId: inv.id, email: inv.email }
   });
 }

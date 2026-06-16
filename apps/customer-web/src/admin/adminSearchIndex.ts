@@ -37,7 +37,7 @@ const STATIC_ENTRIES: AdminSearchEntry[] = [
   },
   {
     id: "top-add-staff",
-    title: "Add staff",
+    title: "Staff management",
     subtitle: "Invite teammates and assign roles",
     category: "Team",
     href: ADMIN_TOP_HASHES.addStaff,

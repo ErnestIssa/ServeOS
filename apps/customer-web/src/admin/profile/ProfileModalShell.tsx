@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { SignupModalShell } from "../../signup/SignupModalShell";
 
 export const PROFILE_MODAL_PANEL =
-  "relative w-full overflow-hidden rounded-3xl border border-white/60 bg-white/95 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.18)] backdrop-blur-xl sm:p-8";
+  "relative w-full overflow-hidden rounded-3xl border border-white/60 bg-white/95 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.18)] backdrop-blur-xl sm:p-8 min-h-0";
 
 type ShellProps = {
   open: boolean;
@@ -14,7 +14,18 @@ type ShellProps = {
   busy?: boolean;
   maxWidthClass?: string;
   backdropLabel?: string;
+  stackLevel?: "default" | "overlay";
+  panelClassName?: string;
+  bodyClassName?: string;
+  maxHeightClass?: string;
+  /** When false, modal body does not scroll — use for forms with in-panel dropdowns. */
+  bodyScroll?: boolean;
 };
+
+const PROFILE_MODAL_SHELL_CLASS = {
+  default: "admin-profile-modal-shell fixed inset-0 z-[10000] flex items-center justify-center p-4 sm:p-6",
+  overlay: "admin-profile-modal-shell fixed inset-0 z-[10050] flex items-center justify-center p-4 sm:p-6"
+} as const;
 
 export function ProfileModalShell({
   open,
@@ -25,7 +36,12 @@ export function ProfileModalShell({
   children,
   busy = false,
   maxWidthClass = "max-w-md",
-  backdropLabel = "Close dialog"
+  backdropLabel = "Close dialog",
+  stackLevel = "default",
+  panelClassName = "",
+  bodyClassName = "",
+  maxHeightClass = "max-h-[min(90dvh,44rem)]",
+  bodyScroll = true
 }: ShellProps) {
   return (
     <SignupModalShell
@@ -33,14 +49,22 @@ export function ProfileModalShell({
       onClose={busy ? () => undefined : onClose}
       labelledBy={titleId}
       backdropLabel={backdropLabel}
-      shellClassName="admin-profile-modal-shell fixed inset-0 z-[120] flex items-center justify-center p-4 sm:p-6"
-      panelClassName={`${PROFILE_MODAL_PANEL} ${maxWidthClass}`}
+      shellClassName={PROFILE_MODAL_SHELL_CLASS[stackLevel]}
+      panelClassName={`${PROFILE_MODAL_PANEL} ${maxWidthClass} flex ${maxHeightClass} flex-col ${panelClassName}`.trim()}
     >
-      <h2 id={titleId} className="font-display text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">
-        {title}
-      </h2>
-      {description ? <p className="mt-2 text-sm leading-relaxed text-slate-600 sm:text-[0.9375rem]">{description}</p> : null}
-      <div className="mt-5">{children}</div>
+      <div className="shrink-0">
+        <h2 id={titleId} className="font-display text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">
+          {title}
+        </h2>
+        {description ? (
+          <p className="mt-2 text-sm leading-relaxed text-slate-600 sm:text-[0.9375rem]">{description}</p>
+        ) : null}
+      </div>
+      <div
+        className={`mt-5 min-h-0 pr-0.5 ${bodyScroll ? "flex-1 overflow-y-auto overscroll-contain" : "overflow-visible"} ${bodyClassName}`.trim()}
+      >
+        {children}
+      </div>
     </SignupModalShell>
   );
 }

@@ -68,7 +68,7 @@ export { DEFAULT_ADMIN_HASH } from "./adminWorkspaceRouting";
 export const ADMIN_QUICK_ACTIONS = [
   { id: "create-order", label: "Create order", href: buildNavHref("orders", "active-orders") },
   { id: "add-reservation", label: "Add reservation", href: buildNavHref("venue", "reservations") },
-  { id: "add-staff", label: "Add staff", href: "#top-add-staff" }
+  { id: "add-staff", label: "Staff management", href: "#top-add-staff" }
 ] as const;
 
 export const ADMIN_THEME_ICONS = {
@@ -91,8 +91,8 @@ export const ADMIN_TOP_TOOL_HINTS = {
     cta: "Get help"
   },
   addUser: {
-    title: "Add staff",
-    description: "Invite team members and configure roles.",
+    title: "Staff management",
+    description: "Workforce, roles, shifts, and live status.",
     cta: "Manage staff"
   },
   notifications: {

@@ -2,16 +2,13 @@ import { useState, type ReactNode } from "react";
 import {
   AdminBtnPrimary,
   AdminBtnSecondary,
-  AdminEmptyState,
-  AdminInput,
-  AdminLabel,
   AdminPanel,
   AdminSectionHeader,
-  AdminSelect,
   subPanelCls
 } from "./AdminUi";
 import { ADMIN_TOP_HASHES } from "./adminTopHashes";
 import { AdminProfilePage } from "./profile/AdminProfilePage";
+import { AdminStaffManagementPage } from "./AdminStaffManagementPage";
 
 type PageShellProps = {
   id: string;
@@ -262,75 +259,16 @@ export function AdminNotificationsPage() {
   );
 }
 
-export function AdminAddStaffPage() {
-  return (
-    <AdminPageShell
-      id={ADMIN_TOP_HASHES.addStaff.slice(1)}
-      eyebrow="Team"
-      title="Add staff"
-      description="Invite team members, assign roles, and scope access by venue. Invites and permissions will be saved through the staff API when connected."
-    >
-      <div className="grid gap-5 lg:grid-cols-2">
-        <div className={`${subPanelCls} admin-top-page-card`}>
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Invite teammate</p>
-          <div className="mt-4 grid gap-4">
-            <AdminLabel>
-              Email
-              <AdminInput type="email" placeholder="name@restaurant.com" autoComplete="off" />
-            </AdminLabel>
-            <AdminLabel>
-              Role
-              <AdminSelect defaultValue="floor">
-                <option value="floor">Floor staff</option>
-                <option value="kitchen">Kitchen</option>
-                <option value="manager">Venue manager</option>
-                <option value="host">Host / reservations</option>
-              </AdminSelect>
-            </AdminLabel>
-            <AdminLabel>
-              Venue access
-              <AdminSelect defaultValue="all">
-                <option value="all">All venues</option>
-                <option value="current">Active venue only</option>
-              </AdminSelect>
-            </AdminLabel>
-            <AdminLabel>
-              Personal message (optional)
-              <AdminInput placeholder="Welcome to the team — here is your ServeOS access." />
-            </AdminLabel>
-            <div className="flex flex-wrap gap-2 pt-1">
-              <AdminBtnPrimary>Send invite</AdminBtnPrimary>
-              <AdminBtnSecondary>Copy invite link</AdminBtnSecondary>
-            </div>
-          </div>
-        </div>
-
-        <div className={`${subPanelCls} admin-top-page-card`}>
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Role overview</p>
-          <div className="mt-4 space-y-3">
-            {[
-              { role: "Venue manager", access: "Orders, floor, staff, menu (venue scope)" },
-              { role: "Kitchen", access: "KDS, order status, kitchen chat" },
-              { role: "Floor staff", access: "Tables, orders, guest messaging" },
-              { role: "Host", access: "Reservations, queue, walk-ins" }
-            ].map((row) => (
-              <div key={row.role} className="admin-role-card rounded-xl border p-3">
-                <p className="text-sm font-semibold">{row.role}</p>
-                <p className="mt-1 text-xs leading-relaxed text-slate-600">{row.access}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className={`${subPanelCls} admin-top-page-card mt-5`}>
-        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Pending invites</p>
-        <div className="mt-4">
-          <AdminEmptyState>No pending invites — send your first invite above.</AdminEmptyState>
-        </div>
-      </div>
-    </AdminPageShell>
-  );
+export function AdminAddStaffPage({
+  token,
+  restaurantId,
+  venueName
+}: {
+  token: string;
+  restaurantId: string;
+  venueName: string;
+}) {
+  return <AdminStaffManagementPage token={token} restaurantId={restaurantId} venueName={venueName} />;
 }
 
 export function AdminPlatformHelpPage() {
@@ -402,6 +340,8 @@ export function AdminTopPageView({
   token,
   displayName,
   email,
+  restaurantId,
+  venueName,
   onSignOut,
   onEmailChanged
 }: {
@@ -409,6 +349,8 @@ export function AdminTopPageView({
   token: string;
   displayName: string;
   email?: string | null;
+  restaurantId: string;
+  venueName: string;
   onSignOut?: () => void;
   onEmailChanged?: (email: string) => void;
 }) {
@@ -418,7 +360,9 @@ export function AdminTopPageView({
     case ADMIN_TOP_HASHES.notifications:
       return <AdminNotificationsPage />;
     case ADMIN_TOP_HASHES.addStaff:
-      return <AdminAddStaffPage />;
+      return (
+        <AdminStaffManagementPage token={token} restaurantId={restaurantId} venueName={venueName} />
+      );
     case ADMIN_TOP_HASHES.platformHelp:
       return <AdminPlatformHelpPage />;
     case ADMIN_TOP_HASHES.profile:

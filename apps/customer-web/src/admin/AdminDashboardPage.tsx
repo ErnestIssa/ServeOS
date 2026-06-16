@@ -60,6 +60,7 @@ import { AdminWorkspaceView } from "./AdminWorkspaces";
 import { ADMIN_VENUE_CONTROL_HASH, adminFullPageKey } from "./adminTopHashes";
 import { ADMIN_NAV_SYNC_EVENT, parseAdminRoute } from "./adminWorkspaceRouting";
 import { LogoutConfirmModal } from "./LogoutConfirmModal";
+import { AdminToastProvider } from "./AdminToast";
 import { OwnerTrialNoticeModal } from "./OwnerTrialNoticeModal";
 import { WorkspaceLaunchModal } from "./WorkspaceLaunchModal";
 
@@ -695,6 +696,7 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
   );
 
   return (
+    <AdminToastProvider>
     <div
       className={`admin-shell font-ui ${token ? "admin-shell--signed-in" : ""} ${launchModalOpen || trialNoticeOpen ? "h-[100dvh] overflow-hidden" : ""}`}
       data-theme={theme}
@@ -751,6 +753,8 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
                     token={token}
                     displayName={ownerDisplayName}
                     email={ownerUser?.email}
+                    restaurantId={selectedRestaurantId}
+                    venueName={selectedVenueName}
                     onSignOut={requestSignOut}
                     onEmailChanged={(nextEmail) =>
                       setOwnerUser((prev) => (prev ? { ...prev, email: nextEmail } : prev))
@@ -895,5 +899,6 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
 
       {token ? <AdminThemeFab theme={theme} onToggle={toggleTheme} /> : null}
     </div>
+    </AdminToastProvider>
   );
 }

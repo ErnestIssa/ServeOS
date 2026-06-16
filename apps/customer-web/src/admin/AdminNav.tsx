@@ -8,7 +8,6 @@ import {
   ADMIN_TOP_ICONS,
   ADMIN_TOP_TOOL_HINTS,
   defaultGroupHref,
-  readAdminHash,
   readAdminTheme,
   readOwnerContactName,
   readSidebarPinned,
@@ -20,6 +19,7 @@ import {
 import { ADMIN_NAV_SYNC_EVENT, buildNavHref, parseAdminRoute } from "./adminWorkspaceRouting";
 import { AdminGlobalSearchModal } from "./AdminGlobalSearchModal";
 import { AdminRestaurantSelector, AdminTypingSearch } from "./adminTopChrome";
+import { useAdminHash } from "./useAdminHash";
 import { useAdminPopoverMount } from "./useAdminPopoverMount";
 import { ADMIN_WORKSPACE_FAB, fabToneClasses } from "../marketing/fabTone";
 import { useAdminWorkspaceFabTone } from "../marketing/useAdminWorkspaceFabTone";
@@ -154,25 +154,10 @@ function AdminSideNav({
   variant?: "desktop" | "mobile";
 }) {
   const [hovered, setHovered] = useState(false);
-  const [hash, setHash] = useState(readAdminHash);
+  const hash = useAdminHash();
   const navRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const savedScrollTop = useRef(0);
-
-  useEffect(() => {
-    const onHash = () => setHash(readAdminHash());
-    const onSync = (e: Event) => {
-      const detail = (e as CustomEvent<{ hash: string }>).detail;
-      if (detail?.hash) setHash(detail.hash);
-    };
-    window.addEventListener("hashchange", onHash);
-    window.addEventListener(ADMIN_NAV_SYNC_EVENT, onSync);
-    onHash();
-    return () => {
-      window.removeEventListener("hashchange", onHash);
-      window.removeEventListener(ADMIN_NAV_SYNC_EVENT, onSync);
-    };
-  }, []);
 
   const expanded = pinned || hovered || variant === "mobile";
   const isMobile = variant === "mobile";
@@ -541,6 +526,7 @@ function AdminToolBubbleButton({
   badge,
   href,
   hint,
+  active = false,
   arrow = "center"
 }: {
   src: string;
@@ -548,6 +534,7 @@ function AdminToolBubbleButton({
   badge?: boolean;
   href: string;
   hint: { title: string; description: string; cta: string };
+  active?: boolean;
   arrow?: BubbleArrow;
 }) {
   const menu = useHoverMenu();
@@ -573,7 +560,8 @@ function AdminToolBubbleButton({
         type="button"
         aria-label={label}
         aria-haspopup="dialog"
-        className="admin-top-tool-btn relative flex h-9 w-9 shrink-0 items-center justify-center transition"
+        aria-current={active ? "page" : undefined}
+        className={`admin-top-tool-btn relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition ${active ? "admin-top-tool-btn--active" : ""}`}
       >
         <AdminTopToolIcon src={src} />
         {badge ? <span className="admin-top-tool-badge" /> : null}
@@ -645,9 +633,12 @@ function AdminTopNav({
   const quickMenu = useHoverMenu();
   const profileMenu = useHoverMenu();
 
+  const hash = useAdminHash();
   const ownerDisplayName = readOwnerContactName(ownerSignupProfile);
   const ownerInitial = (ownerDisplayName.charAt(0) || "O").toUpperCase();
   const selectedRestaurantName = restaurants.find((r) => r.id === selectedRestaurantId)?.name ?? "";
+  const profileActive = hash === ADMIN_TOP_HASHES.profile;
+
   return (
     <header className="admin-top-nav fixed inset-x-0 top-0 z-[70]">
       <div className="flex h-[var(--admin-top-h)] items-center gap-2 px-3 sm:gap-3 sm:px-4">
@@ -699,12 +690,14 @@ function AdminTopNav({
               src={ADMIN_TOP_ICONS.help}
               href={ADMIN_TOP_HASHES.platformHelp}
               hint={ADMIN_TOP_TOOL_HINTS.help}
+              active={hash === ADMIN_TOP_HASHES.platformHelp}
             />
             <AdminToolBubbleButton
-              label="Add staff"
+              label="Staff management"
               src={ADMIN_TOP_ICONS.addUser}
               href={ADMIN_TOP_HASHES.addStaff}
               hint={ADMIN_TOP_TOOL_HINTS.addUser}
+              active={hash === ADMIN_TOP_HASHES.addStaff}
             />
             <AdminToolBubbleButton
               label="Notifications"
@@ -712,12 +705,14 @@ function AdminTopNav({
               href={ADMIN_TOP_HASHES.notifications}
               hint={ADMIN_TOP_TOOL_HINTS.notifications}
               badge
+              active={hash === ADMIN_TOP_HASHES.notifications}
             />
             <AdminToolBubbleButton
               label="Billing"
               src={ADMIN_TOP_ICONS.billing}
               href={ADMIN_TOP_HASHES.billing}
               hint={ADMIN_TOP_TOOL_HINTS.billing}
+              active={hash === ADMIN_TOP_HASHES.billing}
             />
             <AdminHoverBubble
               open={quickMenu.open}
@@ -775,7 +770,8 @@ function AdminTopNav({
               type="button"
               aria-expanded={profileMenu.open}
               aria-haspopup="menu"
-              className="admin-profile-btn flex items-center gap-2 rounded-xl border py-1 pl-1 pr-2.5 transition"
+              aria-current={profileActive ? "page" : undefined}
+              className={`admin-profile-btn flex items-center gap-2 rounded-xl border py-1 pl-1 pr-2.5 transition ${profileActive ? "admin-profile-btn--active" : ""}`}
             >
               <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-blue-600 text-xs font-bold text-white shadow-sm">
                 {ownerInitial}

@@ -17,10 +17,17 @@ import {
   approveMembership,
   rejectMembership,
   suspendMembership,
+  activateMembership,
   removeMembership,
   updateMembershipPermissions,
-  updateRestaurantAccessPolicy
+  updateRestaurantAccessPolicy,
+  getMembershipDetail
 } from "../lib/staffMembershipService.js";
+import {
+  adminRequestStaffPasswordReset,
+  adminRevokeStaffSessions
+} from "../lib/staffAdminSecurityService.js";
+import { publishStaffRealtimeEvent } from "../lib/staffRealtime.js";
 import { loadRestaurantPolicy } from "../lib/venueAccessGuard.js";
 
 const inviteSchema = z.object({
@@ -32,6 +39,12 @@ const inviteSchema = z.object({
   /** Requested channels — delivery deferred until notification phase. */
   notifyChannels: z.array(z.enum(["email", "sms", "whatsapp"])).optional()
 });
+
+const securityPasswordSchema = z.object({ password: z.string().min(1) });
+
+function rosterUpdated(bus: EventEmitter, restaurantId: string) {
+  publishStaffRealtimeEvent(bus, { type: "staff.roster.updated", restaurantId });
+}
 
 export function registerStaffAccessRoutes(
   app: FastifyInstance,
@@ -52,6 +65,17 @@ export function registerStaffAccessRoutes(
     const res = await previewInvitation(prisma, token);
     if (!res.ok) return reply.status(400).send({ ok: false, error: res.error });
     return { ok: true, ...res.invitation };
+  });
+
+  app.get("/restaurants/:restaurantId/staff/memberships/:membershipId", async (req, reply) => {
+    const ctx = await requireMobileAuth(req, app, prisma);
+    const { restaurantId, membershipId } = req.params as { restaurantId: string; membershipId: string };
+    try {
+      return await getMembershipDetail(prisma, ctx, restaurantId, membershipId);
+    } catch (e: unknown) {
+      const err = e as { statusCode?: number; message?: string };
+      return reply.status(err.statusCode ?? 500).send({ ok: false, error: err.message ?? "error" });
+    }
   });
 
   app.get("/restaurants/:restaurantId/staff", async (req, reply) => {
@@ -110,6 +134,7 @@ export function registerStaffAccessRoutes(
         acceptUrl: created.acceptUrl,
         invitedByUserId: ctx.userId
       });
+      rosterUpdated(domainEventBus, restaurantId);
       return {
         ok: true,
         invitationId: created.invitationId,
@@ -135,6 +160,7 @@ export function registerStaffAccessRoutes(
     const { restaurantId, invitationId } = req.params as { restaurantId: string; invitationId: string };
     try {
       await cancelStaffInvitation(prisma, ctx, restaurantId, invitationId);
+      rosterUpdated(domainEventBus, restaurantId);
       return { ok: true };
     } catch (e: unknown) {
       const err = e as { statusCode?: number; message?: string };
@@ -160,6 +186,7 @@ export function registerStaffAccessRoutes(
           approvedByUserId: ctx.userId
         });
       }
+      rosterUpdated(domainEventBus, restaurantId);
       return res;
     } catch (e: unknown) {
       const err = e as { statusCode?: number; message?: string };
@@ -184,6 +211,7 @@ export function registerStaffAccessRoutes(
           userId: m.userId
         });
       }
+      rosterUpdated(domainEventBus, restaurantId);
       return res;
     } catch (e: unknown) {
       const err = e as { statusCode?: number; message?: string };
@@ -195,7 +223,59 @@ export function registerStaffAccessRoutes(
     const ctx = await requireMobileAuth(req, app, prisma);
     const { restaurantId, membershipId } = req.params as { restaurantId: string; membershipId: string };
     try {
-      return await suspendMembership(prisma, ctx, restaurantId, membershipId);
+      const res = await suspendMembership(prisma, ctx, restaurantId, membershipId);
+      rosterUpdated(domainEventBus, restaurantId);
+      return res;
+    } catch (e: unknown) {
+      const err = e as { statusCode?: number; message?: string };
+      return reply.status(err.statusCode ?? 500).send({ ok: false, error: err.message ?? "error" });
+    }
+  });
+
+  app.post("/restaurants/:restaurantId/staff/memberships/:membershipId/activate", async (req, reply) => {
+    const ctx = await requireMobileAuth(req, app, prisma);
+    const { restaurantId, membershipId } = req.params as { restaurantId: string; membershipId: string };
+    try {
+      const res = await activateMembership(prisma, ctx, restaurantId, membershipId);
+      rosterUpdated(domainEventBus, restaurantId);
+      return res;
+    } catch (e: unknown) {
+      const err = e as { statusCode?: number; message?: string };
+      return reply.status(err.statusCode ?? 500).send({ ok: false, error: err.message ?? "error" });
+    }
+  });
+
+  app.post("/restaurants/:restaurantId/staff/memberships/:membershipId/revoke-sessions", async (req, reply) => {
+    const ctx = await requireMobileAuth(req, app, prisma);
+    const { restaurantId, membershipId } = req.params as { restaurantId: string; membershipId: string };
+    const body = securityPasswordSchema.parse(req.body);
+    try {
+      const membership = await prisma.membership.findFirst({
+        where: { id: membershipId, restaurantId },
+        select: { userId: true }
+      });
+      const res = await adminRevokeStaffSessions(prisma, ctx, restaurantId, membershipId, body.password);
+      if (membership) {
+        publishStaffRealtimeEvent(domainEventBus, {
+          type: "staff.session.revoked",
+          restaurantId,
+          userId: membership.userId
+        });
+      }
+      rosterUpdated(domainEventBus, restaurantId);
+      return res;
+    } catch (e: unknown) {
+      const err = e as { statusCode?: number; message?: string };
+      return reply.status(err.statusCode ?? 500).send({ ok: false, error: err.message ?? "error" });
+    }
+  });
+
+  app.post("/restaurants/:restaurantId/staff/memberships/:membershipId/reset-password", async (req, reply) => {
+    const ctx = await requireMobileAuth(req, app, prisma);
+    const { restaurantId, membershipId } = req.params as { restaurantId: string; membershipId: string };
+    const body = securityPasswordSchema.parse(req.body);
+    try {
+      return await adminRequestStaffPasswordReset(prisma, ctx, restaurantId, membershipId, body.password);
     } catch (e: unknown) {
       const err = e as { statusCode?: number; message?: string };
       return reply.status(err.statusCode ?? 500).send({ ok: false, error: err.message ?? "error" });
@@ -206,7 +286,9 @@ export function registerStaffAccessRoutes(
     const ctx = await requireMobileAuth(req, app, prisma);
     const { restaurantId, membershipId } = req.params as { restaurantId: string; membershipId: string };
     try {
-      return await removeMembership(prisma, ctx, restaurantId, membershipId);
+      const res = await removeMembership(prisma, ctx, restaurantId, membershipId);
+      rosterUpdated(domainEventBus, restaurantId);
+      return res;
     } catch (e: unknown) {
       const err = e as { statusCode?: number; message?: string };
       return reply.status(err.statusCode ?? 500).send({ ok: false, error: err.message ?? "error" });
@@ -218,7 +300,9 @@ export function registerStaffAccessRoutes(
     const { restaurantId, membershipId } = req.params as { restaurantId: string; membershipId: string };
     const body = z.object({ permissions: z.array(z.string()) }).parse(req.body);
     try {
-      return await updateMembershipPermissions(prisma, ctx, restaurantId, membershipId, body.permissions);
+      const res = await updateMembershipPermissions(prisma, ctx, restaurantId, membershipId, body.permissions);
+      rosterUpdated(domainEventBus, restaurantId);
+      return res;
     } catch (e: unknown) {
       const err = e as { statusCode?: number; message?: string };
       return reply.status(err.statusCode ?? 500).send({ ok: false, error: err.message ?? "error" });
