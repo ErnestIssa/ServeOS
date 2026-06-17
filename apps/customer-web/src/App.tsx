@@ -14,6 +14,7 @@ import {
   syncUrlForView,
   viewFromPath
 } from "./appNavigation";
+import { hasInviteTokenInLocation } from "./inviteToken";
 import { ADMIN_SESSION_EVENT, hasActiveAdminSession } from "./authStorage";
 import { HowServeOSWorksPage } from "./HowServeOSWorksPage";
 import { LandingPage } from "./LandingPage";
@@ -37,6 +38,9 @@ export function App() {
     const canonical = pathForLegalSlug(slug);
     if (viewFromPath(path) === "legal" && path !== canonical) {
       syncUrlForLegal(slug, true);
+    }
+    if (viewFromPath(path) === "invite-accept" || (path === "/" && hasInviteTokenInLocation())) {
+      syncUrlForView("invite-accept", true);
     }
   }, []);
 

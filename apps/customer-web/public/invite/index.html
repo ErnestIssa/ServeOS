@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Accept invitation — ServeOS</title>
+    <script>
+      (function () {
+        var search = window.location.search;
+        if (!search) {
+          try {
+            search = sessionStorage.getItem("serveos.invite.search") || "";
+          } catch (e) {}
+        }
+        try {
+          if (search) sessionStorage.setItem("serveos.invite.search", search);
+        } catch (e) {}
+        window.location.replace("/" + search);
+      })();
+    </script>
+  </head>
+  <body>
+    <p>Loading invitation…</p>
+  </body>
+</html>

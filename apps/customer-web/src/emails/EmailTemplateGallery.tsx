@@ -44,7 +44,7 @@ function sampleForTemplate(id: ServeOsEmailTemplateId) {
         fullName: "Alex Rivera",
         restaurantName: "Bistro Nord",
         intendedRole: "MANAGER",
-        acceptUrl: `${window.location.origin}/invite/accept?token=sample`,
+        acceptUrl: `${window.location.origin}/invite?token=sample`,
         expiresAt: "2026-07-01",
         preferencesUrl
       });

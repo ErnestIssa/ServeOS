@@ -1,3 +1,4 @@
+import { hasInviteTokenInLocation, readInviteSearchFromLocation } from "./inviteToken";
 import { legalSlugFromPath, pathForLegalSlug, type LegalSlug } from "./legal/legalRoutes";
 
 export type AppView = "landing" | "how-it-works" | "signup" | "login" | "admin" | "legal" | "preferences" | "email-templates" | "invite-accept";
@@ -10,7 +11,7 @@ const VIEW_PATHS: Record<Exclude<AppView, "legal">, string> = {
   admin: "/admin",
   preferences: "/preferences",
   "email-templates": "/email-templates",
-  "invite-accept": "/invite/accept"
+  "invite-accept": "/invite"
 };
 
 const LEGACY_LEGAL_REDIRECTS: Record<string, LegalSlug> = {
@@ -26,6 +27,7 @@ export function viewFromPath(pathname: string): AppView {
   if (path === "/preferences" || path === "/unsubscribe") return "preferences";
   if (path === "/email-templates") return "email-templates";
   if (path === "/invite/accept" || path === "/invite") return "invite-accept";
+  if (path === "/" && hasInviteTokenInLocation()) return "invite-accept";
   if (path === "/admin") return "admin";
   if (path === "/legal" || path.startsWith("/legal/") || path in LEGACY_LEGAL_REDIRECTS) return "legal";
   return "landing";
@@ -48,8 +50,12 @@ export function syncUrlForView(view: AppView, replace = false, legalSlug: LegalS
     syncUrlForLegal(legalSlug, replace);
     return;
   }
-  const next = pathForView(view);
-  if (window.location.pathname === next) return;
+  const nextBase = pathForView(view);
+  const next =
+    view === "invite-accept"
+      ? `${nextBase}${readInviteSearchFromLocation() || ""}`
+      : nextBase;
+  if (window.location.pathname + window.location.search === next) return;
   if (replace) window.history.replaceState({ view }, "", next);
   else window.history.pushState({ view }, "", next);
 }

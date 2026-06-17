@@ -38,7 +38,7 @@ export function maskInviteEmail(email: string): string {
 }
 
 export function buildWorkspaceInviteAcceptUrl(token: string): string {
-  const base = process.env.SERVEOS_INVITE_BASE_URL?.trim() || "https://app.serveos.com/invite/accept";
+  const base = process.env.SERVEOS_INVITE_BASE_URL?.trim() || "https://app.serveos.com/invite";
   const normalized = base.replace(/\/+$/, "");
   const sep = normalized.includes("?") ? "&" : "?";
   return `${normalized}${sep}token=${encodeURIComponent(token)}`;

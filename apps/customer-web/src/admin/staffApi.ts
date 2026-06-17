@@ -1,13 +1,16 @@
 import { getApiBaseUrl } from "../api";
 
 function staffFetch<T>(token: string, path: string, init?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    ...(init?.headers as Record<string, string> | undefined)
+  };
+  if (init?.body != null && init.body !== "") {
+    headers["Content-Type"] = "application/json";
+  }
   return fetch(`${getApiBaseUrl()}${path}`, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      ...(init?.headers ?? {})
-    }
+    headers
   }).then(async (res) => {
     const data = (await res.json().catch(() => ({}))) as T & { ok?: boolean; error?: string };
     if (!res.ok && data && typeof data === "object" && !("error" in data)) {
@@ -234,6 +237,7 @@ export function mapStaffApiError(error?: string): string {
     permission_denied: "You do not have permission to perform this action.",
     membership_not_found: "Staff member not found.",
     invitation_not_found: "Invite not found.",
+    invitation_not_pending: "This invite is no longer pending.",
     invitation_already_pending: "An invite is already pending for this email.",
     cannot_suspend_owner: "The venue owner cannot be suspended.",
     cannot_suspend_self: "You cannot suspend your own access.",

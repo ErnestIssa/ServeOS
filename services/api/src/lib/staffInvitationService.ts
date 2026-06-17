@@ -200,9 +200,12 @@ export async function cancelStaffInvitation(
 ): Promise<void> {
   await requireActiveAdminAtVenue(prisma, ctx, restaurantId);
   const inv = await prisma.staffInvitation.findFirst({
-    where: { id: invitationId, restaurantId, status: "PENDING" }
+    where: { id: invitationId, restaurantId }
   });
   if (!inv) throw Object.assign(new Error("invitation_not_found"), { statusCode: 404 });
+  if (inv.status !== "PENDING") {
+    throw Object.assign(new Error("invitation_not_pending"), { statusCode: 409 });
+  }
   await prisma.staffInvitation.update({
     where: { id: inv.id },
     data: { status: "CANCELLED" }

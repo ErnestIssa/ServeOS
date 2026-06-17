@@ -9,6 +9,7 @@ import {
   resolveWorkspaceInvite,
   type InviteResolveOk
 } from "./workspaceEnrollmentApi";
+import { clearStoredInviteSearch, readInviteTokenFromLocation } from "../inviteToken";
 
 const ENROLL_ICON = iconPath("register-svgrepo-com.svg");
 
@@ -20,9 +21,7 @@ type Props = {
 };
 
 function readInviteToken(): string | null {
-  const params = new URLSearchParams(window.location.search);
-  const token = params.get("token")?.trim();
-  return token && token.length >= 16 ? token : null;
+  return readInviteTokenFromLocation();
 }
 
 function roleBadgeClass(role: string): string {
@@ -114,6 +113,7 @@ export function WorkspaceEnrollmentPage({ onBack, onGoLogin }: Props) {
     }
 
     persistAdminToken(result.token);
+    clearStoredInviteSearch();
     setPhase("success");
     if (result.merged) {
       setSuccessNote("Accounts merged and workspace connected.");
