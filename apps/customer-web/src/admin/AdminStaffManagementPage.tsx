@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -257,26 +257,50 @@ function ActionsMenu({
   member: StaffMember;
   open: boolean;
   onToggle: () => void;
-  onAction: (action: string) => void;
+  onAction: (action: string, blockedReason?: string | null) => void;
 }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const closeTimerRef = useRef<number | null>(null);
   const [coords, setCoords] = useState<{ top: number; right: number } | null>(null);
 
-  const items = [
-    { id: "profile", label: "View profile" },
-    { id: "permissions", label: "Edit permissions" },
-    ...(member.memberStatus === "pending_approval"
-      ? [{ id: "approve", label: "Approve access" }]
-      : [{ id: "venue", label: "Assign to venue" }]),
-    member.memberStatus === "suspended"
-      ? { id: "activate", label: "Activate access" }
-      : member.memberStatus === "active"
-        ? { id: "suspend", label: "Suspend access" }
-        : null,
-    { id: "remove", label: "Remove access", danger: true }
-  ].filter(Boolean) as Array<{ id: string; label: string; danger?: boolean }>;
+  const caps = member.capabilities?.actions;
+  const items = useMemo(() => {
+    if (!caps) return [{ id: "profile", label: "View profile" }];
+    const list: Array<{ id: string; label: string; danger?: boolean; blockedReason?: string | null }> = [
+      { id: "profile", label: "View profile" }
+    ];
+    if (caps.permissions?.allowed) {
+      list.push({ id: "permissions", label: "Edit permissions" });
+    }
+    if (member.memberStatus === "pending_approval") {
+      list.push({
+        id: "approve",
+        label: "Approve access",
+        blockedReason: caps.approve?.allowed ? null : caps.approve?.reason
+      });
+    }
+    if (member.memberStatus === "suspended") {
+      list.push({
+        id: "activate",
+        label: "Activate access",
+        blockedReason: caps.activate?.allowed ? null : caps.activate?.reason
+      });
+    } else if (member.memberStatus === "active") {
+      list.push({
+        id: "suspend",
+        label: "Suspend access",
+        blockedReason: caps.suspend?.allowed ? null : caps.suspend?.reason
+      });
+    }
+    list.push({
+      id: "remove",
+      label: "Remove access",
+      danger: true,
+      blockedReason: caps.remove?.allowed ? null : caps.remove?.reason
+    });
+    return list.filter((item) => item.id === "profile" || !item.blockedReason);
+  }, [caps, member.memberStatus]);
 
   const updatePosition = () => {
     const el = triggerRef.current;
@@ -398,20 +422,52 @@ function ActionsMenu({
   );
 }
 
+function permissionsSectionHint(member: StaffMember, permissionsReadOnly: boolean): ReactNode {
+  if (member.role === "OWNER") {
+    return "Owners have full venue access. Owner permissions are protected and cannot be changed from Staff Management.";
+  }
+  if (permissionsReadOnly && member.capabilities?.isSelf) {
+    return "You cannot change your own permissions here. Ask another owner or manager if your access needs updating.";
+  }
+  if (permissionsReadOnly) {
+    return member.capabilities?.readOnlyReason ?? "These permissions are read-only and cannot be edited.";
+  }
+  return (
+    <>
+      Role <strong>{member.roleTemplate}</strong> is a preset — toggles override the template per person.
+    </>
+  );
+}
+
 function PermissionToggle({
   label,
   enabled,
+  disabled,
+  disabledReason,
   onChange
 }: {
   label: string;
   enabled: boolean;
+  disabled?: boolean;
+  disabledReason?: string | null;
   onChange?: (v: boolean) => void;
 }) {
   return (
-    <label className="admin-staff-perm-row">
+    <label
+      className={`admin-staff-perm-row${disabled ? " admin-staff-perm-row--readonly admin-staff-perm-row--locked" : ""}`}
+      title={disabled ? disabledReason ?? undefined : undefined}
+      aria-disabled={disabled || undefined}
+    >
       <span className="admin-staff-perm-label">{label}</span>
-      <span className="admin-profile-toggle">
-        <input type="checkbox" checked={enabled} onChange={(e) => onChange?.(e.target.checked)} />
+      <span className={`admin-profile-toggle${disabled ? " admin-profile-toggle--locked" : ""}`}>
+        <input
+          type="checkbox"
+          checked={enabled}
+          disabled={disabled}
+          onChange={(e) => {
+            if (!disabled) onChange?.(e.target.checked);
+          }}
+        />
         <span className="admin-profile-toggle-track" aria-hidden />
       </span>
     </label>
@@ -576,6 +632,46 @@ function StaffProfileDrawer({
 
   if (!mounted || !activeMember) return null;
 
+  const permissionsReadOnly = activeMember.capabilities?.permissionsReadOnly ?? false;
+  const readOnlyReason = activeMember.capabilities?.readOnlyReason ?? null;
+  const canSavePermissions = activeMember.capabilities?.canSavePermissions ?? !permissionsReadOnly;
+  const securityCaps = activeMember.capabilities?.actions;
+
+  const securityButton = (
+    action: StaffSecurityAction,
+    label: string,
+    variant: "secondary" | "danger" = "secondary"
+  ) => {
+    const capKey = action === "force_logout" ? "force_logout" : action;
+    const cap = securityCaps?.[capKey];
+    const allowed = cap?.allowed !== false;
+    const onClick = () => {
+      if (!allowed) {
+        pushToast(cap?.reason ?? "This action is not allowed.", "error");
+        return;
+      }
+      setSecurityAction(action);
+    };
+    if (variant === "danger") {
+      return (
+        <button
+          type="button"
+          className="admin-staff-danger-btn"
+          disabled={!allowed}
+          title={!allowed ? cap?.reason ?? undefined : undefined}
+          onClick={onClick}
+        >
+          {label}
+        </button>
+      );
+    }
+    return (
+      <AdminBtnSecondary disabled={!allowed} title={!allowed ? cap?.reason ?? undefined : undefined} onClick={onClick}>
+        {label}
+      </AdminBtnSecondary>
+    );
+  };
+
   return createPortal(
     <>
       <div
@@ -621,18 +717,33 @@ function StaffProfileDrawer({
         </header>
 
         <div className="admin-staff-profile-body">
-          <section className="admin-staff-drawer-section">
-            <h4 className="admin-staff-drawer-section-title">Permissions</h4>
-            <p className="admin-staff-drawer-hint">
-              Role <strong>{activeMember.roleTemplate}</strong> is a preset — toggles override the template per person.
+          <section
+            className={`admin-staff-drawer-section${permissionsReadOnly ? " admin-staff-drawer-section--permissions-locked" : ""}`}
+          >
+            <h4 className="admin-staff-drawer-section-title">
+              Permissions
+              {permissionsReadOnly ? (
+                <span className="admin-staff-perm-lock-pill">Read-only</span>
+              ) : null}
+            </h4>
+            <p
+              className={`admin-staff-drawer-hint${permissionsReadOnly ? " admin-staff-drawer-hint--locked" : ""}`}
+              role={permissionsReadOnly ? "status" : undefined}
+            >
+              {permissionsSectionHint(activeMember, permissionsReadOnly)}
             </p>
-            <div className="admin-staff-perm-list">
+            <div
+              className={`admin-staff-perm-list${permissionsReadOnly ? " admin-staff-perm-list--locked" : ""}`}
+              aria-label={permissionsReadOnly ? "Permissions (read-only)" : "Permissions"}
+            >
               {permissions.length ? (
                 permissions.map((g) => (
                   <PermissionToggle
                     key={g.id}
                     label={g.label}
                     enabled={g.enabled}
+                    disabled={permissionsReadOnly}
+                    disabledReason={readOnlyReason}
                     onChange={(v) => onPermissionChange(g.id, v)}
                   />
                 ))
@@ -706,13 +817,11 @@ function StaffProfileDrawer({
           <section className="admin-staff-drawer-section">
             <h4 className="admin-staff-drawer-section-title admin-staff-drawer-section-title--danger">Security</h4>
             <div className="flex flex-wrap gap-2">
-              <AdminBtnSecondary onClick={() => setSecurityAction("reset_password")}>Reset password</AdminBtnSecondary>
-              <AdminBtnSecondary onClick={() => setSecurityAction("force_logout")}>Force logout</AdminBtnSecondary>
-              <button type="button" className="admin-staff-danger-btn" onClick={() => setSecurityAction("revoke_sessions")}>
-                Revoke all sessions
-              </button>
+              {securityButton("reset_password", "Reset password")}
+              {securityButton("force_logout", "Force logout")}
+              {securityButton("revoke_sessions", "Revoke all sessions", "danger")}
             </div>
-            {dirty ? (
+            {dirty && canSavePermissions ? (
               <div className="admin-staff-save-row">
                 <p className="admin-staff-save-hint">You have unsaved permission changes.</p>
                 <AdminBtnPrimary
@@ -1088,6 +1197,7 @@ export function AdminStaffManagementPage({
   const [permOverrides, setPermOverrides] = useState<Record<string, StaffMember["permissionGroups"]>>({});
   const [permBaselines, setPermBaselines] = useState<Record<string, StaffMember["permissionGroups"]>>({});
   const [savingPermissions, setSavingPermissions] = useState(false);
+  const [drawerMember, setDrawerMember] = useState<StaffMember | null>(null);
 
   const filtered = useMemo(() => {
     if (filter === "on_shift") return staff.filter((s) => s.presence === "on_shift");
@@ -1098,18 +1208,22 @@ export function AdminStaffManagementPage({
   }, [filter, staff]);
 
   const selected = staff.find((s) => s.id === selectedId) ?? null;
-  const permissionBaseline = selected
-    ? permBaselines[selected.id] ?? selected.permissionGroups
+  const displayMember =
+    drawerMember && selectedId && drawerMember.id === selectedId ? drawerMember : selected;
+  const permissionBaseline = displayMember
+    ? permBaselines[displayMember.id] ?? displayMember.permissionGroups
     : [];
-  const drawerPermissions = selected ? permOverrides[selected.id] ?? permissionBaseline : [];
-  const permissionsDirty = selected ? !permissionsEqual(permissionBaseline, drawerPermissions) : false;
+  const drawerPermissions = displayMember ? permOverrides[displayMember.id] ?? permissionBaseline : [];
+  const permissionsDirty = displayMember ? !permissionsEqual(permissionBaseline, drawerPermissions) : false;
 
   const openDrawer = async (member: StaffMember) => {
     setSelectedId(member.id);
+    setDrawerMember(member);
     setDrawerOpen(true);
     setOpenMenuId(null);
     const detail = await loadMemberDetail(member.id);
     if (detail) {
+      setDrawerMember(detail);
       setPermBaselines((prev) => ({ ...prev, [detail.id]: detail.permissionGroups }));
     }
   };
@@ -1142,42 +1256,46 @@ export function AdminStaffManagementPage({
   };
 
   const handlePermissionChange = (groupId: string, enabled: boolean) => {
-    if (!selected) return;
+    if (!displayMember?.capabilities?.canEditPermissions) return;
     setPermOverrides((prev) => {
-      const base = prev[selected.id] ?? permissionBaseline;
+      const base = prev[displayMember.id] ?? permissionBaseline;
       return {
         ...prev,
-        [selected.id]: base.map((g) => (g.id === groupId ? { ...g, enabled } : g))
+        [displayMember.id]: base.map((g) => (g.id === groupId ? { ...g, enabled } : g))
       };
     });
   };
 
   const discardPermissionChanges = () => {
-    if (!selected) return;
+    if (!displayMember) return;
     setPermOverrides((prev) => {
       const next = { ...prev };
-      delete next[selected.id];
+      delete next[displayMember.id];
       return next;
     });
   };
 
   const savePermissionChanges = async (): Promise<boolean> => {
-    if (!selected) return false;
+    if (!displayMember) return false;
+    if (!displayMember.capabilities?.canSavePermissions) {
+      pushToast(displayMember.capabilities?.readOnlyReason ?? "You cannot edit these permissions.", "error");
+      return false;
+    }
     setSavingPermissions(true);
     try {
-      const draft = permOverrides[selected.id] ?? permissionBaseline;
-      const res = await savePermissions(selected.id, draft);
+      const draft = permOverrides[displayMember.id] ?? permissionBaseline;
+      const res = await savePermissions(displayMember.id, draft);
       if (!res.ok) {
         pushToast(res.error ?? "Could not save permissions.", "error");
         return false;
       }
-      setPermBaselines((prev) => ({ ...prev, [selected.id]: draft }));
+      setPermBaselines((prev) => ({ ...prev, [displayMember.id]: draft }));
       setPermOverrides((prev) => {
         const next = { ...prev };
-        delete next[selected.id];
+        delete next[displayMember.id];
         return next;
       });
-      pushToast(`Permissions saved for ${selected.name}.`, "success");
+      pushToast(`Permissions saved for ${displayMember.name}.`, "success");
       return true;
     } finally {
       setSavingPermissions(false);
@@ -1354,9 +1472,12 @@ export function AdminStaffManagementPage({
       </AdminPanel>
 
       <StaffProfileDrawer
-        member={selected}
+        member={displayMember}
         open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
+        onClose={() => {
+          setDrawerOpen(false);
+          setDrawerMember(null);
+        }}
         permissions={drawerPermissions}
         onPermissionChange={handlePermissionChange}
         dirty={permissionsDirty}
@@ -1364,7 +1485,9 @@ export function AdminStaffManagementPage({
         onSave={savePermissionChanges}
         onDiscard={discardPermissionChanges}
         onSecurityAction={(action, password) =>
-          selected ? runSecurityAction(selected.id, action, password) : Promise.resolve({ ok: false, error: "No member selected." })
+          displayMember
+            ? runSecurityAction(displayMember.id, action, password)
+            : Promise.resolve({ ok: false, error: "No member selected." })
         }
       />
 

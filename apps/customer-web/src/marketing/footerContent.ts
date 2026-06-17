@@ -1,3 +1,4 @@
+import { LEGAL_FOOTER_LINKS } from "../legal/legalRoutes";
 import type { NavAction } from "./navContent";
 import { iconPath } from "./assetPaths";
 import { linkHoverShift } from "./styles";
@@ -63,13 +64,10 @@ export const FOOTER_SOLUTIONS: FooterLinkGroup = {
   ]
 };
 
-export const FOOTER_LEGAL: FooterLinkItem[] = [
-  { label: "Privacy policy", action: scroll("faq") },
-  { label: "Cookie policy", action: scroll("faq") },
-  { label: "Terms of service", action: scroll("faq") },
-  { label: "Data processing agreement", action: scroll("faq") },
-  { label: "Security & compliance", action: scroll("faq") }
-];
+export const FOOTER_LEGAL: FooterLinkItem[] = LEGAL_FOOTER_LINKS.map((item) => ({
+  label: item.label,
+  action: { type: "legal" as const, slug: item.slug }
+}));
 
 export const FOOTER_APP_STORES = [
   {

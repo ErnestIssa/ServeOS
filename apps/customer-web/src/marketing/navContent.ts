@@ -1,9 +1,11 @@
+import type { LegalSlug } from "../legal/legalRoutes";
 import { ADMIN_APP_PATH, DEMO_MAILTO, webAdminUrl } from "./constants";
 
 export type NavAction =
   | { type: "scroll"; targetId: string }
   | { type: "how-it-works" }
   | { type: "pricing" }
+  | { type: "legal"; slug: LegalSlug }
   | { type: "external"; url: string }
   | { type: "mailto" };
 

@@ -64,6 +64,7 @@ model User {
   deviceTokens         UserDeviceToken[]
   staffAuditsAsActor   StaffAuditLog[] @relation("StaffAuditActor")
   staffAuditsAsTarget  StaffAuditLog[] @relation("StaffAuditTarget")
+  communicationSubscriber CommunicationSubscriber?
 }
 
 /// Owner/staff personal profile — SSOT for admin profile page (distinct from signupProfile snapshot).
@@ -289,6 +290,7 @@ model Restaurant {
 
   memberships       Membership[]
   staffInvitations  StaffInvitation[]
+  customerInvitations CustomerInvitation[]
   menuCategories MenuCategory[]
   orders         Order[]
   shoppingCarts  ShoppingCart[]
@@ -359,12 +361,14 @@ model Membership {
   suspendedAt       DateTime?
   rejectedAt        DateTime?
   staffInvitationId String?          @unique
+  customerInvitationId String?       @unique
   createdAt    DateTime             @default(now())
   updatedAt    DateTime             @updatedAt
 
   user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   restaurant      Restaurant       @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   staffInvitation StaffInvitation? @relation(fields: [staffInvitationId], references: [id], onDelete: SetNull)
+  customerInvitation CustomerInvitation? @relation(fields: [customerInvitationId], references: [id], onDelete: SetNull)
 
   @@unique([userId, restaurantId])
   @@index([restaurantId, status])
@@ -387,6 +391,29 @@ model StaffInvitation {
   acceptedAt     DateTime?
   createdAt      DateTime             @default(now())
   updatedAt      DateTime             @updatedAt
+
+  restaurant Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  membership Membership?
+
+  @@index([restaurantId, status])
+  @@index([email])
+}
+
+/// Restaurant → customer enrollment (loyalty, reservations, order tracking).
+model CustomerInvitation {
+  id               String                @id @default(cuid())
+  restaurantId     String
+  fullName         String?
+  email            String
+  phone            String?
+  tokenHash        String                @unique
+  status           StaffInvitationStatus @default(PENDING)
+  expiresAt        DateTime
+  invitedByUserId  String?
+  acceptedByUserId String?
+  acceptedAt       DateTime?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
 
   restaurant Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   membership Membership?
@@ -690,6 +717,39 @@ model UserNotificationPreference {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+/// Marketing / newsletter / non-critical communication opt-in — separate from billing and transactional mail.
+model CommunicationSubscriber {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  userId         String?   @unique
+  tokenHash      String    @unique
+  tokenExpiresAt DateTime?
+  emailPrefs     Json
+  inAppPrefs     Json
+  lastSource     String?
+  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime  @default(now())
+
+  user   User?                          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  audits CommunicationPreferenceAudit[]
+
+  @@index([userId])
+}
+
+model CommunicationPreferenceAudit {
+  id           String   @id @default(cuid())
+  subscriberId String
+  action       String
+  source       String
+  category     String?
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  subscriber CommunicationSubscriber @relation(fields: [subscriberId], references: [id], onDelete: Cascade)
+
+  @@index([subscriberId, createdAt])
+}
+
 /// Venue staff administration audit trail — actor is admin, target is staff user.
 enum StaffAuditAction {
   INVITE_SENT
@@ -703,6 +763,7 @@ enum StaffAuditAction {
   PERMISSIONS_UPDATED
   SESSIONS_REVOKED
   PASSWORD_RESET_REQUESTED
+  IDENTITY_MERGED
 }
 
 model StaffAuditLog {

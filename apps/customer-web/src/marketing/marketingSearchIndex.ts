@@ -249,7 +249,7 @@ const PLATFORM_EXTRAS: MarketingSearchEntry[] = [
     subtitle: "Data handling and rights",
     category: "Company",
     keywords: ["privacy", "legal", "gdpr"],
-    action: scroll("faq")
+    action: { type: "legal", slug: "privacy" }
   },
   {
     id: "terms",
@@ -257,7 +257,7 @@ const PLATFORM_EXTRAS: MarketingSearchEntry[] = [
     subtitle: "Platform usage terms",
     category: "Company",
     keywords: ["terms", "legal", "service"],
-    action: scroll("faq")
+    action: { type: "legal", slug: "terms" }
   },
   {
     id: "security-compliance",
@@ -265,7 +265,15 @@ const PLATFORM_EXTRAS: MarketingSearchEntry[] = [
     subtitle: "Controls for enterprise operators",
     category: "Company",
     keywords: ["security", "compliance", "audit"],
-    action: scroll("faq")
+    action: { type: "legal", slug: "security" }
+  },
+  {
+    id: "legal-center",
+    title: "Legal Center",
+    subtitle: "All policies and agreements",
+    category: "Company",
+    keywords: ["legal", "dpa", "cookies", "policies"],
+    action: { type: "legal", slug: "center" }
   },
   {
     id: "enterprise-solutions",

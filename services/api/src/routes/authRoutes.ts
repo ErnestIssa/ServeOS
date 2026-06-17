@@ -6,12 +6,12 @@ import { z } from "zod";
 import { toJwtRole } from "../plugins/auth.js";
 import { readPreferredRestaurantIdFromProfile } from "../lib/customerPreferredVenue.js";
 import { loadMobileAuthContext } from "../lib/mobileAuthContext.js";
-import { acceptStaffInvitation } from "../lib/staffInvitationService.js";
+import { completeWorkspaceEnrollment, inviteEmailForToken } from "../lib/workspaceEnrollmentService.js";
 import { notifyStaffPendingApproval } from "../notifications/integrations/staff.js";
 import { isAuthTokenRevoked, revokeAuthToken } from "../lib/authTokenRevocation.js";
 import { logSecurityActivity } from "../lib/account/securityActivity.js";
 import { confirmPasswordReset, requestPasswordReset } from "../lib/account/passwordResetService.js";
-import { maskIp, requestIp, upsertUserSession } from "../lib/account/sessionService.js";
+import { maskIp, requestIp, revokeSessionByToken, upsertUserSession } from "../lib/account/sessionService.js";
 import { captureAuthFailure } from "../lib/integrations/sentry.js";
 import { verifyTwoFactorTotpCode } from "../lib/account/twoFactorService.js";
 import {
@@ -19,6 +19,20 @@ import {
   verifyTwoFactorSmsCode
 } from "../lib/account/twoFactorSmsFallback.js";
 import { isSmsProviderConfigured } from "../lib/integrations/smsProvider.js";
+import {
+  assertSignupIdentityAvailable,
+  assertBearerUserStillActive,
+  assertUserMayAuthenticate,
+  assessWorkspaceAuthState,
+  buildIdentityLookupWhere,
+  normalizeSignupCredentials
+} from "../lib/auth/authAccessGuard.js";
+import {
+  assertLoginNotRateLimited,
+  clearLoginFailures,
+  recordLoginFailure
+} from "../lib/auth/loginProtectionService.js";
+import { verifyUserPassword } from "../lib/auth/verifyUserPassword.js";
 
 /** Fields that exist on every deployed DB revision (safe for signup response + fallbacks). */
 const USER_CORE_SELECT = {
@@ -128,28 +142,34 @@ export function registerAuthRoutes(
 
   app.post("/auth/signup", async (req, reply) => {
     const body = signupSchema.parse(req.body);
-    if (!body.email && !body.phone) {
+    const normalized = normalizeSignupCredentials({ email: body.email, phone: body.phone });
+    if (!normalized.email && !normalized.phone) {
       return reply.status(400).send({ ok: false, error: "email_or_phone_required" });
     }
 
-    const existing = await prisma.user.findFirst({
-      where: {
-        OR: [
-          body.email ? { email: body.email } : undefined,
-          body.phone ? { phone: body.phone } : undefined
-        ].filter(Boolean) as any
-      },
-      select: { id: true }
-    });
-    if (existing) {
-      return reply.status(409).send({ ok: false, error: "user_already_exists" });
+    const ip = maskIp(requestIp(req as { headers: Record<string, unknown>; ip?: string }));
+    const ipGate = await assertLoginNotRateLimited({ ip });
+    if (!ipGate.ok) {
+      return reply.status(429).send({
+        ok: false,
+        error: ipGate.error,
+        retryAfterSec: ipGate.retryAfterSec
+      });
+    }
+
+    const identityGate = await assertSignupIdentityAvailable(prisma, normalized);
+    if (!identityGate.ok) {
+      return reply.status(identityGate.error === "user_already_exists" ? 409 : 400).send({
+        ok: false,
+        error: identityGate.error
+      });
     }
 
     const passwordHash = await bcrypt.hash(body.password, SALT_ROUNDS);
 
     const baseUserData = {
-      email: body.email,
-      phone: body.phone,
+      email: normalized.email,
+      phone: normalized.phone,
       password: passwordHash,
       role: body.role
     };
@@ -286,56 +306,77 @@ export function registerAuthRoutes(
 
   app.post("/auth/login", async (req, reply) => {
     const body = loginSchema.parse(req.body);
-    if (!body.email && !body.phone) {
+    const normalized = normalizeSignupCredentials({ email: body.email, phone: body.phone });
+    if (!normalized.email && !normalized.phone) {
       return reply.status(400).send({ ok: false, error: "email_or_phone_required" });
     }
 
-    const user = await prisma.user.findFirst({
-      where: {
-        OR: [
-          body.email ? { email: body.email } : undefined,
-          body.phone ? { phone: body.phone } : undefined
-        ].filter(Boolean) as any
-      },
-      select: { id: true, email: true, phone: true, role: true, password: true }
-    });
+    const ip = requestIp(req as { headers: Record<string, unknown>; ip?: string });
+    const ipMasked = maskIp(ip);
+    const ipGate = await assertLoginNotRateLimited({ ip });
+    if (!ipGate.ok) {
+      return reply.status(429).send({
+        ok: false,
+        error: ipGate.error,
+        retryAfterSec: ipGate.retryAfterSec
+      });
+    }
+
+    const lookup = buildIdentityLookupWhere(normalized);
+    const user = lookup
+      ? await prisma.user.findFirst({
+          where: lookup,
+          select: {
+            id: true,
+            email: true,
+            phone: true,
+            role: true,
+            password: true,
+            signupProfile: true
+          }
+        })
+      : null;
+
     if (!user) {
       captureAuthFailure({
         reason: "invalid_credentials",
         req,
-        email: body.email ?? null
+        email: normalized.email ?? null
       });
       return reply.status(401).send({ ok: false, error: "invalid_credentials" });
     }
 
-    let valid = false;
-    if (user.password.startsWith("$2")) {
-      valid = await bcrypt.compare(body.password, user.password);
-    } else {
-      valid = user.password === body.password;
-      if (valid) {
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { password: await bcrypt.hash(body.password, SALT_ROUNDS) },
-          select: { id: true }
-        });
-      }
+    const accountGate = await assertLoginNotRateLimited({ ip, accountKey: user.id });
+    if (!accountGate.ok) {
+      return reply.status(429).send({
+        ok: false,
+        error: accountGate.error,
+        retryAfterSec: accountGate.retryAfterSec
+      });
     }
 
+    const valid = await verifyUserPassword(prisma, user, body.password);
+
     if (!valid) {
+      await recordLoginFailure({ ip, accountKey: user.id });
       await logSecurityActivity(prisma, {
         userId: user.id,
         type: "LOGIN_FAILED",
-        ipMasked: maskIp(requestIp(req as { headers: Record<string, unknown>; ip?: string })),
-        metadata: { email: body.email ?? null, phone: body.phone ?? null }
+        ipMasked,
+        metadata: { email: normalized.email ?? null, phone: normalized.phone ?? null }
       }).catch(() => undefined);
       captureAuthFailure({
         reason: "login_failed",
         req,
         userId: user.id,
-        email: user.email ?? body.email ?? null
+        email: user.email ?? normalized.email ?? null
       });
       return reply.status(401).send({ ok: false, error: "invalid_credentials" });
+    }
+
+    const authGate = await assertUserMayAuthenticate(prisma, user);
+    if (!authGate.ok) {
+      return reply.status(403).send({ ok: false, error: authGate.error });
     }
 
     const twoFaRow = await prisma.userTwoFactorAuth.findUnique({
@@ -360,9 +401,12 @@ export function registerAuthRoutes(
         verified = await verifyTwoFactorSmsCode(user.id, sms);
       }
       if (!verified) {
+        await recordLoginFailure({ ip, accountKey: user.id });
         return reply.status(401).send({ ok: false, error: "invalid_2fa_code" });
       }
     }
+
+    await clearLoginFailures(user.id);
 
     const token = app.signJwt({ sub: user.id, role: toJwtRole(user.role) });
     const ua = typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : undefined;
@@ -370,12 +414,12 @@ export function registerAuthRoutes(
       userId: user.id,
       token,
       userAgent: ua,
-      ip: requestIp(req as { headers: Record<string, unknown>; ip?: string })
+      ip
     });
     await logSecurityActivity(prisma, {
       userId: user.id,
       type: "LOGIN_SUCCESS",
-      ipMasked: maskIp(requestIp(req as { headers: Record<string, unknown>; ip?: string })),
+      ipMasked,
       metadata: { method: "login" }
     });
     const base = publicUserFromDbRow({
@@ -383,10 +427,15 @@ export function registerAuthRoutes(
       email: user.email,
       phone: user.phone,
       role: user.role,
-      signupProfile: null
+      signupProfile: user.signupProfile
     });
     const enriched = await enrichUserWithExperience(prisma, user.id, base);
-    return { ok: true, user: enriched, token };
+    return {
+      ok: true,
+      user: enriched,
+      token,
+      workspaceAuth: authGate.workspace
+    };
   });
 
   app.post("/auth/2fa/request-sms-code", async (req, reply) => {
@@ -447,50 +496,89 @@ export function registerAuthRoutes(
 
   app.post("/auth/accept-invitation", async (req, reply) => {
     const body = acceptInvitationSchema.parse(req.body);
-    const passwordHash = await bcrypt.hash(body.password, SALT_ROUNDS);
     try {
-      const result = await acceptStaffInvitation(prisma, {
-        token: body.token,
-        passwordHash,
-        email: body.email,
-        phone: body.phone,
-        fullName: body.fullName
-      });
+      const inviteEmail = await inviteEmailForToken(prisma, body.token);
+      const existingUser = inviteEmail
+        ? await prisma.user.findFirst({
+            where: { email: inviteEmail },
+            select: { id: true, password: true }
+          })
+        : null;
+
+      let result;
+      if (existingUser) {
+        let valid = false;
+        if (existingUser.password.startsWith("$2")) {
+          valid = await bcrypt.compare(body.password, existingUser.password);
+        } else {
+          valid = existingUser.password === body.password;
+        }
+        if (!valid) return reply.status(401).send({ ok: false, error: "invalid_credentials" });
+
+        result = await completeWorkspaceEnrollment(prisma, {
+          token: body.token,
+          action: "use_existing",
+          sessionUserId: existingUser.id,
+          fullName: body.fullName,
+          phone: body.phone
+        });
+      } else {
+        const passwordHash = await bcrypt.hash(body.password, SALT_ROUNDS);
+        result = await completeWorkspaceEnrollment(prisma, {
+          token: body.token,
+          action: "create_account",
+          passwordHash,
+          fullName: body.fullName,
+          phone: body.phone
+        });
+      }
+
       const dbUser = await prisma.user.findUnique({
         where: { id: result.userId },
         select: { ...USER_CORE_SELECT, signupProfile: true }
       });
       const token = app.signJwt({
         sub: result.userId,
-        role: toJwtRole(dbUser?.role ?? "STAFF")
+        role: toJwtRole(dbUser?.role ?? result.intendedRole)
       });
       const user = await enrichUserWithExperience(
         prisma,
         result.userId,
-        publicUserFromDbRow(dbUser ?? { id: result.userId, email: body.email ?? null, phone: body.phone ?? null, role: "STAFF", signupProfile: null })
+        publicUserFromDbRow(
+          dbUser ?? {
+            id: result.userId,
+            email: body.email ?? inviteEmail ?? null,
+            phone: body.phone ?? null,
+            role: result.intendedRole,
+            signupProfile: null
+          }
+        )
       );
-      const venue = await prisma.restaurant.findUnique({
-        where: { id: result.restaurantId },
-        select: { name: true }
-      });
-      const membership = await prisma.membership.findUnique({
-        where: { id: result.membershipId },
-        select: { role: true }
-      });
-      await notifyStaffPendingApproval(domainEventBus, {
-        restaurantId: result.restaurantId,
-        restaurantName: venue?.name ?? "Venue",
-        membershipId: result.membershipId,
-        userId: result.userId,
-        fullName: body.fullName ?? null,
-        role: membership?.role ?? "STAFF"
-      });
+      if (result.pendingApproval) {
+        const venue = await prisma.restaurant.findUnique({
+          where: { id: result.restaurantId },
+          select: { name: true }
+        });
+        const membership = await prisma.membership.findUnique({
+          where: { id: result.membershipId },
+          select: { role: true }
+        });
+        await notifyStaffPendingApproval(domainEventBus, {
+          restaurantId: result.restaurantId,
+          restaurantName: venue?.name ?? "Venue",
+          membershipId: result.membershipId,
+          userId: result.userId,
+          fullName: body.fullName ?? null,
+          role: membership?.role ?? result.intendedRole
+        });
+      }
       return {
         ok: true,
         token,
         user,
-        pendingApproval: true,
-        restaurantId: result.restaurantId
+        pendingApproval: result.pendingApproval,
+        restaurantId: result.restaurantId,
+        redirectPath: result.redirectPath
       };
     } catch (e: unknown) {
       const err = e as { statusCode?: number; message?: string };
@@ -508,9 +596,15 @@ export function registerAuthRoutes(
     }
 
     const payload = app.verifyJwt(token);
+    const active = await assertBearerUserStillActive(prisma, payload.sub);
+    if (!active.ok) {
+      return reply.status(403).send({ ok: false, error: active.error });
+    }
+
     const user = await findUserForAuthMe(prisma, payload.sub);
     if (!user) return reply.status(404).send({ ok: false, error: "user_not_found" });
-    return { ok: true, user };
+    const workspace = await assessWorkspaceAuthState(prisma, payload.sub);
+    return { ok: true, user, workspaceAuth: workspace };
   });
 
   app.post("/auth/password-reset/request", async (req, reply) => {
@@ -564,6 +658,7 @@ export function registerAuthRoutes(
 
     try {
       await revokeAuthToken(token, secret);
+      await revokeSessionByToken(prisma, token);
     } catch {
       return reply.status(401).send({ ok: false, error: "invalid_token" });
     }

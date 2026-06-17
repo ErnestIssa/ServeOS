@@ -158,3 +158,12 @@ export async function revokeAllSessions(prisma: PrismaClient, userId: string) {
   });
   return result.count;
 }
+
+export async function revokeSessionByToken(prisma: PrismaClient, token: string) {
+  const fp = tokenFingerprint(token);
+  const result = await prisma.userSession.updateMany({
+    where: { tokenFingerprint: fp, revokedAt: null },
+    data: { revokedAt: new Date() }
+  });
+  return result.count;
+}

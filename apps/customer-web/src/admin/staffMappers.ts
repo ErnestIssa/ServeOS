@@ -1,10 +1,12 @@
-import type { ApiPermissionGroup, ApiStaffMember } from "./staffApi";
+import type { ApiPermissionGroup, ApiStaffMember, ApiStaffMemberCapabilities } from "./staffApi";
 
 export type StaffRole = "STAFF" | "KITCHEN" | "CASHIER" | "MANAGER" | "OWNER";
 export type PresenceStatus = "on_shift" | "online" | "idle" | "offline" | "suspended" | "pending";
 export type MemberStatus = "active" | "suspended" | "pending_invite" | "pending_approval";
 
 export type StaffPermissionGroup = { id: string; label: string; enabled: boolean; keys: string[] };
+
+export type StaffMemberCapabilities = ApiStaffMemberCapabilities;
 
 export type StaffMember = {
   id: string;
@@ -24,6 +26,7 @@ export type StaffMember = {
   devices: Array<{ label: string; type: string; lastSeen: string }>;
   permissionGroups: StaffPermissionGroup[];
   sessions: Array<{ device: string; location: string; lastActive: string; current: boolean }>;
+  capabilities?: StaffMemberCapabilities | null;
 };
 
 export type PendingInvite = {
@@ -90,7 +93,8 @@ export function apiMemberToStaffMember(
       location: s.location,
       lastActive: s.lastActive,
       current: s.current
-    }))
+    })),
+    capabilities: m.capabilities ?? null
   };
 }
 

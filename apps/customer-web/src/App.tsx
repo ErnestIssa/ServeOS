@@ -2,12 +2,24 @@ import { AmbientWebShell } from "@serveos/core-ambient";
 import { useCallback, useEffect, useState } from "react";
 import { AdminDashboardPage } from "./admin/AdminDashboardPage";
 import { AccountLoginPage } from "./AccountLoginPage";
+import { CommunicationPreferencesPage } from "./CommunicationPreferencesPage";
+import { EmailTemplateGallery } from "./emails/EmailTemplateGallery";
+import { WorkspaceEnrollmentPage } from "./enrollment/WorkspaceEnrollmentPage";
 import { AccountSignupPage } from "./AccountSignupPage";
 import { guardAppView, resolveAppViewForSession } from "./adminSessionGuard";
-import { type AppView, syncUrlForView, viewFromPath } from "./appNavigation";
+import {
+  type AppView,
+  legalSlugFromPath,
+  syncUrlForLegal,
+  syncUrlForView,
+  viewFromPath
+} from "./appNavigation";
 import { ADMIN_SESSION_EVENT, hasActiveAdminSession } from "./authStorage";
 import { HowServeOSWorksPage } from "./HowServeOSWorksPage";
 import { LandingPage } from "./LandingPage";
+import { LegalPageView } from "./legal/LegalPageView";
+import type { LegalSlug } from "./legal/legalRoutes";
+import { pathForLegalSlug } from "./legal/legalRoutes";
 import { ADMIN_WORKSPACE_FAB } from "./marketing/fabTone";
 import { SupportPopup } from "./marketing/SupportPopup";
 import { useSupportPopup } from "./marketing/useSupportPopup";
@@ -15,8 +27,18 @@ import { scrollToId } from "./marketing/ui";
 
 export function App() {
   const [view, setView] = useState<AppView>(() => resolveAppViewForSession(window.location.pathname));
+  const [legalSlug, setLegalSlug] = useState<LegalSlug>(() => legalSlugFromPath(window.location.pathname));
   const [adminSession, setAdminSession] = useState(() => hasActiveAdminSession());
   const { isVisible: isSupportVisible, onOpen: onSupportOpen, onClose: onSupportClose } = useSupportPopup();
+
+  useEffect(() => {
+    const path = window.location.pathname.replace(/\/+$/, "") || "/";
+    const slug = legalSlugFromPath(path);
+    const canonical = pathForLegalSlug(slug);
+    if (viewFromPath(path) === "legal" && path !== canonical) {
+      syncUrlForLegal(slug, true);
+    }
+  }, []);
 
   useEffect(() => {
     const sync = () => setAdminSession(hasActiveAdminSession());
@@ -28,18 +50,28 @@ export function App() {
     setAdminSession(hasActiveAdminSession());
   }, [view]);
 
-  const setAppView = useCallback((next: AppView, replace = false) => {
+  const setAppView = useCallback((next: AppView, replace = false, slug: LegalSlug = "center") => {
     const guarded = guardAppView(next);
     setView(guarded);
-    syncUrlForView(guarded, replace || guarded !== next);
+    if (guarded === "legal") {
+      setLegalSlug(slug);
+      syncUrlForView("legal", replace || guarded !== next, slug);
+    } else {
+      syncUrlForView(guarded, replace || guarded !== next);
+    }
     if (guarded !== "landing") window.scrollTo({ top: 0, behavior: "auto" });
   }, []);
 
   useEffect(() => {
     const onPopState = () => {
-      const next = resolveAppViewForSession(window.location.pathname);
-      if (next !== viewFromPath(window.location.pathname)) {
-        syncUrlForView(next, true);
+      const path = window.location.pathname;
+      const next = resolveAppViewForSession(path);
+      if (next === "legal") {
+        setLegalSlug(legalSlugFromPath(path));
+      }
+      if (next !== viewFromPath(path)) {
+        if (next === "legal") syncUrlForLegal(legalSlugFromPath(path), true);
+        else syncUrlForView(next, true);
       }
       setView(next);
     };
@@ -49,6 +81,9 @@ export function App() {
 
   useEffect(() => {
     if (!adminSession) return;
+    if (viewFromPath(window.location.pathname) === "preferences") return;
+    if (viewFromPath(window.location.pathname) === "email-templates") return;
+    if (viewFromPath(window.location.pathname) === "invite-accept") return;
     setView("admin");
     if (viewFromPath(window.location.pathname) !== "admin") {
       syncUrlForView("admin", true);
@@ -75,10 +110,18 @@ export function App() {
     setAppView("login");
   }
 
+  function goLegal(slug: LegalSlug) {
+    setAppView("legal", false, slug);
+  }
+
   return (
     <AmbientWebShell variant="customer" parallax={false} className="font-ui">
       {view === "landing" ? (
-        <LandingPage onHowItWorks={() => setAppView("how-it-works")} onFindSetup={goSignup} />
+        <LandingPage
+          onHowItWorks={() => setAppView("how-it-works")}
+          onFindSetup={goSignup}
+          onGoLegal={goLegal}
+        />
       ) : null}
       {view === "how-it-works" ? (
         <HowServeOSWorksPage
@@ -86,11 +129,29 @@ export function App() {
           onGoFeatures={() => goLanding("features")}
           onGoPricing={() => goLanding("pricing")}
           onGoLogin={goLogin}
+          onGoLegal={goLegal}
+        />
+      ) : null}
+      {view === "legal" ? (
+        <LegalPageView
+          slug={legalSlug}
+          onHome={() => goLanding("top")}
+          onHowItWorks={() => setAppView("how-it-works")}
+          onGoPricing={goPricing}
+          onGoLogin={goLogin}
+          onGoLegal={goLegal}
         />
       ) : null}
       {view === "signup" ? <AccountSignupPage onBack={() => goLanding("pricing")} /> : null}
       {view === "login" ? (
         <AccountLoginPage onBack={() => goLanding("top")} onGoSignup={goSignup} />
+      ) : null}
+      {view === "preferences" ? (
+        <CommunicationPreferencesPage onBack={() => goLanding("top")} />
+      ) : null}
+      {view === "email-templates" ? <EmailTemplateGallery onBack={() => goLanding("top")} /> : null}
+      {view === "invite-accept" ? (
+        <WorkspaceEnrollmentPage onBack={() => goLanding("top")} onGoLogin={goLogin} />
       ) : null}
       {view === "admin" ? <AdminDashboardPage onAfterLogout={() => goLanding("top")} /> : null}
 

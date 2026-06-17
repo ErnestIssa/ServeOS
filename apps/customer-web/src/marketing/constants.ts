@@ -2,10 +2,8 @@ import { getWebAdminUrl } from "../bootstrap/clientConfig";
 
 /** In-app admin dashboard route on customer-web (default when separate web-admin URL is unset). */
 export const ADMIN_APP_PATH = "/admin";
-/** Placeholder until the dedicated policy page ships. */
-export const PRIVACY_POLICY_PATH = "/privacy";
-/** Placeholder until the dedicated terms page ships. */
-export const TERMS_OF_SERVICE_PATH = "/terms";
+export const PRIVACY_POLICY_PATH = "/legal/privacy";
+export const TERMS_OF_SERVICE_PATH = "/legal/terms";
 /** Placeholder until the pre-business onboarding page ships. */
 export const NO_BUSINESS_YET_PATH = "/no-business-yet";
 export const DEMO_MAILTO = "mailto:hello@serveos.com?subject=ServeOS%20demo%20request";

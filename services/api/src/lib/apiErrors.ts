@@ -44,6 +44,15 @@ const MESSAGES: Record<string, string> = {
   server_misconfigured: "The server is not configured correctly. Try again later.",
   invalid_token: "Your session has ended. Please sign in again.",
   sign_in_failed: "Could not sign in. Try again.",
+  account_suspended: "Your workspace access is suspended. Contact your restaurant admin.",
+  account_merged: "This account was merged into another login. Use your primary account.",
+  pending_account_completion: "Finish setting up your account before signing in.",
+  account_temporarily_locked: "Too many failed sign-in attempts. Try again in a few minutes.",
+  too_many_attempts: "Too many sign-in attempts. Wait a moment and try again.",
+  invitation_already_used: "This invitation has already been used.",
+  login_required: "Sign in to continue.",
+  email_mismatch: "This invite was sent to a different email address.",
+  account_already_exists: "An account already exists for this email. Sign in instead.",
   sign_up_failed: "Could not create your account. Try again."
 };
 

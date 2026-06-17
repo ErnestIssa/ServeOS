@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { LegalSlug } from "../legal/legalRoutes";
 import { lockPageScroll } from "./lockPageScroll";
 import { MarketingSearchPanel, useMarketingSearchQuery } from "./MarketingSearchPanel";
 import { useSearchPanelHeight } from "./useSearchPanelHeight";
@@ -17,6 +18,7 @@ type Props = {
   onHowItWorks: () => void;
   onGoPricing?: () => void;
   onGoLogin?: () => void;
+  onGoLegal?: (slug: LegalSlug) => void;
   heroMode?: boolean;
 };
 
@@ -47,7 +49,7 @@ function SearchIcon({ className }: { className?: string }) {
   );
 }
 
-export function SiteNav({ onHome, onHowItWorks, onGoPricing, onGoLogin, heroMode = false }: Props) {
+export function SiteNav({ onHome, onHowItWorks, onGoPricing, onGoLogin, onGoLegal, heroMode = false }: Props) {
   const scrolled = useNavScrollState(heroMode);
   const darkNav = heroMode && !scrolled;
 
@@ -74,7 +76,8 @@ export function SiteNav({ onHome, onHowItWorks, onGoPricing, onGoLogin, heroMode
 
   const handlers: NavHandlers = {
     onHowItWorks,
-    onPricing: onGoPricing
+    onPricing: onGoPricing,
+    onGoLegal
   };
 
   const closeMenus = useCallback(() => {

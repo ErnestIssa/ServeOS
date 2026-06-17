@@ -8,7 +8,6 @@ import {
 } from "./venuePermissions.js";
 import {
   assertManagerSlotAvailable,
-  assertSingleOwner,
   loadRestaurantPolicy,
   requireActiveAdminAtVenue,
   requireActiveMembershipAtVenue
@@ -16,6 +15,17 @@ import {
 import type { MobileAuthContext } from "./mobileAuthContext.js";
 import { logStaffAudit, listStaffAuditLogs } from "./staffAuditService.js";
 import { loadMemberRuntime } from "./staffMemberRuntime.js";
+import { revokeAllSessions } from "./account/sessionService.js";
+import {
+  assertActorCanManageTarget,
+  assertAtLeastOneOwnerRemains,
+  assertCallerCanGrantPermissions,
+  assertCanEditTargetPermissions,
+  assertNotSelf,
+  buildMemberCapabilities,
+  countActiveOwners,
+  type StaffMemberCapabilities
+} from "./staffTargetPolicy.js";
 
 function readFullName(profile: unknown, accountFullName?: string | null): string | null {
   if (accountFullName?.trim()) return accountFullName.trim();
@@ -98,12 +108,39 @@ async function mapMember(
     activeSessionsCount: runtime.activeSessionsCount,
     currentShift: runtime.currentShift,
     sessions: runtime.sessions,
-    devices: runtime.devices
+    devices: runtime.devices,
+    capabilities: null as StaffMemberCapabilities | null
+  };
+}
+
+function attachCapabilities(
+  member: Awaited<ReturnType<typeof mapMember>>,
+  params: {
+    actorUserId: string;
+    actorRole: Role;
+    actorPermissions: string[];
+    activeOwnerCount: number;
+  }
+) {
+  return {
+    ...member,
+    capabilities: buildMemberCapabilities({
+      actorUserId: params.actorUserId,
+      actorRole: params.actorRole,
+      actorPermissions: params.actorPermissions,
+      target: {
+        id: member.id,
+        userId: member.userId,
+        role: member.role,
+        status: member.status as import("@prisma/client").MembershipStatus
+      },
+      activeOwnerCount: params.activeOwnerCount
+    })
   };
 }
 
 export async function listVenueStaff(prisma: PrismaClient, ctx: MobileAuthContext, restaurantId: string) {
-  await requireActiveAdminAtVenue(prisma, ctx, restaurantId);
+  const admin = await requireActiveAdminAtVenue(prisma, ctx, restaurantId);
 
   const restaurant = await prisma.restaurant.findUnique({
     where: { id: restaurantId },
@@ -133,7 +170,18 @@ export async function listVenueStaff(prisma: PrismaClient, ctx: MobileAuthContex
     })
   ]);
 
-  const mappedMembers = await Promise.all(members.map((m) => mapMember(prisma, m, restaurantName)));
+  const activeOwnerCount = await countActiveOwners(prisma, restaurantId);
+  const mappedMembers = await Promise.all(
+    members.map(async (m) => {
+      const base = await mapMember(prisma, m, restaurantName);
+      return attachCapabilities(base, {
+        actorUserId: ctx.userId,
+        actorRole: admin.role,
+        actorPermissions: admin.permissions,
+        activeOwnerCount
+      });
+    })
+  );
 
   return {
     members: mappedMembers,
@@ -167,7 +215,7 @@ export async function getMembershipDetail(
   restaurantId: string,
   membershipId: string
 ) {
-  await requireActiveAdminAtVenue(prisma, ctx, restaurantId);
+  const admin = await requireActiveAdminAtVenue(prisma, ctx, restaurantId);
 
   const m = await prisma.membership.findFirst({
     where: { id: membershipId, restaurantId },
@@ -186,7 +234,13 @@ export async function getMembershipDetail(
   });
   if (!m) throw Object.assign(new Error("membership_not_found"), { statusCode: 404 });
 
-  const member = await mapMember(prisma, m, m.restaurant.name);
+  const activeOwnerCount = await countActiveOwners(prisma, restaurantId);
+  const member = attachCapabilities(await mapMember(prisma, m, m.restaurant.name), {
+    actorUserId: ctx.userId,
+    actorRole: admin.role,
+    actorPermissions: admin.permissions,
+    activeOwnerCount
+  });
   const auditLogs = await listStaffAuditLogs(prisma, {
     restaurantId,
     targetMembershipId: membershipId,
@@ -222,8 +276,10 @@ export async function approveMembership(
   });
   if (!m) throw Object.assign(new Error("membership_not_found"), { statusCode: 404 });
 
-  if (m.role === "OWNER") {
-    await assertSingleOwner(prisma, restaurantId, m.id);
+  assertActorCanManageTarget(admin, m, ctx.userId);
+  assertNotSelf(ctx.userId, m.userId, "cannot_approve_self");
+  if (m.role === "OWNER" && admin.role !== "OWNER") {
+    throw Object.assign(new Error("manager_cannot_manage_role"), { statusCode: 403 });
   }
   if (m.role === "MANAGER") {
     const policy = await loadRestaurantPolicy(prisma, restaurantId);
@@ -256,11 +312,13 @@ export async function rejectMembership(
   restaurantId: string,
   membershipId: string
 ) {
-  await requireActiveAdminAtVenue(prisma, ctx, restaurantId);
+  const admin = await requireActiveAdminAtVenue(prisma, ctx, restaurantId);
   const m = await prisma.membership.findFirst({
     where: { id: membershipId, restaurantId, status: "PENDING_APPROVAL" }
   });
   if (!m) throw Object.assign(new Error("membership_not_found"), { statusCode: 404 });
+  assertActorCanManageTarget(admin, m, ctx.userId);
+  assertNotSelf(ctx.userId, m.userId, "cannot_reject_self");
   await prisma.membership.update({
     where: { id: m.id },
     data: { status: "REJECTED", rejectedAt: new Date() }
@@ -288,13 +346,16 @@ export async function suspendMembership(
     where: { id: membershipId, restaurantId, status: "ACTIVE" }
   });
   if (!m) throw Object.assign(new Error("membership_not_found"), { statusCode: 404 });
-  if (m.role === "OWNER") throw Object.assign(new Error("cannot_suspend_owner"), { statusCode: 400 });
-  if (m.userId === ctx.userId) throw Object.assign(new Error("cannot_suspend_self"), { statusCode: 400 });
+  assertActorCanManageTarget(admin, m, ctx.userId);
+  assertNotSelf(ctx.userId, m.userId, "cannot_suspend_self");
+  await assertAtLeastOneOwnerRemains(prisma, restaurantId, m.id, m.role);
 
   await prisma.membership.update({
     where: { id: m.id },
     data: { status: "SUSPENDED", suspendedAt: new Date() }
   });
+
+  await revokeAllSessions(prisma, m.userId);
 
   await logStaffAudit(prisma, {
     restaurantId,
@@ -313,11 +374,13 @@ export async function activateMembership(
   restaurantId: string,
   membershipId: string
 ) {
-  await requireActiveAdminAtVenue(prisma, ctx, restaurantId);
+  const admin = await requireActiveAdminAtVenue(prisma, ctx, restaurantId);
   const m = await prisma.membership.findFirst({
     where: { id: membershipId, restaurantId, status: "SUSPENDED" }
   });
   if (!m) throw Object.assign(new Error("membership_not_found"), { statusCode: 404 });
+  assertActorCanManageTarget(admin, m, ctx.userId);
+  assertNotSelf(ctx.userId, m.userId, "cannot_activate_self");
 
   await prisma.membership.update({
     where: { id: m.id },
@@ -341,14 +404,18 @@ export async function removeMembership(
   restaurantId: string,
   membershipId: string
 ) {
-  await requireActiveAdminAtVenue(prisma, ctx, restaurantId);
+  const admin = await requireActiveAdminAtVenue(prisma, ctx, restaurantId);
   const m = await prisma.membership.findFirst({
     where: { id: membershipId, restaurantId }
   });
   if (!m) throw Object.assign(new Error("membership_not_found"), { statusCode: 404 });
-  if (m.role === "OWNER") throw Object.assign(new Error("cannot_remove_owner"), { statusCode: 400 });
+  assertActorCanManageTarget(admin, m, ctx.userId);
+  assertNotSelf(ctx.userId, m.userId, "cannot_remove_self");
+  await assertAtLeastOneOwnerRemains(prisma, restaurantId, m.id, m.role);
 
   await prisma.membership.delete({ where: { id: m.id } });
+
+  await revokeAllSessions(prisma, m.userId);
 
   await logStaffAudit(prisma, {
     restaurantId,
@@ -368,14 +435,15 @@ export async function updateMembershipPermissions(
   membershipId: string,
   permissions: string[]
 ) {
-  await requireActiveAdminAtVenue(prisma, ctx, restaurantId);
+  const admin = await requireActiveAdminAtVenue(prisma, ctx, restaurantId);
   const m = await prisma.membership.findFirst({
     where: { id: membershipId, restaurantId, status: { in: ["ACTIVE", "PENDING_APPROVAL"] } }
   });
   if (!m) throw Object.assign(new Error("membership_not_found"), { statusCode: 404 });
-  if (m.role === "OWNER") throw Object.assign(new Error("cannot_edit_owner_permissions"), { statusCode: 400 });
+  assertCanEditTargetPermissions(admin, m, ctx.userId);
 
   const keys = validatePermissionKeys(permissions);
+  assertCallerCanGrantPermissions(admin.role, admin.permissions, keys);
   await prisma.membership.update({
     where: { id: m.id },
     data: { permissions: keys as Prisma.InputJsonValue }

@@ -1,3 +1,4 @@
+import type { LegalSlug } from "../legal/legalRoutes";
 import { DEMO_MAILTO } from "./constants";
 import type { NavAction } from "./navContent";
 import { scrollToId } from "./ui";
@@ -5,6 +6,7 @@ import { scrollToId } from "./ui";
 export type NavHandlers = {
   onHowItWorks: () => void;
   onPricing?: () => void;
+  onGoLegal?: (slug: LegalSlug) => void;
 };
 
 export function runNavAction(action: NavAction, handlers: NavHandlers) {
@@ -17,6 +19,9 @@ export function runNavAction(action: NavAction, handlers: NavHandlers) {
       break;
     case "pricing":
       handlers.onPricing?.() ?? scrollToId("pricing");
+      break;
+    case "legal":
+      handlers.onGoLegal?.(action.slug);
       break;
     case "external":
       if (action.url.startsWith("mailto:")) {

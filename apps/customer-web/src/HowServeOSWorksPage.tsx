@@ -16,14 +16,17 @@ import {
 } from "./marketing/styles";
 import { bookDemo, BtnPrimary, BtnSecondary, SectionEyebrow, SectionTitle, startFreeTrial } from "./marketing/ui";
 
+import type { LegalSlug } from "./legal/legalRoutes";
+
 type Props = {
   onHome: () => void;
   onGoFeatures: () => void;
   onGoPricing: () => void;
   onGoLogin: () => void;
+  onGoLegal?: (slug: LegalSlug) => void;
 };
 
-export function HowServeOSWorksPage({ onHome, onGoFeatures, onGoPricing, onGoLogin }: Props) {
+export function HowServeOSWorksPage({ onHome, onGoFeatures, onGoPricing, onGoLogin, onGoLegal }: Props) {
   return (
     <div className={`${marketingRoot} pb-24 md:pb-0`}>
       <SiteNav
@@ -31,6 +34,7 @@ export function HowServeOSWorksPage({ onHome, onGoFeatures, onGoPricing, onGoLog
         onHowItWorks={onHome}
         onGoPricing={onGoPricing}
         onGoLogin={onGoLogin}
+        onGoLegal={onGoLegal}
       />
 
       <section className={`${pageSection} pb-12 pt-24 sm:pt-28`}>
@@ -105,7 +109,7 @@ export function HowServeOSWorksPage({ onHome, onGoFeatures, onGoPricing, onGoLog
         </div>
       </section>
 
-      <SiteFooter onHowItWorks={onHome} />
+      <SiteFooter onHowItWorks={onHome} onGoLegal={onGoLegal} />
     </div>
   );
 }

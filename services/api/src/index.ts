@@ -28,6 +28,7 @@ import { initNotificationSystem } from "./notifications/initNotifications.js";
 import { ensureChatMessageImageEnum } from "./lib/chatImageEnum.js";
 import { isAuthTokenRevoked } from "./lib/authTokenRevocation.js";
 import { isSessionRevoked } from "./lib/account/sessionService.js";
+import { assertBearerUserStillActive } from "./lib/auth/authAccessGuard.js";
 import { registerMeRoutes } from "./routes/meRoutes.js";
 import { registerMediaRoutes } from "./routes/mediaRoutes.js";
 import { captureApiError, captureException, flushSentry } from "./lib/integrations/sentry.js";
@@ -36,6 +37,8 @@ import { isObjectStorageConfigured } from "./lib/integrations/objectStorage.js";
 import { isSmsProviderConfigured } from "./lib/integrations/smsProvider.js";
 import { apiErrorMessage, apiFail, enrichApiPayload } from "./lib/apiErrors.js";
 import { registerConfigRoutes } from "./routes/configRoutes.js";
+import { registerCommunicationRoutes } from "./routes/communicationRoutes.js";
+import { registerWorkspaceEnrollmentRoutes } from "./routes/workspaceEnrollmentRoutes.js";
 
 const port = Number(process.env.PORT ?? process.env.API_GATEWAY_PORT ?? 3000);
 /** Render / Docker: set `HOST=0.0.0.0` so the service accepts external connections. */
@@ -117,6 +120,27 @@ async function main() {
     if (await isSessionRevoked(prisma, token)) {
       return reply.status(401).send(apiFail("session_revoked"));
     }
+
+    const publicAuthPaths = [
+      "/auth/login",
+      "/auth/signup",
+      "/auth/password-reset",
+      "/workspace-enrollment",
+      "/communication-preferences",
+      "/health",
+      "/config/client"
+    ];
+    if (publicAuthPaths.some((p) => req.url.startsWith(p))) return;
+
+    try {
+      const payload = app.verifyJwt(token);
+      const active = await assertBearerUserStillActive(prisma, payload.sub);
+      if (!active.ok) {
+        return reply.status(403).send(apiFail(active.error));
+      }
+    } catch {
+      /* Route-level auth handles invalid JWT */
+    }
   });
 
   await app.register(websocket);
@@ -184,6 +208,8 @@ async function main() {
   });
 
   registerConfigRoutes(app);
+  registerCommunicationRoutes(app, prisma);
+  registerWorkspaceEnrollmentRoutes(app, prisma, domainEventBus);
   registerAuthRoutes(app, prisma, domainEventBus);
   registerMeRoutes(app, prisma);
   registerMediaRoutes(app, prisma);

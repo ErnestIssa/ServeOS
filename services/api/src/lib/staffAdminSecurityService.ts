@@ -5,6 +5,38 @@ import { revokeAllSessions } from "./account/sessionService.js";
 import { logStaffAudit } from "./staffAuditService.js";
 import { requireActiveAdminAtVenue } from "./venueAccessGuard.js";
 import type { MobileAuthContext } from "./mobileAuthContext.js";
+import {
+  assertActorCanManageTarget,
+  assertNotSelf,
+  isManagerBlockedFromTarget
+} from "./staffTargetPolicy.js";
+import { VENUE_PERMISSION, isAdminMembershipRole } from "./venuePermissions.js";
+
+async function assertCanRunSecurityAction(
+  prisma: PrismaClient,
+  ctx: MobileAuthContext,
+  restaurantId: string,
+  membershipId: string
+) {
+  const admin = await requireActiveAdminAtVenue(prisma, ctx, restaurantId);
+  const membership = await prisma.membership.findFirst({
+    where: { id: membershipId, restaurantId },
+    select: { id: true, userId: true, role: true }
+  });
+  if (!membership) throw Object.assign(new Error("membership_not_found"), { statusCode: 404 });
+  assertNotSelf(ctx.userId, membership.userId, "cannot_manage_self_security");
+  assertActorCanManageTarget(admin, membership, ctx.userId);
+  if (
+    !isAdminMembershipRole(admin.role) &&
+    !admin.permissions.includes(VENUE_PERMISSION.staffMgmt)
+  ) {
+    throw Object.assign(new Error("permission_denied"), { statusCode: 403 });
+  }
+  if (isManagerBlockedFromTarget(admin.role, membership.role)) {
+    throw Object.assign(new Error("manager_cannot_manage_role"), { statusCode: 403 });
+  }
+  return membership;
+}
 
 export async function assertActorPassword(prisma: PrismaClient, actorUserId: string, password: string) {
   const user = await prisma.user.findUnique({
@@ -23,7 +55,7 @@ export async function adminRequestStaffPasswordReset(
   membershipId: string,
   password: string
 ) {
-  await requireActiveAdminAtVenue(prisma, ctx, restaurantId);
+  await assertCanRunSecurityAction(prisma, ctx, restaurantId, membershipId);
   await assertActorPassword(prisma, ctx.userId, password);
 
   const membership = await prisma.membership.findFirst({
@@ -52,14 +84,8 @@ export async function adminRevokeStaffSessions(
   membershipId: string,
   password: string
 ) {
-  await requireActiveAdminAtVenue(prisma, ctx, restaurantId);
+  const membership = await assertCanRunSecurityAction(prisma, ctx, restaurantId, membershipId);
   await assertActorPassword(prisma, ctx.userId, password);
-
-  const membership = await prisma.membership.findFirst({
-    where: { id: membershipId, restaurantId },
-    select: { id: true, userId: true }
-  });
-  if (!membership) throw Object.assign(new Error("membership_not_found"), { statusCode: 404 });
 
   const count = await revokeAllSessions(prisma, membership.userId);
   await logStaffAudit(prisma, {

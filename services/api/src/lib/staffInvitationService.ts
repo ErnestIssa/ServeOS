@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import type { PrismaClient, Role } from "@prisma/client";
 import type { Prisma } from "@prisma/client";
 import {
@@ -16,11 +16,12 @@ import {
 } from "./venueAccessGuard.js";
 import type { MobileAuthContext } from "./mobileAuthContext.js";
 import { logStaffAudit } from "./staffAuditService.js";
+import { buildWorkspaceInviteAcceptUrl, completeWorkspaceEnrollment, hashInviteToken } from "./workspaceEnrollmentService.js";
 
 const INVITE_TTL_DAYS = 14;
 
 function hashToken(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
+  return hashInviteToken(token);
 }
 
 function normalizeEmail(email: string): string {
@@ -28,9 +29,7 @@ function normalizeEmail(email: string): string {
 }
 
 export function buildInvitationAcceptUrl(token: string): string {
-  const base = process.env.SERVEOS_INVITE_BASE_URL?.trim() || "https://app.serveos.com/invite";
-  const sep = base.includes("?") ? "&" : "?";
-  return `${base}${sep}token=${encodeURIComponent(token)}`;
+  return buildWorkspaceInviteAcceptUrl(token);
 }
 
 export type CreateInvitationInput = {
@@ -86,6 +85,23 @@ export async function createStaffInvitation(
   });
   if (pendingInvite) {
     throw Object.assign(new Error("invitation_already_pending"), { statusCode: 409 });
+  }
+
+  const existingUser = await prisma.user.findFirst({
+    where: { email },
+    select: { id: true }
+  });
+  if (existingUser) {
+    const existingMembership = await prisma.membership.findFirst({
+      where: {
+        userId: existingUser.id,
+        restaurantId,
+        status: { in: ["ACTIVE", "PENDING_APPROVAL", "SUSPENDED"] }
+      }
+    });
+    if (existingMembership) {
+      throw Object.assign(new Error("staff_already_active"), { statusCode: 409 });
+    }
   }
 
   const token = randomBytes(32).toString("hex");
@@ -162,86 +178,18 @@ export async function acceptStaffInvitation(
     fullName?: string;
   }
 ): Promise<{ userId: string; membershipId: string; restaurantId: string }> {
-  const preview = await previewInvitation(prisma, input.token);
-  if (!preview.ok) throw Object.assign(new Error(preview.error), { statusCode: 400 });
-
-  const inv = await prisma.staffInvitation.findUnique({
-    where: { tokenHash: hashToken(input.token.trim()) }
+  const result = await completeWorkspaceEnrollment(prisma, {
+    token: input.token,
+    action: "create_account",
+    passwordHash: input.passwordHash,
+    phone: input.phone,
+    fullName: input.fullName
   });
-  if (!inv || inv.status !== "PENDING") {
-    throw Object.assign(new Error("invalid_token"), { statusCode: 400 });
-  }
-
-  const email = normalizeEmail(input.email ?? inv.email);
-  if (email !== inv.email) {
-    throw Object.assign(new Error("email_mismatch"), { statusCode: 400 });
-  }
-
-  const existingUser = await prisma.user.findFirst({
-    where: { OR: [{ email }, input.phone ? { phone: input.phone } : undefined].filter(Boolean) as any },
-    select: { id: true }
-  });
-
-  return prisma.$transaction(async (tx) => {
-    let userId: string;
-    if (existingUser) {
-      userId = existingUser.id;
-      const dup = await tx.membership.findUnique({
-        where: { userId_restaurantId: { userId, restaurantId: inv.restaurantId } }
-      });
-      if (dup && dup.status !== "REJECTED") {
-        throw Object.assign(new Error("already_member"), { statusCode: 409 });
-      }
-    } else {
-      const created = await tx.user.create({
-        data: {
-          email,
-          phone: input.phone?.trim() || inv.phone,
-          password: input.passwordHash,
-          role: inv.intendedRole === "MANAGER" ? "MANAGER" : "STAFF",
-          signupProfile: {
-            fullName: (input.fullName ?? inv.fullName).trim(),
-            invitedToRestaurantId: inv.restaurantId
-          } as Prisma.InputJsonValue
-        },
-        select: { id: true }
-      });
-      userId = created.id;
-    }
-
-    const membership = await tx.membership.upsert({
-      where: { userId_restaurantId: { userId, restaurantId: inv.restaurantId } },
-      create: {
-        userId,
-        restaurantId: inv.restaurantId,
-        role: inv.intendedRole,
-        status: "PENDING_APPROVAL",
-        permissions: inv.permissions as Prisma.InputJsonValue,
-        invitedByUserId: inv.invitedByUserId,
-        staffInvitationId: inv.id
-      },
-      update: {
-        role: inv.intendedRole,
-        status: "PENDING_APPROVAL",
-        permissions: inv.permissions as Prisma.InputJsonValue,
-        invitedByUserId: inv.invitedByUserId,
-        staffInvitationId: inv.id,
-        rejectedAt: null,
-        suspendedAt: null
-      }
-    });
-
-    await tx.staffInvitation.update({
-      where: { id: inv.id },
-      data: {
-        status: "ACCEPTED",
-        acceptedByUserId: userId,
-        acceptedAt: new Date()
-      }
-    });
-
-    return { userId, membershipId: membership.id, restaurantId: inv.restaurantId };
-  });
+  return {
+    userId: result.userId,
+    membershipId: result.membershipId,
+    restaurantId: result.restaurantId
+  };
 }
 
 export async function cancelStaffInvitation(

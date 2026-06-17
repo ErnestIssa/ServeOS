@@ -34,12 +34,15 @@ import {
   startFreeTrial
 } from "./marketing/ui";
 
+import type { LegalSlug } from "./legal/legalRoutes";
+
 type Props = {
   onHowItWorks: () => void;
   onFindSetup: () => void;
+  onGoLegal?: (slug: LegalSlug) => void;
 };
 
-export function LandingPage({ onHowItWorks, onFindSetup }: Props) {
+export function LandingPage({ onHowItWorks, onFindSetup, onGoLegal }: Props) {
   const onHome = () => scrollToId("top");
 
   return (
@@ -49,6 +52,7 @@ export function LandingPage({ onHowItWorks, onFindSetup }: Props) {
         onHome={onHome}
         onHowItWorks={onHowItWorks}
         onGoPricing={() => scrollToId("pricing")}
+        onGoLegal={onGoLegal}
       />
       <MobileCtaBar />
 
@@ -241,7 +245,7 @@ export function LandingPage({ onHowItWorks, onFindSetup }: Props) {
         </div>
       </section>
 
-      <SiteFooter onHowItWorks={onHowItWorks} />
+      <SiteFooter onHowItWorks={onHowItWorks} onGoLegal={onGoLegal} />
     </div>
   );
 }

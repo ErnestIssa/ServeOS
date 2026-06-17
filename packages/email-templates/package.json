@@ -1,0 +1,10 @@
+{
+  "name": "@serveos/email-templates",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "ServeOS branded transactional email layouts — design source for customer-web; rendered by the API at send time.",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

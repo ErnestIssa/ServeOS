@@ -21,6 +21,7 @@
     "@serveos/core-env": "^0.0.0",
     "@serveos/core-shared": "^0.0.0",
     "@serveos/core-upstash": "^0.0.0",
+    "@serveos/email-templates": "^0.0.0",
     "@types/bcrypt": "^5.0.2",
     "@types/jsonwebtoken": "^9.0.10",
     "bcrypt": "^5.1.1",

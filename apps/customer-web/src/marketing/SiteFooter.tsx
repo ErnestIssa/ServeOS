@@ -13,11 +13,13 @@ import {
   type FooterLinkGroup,
   type FooterLinkItem
 } from "./footerContent";
+import type { LegalSlug } from "../legal/legalRoutes";
 import { runNavAction, type NavHandlers } from "./navActions";
 import { contentWrap, pageGutter } from "./styles";
 
 type Props = {
   onHowItWorks: () => void;
+  onGoLegal?: (slug: LegalSlug) => void;
 };
 
 function ServeOsLogo({ className = "text-2xl" }: { className?: string }) {
@@ -64,8 +66,8 @@ function FooterBlock({ title, children }: { title: string; children: ReactNode }
   );
 }
 
-export function SiteFooter({ onHowItWorks }: Props) {
-  const handlers: NavHandlers = { onHowItWorks };
+export function SiteFooter({ onHowItWorks, onGoLegal }: Props) {
+  const handlers: NavHandlers = { onHowItWorks, onGoLegal };
   const year = new Date().getFullYear();
 
   return (

@@ -17,6 +17,20 @@ function staffFetch<T>(token: string, path: string, init?: RequestInit): Promise
   });
 }
 
+export type ApiStaffActionCapability = {
+  allowed: boolean;
+  reason: string | null;
+};
+
+export type ApiStaffMemberCapabilities = {
+  isSelf: boolean;
+  canEditPermissions: boolean;
+  permissionsReadOnly: boolean;
+  readOnlyReason: string | null;
+  canSavePermissions: boolean;
+  actions: Record<string, ApiStaffActionCapability>;
+};
+
 export type ApiStaffMember = {
   id: string;
   userId: string;
@@ -38,6 +52,7 @@ export type ApiStaffMember = {
   currentShift: string | null;
   sessions: Array<{ id: string; device: string; location: string; lastActive: string; lastActiveAt: string; current: boolean }>;
   devices: Array<{ label: string; type: string; lastSeen: string }>;
+  capabilities?: ApiStaffMemberCapabilities | null;
 };
 
 export type ApiStaffListResponse = {
@@ -223,6 +238,14 @@ export function mapStaffApiError(error?: string): string {
     cannot_suspend_owner: "The venue owner cannot be suspended.",
     cannot_suspend_self: "You cannot suspend your own access.",
     cannot_remove_owner: "The venue owner cannot be removed.",
+    cannot_remove_self: "You cannot remove your own access.",
+    cannot_edit_own_permissions: "You cannot change your own permissions.",
+    cannot_edit_owner_permissions: "Owner permissions cannot be edited here.",
+    last_owner_protected: "At least one active owner must remain for this venue.",
+    manager_cannot_manage_role: "Managers cannot manage this role.",
+    cannot_grant_permissions_not_held: "You cannot grant permissions you do not have.",
+    staff_already_active: "This person is already a member of this venue.",
+    cannot_manage_self_security: "Use your account settings for your own security actions.",
     invalid_password: "Incorrect password. Try again.",
     email_send_failed: "Could not send the invite email. Check Resend configuration."
   };
