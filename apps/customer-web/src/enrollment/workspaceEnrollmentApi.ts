@@ -15,7 +15,7 @@ export type InviteResolveOk = {
     roleLabel: string;
     expiresAt: string;
   };
-  identity: { state: "NEW" | "EXISTING" | "DUAL_ACCOUNT" | "ALREADY_JOINED" };
+  identity: { state: "NEW" | "EXISTING" | "DUAL_ACCOUNT" | "ALREADY_JOINED"; hasUsableAccount: boolean };
   session: {
     state: "NONE" | "MATCHES_INVITE" | "MISMATCH";
     user?: { emailMasked: string; fullName: string | null };
@@ -26,6 +26,8 @@ export type InviteResolveOk = {
     canMerge: boolean;
     requiresLogin: boolean;
     requiresSwitchAccount: boolean;
+    requiresSignOutToCreate: boolean;
+    recommended: "create_account" | "use_existing" | "login" | "switch_account" | "merge" | "none";
   };
 };
 
@@ -104,6 +106,7 @@ export const ENROLLMENT_ERROR_MESSAGES: Record<string, string> = {
   email_mismatch: "This account does not match the invited email.",
   merge_not_confirmed: "Confirm account merge to continue.",
   account_already_exists: "An account already exists for this email. Sign in instead.",
+  use_existing_account: "You are already signed in with the invited email. Continue with this account instead.",
   login_required: "Sign in to continue with your existing account."
 };
 

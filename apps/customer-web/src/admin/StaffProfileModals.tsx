@@ -198,3 +198,94 @@ export function InviteDiscardModal({
     </ProfileModalShell>
   );
 }
+
+export function SendInviteConfirmModal({
+  open,
+  fullName,
+  email,
+  roleLabel,
+  busy,
+  error,
+  onCancel,
+  onConfirm
+}: {
+  open: boolean;
+  fullName: string;
+  email: string;
+  roleLabel: string;
+  busy: boolean;
+  error?: string | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <ProfileModalShell
+      open={open}
+      onClose={busy ? () => undefined : onCancel}
+      title="Send staff invite?"
+      description={`An email invitation will be sent to ${fullName} at ${email}.`}
+      titleId="invite-send-confirm-title"
+      stackLevel="overlay"
+      maxWidthClass="max-w-md"
+      busy={busy}
+    >
+      <ProfileModalNote>
+        Role: <strong>{roleLabel}</strong>
+        <br />
+        They must accept the invite and may need manager approval before accessing the workspace.
+      </ProfileModalNote>
+      {error ? <ProfileModalAlert tone="error">{error}</ProfileModalAlert> : null}
+      <ProfileModalFooter
+        onCancel={onCancel}
+        onConfirm={onConfirm}
+        confirmLabel="Send invite"
+        cancelLabel="Go back"
+        busy={busy}
+      />
+    </ProfileModalShell>
+  );
+}
+
+export function CancelInviteConfirmModal({
+  open,
+  fullName,
+  email,
+  busy,
+  error,
+  onCancel,
+  onConfirm
+}: {
+  open: boolean;
+  fullName: string;
+  email: string;
+  busy: boolean;
+  error?: string | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <ProfileModalShell
+      open={open}
+      onClose={busy ? () => undefined : onCancel}
+      title="Cancel invite?"
+      description={`The pending invitation for ${fullName} (${email}) will be revoked.`}
+      titleId="invite-cancel-confirm-title"
+      stackLevel="overlay"
+      maxWidthClass="max-w-md"
+      busy={busy}
+    >
+      <ProfileModalNote>
+        They will no longer be able to use the invite link. You can send a new invite later if needed.
+      </ProfileModalNote>
+      {error ? <ProfileModalAlert tone="error">{error}</ProfileModalAlert> : null}
+      <ProfileModalFooter
+        onCancel={onCancel}
+        onConfirm={onConfirm}
+        confirmLabel="Cancel invite"
+        cancelLabel="Keep invite"
+        danger
+        busy={busy}
+      />
+    </ProfileModalShell>
+  );
+}

@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { Prisma, PrismaClient, Role } from "@prisma/client";
+import { isMergedIdentityEmail, readPendingAccountCompletion } from "./auth/identityNormalization.js";
 import { logStaffAudit } from "./staffAuditService.js";
 
 const INVITE_TTL_DAYS = 14;
@@ -118,6 +119,57 @@ function pickHigherRole(a: Role, b: Role): Role {
   return ROLE_RANK[a] >= ROLE_RANK[b] ? a : b;
 }
 
+type InviteeUserRow = {
+  id: string;
+  email: string | null;
+  password: string | null;
+  signupProfile: unknown;
+  accountProfile: { fullName: string | null } | null;
+};
+
+function hasUsableLoginAccount(user: InviteeUserRow): boolean {
+  if (!user.email || isMergedIdentityEmail(user.email)) return false;
+  if (readPendingAccountCompletion(user.signupProfile)) return false;
+  if (!user.password?.trim()) return false;
+  return true;
+}
+
+function readInviteeFullName(user: InviteeUserRow): string | null {
+  if (user.accountProfile?.fullName?.trim()) return user.accountProfile.fullName.trim();
+  const profile = user.signupProfile;
+  if (profile && typeof profile === "object" && !Array.isArray(profile)) {
+    const name = (profile as { fullName?: string }).fullName;
+    if (typeof name === "string" && name.trim()) return name.trim();
+  }
+  return null;
+}
+
+function recommendedEnrollmentAction(input: {
+  alreadyJoined: boolean;
+  identityState: "NEW" | "EXISTING" | "DUAL_ACCOUNT" | "ALREADY_JOINED";
+  sessionState: "NONE" | "MATCHES_INVITE" | "MISMATCH";
+  canCreateAccount: boolean;
+  canUseExisting: boolean;
+  canMerge: boolean;
+  requiresLogin: boolean;
+  requiresSwitchAccount: boolean;
+}):
+  | "create_account"
+  | "use_existing"
+  | "login"
+  | "switch_account"
+  | "merge"
+  | "none" {
+  if (input.alreadyJoined) return "none";
+  if (input.canUseExisting && input.sessionState === "MATCHES_INVITE") return "use_existing";
+  if (input.canCreateAccount && input.sessionState === "NONE") return "create_account";
+  if (input.requiresLogin) return "login";
+  if (input.canMerge) return "merge";
+  if (input.requiresSwitchAccount) return "switch_account";
+  if (input.canCreateAccount) return "create_account";
+  return "none";
+}
+
 export type InviteResolveResult =
   | { ok: false; status: "INVALID" | "EXPIRED" | "REVOKED" | "ALREADY_USED"; error: string }
   | {
@@ -136,6 +188,7 @@ export type InviteResolveResult =
       };
       identity: {
         state: "NEW" | "EXISTING" | "DUAL_ACCOUNT" | "ALREADY_JOINED";
+        hasUsableAccount: boolean;
       };
       session: {
         state: "NONE" | "MATCHES_INVITE" | "MISMATCH";
@@ -147,6 +200,8 @@ export type InviteResolveResult =
         canMerge: boolean;
         requiresLogin: boolean;
         requiresSwitchAccount: boolean;
+        requiresSignOutToCreate: boolean;
+        recommended: "create_account" | "use_existing" | "login" | "switch_account" | "merge" | "none";
       };
     };
 
@@ -182,6 +237,7 @@ export async function resolveWorkspaceInvite(
     select: {
       id: true,
       email: true,
+      password: true,
       signupProfile: true,
       accountProfile: { select: { fullName: true } }
     }
@@ -198,8 +254,14 @@ export async function resolveWorkspaceInvite(
   const activeMembership =
     existingMembership && ["ACTIVE", "PENDING_APPROVAL", "SUSPENDED"].includes(existingMembership.status);
 
-  let identityState: "NEW" | "EXISTING" | "DUAL_ACCOUNT" | "ALREADY_JOINED" = inviteUser ? "EXISTING" : "NEW";
-  if (activeMembership) identityState = "ALREADY_JOINED";
+  const inviteHasUsableAccount = inviteUser ? hasUsableLoginAccount(inviteUser) : false;
+
+  let identityState: "NEW" | "EXISTING" | "DUAL_ACCOUNT" | "ALREADY_JOINED" = "NEW";
+  if (activeMembership) {
+    identityState = "ALREADY_JOINED";
+  } else if (inviteUser && inviteHasUsableAccount) {
+    identityState = "EXISTING";
+  }
 
   let sessionState: "NONE" | "MATCHES_INVITE" | "MISMATCH" = "NONE";
   let sessionUser: { emailMasked: string; fullName: string | null } | undefined;
@@ -235,6 +297,42 @@ export async function resolveWorkspaceInvite(
   }
 
   const alreadyJoined = identityState === "ALREADY_JOINED";
+  const canCreateAccount =
+    !alreadyJoined && !inviteHasUsableAccount && sessionState !== "MATCHES_INVITE";
+  const canUseExisting =
+    !alreadyJoined &&
+    inviteHasUsableAccount &&
+    sessionState === "MATCHES_INVITE" &&
+    identityState !== "DUAL_ACCOUNT";
+  const canMerge = !alreadyJoined && identityState === "DUAL_ACCOUNT" && sessionState === "MISMATCH";
+  const requiresLogin =
+    !alreadyJoined && inviteHasUsableAccount && sessionState === "NONE" && identityState === "EXISTING";
+  const requiresSwitchAccount =
+    !alreadyJoined &&
+    sessionState === "MISMATCH" &&
+    identityState !== "DUAL_ACCOUNT" &&
+    !canCreateAccount;
+  const requiresSignOutToCreate =
+    !alreadyJoined && canCreateAccount && sessionState === "MISMATCH";
+
+  const actions = {
+    canCreateAccount,
+    canUseExisting,
+    canMerge,
+    requiresLogin,
+    requiresSwitchAccount,
+    requiresSignOutToCreate,
+    recommended: recommendedEnrollmentAction({
+      alreadyJoined,
+      identityState,
+      sessionState,
+      canCreateAccount,
+      canUseExisting,
+      canMerge,
+      requiresLogin,
+      requiresSwitchAccount
+    })
+  };
 
   return {
     ok: true,
@@ -245,29 +343,14 @@ export async function resolveWorkspaceInvite(
       restaurantId: invite.restaurantId,
       restaurantName: invite.restaurantName,
       inviteEmailMasked: maskInviteEmail(invite.email),
-      fullName: invite.fullName,
+      fullName: invite.fullName ?? (inviteUser ? readInviteeFullName(inviteUser) : null),
       intendedRole: invite.intendedRole,
       roleLabel: ROLE_LABELS[invite.intendedRole],
       expiresAt: invite.expiresAt.toISOString()
     },
-    identity: { state: identityState },
+    identity: { state: identityState, hasUsableAccount: inviteHasUsableAccount },
     session: sessionUser ? { state: sessionState, user: sessionUser } : { state: sessionState },
-    actions: {
-      canCreateAccount: !alreadyJoined && identityState === "NEW" && sessionState === "NONE",
-      canUseExisting:
-        !alreadyJoined &&
-        (identityState === "EXISTING" || sessionState === "MATCHES_INVITE") &&
-        identityState !== "DUAL_ACCOUNT",
-      canMerge: !alreadyJoined && identityState === "DUAL_ACCOUNT" && sessionState === "MISMATCH",
-      requiresLogin:
-        !alreadyJoined &&
-        identityState === "EXISTING" &&
-        sessionState === "NONE",
-      requiresSwitchAccount:
-        !alreadyJoined &&
-        sessionState === "MISMATCH" &&
-        identityState !== "DUAL_ACCOUNT"
-    }
+    actions
   };
 }
 
@@ -362,7 +445,13 @@ export async function completeWorkspaceEnrollment(
 
   const inviteEmailUser = await prisma.user.findFirst({
     where: { email: invite.email },
-    select: { id: true }
+    select: {
+      id: true,
+      email: true,
+      password: true,
+      signupProfile: true,
+      accountProfile: { select: { fullName: true } }
+    }
   });
 
   let targetUserId: string | null = null;
@@ -370,8 +459,21 @@ export async function completeWorkspaceEnrollment(
 
   if (input.action === "create_account") {
     if (!input.passwordHash) throw Object.assign(new Error("password_required"), { statusCode: 400 });
-    if (inviteEmailUser) throw Object.assign(new Error("account_already_exists"), { statusCode: 409 });
-    if (input.sessionUserId) throw Object.assign(new Error("logout_required"), { statusCode: 400 });
+    if (inviteEmailUser && hasUsableLoginAccount(inviteEmailUser)) {
+      throw Object.assign(new Error("account_already_exists"), { statusCode: 409 });
+    }
+    if (input.sessionUserId) {
+      const sessionUser = await prisma.user.findUnique({
+        where: { id: input.sessionUserId },
+        select: { email: true }
+      });
+      if (
+        sessionUser?.email &&
+        normalizeInviteEmail(sessionUser.email) === invite.email
+      ) {
+        throw Object.assign(new Error("use_existing_account"), { statusCode: 400 });
+      }
+    }
   } else if (input.action === "use_existing") {
     if (!input.sessionUserId && !inviteEmailUser) {
       throw Object.assign(new Error("login_required"), { statusCode: 401 });
@@ -418,21 +520,44 @@ export async function completeWorkspaceEnrollment(
 
     let userId = targetUserId;
     if (input.action === "create_account") {
-      const created = await tx.user.create({
-        data: {
-          email: invite.email,
-          phone: input.phone?.trim() || invite.phone,
-          password: input.passwordHash!,
-          role: globalRole,
-          signupProfile: {
-            fullName: (input.fullName ?? invite.fullName ?? "").trim(),
-            enrolledViaInvite: invite.id,
-            enrolledRestaurantId: invite.restaurantId
-          } as Prisma.InputJsonValue
-        },
-        select: { id: true }
-      });
-      userId = created.id;
+      const profileName = (input.fullName ?? invite.fullName ?? "").trim();
+      const signupProfile = {
+        fullName: profileName,
+        enrolledViaInvite: invite.id,
+        enrolledRestaurantId: invite.restaurantId,
+        pendingAccountCompletion: false
+      } as Prisma.InputJsonValue;
+
+      if (inviteEmailUser) {
+        await tx.user.update({
+          where: { id: inviteEmailUser.id },
+          data: {
+            phone: input.phone?.trim() || invite.phone,
+            password: input.passwordHash!,
+            role: globalRole,
+            signupProfile,
+            ...(profileName
+              ? { accountProfile: { upsert: { create: { fullName: profileName }, update: { fullName: profileName } } } }
+              : {})
+          }
+        });
+        userId = inviteEmailUser.id;
+      } else {
+        const created = await tx.user.create({
+          data: {
+            email: invite.email,
+            phone: input.phone?.trim() || invite.phone,
+            password: input.passwordHash!,
+            role: globalRole,
+            signupProfile,
+            ...(profileName
+              ? { accountProfile: { create: { fullName: profileName } } }
+              : {})
+          },
+          select: { id: true }
+        });
+        userId = created.id;
+      }
     }
 
     if (!userId) throw Object.assign(new Error("user_resolution_failed"), { statusCode: 500 });

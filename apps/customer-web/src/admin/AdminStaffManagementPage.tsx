@@ -16,13 +16,16 @@ import { useAdminToast } from "./AdminToast";
 import { AdminBubbleDropdown } from "./AdminBubbleDropdown";
 import { AdminNavChevron } from "./AdminNavChevron";
 import {
+  CancelInviteConfirmModal,
   InviteDiscardModal,
+  SendInviteConfirmModal,
   StaffSecurityActionModal,
   StaffUnsavedChangesModal,
   type StaffSecurityAction
 } from "./StaffProfileModals";
 import { useStaffManagement } from "./useStaffManagement";
-import type { MemberStatus, PresenceStatus, StaffMember, StaffRole } from "./staffMappers";
+import { mapStaffApiError } from "./staffApi";
+import type { MemberStatus, PendingInvite, PresenceStatus, StaffMember, StaffRole } from "./staffMappers";
 
 const ROLE_STYLES: Record<StaffRole, string> = {
   STAFF: "admin-staff-role--staff",
@@ -885,6 +888,7 @@ function InviteStaffModal({
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [sending, setSending] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [shakeSubmit, setShakeSubmit] = useState(false);
 
   const errors = useMemo(() => validateInviteForm(form), [form]);
@@ -898,6 +902,7 @@ function InviteStaffModal({
       setSubmitAttempted(false);
       setSending(false);
       setDiscardOpen(false);
+      setConfirmOpen(false);
       setShakeSubmit(false);
     }
   }, [open]);
@@ -936,7 +941,7 @@ function InviteStaffModal({
 
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const handleSend = async () => {
+  const handleSend = () => {
     setSubmitAttempted(true);
     const nextErrors = validateInviteForm(form);
     if (Object.keys(nextErrors).length > 0) {
@@ -944,6 +949,11 @@ function InviteStaffModal({
       window.setTimeout(() => setShakeSubmit(false), 520);
       return;
     }
+    setSubmitError(null);
+    setConfirmOpen(true);
+  };
+
+  const confirmSend = async () => {
     setSending(true);
     setSubmitError(null);
     const res = await onSubmit({
@@ -957,9 +967,12 @@ function InviteStaffModal({
       setSubmitError(res.error ?? "Could not send invite.");
       return;
     }
+    setConfirmOpen(false);
     onSent(form.fullName.trim());
     finishClose();
   };
+
+  const roleLabel = INVITE_ROLE_OPTIONS.find((o) => o.value === form.role)?.label ?? form.role;
 
   const submitTone =
     submitAttempted && hasErrors
@@ -1096,7 +1109,7 @@ function InviteStaffModal({
           <button
             type="button"
             disabled={sending}
-            onClick={() => void handleSend()}
+            onClick={() => handleSend()}
             className={`admin-staff-invite-submit ${submitTone} ${shakeSubmit ? "admin-staff-invite-submit--shake" : ""}`}
           >
             {sending ? "Sending…" : "Send invite"}
@@ -1108,6 +1121,21 @@ function InviteStaffModal({
         open={discardOpen}
         onStay={() => setDiscardOpen(false)}
         onDiscard={finishClose}
+      />
+
+      <SendInviteConfirmModal
+        open={confirmOpen}
+        fullName={form.fullName.trim()}
+        email={form.email.trim()}
+        roleLabel={roleLabel}
+        busy={sending}
+        error={submitError}
+        onCancel={() => {
+          if (sending) return;
+          setConfirmOpen(false);
+          setSubmitError(null);
+        }}
+        onConfirm={() => void confirmSend()}
       />
     </>
   );
@@ -1198,6 +1226,9 @@ export function AdminStaffManagementPage({
   const [permBaselines, setPermBaselines] = useState<Record<string, StaffMember["permissionGroups"]>>({});
   const [savingPermissions, setSavingPermissions] = useState(false);
   const [drawerMember, setDrawerMember] = useState<StaffMember | null>(null);
+  const [cancelInviteTarget, setCancelInviteTarget] = useState<PendingInvite | null>(null);
+  const [cancelInviteBusy, setCancelInviteBusy] = useState(false);
+  const [cancelInviteError, setCancelInviteError] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     if (filter === "on_shift") return staff.filter((s) => s.presence === "on_shift");
@@ -1453,9 +1484,10 @@ export function AdminStaffManagementPage({
                     <button
                       type="button"
                       className="admin-page-link-btn text-xs font-semibold"
-                      onClick={() => void cancelInvite(inv.id).then((res) => {
-                        pushToast(res.ok ? "Invite cancelled." : "Could not cancel invite.", res.ok ? "success" : "error");
-                      })}
+                      onClick={() => {
+                        setCancelInviteError(null);
+                        setCancelInviteTarget(inv);
+                      }}
                     >
                       Cancel
                     </button>
@@ -1498,6 +1530,34 @@ export function AdminStaffManagementPage({
         onSubmit={sendInvite}
       />
       <RoleTemplatesModal open={templatesOpen} onClose={() => setTemplatesOpen(false)} />
+
+      <CancelInviteConfirmModal
+        open={cancelInviteTarget !== null}
+        fullName={cancelInviteTarget?.name ?? ""}
+        email={cancelInviteTarget?.email ?? ""}
+        busy={cancelInviteBusy}
+        error={cancelInviteError}
+        onCancel={() => {
+          if (cancelInviteBusy) return;
+          setCancelInviteTarget(null);
+          setCancelInviteError(null);
+        }}
+        onConfirm={() => {
+          if (!cancelInviteTarget) return;
+          void (async () => {
+            setCancelInviteBusy(true);
+            setCancelInviteError(null);
+            const res = await cancelInvite(cancelInviteTarget.id);
+            setCancelInviteBusy(false);
+            if (!res.ok) {
+              setCancelInviteError(res.error ? mapStaffApiError(res.error) : "Could not cancel invite.");
+              return;
+            }
+            pushToast(`Invite for ${cancelInviteTarget.name} cancelled.`, "success");
+            setCancelInviteTarget(null);
+          })();
+        }}
+      />
     </>
   );
 }
