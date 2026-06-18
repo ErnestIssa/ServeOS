@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import type { Prisma, PrismaClient, Role } from "@prisma/client";
 import { isMergedIdentityEmail, readPendingAccountCompletion } from "./auth/identityNormalization.js";
 import { mergePreferredRestaurantIntoProfile } from "./customerSignupProfile.js";
+import { customerWebBaseUrl } from "./emailUrls.js";
 import { logStaffAudit } from "./staffAuditService.js";
 
 const INVITE_TTL_DAYS = 14;
@@ -40,7 +41,7 @@ export function maskInviteEmail(email: string): string {
 }
 
 export function buildWorkspaceInviteAcceptUrl(token: string): string {
-  const base = process.env.SERVEOS_INVITE_BASE_URL?.trim() || "https://app.serveos.com/invite";
+  const base = process.env.SERVEOS_INVITE_BASE_URL?.trim() || `${customerWebBaseUrl()}/invite`;
   const normalized = base.replace(/\/+$/, "");
   const sep = normalized.includes("?") ? "&" : "?";
   return `${normalized}${sep}token=${encodeURIComponent(token)}`;

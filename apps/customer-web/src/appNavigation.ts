@@ -19,6 +19,17 @@ const LEGACY_LEGAL_REDIRECTS: Record<string, LegalSlug> = {
   "/terms": "terms"
 };
 
+function readLoginSearchFromLocation(): string {
+  const params = new URLSearchParams(window.location.search);
+  const resetToken = params.get("resetToken");
+  const returnTo = params.get("returnTo");
+  const next = new URLSearchParams();
+  if (resetToken) next.set("resetToken", resetToken);
+  if (returnTo) next.set("returnTo", returnTo);
+  const q = next.toString();
+  return q ? `?${q}` : "";
+}
+
 export function viewFromPath(pathname: string): AppView {
   const path = pathname.replace(/\/+$/, "") || "/";
   if (path === "/how-it-works") return "how-it-works";
@@ -54,7 +65,9 @@ export function syncUrlForView(view: AppView, replace = false, legalSlug: LegalS
   const next =
     view === "invite-accept"
       ? `${nextBase}${readInviteSearchFromLocation() || ""}`
-      : nextBase;
+      : view === "login"
+        ? `${nextBase}${readLoginSearchFromLocation()}`
+        : nextBase;
   if (window.location.pathname + window.location.search === next) return;
   if (replace) window.history.replaceState({ view }, "", next);
   else window.history.pushState({ view }, "", next);

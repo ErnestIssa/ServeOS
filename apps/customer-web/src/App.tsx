@@ -42,6 +42,9 @@ export function App() {
     if (viewFromPath(path) === "invite-accept" || (path === "/" && hasInviteTokenInLocation())) {
       syncUrlForView("invite-accept", true);
     }
+    if (viewFromPath(path) === "login") {
+      syncUrlForView("login", true);
+    }
   }, []);
 
   useEffect(() => {

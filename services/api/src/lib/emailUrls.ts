@@ -7,7 +7,7 @@ export function customerWebBaseUrl(): string {
   return (
     process.env.CUSTOMER_WEB_URL?.trim() ||
     process.env.WEB_ADMIN_URL?.trim() ||
-    "https://app.serveos.se"
+    "https://serveos.se"
   ).replace(/\/$/, "");
 }
 
