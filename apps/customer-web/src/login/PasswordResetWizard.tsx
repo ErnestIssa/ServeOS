@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { confirmPasswordReset, mapPasswordResetError, requestPasswordReset } from "../api";
 import { iconPath } from "../marketing/assetPaths";
 import { BtnPrimary } from "../marketing/ui";
@@ -88,6 +88,8 @@ function isValidEmail(value: string): boolean {
 type RequestProps = {
   mode: "request";
   onExit: () => void;
+  defaultEmail?: string;
+  returnTo?: string | null;
 };
 
 type ConfirmProps = {
@@ -100,7 +102,9 @@ type ConfirmProps = {
 type Props = RequestProps | ConfirmProps;
 
 export function PasswordResetWizard(props: Props) {
-  const [email, setEmail] = useState("");
+  const defaultEmail = props.mode === "request" ? props.defaultEmail ?? "" : "";
+  const returnTo = props.mode === "request" ? props.returnTo ?? null : null;
+  const [email, setEmail] = useState(defaultEmail);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showNewPassword, setShowNewPassword] = useState(false);
@@ -110,6 +114,12 @@ export function PasswordResetWizard(props: Props) {
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
   const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    if (props.mode === "request") {
+      setEmail(props.defaultEmail ?? "");
+    }
+  }, [props]);
 
   const fieldErr = (key: string) => Boolean(fieldErrors[key]);
   const clearField = (key: string) => {
@@ -133,7 +143,7 @@ export function PasswordResetWizard(props: Props) {
     }
 
     setBusy(true);
-    const res = await requestPasswordReset(email);
+    const res = await requestPasswordReset(email, returnTo);
     setBusy(false);
     if (!res.ok) {
       setBtnErr(mapPasswordResetError(res));

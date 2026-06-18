@@ -44,6 +44,7 @@ import { countryPickerLabel } from "./venueCountryDisplay";
 import { SignupConfirmModal } from "./SignupConfirmModal";
 import { VenueCountryModal } from "./VenueCountryModal";
 import { handoffToAdminApp } from "./adminHandoff";
+import { IdentityRecoveryPanel } from "../auth/IdentityRecoveryPanel";
 import { clearSignupSession, loadWizardState, saveWizardState } from "./signupWizardPersistence";
 import { SignupRegistrationLoader } from "./SignupRegistrationLoader";
 import { SignupStepShell, SignupWizardActions } from "./SignupShell";
@@ -89,6 +90,7 @@ type Props = {
   flow: SignupFlow;
   onExit: () => void;
   onSuccess: (role: "CUSTOMER" | "OWNER") => void;
+  onGoLogin?: () => void;
   onAccountCreatingChange?: (creating: boolean) => void;
 };
 
@@ -178,7 +180,7 @@ function PasswordField({
   );
 }
 
-export function SignupWizard({ flow, onExit, onSuccess, onAccountCreatingChange }: Props) {
+export function SignupWizard({ flow, onExit, onSuccess, onGoLogin, onAccountCreatingChange }: Props) {
   const persisted = useMemo(() => loadWizardState(flow), [flow]);
   const [step, setStep] = useState(() => {
     const saved = persisted?.step ?? 0;
@@ -187,6 +189,7 @@ export function SignupWizard({ flow, onExit, onSuccess, onAccountCreatingChange 
   const [form, setForm] = useState<SignupFormState>(() => persisted?.form ?? createInitialSignupForm());
   const [fieldErrors, setFieldErrors] = useState<Record<string, boolean>>({});
   const [bannerErr, setBannerErr] = useState<string | null>(null);
+  const [identityRecovery, setIdentityRecovery] = useState(false);
   const [btnErr, setBtnErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [bizLookupBusy, setBizLookupBusy] = useState(false);
@@ -325,9 +328,11 @@ export function SignupWizard({ flow, onExit, onSuccess, onAccountCreatingChange 
     }
     setBusy(true);
     setBannerErr(null);
+    setIdentityRecovery(false);
     const res = await authSignup(fin.payload);
     setBusy(false);
     if (!res.ok || !res.token) {
+      setIdentityRecovery(res.error === "user_already_exists");
       setBannerErr(readApiMessage(res));
       return;
     }
@@ -357,11 +362,13 @@ export function SignupWizard({ flow, onExit, onSuccess, onAccountCreatingChange 
 
     setFieldErrors({});
     setBizAccountCreating(true);
+    setIdentityRecovery(false);
 
     const res = await authSignup(fin.payload);
 
     if (!res.ok || !res.token) {
       setBizAccountCreating(false);
+      setIdentityRecovery(res.error === "user_already_exists");
       const msg = readApiMessage(res);
       setBannerErr(msg);
       setBtnErr(msg);
@@ -1135,7 +1142,21 @@ export function SignupWizard({ flow, onExit, onSuccess, onAccountCreatingChange 
           <SignupRegistrationLoader mode={loaderMode} />
         ) : null}
         <div className={showRegistrationLoader ? "invisible" : undefined}>
-          {bannerErr ? <p className="mb-4 text-center text-sm font-medium text-red-600">{bannerErr}</p> : null}
+          {bannerErr && !identityRecovery ? (
+            <p className="mb-4 text-center text-sm font-medium text-red-600">{bannerErr}</p>
+          ) : null}
+          {identityRecovery && onGoLogin ? (
+            <div className="mb-6">
+              <IdentityRecoveryPanel
+                emailHint={form.email?.trim() || null}
+                onSignIn={onGoLogin}
+                onTryAnotherEmail={() => {
+                  setIdentityRecovery(false);
+                  setBannerErr(null);
+                }}
+              />
+            </div>
+          ) : null}
           {isBusiness ? renderBusinessStepBody() : renderGuestStepBody()}
         </div>
       </div>

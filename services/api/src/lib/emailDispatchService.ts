@@ -12,6 +12,7 @@ export type DispatchEmailInput =
   | ({ to: string } & Extract<ServeOsEmailTemplateInput, { template: "password_reset" }> & {
         token: string;
         expiresHours: number;
+        returnTo?: string;
       })
   | ({ to: string } & Extract<ServeOsEmailTemplateInput, { template: "email_change" }> & {
         token: string;
@@ -38,7 +39,7 @@ function toTemplateInput(input: DispatchEmailInput): ServeOsEmailTemplateInput {
     case "password_reset":
       return withPreferencesFooter({
         template: "password_reset",
-        resetUrl: passwordResetUrl(input.token),
+        resetUrl: passwordResetUrl(input.token, input.returnTo),
         expiresHours: input.expiresHours,
         preferencesUrl
       });

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { iconPath } from "./marketing/assetPaths";
 import { BtnPrimary } from "./marketing/ui";
+import { readReturnToFromLocation } from "./auth/safeReturnTo";
 import { LoginWizard } from "./login/LoginWizard";
 import { PasswordResetWizard } from "./login/PasswordResetWizard";
 import { ServeOsWordmark, SignupStepShell } from "./signup/SignupShell";
@@ -44,6 +45,7 @@ function LoginBackButton({ onClick }: { onClick: () => void }) {
 
 export function AccountLoginPage({ onBack, onGoSignup }: Props) {
   const [resetToken] = useState(readResetToken);
+  const [returnTo] = useState(readReturnToFromLocation);
   const [phase, setPhase] = useState<LoginPhase>(() => (resetToken ? "reset" : "intro"));
   const [hideBack, setHideBack] = useState(false);
 
@@ -61,8 +63,12 @@ export function AccountLoginPage({ onBack, onGoSignup }: Props) {
 
   const goSignIn = useCallback(() => {
     clearResetTokenFromUrl();
+    if (returnTo) {
+      window.location.replace(returnTo);
+      return;
+    }
     setPhase("wizard");
-  }, []);
+  }, [returnTo]);
 
   return (
     <div className="relative min-h-[100dvh] w-full bg-white/92">
@@ -126,7 +132,11 @@ export function AccountLoginPage({ onBack, onGoSignup }: Props) {
           ) : null}
 
           {phase === "forgot" ? (
-            <PasswordResetWizard mode="request" onExit={() => setPhase("wizard")} />
+            <PasswordResetWizard
+              mode="request"
+              returnTo={returnTo}
+              onExit={() => setPhase("wizard")}
+            />
           ) : null}
 
           {phase === "reset" && resetToken ? (

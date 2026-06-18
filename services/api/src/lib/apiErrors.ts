@@ -36,6 +36,8 @@ const MESSAGES: Record<string, string> = {
   not_found: "We could not find what you requested.",
   server_error: "Something went wrong. Try again.",
   user_already_exists: "That email is already registered — use Log in instead.",
+  identity_exists_use_login:
+    "This email already has a ServeOS account. Sign in to join this workspace — no new account is needed.",
   email_or_phone_required: "Email or phone is required.",
   guest_signup_mobile_only: "Guest accounts can only be created in the ServeOS mobile app.",
   business_signup_web_only: "Business accounts can only be created on the ServeOS website.",

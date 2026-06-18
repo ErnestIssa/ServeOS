@@ -146,7 +146,7 @@ export function App() {
           onGoLegal={goLegal}
         />
       ) : null}
-      {view === "signup" ? <AccountSignupPage onBack={() => goLanding("pricing")} /> : null}
+      {view === "signup" ? <AccountSignupPage onBack={() => goLanding("pricing")} onGoLogin={goLogin} /> : null}
       {view === "login" ? (
         <AccountLoginPage onBack={() => goLanding("top")} onGoSignup={goSignup} />
       ) : null}

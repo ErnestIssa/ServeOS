@@ -5797,10 +5797,29 @@ html[data-admin-theme="dark"] .admin-staff-danger-btn {
   color: #059669;
 }
 
-.enroll-field-error {
-  margin-top: 0.35rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: #dc2626;
+.identity-recovery-panel {
+  border-radius: 1rem;
+  border: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
+  padding: 1.1rem 1.25rem;
+}
+
+.identity-recovery-panel__title {
+  font-size: 1rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.identity-recovery-panel__text {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: #475569;
+}
+
+.identity-recovery-panel__actions {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 1rem;
 }
 

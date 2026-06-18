@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { Prisma, PrismaClient, Role } from "@prisma/client";
 import { isMergedIdentityEmail, readPendingAccountCompletion } from "./auth/identityNormalization.js";
+import { mergePreferredRestaurantIntoProfile } from "./customerSignupProfile.js";
 import { logStaffAudit } from "./staffAuditService.js";
 
 const INVITE_TTL_DAYS = 14;
@@ -115,6 +116,23 @@ async function markInviteExpired(prisma: PrismaClient, invite: LoadedInvite) {
   }
 }
 
+const OPERATIONAL_ROLES: Role[] = ["OWNER", "MANAGER", "STAFF", "KITCHEN", "CASHIER"];
+
+function isOperationalRole(role: Role): boolean {
+  return OPERATIONAL_ROLES.includes(role);
+}
+
+function inviteSatisfiedByMembership(
+  membership: { role: Role; status: string } | null | undefined,
+  invite: LoadedInvite
+): boolean {
+  if (!membership) return false;
+  if (!["ACTIVE", "PENDING_APPROVAL"].includes(membership.status)) return false;
+  if (invite.kind === "customer") return false;
+  if (!isOperationalRole(membership.role)) return false;
+  return membership.role === invite.intendedRole;
+}
+
 function pickHigherRole(a: Role, b: Role): Role {
   return ROLE_RANK[a] >= ROLE_RANK[b] ? a : b;
 }
@@ -162,8 +180,8 @@ function recommendedEnrollmentAction(input: {
   | "none" {
   if (input.alreadyJoined) return "none";
   if (input.canUseExisting && input.sessionState === "MATCHES_INVITE") return "use_existing";
-  if (input.canCreateAccount && input.sessionState === "NONE") return "create_account";
   if (input.requiresLogin) return "login";
+  if (input.canCreateAccount && input.sessionState === "NONE") return "create_account";
   if (input.canMerge) return "merge";
   if (input.requiresSwitchAccount) return "switch_account";
   if (input.canCreateAccount) return "create_account";
@@ -181,6 +199,7 @@ export type InviteResolveResult =
         restaurantId: string;
         restaurantName: string;
         inviteEmailMasked: string;
+        inviteEmail: string;
         fullName: string | null;
         intendedRole: Role;
         roleLabel: string;
@@ -188,8 +207,14 @@ export type InviteResolveResult =
       };
       identity: {
         state: "NEW" | "EXISTING" | "DUAL_ACCOUNT" | "ALREADY_JOINED";
+        exists: boolean;
         hasUsableAccount: boolean;
       };
+      membershipAtVenue: {
+        role: Role;
+        status: string;
+        isOperational: boolean;
+      } | null;
       session: {
         state: "NONE" | "MATCHES_INVITE" | "MISMATCH";
         user?: { emailMasked: string; fullName: string | null };
@@ -251,13 +276,13 @@ export async function resolveWorkspaceInvite(
       })
     : null;
 
-  const activeMembership =
-    existingMembership && ["ACTIVE", "PENDING_APPROVAL", "SUSPENDED"].includes(existingMembership.status);
+  const alreadyJoined = inviteSatisfiedByMembership(existingMembership, invite);
 
   const inviteHasUsableAccount = inviteUser ? hasUsableLoginAccount(inviteUser) : false;
+  const identityExists = Boolean(inviteUser);
 
   let identityState: "NEW" | "EXISTING" | "DUAL_ACCOUNT" | "ALREADY_JOINED" = "NEW";
-  if (activeMembership) {
+  if (alreadyJoined) {
     identityState = "ALREADY_JOINED";
   } else if (inviteUser && inviteHasUsableAccount) {
     identityState = "EXISTING";
@@ -296,24 +321,32 @@ export async function resolveWorkspaceInvite(
     }
   }
 
-  const alreadyJoined = identityState === "ALREADY_JOINED";
+  const alreadyJoinedFlag = identityState === "ALREADY_JOINED";
   const canCreateAccount =
-    !alreadyJoined && !inviteHasUsableAccount && sessionState !== "MATCHES_INVITE";
+    !alreadyJoinedFlag && !inviteHasUsableAccount && sessionState !== "MATCHES_INVITE";
   const canUseExisting =
-    !alreadyJoined &&
+    !alreadyJoinedFlag &&
     inviteHasUsableAccount &&
     sessionState === "MATCHES_INVITE" &&
     identityState !== "DUAL_ACCOUNT";
-  const canMerge = !alreadyJoined && identityState === "DUAL_ACCOUNT" && sessionState === "MISMATCH";
+  const canMerge = !alreadyJoinedFlag && identityState === "DUAL_ACCOUNT" && sessionState === "MISMATCH";
   const requiresLogin =
-    !alreadyJoined && inviteHasUsableAccount && sessionState === "NONE" && identityState === "EXISTING";
+    !alreadyJoinedFlag && inviteHasUsableAccount && sessionState === "NONE" && identityState === "EXISTING";
   const requiresSwitchAccount =
-    !alreadyJoined &&
+    !alreadyJoinedFlag &&
     sessionState === "MISMATCH" &&
     identityState !== "DUAL_ACCOUNT" &&
-    !canCreateAccount;
+    inviteHasUsableAccount;
   const requiresSignOutToCreate =
-    !alreadyJoined && canCreateAccount && sessionState === "MISMATCH";
+    !alreadyJoinedFlag && canCreateAccount && sessionState === "MISMATCH";
+
+  const membershipAtVenue = existingMembership
+    ? {
+        role: existingMembership.role,
+        status: existingMembership.status,
+        isOperational: isOperationalRole(existingMembership.role)
+      }
+    : null;
 
   const actions = {
     canCreateAccount,
@@ -323,7 +356,7 @@ export async function resolveWorkspaceInvite(
     requiresSwitchAccount,
     requiresSignOutToCreate,
     recommended: recommendedEnrollmentAction({
-      alreadyJoined,
+      alreadyJoined: alreadyJoinedFlag,
       identityState,
       sessionState,
       canCreateAccount,
@@ -343,12 +376,18 @@ export async function resolveWorkspaceInvite(
       restaurantId: invite.restaurantId,
       restaurantName: invite.restaurantName,
       inviteEmailMasked: maskInviteEmail(invite.email),
+      inviteEmail: invite.email,
       fullName: invite.fullName ?? (inviteUser ? readInviteeFullName(inviteUser) : null),
       intendedRole: invite.intendedRole,
       roleLabel: ROLE_LABELS[invite.intendedRole],
       expiresAt: invite.expiresAt.toISOString()
     },
-    identity: { state: identityState, hasUsableAccount: inviteHasUsableAccount },
+    identity: {
+      state: identityState,
+      exists: identityExists,
+      hasUsableAccount: inviteHasUsableAccount
+    },
+    membershipAtVenue,
     session: sessionUser ? { state: sessionState, user: sessionUser } : { state: sessionState },
     actions
   };
@@ -419,7 +458,7 @@ type CompleteEnrollmentInput = {
 
 export type EnrollmentCompleteResult = {
   userId: string;
-  membershipId: string;
+  membershipId: string | null;
   restaurantId: string;
   intendedRole: Role;
   pendingApproval: boolean;
@@ -460,7 +499,7 @@ export async function completeWorkspaceEnrollment(
   if (input.action === "create_account") {
     if (!input.passwordHash) throw Object.assign(new Error("password_required"), { statusCode: 400 });
     if (inviteEmailUser && hasUsableLoginAccount(inviteEmailUser)) {
-      throw Object.assign(new Error("account_already_exists"), { statusCode: 409 });
+      throw Object.assign(new Error("identity_exists_use_login"), { statusCode: 409 });
     }
     if (input.sessionUserId) {
       const sessionUser = await prisma.user.findUnique({
@@ -502,12 +541,14 @@ export async function completeWorkspaceEnrollment(
 
   const staffNeedsApproval = invite.kind === "staff";
   const membershipStatus = staffNeedsApproval ? "PENDING_APPROVAL" : "ACTIVE";
-  const globalRole =
-    invite.intendedRole === "MANAGER"
-      ? "MANAGER"
-      : invite.intendedRole === "CUSTOMER"
-        ? "CUSTOMER"
-        : "STAFF";
+  const globalRole: Role =
+    invite.kind === "customer"
+      ? "CUSTOMER"
+      : invite.intendedRole === "MANAGER"
+        ? "MANAGER"
+        : invite.intendedRole === "OWNER"
+          ? "OWNER"
+          : "STAFF";
 
   const result = await prisma.$transaction(async (tx) => {
     if (merged && targetUserId && inviteEmailUser) {
@@ -562,33 +603,32 @@ export async function completeWorkspaceEnrollment(
 
     if (!userId) throw Object.assign(new Error("user_resolution_failed"), { statusCode: 500 });
 
-    const membership = await tx.membership.upsert({
-      where: { userId_restaurantId: { userId, restaurantId: invite.restaurantId } },
-      create: {
-        userId,
-        restaurantId: invite.restaurantId,
-        role: invite.intendedRole,
-        status: membershipStatus,
-        permissions: invite.permissions as Prisma.InputJsonValue,
-        invitedByUserId: invite.invitedByUserId,
-        ...(invite.kind === "staff"
-          ? { staffInvitationId: invite.id }
-          : { customerInvitationId: invite.id })
-      },
-      update: {
-        role: invite.intendedRole,
-        status: membershipStatus,
-        permissions: invite.permissions as Prisma.InputJsonValue,
-        invitedByUserId: invite.invitedByUserId,
-        rejectedAt: null,
-        suspendedAt: null,
-        ...(invite.kind === "staff"
-          ? { staffInvitationId: invite.id }
-          : { customerInvitationId: invite.id })
-      }
-    });
+    let membershipId: string | null = null;
 
     if (invite.kind === "staff") {
+      const membership = await tx.membership.upsert({
+        where: { userId_restaurantId: { userId, restaurantId: invite.restaurantId } },
+        create: {
+          userId,
+          restaurantId: invite.restaurantId,
+          role: invite.intendedRole,
+          status: membershipStatus,
+          permissions: invite.permissions as Prisma.InputJsonValue,
+          invitedByUserId: invite.invitedByUserId,
+          staffInvitationId: invite.id
+        },
+        update: {
+          role: invite.intendedRole,
+          status: membershipStatus,
+          permissions: invite.permissions as Prisma.InputJsonValue,
+          invitedByUserId: invite.invitedByUserId,
+          rejectedAt: null,
+          suspendedAt: null,
+          staffInvitationId: invite.id
+        }
+      });
+      membershipId = membership.id;
+
       const claimed = await tx.staffInvitation.updateMany({
         where: { id: invite.id, status: "PENDING", expiresAt: { gt: new Date() } },
         data: { status: "ACCEPTED", acceptedByUserId: userId, acceptedAt: new Date() }
@@ -597,6 +637,22 @@ export async function completeWorkspaceEnrollment(
         throw Object.assign(new Error("invitation_already_used"), { statusCode: 409 });
       }
     } else {
+      const userRow = await tx.user.findUnique({
+        where: { id: userId },
+        select: { signupProfile: true }
+      });
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          signupProfile: mergePreferredRestaurantIntoProfile(userRow?.signupProfile, invite.restaurantId)
+        }
+      });
+
+      const existingMembership = await tx.membership.findUnique({
+        where: { userId_restaurantId: { userId, restaurantId: invite.restaurantId } }
+      });
+      membershipId = existingMembership?.id ?? null;
+
       const claimed = await tx.customerInvitation.updateMany({
         where: { id: invite.id, status: "PENDING", expiresAt: { gt: new Date() } },
         data: { status: "ACCEPTED", acceptedByUserId: userId, acceptedAt: new Date() }
@@ -606,7 +662,7 @@ export async function completeWorkspaceEnrollment(
       }
     }
 
-    return { userId, membershipId: membership.id, restaurantId: invite.restaurantId };
+    return { userId, membershipId, restaurantId: invite.restaurantId };
   });
 
   if (merged && inviteEmailUser && input.sessionUserId) {
@@ -628,13 +684,13 @@ export async function completeWorkspaceEnrollment(
     restaurantId: invite.restaurantId,
     actorUserId: result.userId,
     targetUserId: result.userId,
-    targetMembershipId: result.membershipId,
+    targetMembershipId: result.membershipId ?? undefined,
     action: "INVITE_ACCEPTED",
     metadata: { invitationId: invite.id, kind: invite.kind, merged }
   });
 
   const redirectPath =
-    invite.intendedRole === "CUSTOMER"
+    invite.kind === "customer"
       ? "/"
       : staffNeedsApproval && membershipStatus === "PENDING_APPROVAL"
         ? "/admin"
@@ -673,18 +729,6 @@ export async function createCustomerInvitation(
     }
   });
   if (pending) throw Object.assign(new Error("invitation_already_pending"), { statusCode: 409 });
-
-  const existingUser = await prisma.user.findFirst({ where: { email }, select: { id: true } });
-  if (existingUser) {
-    const membership = await prisma.membership.findFirst({
-      where: {
-        userId: existingUser.id,
-        restaurantId: params.restaurantId,
-        status: { in: ["ACTIVE", "PENDING_APPROVAL"] }
-      }
-    });
-    if (membership) throw Object.assign(new Error("customer_already_enrolled"), { statusCode: 409 });
-  }
 
   const token = generateCustomerInviteToken();
   const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);

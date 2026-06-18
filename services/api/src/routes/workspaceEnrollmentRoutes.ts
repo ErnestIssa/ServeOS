@@ -190,7 +190,7 @@ async function enrollmentSuccessResponse(
     signupProfile: unknown;
   } | null
 ) {
-  if (result.pendingApproval) {
+  if (result.pendingApproval && result.membershipId) {
     const venue = await prisma.restaurant.findUnique({
       where: { id: result.restaurantId },
       select: { name: true }

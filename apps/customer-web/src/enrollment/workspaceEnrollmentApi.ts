@@ -10,12 +10,18 @@ export type InviteResolveOk = {
     restaurantId: string;
     restaurantName: string;
     inviteEmailMasked: string;
+    inviteEmail: string;
     fullName: string | null;
     intendedRole: string;
     roleLabel: string;
     expiresAt: string;
   };
-  identity: { state: "NEW" | "EXISTING" | "DUAL_ACCOUNT" | "ALREADY_JOINED"; hasUsableAccount: boolean };
+  identity: { state: "NEW" | "EXISTING" | "DUAL_ACCOUNT" | "ALREADY_JOINED"; exists: boolean; hasUsableAccount: boolean };
+  membershipAtVenue: {
+    role: string;
+    status: string;
+    isOperational: boolean;
+  } | null;
   session: {
     state: "NONE" | "MATCHES_INVITE" | "MISMATCH";
     user?: { emailMasked: string; fullName: string | null };
@@ -106,6 +112,8 @@ export const ENROLLMENT_ERROR_MESSAGES: Record<string, string> = {
   email_mismatch: "This account does not match the invited email.",
   merge_not_confirmed: "Confirm account merge to continue.",
   account_already_exists: "An account already exists for this email. Sign in instead.",
+  identity_exists_use_login:
+    "This email already has a ServeOS account. Sign in to join this workspace — no new account is needed.",
   use_existing_account: "You are already signed in with the invited email. Continue with this account instead.",
   login_required: "Sign in to continue with your existing account."
 };

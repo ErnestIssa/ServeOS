@@ -608,10 +608,15 @@ export function registerAuthRoutes(
   });
 
   app.post("/auth/password-reset/request", async (req, reply) => {
-    const body = z.object({ email: z.string().email() }).parse(req.body);
+    const body = z
+      .object({
+        email: z.string().email(),
+        returnTo: z.string().max(512).optional()
+      })
+      .parse(req.body);
     const ip = maskIp(requestIp(req as { headers: Record<string, unknown>; ip?: string }));
     try {
-      await requestPasswordReset(prisma, body.email, ip);
+      await requestPasswordReset(prisma, body.email, ip, body.returnTo);
       return { ok: true };
     } catch (e: unknown) {
       const err = e as { message?: string };

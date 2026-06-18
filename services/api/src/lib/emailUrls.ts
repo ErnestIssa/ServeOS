@@ -23,8 +23,14 @@ export function defaultPreferencesFooterUrl(): string {
   return communicationPreferencesBaseUrl();
 }
 
-export function passwordResetUrl(token: string): string {
-  return `${customerWebBaseUrl()}/login?resetToken=${encodeURIComponent(token)}`;
+export function passwordResetUrl(token: string, returnTo?: string | null): string {
+  const base = `${customerWebBaseUrl()}/login`;
+  const params = new URLSearchParams({ resetToken: token });
+  const safe = returnTo?.trim();
+  if (safe?.startsWith("/") && !safe.startsWith("//") && !safe.includes("://")) {
+    params.set("returnTo", safe);
+  }
+  return `${base}?${params.toString()}`;
 }
 
 export function emailChangeConfirmUrl(token: string): string {

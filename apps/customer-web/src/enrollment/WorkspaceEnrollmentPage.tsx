@@ -10,10 +10,13 @@ import {
   type InviteResolveOk
 } from "./workspaceEnrollmentApi";
 import { clearStoredInviteSearch, readInviteTokenFromLocation } from "../inviteToken";
+import { IdentityRecoveryPanel } from "../auth/IdentityRecoveryPanel";
+import { inviteEnrollmentReturnPath } from "../auth/safeReturnTo";
+import { PasswordResetWizard } from "../login/PasswordResetWizard";
 
 const ENROLL_ICON = iconPath("register-svgrepo-com.svg");
 
-type Phase = "loading" | "error" | "gateway" | "create" | "login" | "merge" | "success";
+type Phase = "loading" | "error" | "gateway" | "create" | "login" | "merge" | "forgot" | "success";
 
 type Props = {
   onBack: () => void;
@@ -134,8 +137,9 @@ export function WorkspaceEnrollmentPage({ onBack }: Props) {
 
   const pickInitialPhase = useCallback((result: InviteResolveOk): Phase => {
     if (result.identity.state === "ALREADY_JOINED") return "success";
+    if (result.actions.recommended === "login" || result.identity.hasUsableAccount) return "login";
     if (result.actions.recommended === "create_account") return "create";
-    if (result.actions.recommended === "login") return "login";
+    if (result.actions.recommended === "use_existing") return "gateway";
     return "gateway";
   }, []);
 
@@ -198,7 +202,11 @@ export function WorkspaceEnrollmentPage({ onBack }: Props) {
     });
     setBusy(false);
     if (!result.ok) {
-      setError(enrollmentErrorMessage(result.error));
+      const code = result.error;
+      if (code === "identity_exists_use_login" || code === "account_already_exists") {
+        setPhase("login");
+      }
+      setError(enrollmentErrorMessage(code));
       return;
     }
 
@@ -294,7 +302,7 @@ export function WorkspaceEnrollmentPage({ onBack }: Props) {
             />
           ) : null}
 
-          {resolved && (phase === "gateway" || phase === "create" || phase === "login" || phase === "merge") ? (
+          {resolved && (phase === "gateway" || phase === "create" || phase === "login" || phase === "merge" || phase === "forgot") ? (
             <SignupStepShell
               stepKey={phase}
               iconSrc={ENROLL_ICON}
@@ -304,7 +312,9 @@ export function WorkspaceEnrollmentPage({ onBack }: Props) {
                   ? "Create your account"
                   : phase === "login"
                     ? "Sign in to join"
-                    : "Accept your workspace invitation"
+                    : phase === "forgot"
+                      ? "Reset your password"
+                      : "Accept your workspace invitation"
               }
               description={
                 <div className="flex w-full flex-col items-center gap-4">
@@ -335,6 +345,30 @@ export function WorkspaceEnrollmentPage({ onBack }: Props) {
                       Continue with <strong>{resolved.session.user?.emailMasked}</strong> to join this workspace.
                     </p>
                   </div>
+                ) : null}
+
+                {resolved.identity.hasUsableAccount && phase === "login" ? (
+                  <div className="enroll-notice enroll-notice--info">
+                    <p className="enroll-notice__title">One ServeOS identity</p>
+                    <p className="enroll-notice__text">
+                      <strong>{resolved.invite.inviteEmailMasked}</strong> already has an account. Sign in to attach
+                      this invitation to your existing identity
+                      {resolved.membershipAtVenue?.isOperational
+                        ? ` (you currently have ${resolved.membershipAtVenue.role} access here).`
+                        : resolved.membershipAtVenue
+                          ? " and update your workspace access."
+                          : ` as ${resolved.invite.roleLabel} at ${resolved.invite.restaurantName}.`}
+                    </p>
+                  </div>
+                ) : null}
+
+                {phase === "forgot" ? (
+                  <PasswordResetWizard
+                    mode="request"
+                    defaultEmail={resolved.invite.inviteEmail}
+                    returnTo={inviteToken ? inviteEnrollmentReturnPath(inviteToken) : null}
+                    onExit={() => setPhase("login")}
+                  />
                 ) : null}
 
                 {phase === "gateway" ? (
@@ -424,6 +458,20 @@ export function WorkspaceEnrollmentPage({ onBack }: Props) {
                 ) : null}
 
                 {phase === "create" ? (
+                  resolved.identity.hasUsableAccount ? (
+                    <IdentityRecoveryPanel
+                      emailHint={resolved.invite.inviteEmailMasked}
+                      description={`${resolved.invite.inviteEmailMasked} already has a ServeOS login. Sign in to join ${resolved.invite.restaurantName} as ${resolved.invite.roleLabel}.`}
+                      onSignIn={() => {
+                        setError(null);
+                        setPhase("login");
+                      }}
+                      onForgotPassword={() => {
+                        setError(null);
+                        setPhase("forgot");
+                      }}
+                    />
+                  ) : (
                   <form
                     className="enroll-form"
                     onSubmit={(e) => {
@@ -529,6 +577,7 @@ export function WorkspaceEnrollmentPage({ onBack }: Props) {
                       </button>
                     </div>
                   </form>
+                  )
                 ) : null}
 
                 {phase === "login" ? (
@@ -563,19 +612,33 @@ export function WorkspaceEnrollmentPage({ onBack }: Props) {
                         {busy ? "Joining…" : "Sign in and join"}
                       </button>
                     </div>
-                    <p className="enroll-footnote">
-                      No account yet?{" "}
+                    <div className="enroll-form-actions mt-2 !grid-cols-1">
                       <button
                         type="button"
-                        className="enroll-inline-link"
+                        className="enroll-secondary-btn"
                         onClick={() => {
                           setError(null);
-                          setPhase("create");
+                          setPhase("forgot");
                         }}
                       >
-                        Create one instead
+                        Forgot password
                       </button>
-                    </p>
+                    </div>
+                    {resolved.actions.canCreateAccount ? (
+                      <p className="enroll-footnote">
+                        New to ServeOS?{" "}
+                        <button
+                          type="button"
+                          className="enroll-inline-link"
+                          onClick={() => {
+                            setError(null);
+                            setPhase("create");
+                          }}
+                        >
+                          Create an account instead
+                        </button>
+                      </p>
+                    ) : null}
                   </form>
                 ) : null}
 

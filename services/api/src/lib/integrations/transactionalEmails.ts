@@ -23,12 +23,14 @@ export async function sendPasswordResetEmail(params: {
   to: string;
   token: string;
   expiresHours: number;
+  returnTo?: string | null;
 }): Promise<SendEmailResult> {
   return dispatchServeOsEmail({
     template: "password_reset",
     to: params.to,
     token: params.token,
-    expiresHours: params.expiresHours
+    expiresHours: params.expiresHours,
+    returnTo: params.returnTo ?? undefined
   });
 }
 

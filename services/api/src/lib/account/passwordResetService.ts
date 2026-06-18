@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import bcrypt from "bcrypt";
 import type { PrismaClient } from "@prisma/client";
 import { sendPasswordResetEmail } from "../integrations/transactionalEmails.js";
+import { sanitizeReturnTo } from "../safeReturnTo.js";
 import { logSecurityActivity } from "./securityActivity.js";
 import { revokeOtherSessions } from "./sessionService.js";
 import { validatePasswordStrength } from "./validation.js";
@@ -17,7 +18,8 @@ function hashToken(token: string): string {
 export async function requestPasswordReset(
   prisma: PrismaClient,
   email: string,
-  ipMasked?: string | null
+  ipMasked?: string | null,
+  returnTo?: string | null
 ) {
   const normalized = email.trim().toLowerCase();
   const user = await prisma.user.findFirst({
@@ -43,7 +45,8 @@ export async function requestPasswordReset(
     await sendPasswordResetEmail({
       to: user.email,
       token: rawToken,
-      expiresHours: TOKEN_TTL_HOURS
+      expiresHours: TOKEN_TTL_HOURS,
+      returnTo: sanitizeReturnTo(returnTo)
     });
 
     await logSecurityActivity(prisma, {

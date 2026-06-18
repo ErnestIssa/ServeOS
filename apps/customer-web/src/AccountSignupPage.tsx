@@ -15,6 +15,7 @@ import { ServeOsWordmark, SignupStepShell } from "./signup/SignupShell";
 
 type Props = {
   onBack: () => void;
+  onGoLogin?: () => void;
 };
 
 const DIRECTIONS_ICON = iconPath("directions-svgrepo-com.svg");
@@ -41,7 +42,7 @@ function SignupBackButton({ onClick, label = "Back" }: { onClick: () => void; la
   );
 }
 
-export function AccountSignupPage({ onBack }: Props) {
+export function AccountSignupPage({ onBack, onGoLogin }: Props) {
   const [phase, setPhase] = useState<SignupPhase>(() => loadSignupPhase());
   const [cancelOpen, setCancelOpen] = useState(false);
   const [hidePageCancel, setHidePageCancel] = useState(false);
@@ -132,6 +133,7 @@ export function AccountSignupPage({ onBack }: Props) {
             <SignupWizard
               flow="BUSINESS"
               onAccountCreatingChange={setHidePageCancel}
+              onGoLogin={onGoLogin}
               onExit={() => {
                 clearSignupWizardState();
                 setPhase("intro");

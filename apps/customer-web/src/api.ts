@@ -127,11 +127,17 @@ export async function login(params: { email: string; password: string }): Promis
   });
 }
 
-export async function requestPasswordReset(email: string): Promise<{ ok: boolean; error?: string }> {
+export async function requestPasswordReset(
+  email: string,
+  returnTo?: string | null
+): Promise<{ ok: boolean; error?: string }> {
   return apiFetch<{ ok: boolean; error?: string }>("/auth/password-reset/request", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: email.trim() })
+    body: JSON.stringify({
+      email: email.trim(),
+      ...(returnTo ? { returnTo } : {})
+    })
   });
 }
 

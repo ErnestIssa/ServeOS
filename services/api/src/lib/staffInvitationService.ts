@@ -19,6 +19,7 @@ import { logStaffAudit } from "./staffAuditService.js";
 import { buildWorkspaceInviteAcceptUrl, completeWorkspaceEnrollment, hashInviteToken } from "./workspaceEnrollmentService.js";
 
 const INVITE_TTL_DAYS = 14;
+const OPERATIONAL_ROLES: Role[] = ["OWNER", "MANAGER", "STAFF", "KITCHEN", "CASHIER"];
 
 function hashToken(token: string): string {
   return hashInviteToken(token);
@@ -99,7 +100,11 @@ export async function createStaffInvitation(
         status: { in: ["ACTIVE", "PENDING_APPROVAL", "SUSPENDED"] }
       }
     });
-    if (existingMembership) {
+    if (
+      existingMembership &&
+      ["ACTIVE", "PENDING_APPROVAL", "SUSPENDED"].includes(existingMembership.status) &&
+      OPERATIONAL_ROLES.includes(existingMembership.role)
+    ) {
       throw Object.assign(new Error("staff_already_active"), { statusCode: 409 });
     }
   }
