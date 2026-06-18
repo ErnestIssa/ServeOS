@@ -14,6 +14,8 @@ export type AuthUser = {
   email?: string | null;
   phone?: string | null;
   role: string;
+  displayName?: string;
+  fullName?: string;
   signupProfile?: unknown | null;
   preferredRestaurantId?: string | null;
 };

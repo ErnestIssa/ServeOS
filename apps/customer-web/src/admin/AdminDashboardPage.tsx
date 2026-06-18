@@ -44,7 +44,7 @@ import {
   type OrderRow
 } from "../api";
 import { clearAdminToken, consumeTokenFromUrl, persistAdminToken, readStoredAdminToken } from "../authStorage";
-import { confirmEmailChange } from "./profile/accountApi";
+import { confirmEmailChange, fetchAccountProfile } from "./profile/accountApi";
 import {
   dismissOwnerTrialNotice,
   fetchOwnerTrialNotice,
@@ -52,7 +52,7 @@ import {
   type DeploymentQuote,
   type TrialNoticePayload
 } from "./deploymentApi";
-import { DEFAULT_ADMIN_HASH, readAdminHash, readOwnerContactName } from "./adminNavContent";
+import { DEFAULT_ADMIN_HASH, readAdminHash, readUserDisplayName } from "./adminNavContent";
 import { AdminPageTransition } from "./AdminPageTransition";
 import { AdminVenueControlCentrePage } from "./AdminVenueControlCentre";
 import { AdminTopPageView } from "./AdminTopPages";
@@ -155,10 +155,22 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
     : "";
 
   async function hydrateUser(t: string) {
-    const res = await fetchMe(t);
+    const [res, accountRes] = await Promise.all([fetchMe(t), fetchAccountProfile(t)]);
     if (!res.ok || !res.user?.id) return;
+    const accountFullName = accountRes.ok ? accountRes.account?.fullName ?? null : null;
+    const displayName = readUserDisplayName({
+      displayName: res.user.displayName,
+      fullName: accountFullName ?? res.user.fullName,
+      accountFullName,
+      email: res.user.email,
+      signupProfile: res.user.signupProfile
+    });
     setUserId(res.user.id);
-    setOwnerUser(res.user);
+    setOwnerUser({
+      ...res.user,
+      displayName,
+      fullName: accountFullName ?? res.user.fullName ?? displayName
+    });
     if (canManageBilling(res.user.role)) {
       const status = await fetchWorkspaceDeploymentStatus(t);
       setHasWorkspaceDeployment(Boolean(status.ok && status.hasDeployment));
@@ -402,7 +414,13 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
     onAfterLogout();
   }
 
-  const ownerDisplayName = readOwnerContactName(ownerUser?.signupProfile);
+  const ownerDisplayName = readUserDisplayName({
+    displayName: ownerUser?.displayName,
+    fullName: ownerUser?.fullName,
+    accountFullName: ownerUser?.fullName,
+    email: ownerUser?.email,
+    signupProfile: ownerUser?.signupProfile
+  });
   const adminRoute = parseAdminRoute(adminHash);
   const showFullPage = adminRoute.kind === "full-page";
   const selectedVenueName = restaurants.find((r) => r.id === selectedRestaurantId)?.name ?? "";
@@ -745,6 +763,7 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
           onSelectRestaurant={(id) => void handleSelectRestaurant(id)}
           ownerSignupProfile={ownerUser?.signupProfile}
           ownerEmail={ownerUser?.email}
+          userDisplayName={ownerDisplayName}
           canManageBilling={ownerCanManageBilling}
           onLogoPress={requestSignOut}
           onSignOut={requestSignOut}
@@ -834,14 +853,10 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
                       persistAdminToken(res.token);
                       setToken(res.token);
                       setStatus("Signed up");
-                      if (res.user?.id) {
-                        setUserId(res.user.id);
-                        setOwnerUser(res.user);
-                        const depStatus = await fetchWorkspaceDeploymentStatus(res.token);
-                        setHasWorkspaceDeployment(Boolean(depStatus.ok && depStatus.hasDeployment));
-                      } else {
-                        await hydrateUser(res.token);
-                      }
+                      if (res.user?.id) setUserId(res.user.id);
+                      await hydrateUser(res.token);
+                      const depStatus = await fetchWorkspaceDeploymentStatus(res.token);
+                      setHasWorkspaceDeployment(Boolean(depStatus.ok && depStatus.hasDeployment));
                       await refreshRestaurants(res.token);
                     }}
                   >
@@ -855,14 +870,10 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
                       persistAdminToken(res.token);
                       setToken(res.token);
                       setStatus("Logged in");
-                      if (res.user?.id) {
-                        setUserId(res.user.id);
-                        setOwnerUser(res.user);
-                        const depStatus = await fetchWorkspaceDeploymentStatus(res.token);
-                        setHasWorkspaceDeployment(Boolean(depStatus.ok && depStatus.hasDeployment));
-                      } else {
-                        await hydrateUser(res.token);
-                      }
+                      if (res.user?.id) setUserId(res.user.id);
+                      await hydrateUser(res.token);
+                      const depStatus = await fetchWorkspaceDeploymentStatus(res.token);
+                      setHasWorkspaceDeployment(Boolean(depStatus.ok && depStatus.hasDeployment));
                       await refreshRestaurants(res.token);
                     }}
                   >

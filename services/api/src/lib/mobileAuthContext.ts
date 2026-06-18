@@ -46,6 +46,7 @@ export async function loadMobileAuthContext(
 
   const activeMemberships = user.memberships.filter((m) => m.status === "ACTIVE");
   const pendingMemberships = user.memberships.filter((m) => m.status === "PENDING_APPROVAL");
+  const suspendedMemberships = user.memberships.filter((m) => m.status === "SUSPENDED");
   const membershipRoles = activeMemberships.map((m) => m.role);
 
   const preferred = readPreferredRestaurantIdFromProfile(user.signupProfile);
@@ -62,6 +63,7 @@ export async function loadMobileAuthContext(
   let grantedPermissions: string[] = [];
   let venueAccessState: VenueAccessState = "none";
   let pendingVenueName: string | undefined;
+  let suspendedVenueName: string | undefined;
 
   if (activeMemberships.length > 0) {
     venueAccessState = "active";
@@ -72,6 +74,12 @@ export async function loadMobileAuthContext(
     venueAccessState = "pending_approval";
     pendingVenueName = pendingMemberships[0]!.restaurant.name;
     activeRestaurantId = pendingMemberships[0]!.restaurantId;
+  } else if (suspendedMemberships.length > 0) {
+    const preferredSuspended =
+      suspendedMemberships.find((m) => m.restaurantId === preferred) ?? suspendedMemberships[0]!;
+    venueAccessState = "suspended";
+    suspendedVenueName = preferredSuspended.restaurant.name;
+    activeRestaurantId = preferredSuspended.restaurantId;
   }
 
   const experience = buildMobileExperienceManifest({
@@ -80,7 +88,8 @@ export async function loadMobileAuthContext(
     signupProfile: user.signupProfile,
     grantedPermissions,
     venueAccessState,
-    pendingVenueName
+    pendingVenueName,
+    suspendedVenueName
   });
 
   if (experience.roleType === "CUSTOMER") {

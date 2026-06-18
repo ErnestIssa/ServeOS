@@ -6,6 +6,9 @@ export type MemberStatus = "active" | "suspended" | "pending_invite" | "pending_
 
 export type StaffPermissionGroup = { id: string; label: string; enabled: boolean; keys: string[] };
 
+export type CapabilityItem = { label: string; allowed: boolean };
+export type CapabilityDomain = { domain: string; items: CapabilityItem[] };
+
 export type StaffMemberCapabilities = ApiStaffMemberCapabilities;
 
 export type StaffMember = {
@@ -22,6 +25,7 @@ export type StaffMember = {
   currentShift?: string;
   lastActive: string;
   permissionSummary: string;
+  capabilitySummary?: CapabilityDomain[];
   permissions: string[];
   devices: Array<{ label: string; type: string; lastSeen: string }>;
   permissionGroups: StaffPermissionGroup[];
@@ -31,12 +35,65 @@ export type StaffMember = {
 
 export type PendingInvite = {
   id: string;
+  kind: "invitation";
   name: string;
   email: string;
   role: StaffRole;
+  roleLabel: string;
   venue: string;
   sent: string;
+  statusLabel: string;
 };
+
+export type PendingApproval = {
+  id: string;
+  kind: "approval";
+  name: string;
+  email: string;
+  phone?: string;
+  role: StaffRole;
+  roleLabel: string;
+  venue: string;
+  sent: string;
+  statusLabel: string;
+  capabilities?: StaffMemberCapabilities | null;
+};
+
+export type InviteHistoryItem = {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  role: StaffRole;
+  roleLabel: string;
+  status: string;
+  statusLabel: string;
+  sent: string;
+  acceptedAt?: string;
+  invitedByName?: string | null;
+  invitedByRole?: string | null;
+  membershipId?: string | null;
+  membershipStatus?: string | null;
+};
+
+export type RecentlyRemovedMember = {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  role: StaffRole;
+  roleLabel: string;
+  removedAt: string;
+  capabilities?: StaffMemberCapabilities | null;
+};
+
+function inviteStatusLabel(status: string): string {
+  if (status === "PENDING") return "Awaiting acceptance";
+  if (status === "ACCEPTED") return "Accepted";
+  if (status === "CANCELLED") return "Cancelled";
+  if (status === "EXPIRED") return "Expired";
+  return status.replace(/_/g, " ");
+}
 
 function mapMemberStatus(status: string): MemberStatus {
   if (status === "SUSPENDED") return "suspended";
@@ -80,6 +137,7 @@ export function apiMemberToStaffMember(
     currentShift: m.currentShift ?? undefined,
     lastActive: m.lastActiveLabel,
     permissionSummary: m.permissionSummary,
+    capabilitySummary: m.capabilitySummary,
     permissions: m.permissions,
     devices: m.devices,
     permissionGroups: groups.map((g) => ({

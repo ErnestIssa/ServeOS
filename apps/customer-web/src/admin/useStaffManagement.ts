@@ -11,6 +11,7 @@ import {
   fetchVenueStaff,
   mapStaffApiError,
   removeStaffMembership,
+  restoreStaffMembership,
   suspendStaffMembership,
   updateStaffPermissions
 } from "./staffApi";
@@ -19,7 +20,10 @@ import {
   buildPermissionGroupsFromKeys,
   formatInviteSent,
   permissionGroupsToKeys,
+  type InviteHistoryItem,
+  type PendingApproval,
   type PendingInvite,
+  type RecentlyRemovedMember,
   type StaffMember,
   type StaffPermissionGroup
 } from "./staffMappers";
@@ -29,12 +33,18 @@ export function useStaffManagement(token: string | null, restaurantId: string, v
   const [error, setError] = useState<string | null>(null);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([]);
+  const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
+  const [inviteHistory, setInviteHistory] = useState<InviteHistoryItem[]>([]);
+  const [recentlyRemoved, setRecentlyRemoved] = useState<RecentlyRemovedMember[]>([]);
   const [permissionCatalog, setPermissionCatalog] = useState<Array<{ id: string; label: string; keys: string[] }>>([]);
 
   const load = useCallback(async () => {
     if (!token || !restaurantId) {
       setStaff([]);
       setPendingInvites([]);
+      setPendingApprovals([]);
+      setInviteHistory([]);
+      setRecentlyRemoved([]);
       setLoading(false);
       return;
     }
@@ -48,6 +58,9 @@ export function useStaffManagement(token: string | null, restaurantId: string, v
       setError(mapStaffApiError(listRes.error));
       setStaff([]);
       setPendingInvites([]);
+      setPendingApprovals([]);
+      setInviteHistory([]);
+      setRecentlyRemoved([]);
       setLoading(false);
       return;
     }
@@ -59,11 +72,70 @@ export function useStaffManagement(token: string | null, restaurantId: string, v
     setPendingInvites(
       (listRes.pendingInvitations ?? []).map((inv) => ({
         id: inv.id,
+        kind: "invitation" as const,
         name: inv.fullName,
         email: inv.email,
         role: inv.intendedRole as PendingInvite["role"],
+        roleLabel: inv.roleLabel ?? inv.intendedRole,
         venue: venueName,
-        sent: formatInviteSent(inv.createdAt)
+        sent: formatInviteSent(inv.createdAt),
+        statusLabel: "Awaiting acceptance"
+      }))
+    );
+    setPendingApprovals(
+      (listRes.pendingApprovals ?? []).map((row) => ({
+        id: row.membershipId,
+        kind: "approval" as const,
+        name: row.fullName ?? row.email ?? "Staff member",
+        email: row.email ?? "",
+        phone: row.phone ?? undefined,
+        role: row.role as PendingApproval["role"],
+        roleLabel: row.roleLabel ?? row.role,
+        venue: venueName,
+        sent: formatInviteSent(row.createdAt),
+        statusLabel: "Awaiting approval",
+        capabilities: row.capabilities ?? null
+      }))
+    );
+    setInviteHistory(
+      (listRes.inviteHistory ?? []).map((row) => ({
+        id: row.id,
+        name: row.fullName,
+        email: row.email,
+        phone: row.phone ?? undefined,
+        role: row.intendedRole as InviteHistoryItem["role"],
+        roleLabel: row.roleLabel,
+        status: row.status,
+        statusLabel:
+          row.status === "ACCEPTED" && row.membershipStatus === "PENDING_APPROVAL"
+            ? "Accepted · awaiting approval"
+            : row.status === "ACCEPTED"
+              ? "Accepted"
+              : row.status === "PENDING"
+                ? "Awaiting acceptance"
+                : row.status === "CANCELLED"
+                  ? "Cancelled"
+                  : row.status === "EXPIRED"
+                    ? "Expired"
+                    : row.status,
+        sent: formatInviteSent(row.createdAt),
+        acceptedAt: row.acceptedAt ?? undefined,
+        invitedByName: row.invitedByName,
+        invitedByRole: row.invitedByRole,
+        membershipId: row.membershipId,
+        membershipStatus: row.membershipStatus
+      }))
+    );
+    setRecentlyRemoved(
+      (listRes.recentlyRemoved ?? []).map((row) => ({
+        id: row.membershipId,
+        name: row.fullName ?? row.email ?? "Staff member",
+        email: row.email ?? "",
+        phone: row.phone ?? undefined,
+        role: row.role as RecentlyRemovedMember["role"],
+        roleLabel: row.roleLabel,
+        removedAt: row.removedAt ? formatInviteSent(row.removedAt) : "Recently",
+        capabilities: row.capabilities ?? null
       }))
     );
     setLoading(false);
@@ -78,9 +150,9 @@ export function useStaffManagement(token: string | null, restaurantId: string, v
       total: staff.length,
       activeToday: staff.filter((s) => s.memberStatus === "active").length,
       onShift: staff.filter((s) => s.presence === "on_shift").length,
-      pending: pendingInvites.length + staff.filter((s) => s.memberStatus === "pending_approval").length
+      pending: pendingInvites.length + pendingApprovals.length
     }),
-    [staff, pendingInvites]
+    [staff, pendingInvites, pendingApprovals]
   );
 
   const loadMemberDetail = useCallback(
@@ -102,7 +174,14 @@ export function useStaffManagement(token: string | null, restaurantId: string, v
         phone: input.phone,
         intendedRole: input.role
       });
-      if (!res.ok) return { ok: false as const, error: mapStaffApiError(res.error) };
+      if (!res.ok) {
+        return {
+          ok: false as const,
+          error: mapStaffApiError(res.error),
+          errorCode: res.error,
+          metadata: (res as { metadata?: { membershipId?: string } }).metadata
+        };
+      }
       await load();
       return { ok: true as const };
     },
@@ -131,12 +210,13 @@ export function useStaffManagement(token: string | null, restaurantId: string, v
   );
 
   const runMembershipAction = useCallback(
-    async (action: "approve" | "suspend" | "activate" | "remove", membershipId: string) => {
+    async (action: "approve" | "suspend" | "activate" | "remove" | "restore", membershipId: string) => {
       if (!token || !restaurantId) return { ok: false as const };
       let res;
       if (action === "approve") res = await approveStaffMembership(token, restaurantId, membershipId);
       else if (action === "suspend") res = await suspendStaffMembership(token, restaurantId, membershipId);
       else if (action === "activate") res = await activateStaffMembership(token, restaurantId, membershipId);
+      else if (action === "restore") res = await restoreStaffMembership(token, restaurantId, membershipId);
       else res = await removeStaffMembership(token, restaurantId, membershipId);
       if (res.ok) await load();
       return { ok: res.ok, error: res.ok ? undefined : mapStaffApiError(res.error) };
@@ -167,6 +247,9 @@ export function useStaffManagement(token: string | null, restaurantId: string, v
     error,
     staff,
     pendingInvites,
+    pendingApprovals,
+    inviteHistory,
+    recentlyRemoved,
     permissionCatalog,
     stats,
     reload: load,

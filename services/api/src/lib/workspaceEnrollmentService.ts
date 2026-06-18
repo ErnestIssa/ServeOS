@@ -1,9 +1,11 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { Prisma, PrismaClient, Role } from "@prisma/client";
 import { isMergedIdentityEmail, readPendingAccountCompletion } from "./auth/identityNormalization.js";
+import { normalizeAuthPhone } from "./auth/identityNormalization.js";
 import { mergePreferredRestaurantIntoProfile } from "./customerSignupProfile.js";
 import { customerWebBaseUrl } from "./emailUrls.js";
 import { logStaffAudit } from "./staffAuditService.js";
+import { membershipRoleLabel, readUserDisplayName, resolveInviterAtRestaurant } from "./userDisplayName.js";
 
 const INVITE_TTL_DAYS = 14;
 
@@ -370,21 +372,12 @@ export async function resolveWorkspaceInvite(
 
   let invitedBy: { name: string; roleLabel: string } | null = null;
   if (invite.invitedByUserId) {
-    const inviter = await prisma.user.findUnique({
-      where: { id: invite.invitedByUserId },
-      select: {
-        role: true,
-        accountProfile: { select: { fullName: true } },
-        signupProfile: true
-      }
+    const inviter = await resolveInviterAtRestaurant(prisma, {
+      userId: invite.invitedByUserId,
+      restaurantId: invite.restaurantId
     });
     if (inviter) {
-      const profile = inviter.signupProfile as { fullName?: string } | null;
-      const name =
-        inviter.accountProfile?.fullName?.trim() ||
-        profile?.fullName?.trim() ||
-        "A team admin";
-      invitedBy = { name, roleLabel: ROLE_LABELS[inviter.role] ?? inviter.role };
+      invitedBy = { name: inviter.name, roleLabel: inviter.roleLabel };
     }
   }
 
@@ -523,6 +516,19 @@ export async function completeWorkspaceEnrollment(
     if (inviteEmailUser && hasUsableLoginAccount(inviteEmailUser)) {
       throw Object.assign(new Error("identity_exists_use_login"), { statusCode: 409 });
     }
+    const phoneNorm = input.phone?.trim() ? normalizeAuthPhone(input.phone) : null;
+    if (phoneNorm) {
+      const phoneUser = await prisma.user.findFirst({
+        where: { phone: phoneNorm },
+        select: { id: true, email: true }
+      });
+      if (
+        phoneUser &&
+        normalizeInviteEmail(phoneUser.email ?? "") !== normalizeInviteEmail(invite.email)
+      ) {
+        throw Object.assign(new Error("phone_identity_conflict"), { statusCode: 409 });
+      }
+    }
     if (input.sessionUserId) {
       const sessionUser = await prisma.user.findUnique({
         where: { id: input.sessionUserId },
@@ -646,6 +652,7 @@ export async function completeWorkspaceEnrollment(
           invitedByUserId: invite.invitedByUserId,
           rejectedAt: null,
           suspendedAt: null,
+          removedAt: null,
           staffInvitationId: invite.id
         }
       });

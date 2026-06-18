@@ -25,12 +25,16 @@ export type ApiStaffActionCapability = {
   reason: string | null;
 };
 
+export type ApiCapabilityItem = { label: string; allowed: boolean };
+export type ApiCapabilityDomain = { domain: string; items: ApiCapabilityItem[] };
+
 export type ApiStaffMemberCapabilities = {
   isSelf: boolean;
   canEditPermissions: boolean;
   permissionsReadOnly: boolean;
   readOnlyReason: string | null;
   canSavePermissions: boolean;
+  canViewSecurityActions?: boolean;
   actions: Record<string, ApiStaffActionCapability>;
 };
 
@@ -41,6 +45,7 @@ export type ApiStaffMember = {
   status: string;
   permissions: string[];
   permissionSummary: string;
+  capabilitySummary?: ApiCapabilityDomain[];
   roleTemplate: string;
   email: string | null;
   phone: string | null;
@@ -66,10 +71,13 @@ export type ApiStaffListResponse = {
     membershipId: string;
     userId: string;
     role: string;
+    roleLabel: string;
     email: string | null;
+    phone: string | null;
     fullName: string | null;
     permissions: string[];
     createdAt: string;
+    capabilities?: ApiStaffMemberCapabilities | null;
   }>;
   pendingInvitations?: Array<{
     id: string;
@@ -77,9 +85,37 @@ export type ApiStaffListResponse = {
     email: string;
     phone: string | null;
     intendedRole: string;
+    roleLabel?: string;
     permissions: string[];
     expiresAt: string;
     createdAt: string;
+  }>;
+  inviteHistory?: Array<{
+    id: string;
+    fullName: string;
+    email: string;
+    phone: string | null;
+    intendedRole: string;
+    roleLabel: string;
+    status: string;
+    expiresAt: string;
+    createdAt: string;
+    acceptedAt: string | null;
+    invitedByName: string | null;
+    invitedByRole: string | null;
+    membershipId: string | null;
+    membershipStatus: string | null;
+  }>;
+  recentlyRemoved?: Array<{
+    membershipId: string;
+    userId: string;
+    role: string;
+    roleLabel: string;
+    email: string | null;
+    phone: string | null;
+    fullName: string | null;
+    removedAt: string | null;
+    capabilities?: ApiStaffMemberCapabilities | null;
   }>;
   accessPolicy?: { maxManagers: number; allowManagersToInviteManagers: boolean };
 };
@@ -185,6 +221,14 @@ export async function activateStaffMembership(token: string, restaurantId: strin
   );
 }
 
+export async function restoreStaffMembership(token: string, restaurantId: string, membershipId: string) {
+  return staffFetch<{ ok: boolean; error?: string }>(
+    token,
+    `/restaurants/${encodeURIComponent(restaurantId)}/staff/memberships/${encodeURIComponent(membershipId)}/restore`,
+    { method: "POST", body: "{}" }
+  );
+}
+
 export async function removeStaffMembership(token: string, restaurantId: string, membershipId: string) {
   return staffFetch<{ ok: boolean; error?: string }>(
     token,
@@ -249,6 +293,9 @@ export function mapStaffApiError(error?: string): string {
     manager_cannot_manage_role: "Managers cannot manage this role.",
     cannot_grant_permissions_not_held: "You cannot grant permissions you do not have.",
     staff_already_active: "This person is already a member of this venue.",
+    removed_member_restore_available:
+      "This person was recently removed. Restore their access instead of sending a new invite.",
+    membership_restore_expired: "The recovery window has expired. Send a new invite instead.",
     cannot_manage_self_security: "Use your account settings for your own security actions.",
     invalid_password: "Incorrect password. Try again.",
     email_send_failed: "Could not send the invite email. Check Resend configuration."

@@ -115,6 +115,8 @@ export const ENROLLMENT_ERROR_MESSAGES: Record<string, string> = {
   account_already_exists: "An account already exists for this email. Sign in instead.",
   identity_exists_use_login:
     "This email already has a ServeOS account. Sign in to join this workspace — no new account is needed.",
+  phone_identity_conflict:
+    "This phone number belongs to another ServeOS account. Sign in with that account or use a different number.",
   use_existing_account: "You are already signed in with the invited email. Continue with this account instead.",
   login_required: "Sign in to continue with your existing account."
 };

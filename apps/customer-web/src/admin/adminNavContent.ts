@@ -115,10 +115,32 @@ export const ADMIN_TOP_TOOL_HINTS = {
   }
 } as const;
 
-/** Contact person from owner signup / registration profile; fallback "Owner". */
-export function readOwnerContactName(signupProfile: unknown): string {
-  if (signupProfile && typeof signupProfile === "object" && !Array.isArray(signupProfile)) {
-    const root = signupProfile as Record<string, unknown>;
+/** Person display name from profile — never use role or raw email as identity. */
+function isEmailLike(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function pickPersonName(value?: string | null): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed || isEmailLike(trimmed)) return null;
+  return trimmed;
+}
+
+export function readUserDisplayName(input: {
+  displayName?: string | null;
+  fullName?: string | null;
+  accountFullName?: string | null;
+  email?: string | null;
+  signupProfile?: unknown;
+}): string {
+  const fromDisplay = pickPersonName(input.displayName);
+  if (fromDisplay) return fromDisplay;
+  const fromFull = pickPersonName(input.fullName);
+  if (fromFull) return fromFull;
+  const fromAccount = pickPersonName(input.accountFullName);
+  if (fromAccount) return fromAccount;
+  if (input.signupProfile && typeof input.signupProfile === "object" && !Array.isArray(input.signupProfile)) {
+    const root = input.signupProfile as Record<string, unknown>;
     const reg = root.registrationProfile;
     if (reg && typeof reg === "object" && !Array.isArray(reg)) {
       const contact = (reg as { contactPerson?: string }).contactPerson?.trim();
@@ -126,14 +148,29 @@ export function readOwnerContactName(signupProfile: unknown): string {
       const fullName = (reg as { fullName?: string }).fullName?.trim();
       if (fullName) return fullName;
     }
+    const direct = root.fullName;
+    if (typeof direct === "string" && direct.trim()) return direct.trim();
     const first = String(root.firstName ?? "").trim();
     const last = String(root.lastName ?? "").trim();
     if (first || last) return [first, last].filter(Boolean).join(" ");
-    if (typeof root.contactPerson === "string" && root.contactPerson.trim()) {
-      return root.contactPerson.trim();
+  }
+  if (input.email?.trim()) {
+    const local = input.email.split("@")[0] ?? "";
+    if (local) {
+      return local
+        .replace(/[._-]+/g, " ")
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
+        .join(" ");
     }
   }
-  return "Owner";
+  return "ServeOS user";
+}
+
+/** @deprecated Use readUserDisplayName */
+export function readOwnerContactName(signupProfile: unknown): string {
+  return readUserDisplayName({ signupProfile });
 }
 
 const SIDEBAR_PIN_KEY = "serveos.admin.sidebarPinned";

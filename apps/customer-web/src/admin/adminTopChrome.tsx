@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { readOwnerContactName } from "./adminNavContent";
+import { readUserDisplayName } from "./adminNavContent";
 import { ADMIN_VENUE_CONTROL_HASH } from "./adminTopHashes";
 import { useAdminPopoverMount } from "./useAdminPopoverMount";
 
@@ -58,14 +58,20 @@ export function buildAdminSearchPlaceholders(ownerName: string, restaurantName: 
 
 export function AdminTypingSearch({
   ownerSignupProfile,
+  userDisplayName,
+  ownerEmail,
   restaurantName,
   onOpenSearch
 }: {
   ownerSignupProfile?: unknown;
+  userDisplayName?: string;
+  ownerEmail?: string | null;
   restaurantName: string;
   onOpenSearch: () => void;
 }) {
-  const ownerName = readOwnerContactName(ownerSignupProfile);
+  const ownerName =
+    userDisplayName?.trim() ||
+    readUserDisplayName({ signupProfile: ownerSignupProfile, email: ownerEmail ?? undefined });
   const phrases = useMemo(
     () => buildAdminSearchPlaceholders(ownerName, restaurantName),
     [ownerName, restaurantName]

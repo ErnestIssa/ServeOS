@@ -26,6 +26,17 @@ import {
   countActiveOwners,
   type StaffMemberCapabilities
 } from "./staffTargetPolicy.js";
+import {
+  membershipRoleLabel,
+  readUserDisplayName,
+  resolveInviterAtRestaurant
+} from "./userDisplayName.js";
+import { buildStaffCapabilitySummary } from "./staffCapabilitySummary.js";
+import { membershipRecoveryCutoff } from "./membershipLifecycle.js";
+
+function removalRecoveryCutoff(): Date {
+  return membershipRecoveryCutoff();
+}
 
 function readFullName(profile: unknown, accountFullName?: string | null): string | null {
   if (accountFullName?.trim()) return accountFullName.trim();
@@ -86,7 +97,12 @@ async function mapMember(
 ) {
   const permissions = resolveMembershipPermissions(m.role, m.permissions);
   const runtime = await loadMemberRuntime(prisma, m.userId, m.restaurantId, m.status);
-  const fullName = readFullName(m.user.signupProfile, m.user.accountProfile?.fullName) ?? m.user.email ?? "Staff member";
+  const fullName = readUserDisplayName({
+    email: m.user.email,
+    signupProfile: m.user.signupProfile,
+    accountFullName: m.user.accountProfile?.fullName
+  });
+  const capabilitySummary = buildStaffCapabilitySummary(m.role, permissions);
 
   return {
     id: m.id,
@@ -95,6 +111,7 @@ async function mapMember(
     status: m.status,
     permissions,
     permissionSummary: permissionSummary(permissions),
+    capabilitySummary,
     roleTemplate: roleTemplateLabel(m.role),
     email: m.user.email,
     phone: m.user.phone,
@@ -148,10 +165,26 @@ export async function listVenueStaff(prisma: PrismaClient, ctx: MobileAuthContex
   });
   const restaurantName = restaurant?.name ?? "Venue";
 
-  const [members, pendingInvites] = await Promise.all([
+  const [activeMembers, pendingApprovalRows, pendingInvites, inviteHistory, recentlyRemovedRows] =
+    await Promise.all([
     prisma.membership.findMany({
-      where: { restaurantId, status: { not: "REJECTED" } },
+      where: { restaurantId, status: { in: ["ACTIVE", "SUSPENDED"] } },
       orderBy: { createdAt: "asc" },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            phone: true,
+            signupProfile: true,
+            accountProfile: { select: { fullName: true } }
+          }
+        }
+      }
+    }),
+    prisma.membership.findMany({
+      where: { restaurantId, status: "PENDING_APPROVAL" },
+      orderBy: { createdAt: "desc" },
       include: {
         user: {
           select: {
@@ -167,12 +200,42 @@ export async function listVenueStaff(prisma: PrismaClient, ctx: MobileAuthContex
     prisma.staffInvitation.findMany({
       where: { restaurantId, status: "PENDING", expiresAt: { gt: new Date() } },
       orderBy: { createdAt: "desc" }
+    }),
+    prisma.staffInvitation.findMany({
+      where: {
+        restaurantId,
+        OR: [{ status: { not: "PENDING" } }, { expiresAt: { lte: new Date() } }]
+      },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      include: {
+        membership: { select: { id: true, status: true } }
+      }
+    }),
+    prisma.membership.findMany({
+      where: {
+        restaurantId,
+        status: "REMOVED",
+        removedAt: { gte: removalRecoveryCutoff() }
+      },
+      orderBy: { removedAt: "desc" },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            phone: true,
+            signupProfile: true,
+            accountProfile: { select: { fullName: true } }
+          }
+        }
+      }
     })
   ]);
 
   const activeOwnerCount = await countActiveOwners(prisma, restaurantId);
   const mappedMembers = await Promise.all(
-    members.map(async (m) => {
+    activeMembers.map(async (m) => {
       const base = await mapMember(prisma, m, restaurantName);
       return attachCapabilities(base, {
         actorUserId: ctx.userId,
@@ -183,29 +246,108 @@ export async function listVenueStaff(prisma: PrismaClient, ctx: MobileAuthContex
     })
   );
 
-  return {
-    members: mappedMembers,
-    pendingApprovals: mappedMembers
-      .filter((m) => m.status === "PENDING_APPROVAL")
-      .map((m) => ({
+  const pendingApprovals = await Promise.all(
+    pendingApprovalRows.map(async (m) => {
+      const base = await mapMember(prisma, m, restaurantName);
+      return {
         membershipId: m.id,
         userId: m.userId,
         role: m.role,
-        email: m.email,
-        fullName: m.fullName,
-        permissions: m.permissions,
-        createdAt: m.createdAt
-      })),
+        roleLabel: membershipRoleLabel(m.role),
+        email: m.user.email,
+        phone: m.user.phone,
+        fullName: base.fullName,
+        permissions: base.permissions,
+        createdAt: m.createdAt.toISOString(),
+        capabilities: buildMemberCapabilities({
+          actorUserId: ctx.userId,
+          actorRole: admin.role,
+          actorPermissions: admin.permissions,
+          target: {
+            id: m.id,
+            userId: m.userId,
+            role: m.role,
+            status: m.status
+          },
+          activeOwnerCount
+        })
+      };
+    })
+  );
+
+  const historyRows = await Promise.all(
+    inviteHistory.map(async (i) => {
+      const inviter = i.invitedByUserId
+        ? await resolveInviterAtRestaurant(prisma, {
+            userId: i.invitedByUserId,
+            restaurantId
+          })
+        : null;
+      const effectiveStatus =
+        i.status === "PENDING" && i.expiresAt <= new Date() ? "EXPIRED" : i.status;
+      return {
+        id: i.id,
+        fullName: i.fullName,
+        email: i.email,
+        phone: i.phone,
+        intendedRole: i.intendedRole,
+        roleLabel: membershipRoleLabel(i.intendedRole),
+        status: effectiveStatus,
+        expiresAt: i.expiresAt.toISOString(),
+        createdAt: i.createdAt.toISOString(),
+        acceptedAt: i.acceptedAt?.toISOString() ?? null,
+        invitedByName: inviter?.name ?? null,
+        invitedByRole: inviter?.roleLabel ?? null,
+        membershipId: i.membership?.id ?? null,
+        membershipStatus: i.membership?.status ?? null
+      };
+    })
+  );
+
+  const recentlyRemoved = await Promise.all(
+    recentlyRemovedRows.map(async (m) => {
+      const base = await mapMember(prisma, m, restaurantName);
+      return {
+        membershipId: m.id,
+        userId: m.userId,
+        role: m.role,
+        roleLabel: membershipRoleLabel(m.role),
+        email: m.user.email,
+        phone: m.user.phone,
+        fullName: base.fullName,
+        removedAt: m.removedAt?.toISOString() ?? null,
+        capabilities: buildMemberCapabilities({
+          actorUserId: ctx.userId,
+          actorRole: admin.role,
+          actorPermissions: admin.permissions,
+          target: {
+            id: m.id,
+            userId: m.userId,
+            role: m.role,
+            status: m.status
+          },
+          activeOwnerCount
+        })
+      };
+    })
+  );
+
+  return {
+    members: mappedMembers,
+    pendingApprovals,
+    recentlyRemoved,
     pendingInvitations: pendingInvites.map((i) => ({
       id: i.id,
       fullName: i.fullName,
       email: i.email,
       phone: i.phone,
       intendedRole: i.intendedRole,
+      roleLabel: membershipRoleLabel(i.intendedRole),
       permissions: resolveMembershipPermissions(i.intendedRole, i.permissions),
       expiresAt: i.expiresAt.toISOString(),
       createdAt: i.createdAt.toISOString()
-    }))
+    })),
+    inviteHistory: historyRows
   };
 }
 
@@ -355,8 +497,6 @@ export async function suspendMembership(
     data: { status: "SUSPENDED", suspendedAt: new Date() }
   });
 
-  await revokeAllSessions(prisma, m.userId);
-
   await logStaffAudit(prisma, {
     restaurantId,
     actorUserId: ctx.userId,
@@ -384,13 +524,48 @@ export async function activateMembership(
 
   await prisma.membership.update({
     where: { id: m.id },
-    data: { status: "ACTIVE", suspendedAt: null }
+    data: { status: "ACTIVE", suspendedAt: null, removedAt: null }
   });
 
   await logStaffAudit(prisma, {
     restaurantId,
     actorUserId: ctx.userId,
     action: "MEMBERSHIP_ACTIVATED",
+    targetUserId: m.userId,
+    targetMembershipId: m.id
+  });
+
+  return { ok: true as const, status: "ACTIVE" };
+}
+
+export async function restoreMembership(
+  prisma: PrismaClient,
+  ctx: MobileAuthContext,
+  restaurantId: string,
+  membershipId: string
+) {
+  const admin = await requireActiveAdminAtVenue(prisma, ctx, restaurantId);
+  const m = await prisma.membership.findFirst({
+    where: {
+      id: membershipId,
+      restaurantId,
+      status: "REMOVED",
+      removedAt: { gte: removalRecoveryCutoff() }
+    }
+  });
+  if (!m) throw Object.assign(new Error("membership_restore_expired"), { statusCode: 404 });
+  assertActorCanManageTarget(admin, m, ctx.userId);
+  assertNotSelf(ctx.userId, m.userId, "cannot_restore_self");
+
+  await prisma.membership.update({
+    where: { id: m.id },
+    data: { status: "ACTIVE", removedAt: null, suspendedAt: null }
+  });
+
+  await logStaffAudit(prisma, {
+    restaurantId,
+    actorUserId: ctx.userId,
+    action: "MEMBERSHIP_RESTORED",
     targetUserId: m.userId,
     targetMembershipId: m.id
   });
@@ -406,16 +581,21 @@ export async function removeMembership(
 ) {
   const admin = await requireActiveAdminAtVenue(prisma, ctx, restaurantId);
   const m = await prisma.membership.findFirst({
-    where: { id: membershipId, restaurantId }
+    where: {
+      id: membershipId,
+      restaurantId,
+      status: { in: ["ACTIVE", "SUSPENDED"] }
+    }
   });
   if (!m) throw Object.assign(new Error("membership_not_found"), { statusCode: 404 });
   assertActorCanManageTarget(admin, m, ctx.userId);
   assertNotSelf(ctx.userId, m.userId, "cannot_remove_self");
   await assertAtLeastOneOwnerRemains(prisma, restaurantId, m.id, m.role);
 
-  await prisma.membership.delete({ where: { id: m.id } });
-
-  await revokeAllSessions(prisma, m.userId);
+  await prisma.membership.update({
+    where: { id: m.id },
+    data: { status: "REMOVED", removedAt: new Date(), suspendedAt: null }
+  });
 
   await logStaffAudit(prisma, {
     restaurantId,

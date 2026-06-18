@@ -9,6 +9,7 @@ export type StaffActionId =
   | "suspend"
   | "activate"
   | "remove"
+  | "restore"
   | "reset_password"
   | "force_logout"
   | "revoke_sessions";
@@ -24,6 +25,7 @@ export type StaffMemberCapabilities = {
   permissionsReadOnly: boolean;
   readOnlyReason: string | null;
   canSavePermissions: boolean;
+  canViewSecurityActions: boolean;
   actions: Record<StaffActionId, StaffActionCapability>;
 };
 
@@ -164,10 +166,18 @@ export function buildMemberCapabilities(params: {
     !managerReason &&
     !(isTargetOwner && !isActorOwner);
 
-  const canActivate = target.status === "SUSPENDED" && !isSelf && !managerBlocked;
+  const canActivate =
+    (target.status === "SUSPENDED" || target.status === "REMOVED") && !isSelf && !managerBlocked;
+
+  const canRestore =
+    target.status === "REMOVED" && !isSelf && !managerBlocked && !(isTargetOwner && !isActorOwner);
 
   const canRemove =
-    !isSelf && !lastOwnerReason && !managerReason && !(isTargetOwner && !isActorOwner);
+    (target.status === "ACTIVE" || target.status === "SUSPENDED") &&
+    !isSelf &&
+    !lastOwnerReason &&
+    !managerReason &&
+    !(isTargetOwner && !isActorOwner);
 
   const canSecurity =
     !isSelf && !managerBlocked && (isActorOwner || actorPermissions.includes(VENUE_PERMISSION.staffMgmt));
@@ -178,6 +188,7 @@ export function buildMemberCapabilities(params: {
     permissionsReadOnly: !canEditPermissions,
     readOnlyReason,
     canSavePermissions: canEditPermissions,
+    canViewSecurityActions: canSecurity,
     actions: {
       profile: action(true),
       permissions: action(canEditPermissions, readOnlyReason),
@@ -194,6 +205,10 @@ export function buildMemberCapabilities(params: {
       activate: action(
         canActivate,
         selfReason ?? managerReason ?? "This member cannot be reactivated."
+      ),
+      restore: action(
+        canRestore,
+        selfReason ?? managerReason ?? ownerOnlyReason ?? "This member cannot be restored."
       ),
       remove: action(
         canRemove,
@@ -225,5 +240,8 @@ export const STAFF_POLICY_ERROR_MESSAGES: Record<string, string> = {
   cannot_grant_permissions_not_held: "You cannot grant permissions you do not have.",
   cannot_invite_owner: "Owners are added through ownership transfer, not invite.",
   staff_already_active: "This person is already an active member of this venue.",
+  removed_member_restore_available:
+    "This person was recently removed from this venue. Restore their access instead of sending a new invite.",
+  membership_restore_expired: "The recovery window for this membership has expired. Send a new invite instead.",
   cannot_manage_self_security: "Use your account settings for your own security actions."
 };

@@ -11,7 +11,7 @@ import {
 
 export type MobileRoleType = "CUSTOMER" | "ADMIN" | "STAFF";
 
-export type VenueAccessState = "none" | "active" | "pending_approval";
+export type VenueAccessState = "none" | "active" | "pending_approval" | "suspended";
 
 /** @deprecated Use tab manifest `key` from `MobileExperienceManifest.tabs`. */
 export type MobileTabId = "home" | "bookings" | "orders" | "messages" | "account";
@@ -120,6 +120,7 @@ export type MobileExperienceManifest = {
   venueAccess: {
     state: VenueAccessState;
     pendingVenueName?: string;
+    suspendedVenueName?: string;
   };
   /** Screen catalog the user may open (keys → metadata). */
   screens: Record<string, WorkspaceScreenManifest>;
@@ -990,8 +991,34 @@ export function buildMobileExperienceManifest(input: {
   grantedPermissions?: string[];
   venueAccessState?: VenueAccessState;
   pendingVenueName?: string;
+  suspendedVenueName?: string;
 }): MobileExperienceManifest {
   const venueAccessState = input.venueAccessState ?? (input.membershipRoles.length ? "active" : "none");
+
+  if (venueAccessState === "suspended") {
+    const customerPerms = permissionsForRoleType("CUSTOMER", readStaffCapabilityFlags(input.signupProfile, []));
+    return {
+      roleType: "CUSTOMER",
+      permissions: customerPerms,
+      venueAccess: {
+        state: "suspended",
+        suspendedVenueName: input.suspendedVenueName
+      },
+      screens: screenKeysForManifest("CUSTOMER", customerPerms),
+      tabScreens: {},
+      tabs: buildTabsForRole("CUSTOMER"),
+      meHub: {
+        sections: buildCustomerMeHub(),
+        showNotificationToggles: true,
+        showVenueLine: true
+      },
+      controlCentre: {
+        ...buildCustomerControlCentre(),
+        showDarkModeToggle: true
+      },
+      settings: settingsForRole("CUSTOMER")
+    };
+  }
 
   if (venueAccessState === "pending_approval") {
     const customerPerms = permissionsForRoleType("CUSTOMER", readStaffCapabilityFlags(input.signupProfile, []));
@@ -1066,7 +1093,10 @@ export function buildMobileExperienceManifest(input: {
   return {
     roleType,
     permissions,
-    venueAccess: { state: venueAccessState === "active" ? "active" : "none" },
+    venueAccess: {
+      state: venueAccessState === "active" ? "active" : venueAccessState === "suspended" ? "suspended" : "none",
+      ...(venueAccessState === "suspended" ? { suspendedVenueName: input.suspendedVenueName } : {})
+    },
     screens,
     tabScreens: tabScreensForRole(roleType, permSet, staffFlags),
     tabs: buildTabsForRole(roleType),

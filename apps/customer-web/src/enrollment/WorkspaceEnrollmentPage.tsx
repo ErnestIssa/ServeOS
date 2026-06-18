@@ -207,6 +207,9 @@ export function WorkspaceEnrollmentPage({ onBack }: Props) {
       if (code === "identity_exists_use_login" || code === "account_already_exists") {
         setPhase("login");
       }
+      if (code === "phone_identity_conflict") {
+        setPhase(resolved?.identity.hasUsableAccount ? "login" : "create");
+      }
       setError(enrollmentErrorMessage(code));
       return;
     }

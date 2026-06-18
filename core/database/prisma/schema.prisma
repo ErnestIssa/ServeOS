@@ -21,6 +21,7 @@ enum MembershipStatus {
   PENDING_APPROVAL
   ACTIVE
   SUSPENDED
+  REMOVED
   REJECTED
 }
 
@@ -359,6 +360,7 @@ model Membership {
   approvedByUserId  String?
   approvedAt        DateTime?
   suspendedAt       DateTime?
+  removedAt         DateTime?
   rejectedAt        DateTime?
   staffInvitationId String?          @unique
   customerInvitationId String?       @unique
@@ -760,6 +762,7 @@ enum StaffAuditAction {
   MEMBERSHIP_SUSPENDED
   MEMBERSHIP_ACTIVATED
   MEMBERSHIP_REMOVED
+  MEMBERSHIP_RESTORED
   PERMISSIONS_UPDATED
   SESSIONS_REVOKED
   PASSWORD_RESET_REQUESTED

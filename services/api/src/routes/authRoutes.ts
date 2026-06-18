@@ -33,6 +33,7 @@ import {
   recordLoginFailure
 } from "../lib/auth/loginProtectionService.js";
 import { verifyUserPassword } from "../lib/auth/verifyUserPassword.js";
+import { readUserDisplayName } from "../lib/userDisplayName.js";
 
 /** Fields that exist on every deployed DB revision (safe for signup response + fallbacks). */
 const USER_CORE_SELECT = {
@@ -48,12 +49,20 @@ function publicUserFromDbRow(row: {
   phone: string | null;
   role: string;
   signupProfile?: unknown | null;
+  accountFullName?: string | null;
 }) {
+  const displayName = readUserDisplayName({
+    email: row.email,
+    signupProfile: row.signupProfile,
+    accountFullName: row.accountFullName
+  });
   return {
     id: row.id,
     email: row.email,
     phone: row.phone,
     role: row.role,
+    displayName,
+    fullName: displayName,
     signupProfile: row.signupProfile ?? null,
     preferredRestaurantId: readPreferredRestaurantIdFromProfile(row.signupProfile)
   };
@@ -77,11 +86,15 @@ async function findUserForAuthMe(prisma: PrismaClient, sub: string) {
       select: {
         ...USER_CORE_SELECT,
         signupProfile: true,
+        accountProfile: { select: { fullName: true } },
         memberships: { select: { role: true } }
       }
     });
     if (!row) return null;
-    const base = publicUserFromDbRow(row);
+    const base = publicUserFromDbRow({
+      ...row,
+      accountFullName: row.accountProfile?.fullName ?? null
+    });
     return enrichUserWithExperience(prisma, sub, base);
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2022") {
@@ -332,7 +345,8 @@ export function registerAuthRoutes(
             phone: true,
             role: true,
             password: true,
-            signupProfile: true
+            signupProfile: true,
+            accountProfile: { select: { fullName: true } }
           }
         })
       : null;
@@ -427,7 +441,8 @@ export function registerAuthRoutes(
       email: user.email,
       phone: user.phone,
       role: user.role,
-      signupProfile: user.signupProfile
+      signupProfile: user.signupProfile,
+      accountFullName: user.accountProfile?.fullName ?? null
     });
     const enriched = await enrichUserWithExperience(prisma, user.id, base);
     return {

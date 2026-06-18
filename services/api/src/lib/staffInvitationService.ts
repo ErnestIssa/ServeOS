@@ -17,6 +17,7 @@ import {
 import type { MobileAuthContext } from "./mobileAuthContext.js";
 import { logStaffAudit } from "./staffAuditService.js";
 import { buildWorkspaceInviteAcceptUrl, completeWorkspaceEnrollment, hashInviteToken } from "./workspaceEnrollmentService.js";
+import { membershipRecoveryCutoff } from "./membershipLifecycle.js";
 
 const INVITE_TTL_DAYS = 14;
 const OPERATIONAL_ROLES: Role[] = ["OWNER", "MANAGER", "STAFF", "KITCHEN", "CASHIER"];
@@ -96,16 +97,26 @@ export async function createStaffInvitation(
     const existingMembership = await prisma.membership.findFirst({
       where: {
         userId: existingUser.id,
-        restaurantId,
-        status: { in: ["ACTIVE", "PENDING_APPROVAL", "SUSPENDED"] }
+        restaurantId
       }
     });
-    if (
-      existingMembership &&
-      ["ACTIVE", "PENDING_APPROVAL", "SUSPENDED"].includes(existingMembership.status) &&
-      OPERATIONAL_ROLES.includes(existingMembership.role)
-    ) {
-      throw Object.assign(new Error("staff_already_active"), { statusCode: 409 });
+    if (existingMembership) {
+      if (
+        ["ACTIVE", "PENDING_APPROVAL", "SUSPENDED"].includes(existingMembership.status) &&
+        OPERATIONAL_ROLES.includes(existingMembership.role)
+      ) {
+        throw Object.assign(new Error("staff_already_active"), { statusCode: 409 });
+      }
+      if (
+        existingMembership.status === "REMOVED" &&
+        existingMembership.removedAt &&
+        existingMembership.removedAt >= membershipRecoveryCutoff()
+      ) {
+        throw Object.assign(new Error("removed_member_restore_available"), {
+          statusCode: 409,
+          metadata: { membershipId: existingMembership.id }
+        });
+      }
     }
   }
 

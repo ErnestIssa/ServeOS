@@ -9,7 +9,7 @@ import {
   ADMIN_TOP_TOOL_HINTS,
   defaultGroupHref,
   readAdminTheme,
-  readOwnerContactName,
+  readUserDisplayName,
   readSidebarPinned,
   writeAdminTheme,
   writeSidebarPinned,
@@ -613,6 +613,7 @@ function AdminTopNav({
   onSelectRestaurant,
   ownerSignupProfile,
   ownerEmail,
+  userDisplayName,
   canManageBilling = false,
   onLogoPress,
   onSignOut,
@@ -625,6 +626,7 @@ function AdminTopNav({
   onSelectRestaurant: (id: string) => void;
   ownerSignupProfile?: unknown;
   ownerEmail?: string | null;
+  userDisplayName?: string;
   canManageBilling?: boolean;
   onLogoPress: () => void;
   onSignOut: () => void;
@@ -636,8 +638,13 @@ function AdminTopNav({
   const profileMenu = useHoverMenu();
 
   const hash = useAdminHash();
-  const ownerDisplayName = readOwnerContactName(ownerSignupProfile);
-  const ownerInitial = (ownerDisplayName.charAt(0) || "O").toUpperCase();
+  const profileDisplayName =
+    userDisplayName?.trim() ||
+    readUserDisplayName({
+      email: ownerEmail ?? undefined,
+      signupProfile: ownerSignupProfile
+    });
+  const profileInitial = (profileDisplayName.charAt(0) || "S").toUpperCase();
   const selectedRestaurantName = restaurants.find((r) => r.id === selectedRestaurantId)?.name ?? "";
   const profileActive = hash === ADMIN_TOP_HASHES.profile;
 
@@ -679,6 +686,8 @@ function AdminTopNav({
           <div className="w-full max-w-2xl lg:max-w-3xl">
             <AdminTypingSearch
               ownerSignupProfile={ownerSignupProfile}
+              userDisplayName={profileDisplayName}
+              ownerEmail={ownerEmail}
               restaurantName={selectedRestaurantName}
               onOpenSearch={onOpenSearch}
             />
@@ -764,7 +773,7 @@ function AdminTopNav({
             panel={
               <ProfileMenuPanel
                 ownerEmail={ownerEmail}
-                ownerDisplayName={ownerDisplayName}
+                ownerDisplayName={profileDisplayName}
                 onSignOut={onSignOut}
                 onNavigate={() => profileMenu.setOpen(false)}
               />
@@ -778,10 +787,10 @@ function AdminTopNav({
               className={`admin-profile-btn flex items-center gap-2 rounded-xl border py-1 pl-1 pr-2.5 transition ${profileActive ? "admin-profile-btn--active" : ""}`}
             >
               <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-blue-600 text-xs font-bold text-white shadow-sm">
-                {ownerInitial}
+                {profileInitial}
               </span>
               <span className="admin-profile-label hidden max-w-[9rem] truncate text-xs font-semibold lg:inline">
-                {ownerDisplayName}
+                {profileDisplayName}
               </span>
               <span className="hidden lg:inline">
                 <NavChevron open={profileMenu.open} />
@@ -818,6 +827,7 @@ export function AdminWorkspaceShell({
   onSelectRestaurant,
   ownerSignupProfile,
   ownerEmail,
+  userDisplayName,
   canManageBilling = false,
   onLogoPress,
   onSignOut,
@@ -829,6 +839,7 @@ export function AdminWorkspaceShell({
   onSelectRestaurant: (id: string) => void;
   ownerSignupProfile?: unknown;
   ownerEmail?: string | null;
+  userDisplayName?: string;
   canManageBilling?: boolean;
   onLogoPress: () => void;
   onSignOut: () => void;
@@ -838,7 +849,12 @@ export function AdminWorkspaceShell({
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [sideExpanded, setSideExpanded] = useState(() => readSidebarPinned());
-  const ownerDisplayName = readOwnerContactName(ownerSignupProfile);
+  const shellDisplayName =
+    userDisplayName?.trim() ||
+    readUserDisplayName({
+      email: ownerEmail ?? undefined,
+      signupProfile: ownerSignupProfile
+    });
   const selectedRestaurantName = restaurants.find((r) => r.id === selectedRestaurantId)?.name ?? "";
 
   return (
@@ -851,6 +867,7 @@ export function AdminWorkspaceShell({
         onSelectRestaurant={onSelectRestaurant}
         ownerSignupProfile={ownerSignupProfile}
         ownerEmail={ownerEmail}
+        userDisplayName={shellDisplayName}
         canManageBilling={canManageBilling}
         onLogoPress={onLogoPress}
         onSignOut={onSignOut}
@@ -863,7 +880,7 @@ export function AdminWorkspaceShell({
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
         restaurantName={selectedRestaurantName}
-        ownerName={ownerDisplayName}
+        ownerName={shellDisplayName}
       />
 
       <AdminSideNav pinned={pinned} onPinnedChange={setPinned} onExpandedChange={setSideExpanded} />

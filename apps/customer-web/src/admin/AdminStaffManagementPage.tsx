@@ -19,14 +19,29 @@ import {
   CancelInviteConfirmModal,
   ApproveAccessConfirmModal,
   InviteDiscardModal,
+  InviteHistoryDetailModal,
+  InviteHistoryModal,
+  RemoveAccessConfirmModal,
+  RestoreAccessConfirmModal,
   SendInviteConfirmModal,
   StaffSecurityActionModal,
   StaffUnsavedChangesModal,
+  SuspendAccessConfirmModal,
   type StaffSecurityAction
 } from "./StaffProfileModals";
 import { useStaffManagement } from "./useStaffManagement";
 import { mapStaffApiError } from "./staffApi";
-import type { MemberStatus, PendingInvite, PresenceStatus, StaffMember, StaffRole } from "./staffMappers";
+import type {
+  CapabilityDomain,
+  InviteHistoryItem,
+  MemberStatus,
+  PendingApproval,
+  PendingInvite,
+  RecentlyRemovedMember,
+  PresenceStatus,
+  StaffMember,
+  StaffRole
+} from "./staffMappers";
 
 const ROLE_STYLES: Record<StaffRole, string> = {
   STAFF: "admin-staff-role--staff",
@@ -91,6 +106,15 @@ const STAFF_FILTER_TABS: ReadonlyArray<{ key: StaffFilter; label: string }> = [
 
 const FILTER_TRANSITION = { duration: 0.34, ease: [0.22, 1, 0.36, 1] as const };
 
+type ApproveAccessTarget = {
+  id: string;
+  name: string;
+  email: string;
+  roleLabel: string;
+};
+
+type PendingRow = PendingInvite | PendingApproval;
+
 type InviteForm = {
   fullName: string;
   email: string;
@@ -131,6 +155,69 @@ function validateInviteForm(form: InviteForm) {
   }
   if (!form.role) errors.role = "Choose a role.";
   return errors;
+}
+
+function PendingQueuePanel({
+  rows,
+  onCancelInvite,
+  onApprove
+}: {
+  rows: PendingRow[];
+  onCancelInvite: (inv: PendingInvite) => void;
+  onApprove: (row: PendingApproval) => void;
+}) {
+  if (!rows.length) {
+    return (
+      <p className="p-6 text-sm admin-staff-text-muted">
+        No pending invitations or approvals. Send a new invite when you are ready to grow the team.
+      </p>
+    );
+  }
+
+  return (
+    <ul className="divide-y divide-[var(--admin-border)]">
+      {rows.map((row) => (
+        <li
+          key={`${row.kind}-${row.id}`}
+          className="admin-staff-invite-row flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+        >
+          <div className="min-w-0">
+            <p className="font-semibold admin-staff-text">{row.name}</p>
+            <p className="text-xs admin-staff-text-muted">
+              {row.email}
+              {row.kind === "approval" && row.phone ? ` · ${row.phone}` : ""}
+              {" · "}
+              {row.venue}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <RoleBadge role={row.role} />
+            <span className="rounded-full border px-2 py-0.5 text-[11px] font-semibold admin-staff-text-muted">
+              {row.statusLabel}
+            </span>
+            <span className="text-xs admin-staff-text-subtle">{row.kind === "invitation" ? "Sent" : "Requested"} {row.sent}</span>
+            {row.kind === "invitation" ? (
+              <button
+                type="button"
+                className="admin-page-link-btn text-xs font-semibold"
+                onClick={() => onCancelInvite(row)}
+              >
+                Cancel
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="admin-page-link-btn text-xs font-semibold text-violet-600"
+                onClick={() => onApprove(row)}
+              >
+                Approve
+              </button>
+            )}
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 function StaffFilterTabs({
@@ -414,12 +501,34 @@ function permissionsSectionHint(member: StaffMember, permissionsReadOnly: boolea
     return "You cannot change your own permissions here. Ask another owner or manager if your access needs updating.";
   }
   if (permissionsReadOnly) {
-    return member.capabilities?.readOnlyReason ?? "These permissions are read-only and cannot be edited.";
+    return "What this team member can do at this venue.";
   }
   return (
     <>
       Role <strong>{member.roleTemplate}</strong> is a preset — toggles override the template per person.
     </>
+  );
+}
+
+function CapabilitySummaryView({ summary }: { summary: CapabilityDomain[] }) {
+  return (
+    <div className="admin-staff-capability-summary space-y-4" aria-label="What they can do">
+      {summary.map((domain) => (
+        <div key={domain.domain}>
+          <p className="text-xs font-bold uppercase tracking-wide admin-staff-text-muted">{domain.domain}</p>
+          <ul className="mt-2 space-y-1.5">
+            {domain.items.map((item) => (
+              <li key={item.label} className="flex items-start gap-2 text-sm admin-staff-text">
+                <span aria-hidden className={item.allowed ? "text-emerald-600" : "admin-staff-text-subtle"}>
+                  {item.allowed ? "✔" : "✖"}
+                </span>
+                <span className={item.allowed ? "" : "admin-staff-text-muted"}>{item.label}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -619,7 +728,10 @@ function StaffProfileDrawer({
   const permissionsReadOnly = activeMember.capabilities?.permissionsReadOnly ?? false;
   const readOnlyReason = activeMember.capabilities?.readOnlyReason ?? null;
   const canSavePermissions = activeMember.capabilities?.canSavePermissions ?? !permissionsReadOnly;
+  const canViewSecurityActions = activeMember.capabilities?.canViewSecurityActions ?? false;
   const securityCaps = activeMember.capabilities?.actions;
+  const showCapabilitySummary =
+    permissionsReadOnly && (activeMember.capabilitySummary?.length ?? 0) > 0;
 
   const securityButton = (
     action: StaffSecurityAction,
@@ -718,9 +830,11 @@ function StaffProfileDrawer({
             </p>
             <div
               className={`admin-staff-perm-list${permissionsReadOnly ? " admin-staff-perm-list--locked" : ""}`}
-              aria-label={permissionsReadOnly ? "Permissions (read-only)" : "Permissions"}
+              aria-label={permissionsReadOnly ? "Capabilities" : "Permissions"}
             >
-              {permissions.length ? (
+              {showCapabilitySummary ? (
+                <CapabilitySummaryView summary={activeMember.capabilitySummary!} />
+              ) : permissions.length ? (
                 permissions.map((g) => (
                   <PermissionToggle
                     key={g.id}
@@ -798,6 +912,7 @@ function StaffProfileDrawer({
             )}
           </section>
 
+          {canViewSecurityActions ? (
           <section className="admin-staff-drawer-section">
             <h4 className="admin-staff-drawer-section-title admin-staff-drawer-section-title--danger">Security</h4>
             <div className="flex flex-wrap gap-2">
@@ -820,6 +935,22 @@ function StaffProfileDrawer({
               </div>
             ) : null}
           </section>
+          ) : dirty && canSavePermissions ? (
+            <section className="admin-staff-drawer-section">
+              <div className="admin-staff-save-row">
+                <p className="admin-staff-save-hint">You have unsaved permission changes.</p>
+                <AdminBtnPrimary
+                  disabled={saving}
+                  onClick={async () => {
+                    const ok = await onSave();
+                    if (!ok) return;
+                  }}
+                >
+                  {saving ? "Saving…" : "Save changes"}
+                </AdminBtnPrimary>
+              </div>
+            </section>
+          ) : null}
         </div>
       </div>
       </div>
@@ -858,13 +989,20 @@ function InviteStaffModal({
   venueName,
   onClose,
   onSent,
-  onSubmit
+  onSubmit,
+  onRestoreAvailable
 }: {
   open: boolean;
   venueName: string;
   onClose: () => void;
   onSent: (name: string) => void;
-  onSubmit: (input: { fullName: string; email: string; phone?: string; role: string }) => Promise<{ ok: boolean; error?: string }>;
+  onSubmit: (input: { fullName: string; email: string; phone?: string; role: string }) => Promise<{
+    ok: boolean;
+    error?: string;
+    errorCode?: string;
+    metadata?: { membershipId?: string };
+  }>;
+  onRestoreAvailable?: (input: { membershipId: string; fullName: string; email: string; roleLabel: string }) => void;
 }) {
   const [form, setForm] = useState<InviteForm>(EMPTY_INVITE_FORM);
   const [touched, setTouched] = useState<Partial<Record<keyof InviteForm, boolean>>>({});
@@ -947,6 +1085,17 @@ function InviteStaffModal({
     });
     setSending(false);
     if (!res.ok) {
+      if (res.errorCode === "removed_member_restore_available" && res.metadata?.membershipId && onRestoreAvailable) {
+        setConfirmOpen(false);
+        onRestoreAvailable({
+          membershipId: res.metadata.membershipId,
+          fullName: form.fullName.trim(),
+          email: form.email.trim(),
+          roleLabel
+        });
+        finishClose();
+        return;
+      }
       setSubmitError(res.error ?? "Could not send invite.");
       return;
     }
@@ -1175,6 +1324,9 @@ export function AdminStaffManagementPage({
     error,
     staff,
     pendingInvites,
+    pendingApprovals,
+    inviteHistory,
+    recentlyRemoved,
     stats,
     loadMemberDetail,
     sendInvite,
@@ -1197,14 +1349,30 @@ export function AdminStaffManagementPage({
   const [cancelInviteTarget, setCancelInviteTarget] = useState<PendingInvite | null>(null);
   const [cancelInviteBusy, setCancelInviteBusy] = useState(false);
   const [cancelInviteError, setCancelInviteError] = useState<string | null>(null);
-  const [approveTarget, setApproveTarget] = useState<StaffMember | null>(null);
+  const [approveTarget, setApproveTarget] = useState<ApproveAccessTarget | null>(null);
   const [approveBusy, setApproveBusy] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
+  const [suspendTarget, setSuspendTarget] = useState<StaffMember | null>(null);
+  const [suspendBusy, setSuspendBusy] = useState(false);
+  const [suspendError, setSuspendError] = useState<string | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<StaffMember | null>(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyBusyId, setHistoryBusyId] = useState<string | null>(null);
+  const [historyDetail, setHistoryDetail] = useState<InviteHistoryItem | null>(null);
+  const [restoreTarget, setRestoreTarget] = useState<RecentlyRemovedMember | null>(null);
+  const [restoreBusy, setRestoreBusy] = useState(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+
+  const pendingQueue = useMemo<PendingRow[]>(
+    () => [...pendingInvites, ...pendingApprovals],
+    [pendingInvites, pendingApprovals]
+  );
 
   const filtered = useMemo(() => {
     if (filter === "on_shift") return staff.filter((s) => s.presence === "on_shift");
-    if (filter === "pending")
-      return staff.filter((s) => s.memberStatus === "pending_invite" || s.memberStatus === "pending_approval");
+    if (filter === "pending") return [];
     if (filter === "suspended") return staff.filter((s) => s.memberStatus === "suspended");
     return staff;
   }, [filter, staff]);
@@ -1230,14 +1398,47 @@ export function AdminStaffManagementPage({
     }
   };
 
+  const openApproveTarget = (target: ApproveAccessTarget) => {
+    setApproveError(null);
+    setApproveTarget(target);
+  };
+
+  const openHistoryItem = async (item: InviteHistoryItem) => {
+    setHistoryBusyId(item.id);
+    try {
+      if (item.membershipId) {
+        const existing = staff.find((s) => s.id === item.membershipId);
+        if (existing) {
+          setHistoryOpen(false);
+          setHistoryDetail(null);
+          await openDrawer(existing);
+          return;
+        }
+        const detail = await loadMemberDetail(item.membershipId);
+        if (detail) {
+          setHistoryOpen(false);
+          setHistoryDetail(null);
+          setSelectedId(detail.id);
+          setDrawerMember(detail);
+          setDrawerOpen(true);
+          setPermBaselines((prev) => ({ ...prev, [detail.id]: detail.permissionGroups }));
+          return;
+        }
+      }
+      setHistoryDetail(item);
+    } finally {
+      setHistoryBusyId(null);
+    }
+  };
+
   const handleMembershipMenuAction = async (member: StaffMember, action: string) => {
     if (action === "profile" || action === "permissions") {
       void openDrawer(member);
       return;
     }
     if (action === "suspend") {
-      const res = await runMembershipAction("suspend", member.id);
-      pushToast(res.ok ? `${member.name} suspended.` : res.error ?? "Could not suspend.", res.ok ? "success" : "error");
+      setSuspendError(null);
+      setSuspendTarget(member);
       return;
     }
     if (action === "activate") {
@@ -1246,14 +1447,17 @@ export function AdminStaffManagementPage({
       return;
     }
     if (action === "remove") {
-      const res = await runMembershipAction("remove", member.id);
-      pushToast(res.ok ? `${member.name} removed.` : res.error ?? "Could not remove.", res.ok ? "success" : "error");
-      if (res.ok && selectedId === member.id) setDrawerOpen(false);
+      setRemoveError(null);
+      setRemoveTarget(member);
       return;
     }
     if (action === "approve") {
-      setApproveError(null);
-      setApproveTarget(member);
+      openApproveTarget({
+        id: member.id,
+        name: member.name,
+        email: member.email,
+        roleLabel: member.roleTemplate || member.role
+      });
       return;
     }
   };
@@ -1333,7 +1537,7 @@ export function AdminStaffManagementPage({
           <StatTile label="Total staff" value={String(stats.total)} hint="Across assigned venues" />
           <StatTile label="Active today" value={String(stats.activeToday)} hint="Signed in last 24h" />
           <StatTile label="On shift now" value={String(stats.onShift)} hint="Clocked in" />
-          <StatTile label="Pending invites" value={String(stats.pending)} hint="Awaiting acceptance" />
+          <StatTile label="Pending invites" value={String(stats.pending)} hint="Awaiting acceptance or approval" />
         </div>
 
         <StaffFilterTabs filter={filter} onChange={setFilter} />
@@ -1348,6 +1552,32 @@ export function AdminStaffManagementPage({
             transition={FILTER_TRANSITION}
           >
             <div className={`${subPanelCls} admin-staff-section admin-staff-table-wrap overflow-hidden p-0`}>
+              {filter === "pending" ? (
+                <>
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--admin-border)] px-4 py-3">
+                    <p className="text-xs font-bold uppercase tracking-wide admin-staff-text-muted">Pending queue</p>
+                    <div className="flex flex-wrap gap-2">
+                      <AdminBtnSecondary onClick={() => setHistoryOpen(true)}>Invite history</AdminBtnSecondary>
+                      <AdminBtnSecondary onClick={() => setInviteOpen(true)}>New invite</AdminBtnSecondary>
+                    </div>
+                  </div>
+                  <PendingQueuePanel
+                    rows={pendingQueue}
+                    onCancelInvite={(inv) => {
+                      setCancelInviteError(null);
+                      setCancelInviteTarget(inv);
+                    }}
+                    onApprove={(row) =>
+                      openApproveTarget({
+                        id: row.id,
+                        name: row.name,
+                        email: row.email,
+                        roleLabel: row.roleLabel
+                      })
+                    }
+                  />
+                </>
+              ) : (
               <div className="overflow-x-auto">
                 <table className="admin-staff-table w-full min-w-[960px] text-left text-sm">
                   <thead>
@@ -1431,46 +1661,37 @@ export function AdminStaffManagementPage({
                   </tbody>
                 </table>
               </div>
+              )}
             </div>
           </motion.div>
         </AnimatePresence>
 
+        {filter !== "pending" ? (
         <div className={`${subPanelCls} admin-staff-section mt-5`}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-xs font-bold uppercase tracking-wide admin-staff-text-muted">Pending invites</p>
-            <AdminBtnSecondary onClick={() => setInviteOpen(true)}>New invite</AdminBtnSecondary>
+            <div className="flex flex-wrap gap-2">
+              <AdminBtnSecondary onClick={() => setHistoryOpen(true)}>Invite history</AdminBtnSecondary>
+              <AdminBtnSecondary onClick={() => setInviteOpen(true)}>New invite</AdminBtnSecondary>
+            </div>
           </div>
-          {pendingInvites.length ? (
-            <ul className="mt-4 space-y-2">
-              {pendingInvites.map((inv) => (
-                <li key={inv.id} className="admin-staff-invite-row flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3">
-                  <div>
-                    <p className="font-semibold admin-staff-text">{inv.name}</p>
-                    <p className="text-xs admin-staff-text-muted">
-                      {inv.email} · {inv.venue}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <RoleBadge role={inv.role} />
-                    <span className="text-xs admin-staff-text-muted">Sent {inv.sent}</span>
-                    <button
-                      type="button"
-                      className="admin-page-link-btn text-xs font-semibold"
-                      onClick={() => {
-                        setCancelInviteError(null);
-                        setCancelInviteTarget(inv);
-                      }}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="mt-4 text-sm admin-staff-text-muted">No pending invites.</p>
-          )}
+          <PendingQueuePanel
+            rows={pendingQueue}
+            onCancelInvite={(inv) => {
+              setCancelInviteError(null);
+              setCancelInviteTarget(inv);
+            }}
+            onApprove={(row) =>
+              openApproveTarget({
+                id: row.id,
+                name: row.name,
+                email: row.email,
+                roleLabel: row.roleLabel
+              })
+            }
+          />
         </div>
+        ) : null}
           </>
         )}
       </AdminPanel>
@@ -1501,6 +1722,20 @@ export function AdminStaffManagementPage({
         onClose={() => setInviteOpen(false)}
         onSent={(name) => pushToast(`Invite sent to ${name}.`, "success")}
         onSubmit={sendInvite}
+        onRestoreAvailable={({ membershipId, fullName, email, roleLabel }) => {
+          const existing = recentlyRemoved.find((row) => row.id === membershipId);
+          setRestoreTarget(
+            existing ?? {
+              id: membershipId,
+              name: fullName,
+              email,
+              role: "STAFF",
+              roleLabel,
+              removedAt: "Recently"
+            }
+          );
+          setRestoreError(null);
+        }}
       />
       <RoleTemplatesModal open={templatesOpen} onClose={() => setTemplatesOpen(false)} />
 
@@ -1536,7 +1771,7 @@ export function AdminStaffManagementPage({
         open={approveTarget !== null}
         fullName={approveTarget?.name ?? ""}
         email={approveTarget?.email ?? ""}
-        roleLabel={approveTarget?.role ?? ""}
+        roleLabel={approveTarget?.roleLabel ?? ""}
         venueName={venueName}
         busy={approveBusy}
         error={approveError}
@@ -1560,6 +1795,143 @@ export function AdminStaffManagementPage({
             setApproveTarget(null);
           })();
         }}
+      />
+
+      <SuspendAccessConfirmModal
+        open={suspendTarget !== null}
+        fullName={suspendTarget?.name ?? ""}
+        email={suspendTarget?.email ?? ""}
+        roleLabel={suspendTarget?.roleTemplate ?? suspendTarget?.role ?? ""}
+        busy={suspendBusy}
+        error={suspendError}
+        onCancel={() => {
+          if (suspendBusy) return;
+          setSuspendTarget(null);
+          setSuspendError(null);
+        }}
+        onConfirm={() => {
+          if (!suspendTarget) return;
+          void (async () => {
+            setSuspendBusy(true);
+            setSuspendError(null);
+            const res = await runMembershipAction("suspend", suspendTarget.id);
+            setSuspendBusy(false);
+            if (!res.ok) {
+              setSuspendError(res.error ?? "Could not suspend access.");
+              return;
+            }
+            pushToast(`${suspendTarget.name} suspended.`, "success");
+            setSuspendTarget(null);
+            if (selectedId === suspendTarget.id) setDrawerOpen(false);
+          })();
+        }}
+      />
+
+      <RemoveAccessConfirmModal
+        open={removeTarget !== null}
+        fullName={removeTarget?.name ?? ""}
+        email={removeTarget?.email ?? ""}
+        roleLabel={removeTarget?.roleTemplate ?? removeTarget?.role ?? ""}
+        busy={removeBusy}
+        error={removeError}
+        onCancel={() => {
+          if (removeBusy) return;
+          setRemoveTarget(null);
+          setRemoveError(null);
+        }}
+        onConfirm={() => {
+          if (!removeTarget) return;
+          void (async () => {
+            setRemoveBusy(true);
+            setRemoveError(null);
+            const res = await runMembershipAction("remove", removeTarget.id);
+            setRemoveBusy(false);
+            if (!res.ok) {
+              setRemoveError(res.error ?? "Could not remove access.");
+              return;
+            }
+            pushToast(`${removeTarget.name} removed.`, "success");
+            if (selectedId === removeTarget.id) setDrawerOpen(false);
+            setRemoveTarget(null);
+          })();
+        }}
+      />
+
+      <InviteHistoryModal
+        open={historyOpen}
+        items={inviteHistory}
+        removedItems={recentlyRemoved}
+        busyId={historyBusyId ?? (restoreBusy ? restoreTarget?.id ?? null : null)}
+        onClose={() => setHistoryOpen(false)}
+        onSelect={(id) => {
+          const item = inviteHistory.find((row) => row.id === id);
+          if (item) void openHistoryItem(item);
+        }}
+        onRestore={(membershipId) => {
+          const row = recentlyRemoved.find((item) => item.id === membershipId);
+          if (!row) return;
+          setRestoreError(null);
+          setRestoreTarget(row);
+        }}
+      />
+
+      <RestoreAccessConfirmModal
+        open={restoreTarget !== null}
+        fullName={restoreTarget?.name ?? ""}
+        email={restoreTarget?.email ?? ""}
+        roleLabel={restoreTarget?.roleLabel ?? ""}
+        venueName={venueName}
+        busy={restoreBusy}
+        error={restoreError}
+        onCancel={() => {
+          if (restoreBusy) return;
+          setRestoreTarget(null);
+          setRestoreError(null);
+        }}
+        onConfirm={() => {
+          if (!restoreTarget) return;
+          void (async () => {
+            setRestoreBusy(true);
+            setRestoreError(null);
+            const res = await runMembershipAction("restore", restoreTarget.id);
+            setRestoreBusy(false);
+            if (!res.ok) {
+              setRestoreError(res.error ?? "Could not restore access.");
+              return;
+            }
+            pushToast(`${restoreTarget.name} restored.`, "success");
+            setRestoreTarget(null);
+            setHistoryOpen(false);
+          })();
+        }}
+      />
+
+      <InviteHistoryDetailModal
+        open={historyDetail !== null}
+        item={historyDetail}
+        onClose={() => setHistoryDetail(null)}
+        onOpenProfile={
+          historyDetail?.membershipId
+            ? () => {
+                void (async () => {
+                  const membershipId = historyDetail.membershipId!;
+                  setHistoryDetail(null);
+                  const existing = staff.find((s) => s.id === membershipId);
+                  if (existing) {
+                    await openDrawer(existing);
+                    return;
+                  }
+                  const detail = await loadMemberDetail(membershipId);
+                  if (detail) {
+                    setSelectedId(detail.id);
+                    setDrawerMember(detail);
+                    setDrawerOpen(true);
+                    setPermBaselines((prev) => ({ ...prev, [detail.id]: detail.permissionGroups }));
+                  }
+                })();
+              }
+            : undefined
+        }
       />
     </>
   );

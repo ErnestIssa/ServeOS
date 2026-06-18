@@ -18,6 +18,7 @@ import {
   rejectMembership,
   suspendMembership,
   activateMembership,
+  restoreMembership,
   removeMembership,
   updateMembershipPermissions,
   updateRestaurantAccessPolicy,
@@ -29,6 +30,7 @@ import {
 } from "../lib/staffAdminSecurityService.js";
 import { publishStaffRealtimeEvent } from "../lib/staffRealtime.js";
 import { loadRestaurantPolicy } from "../lib/venueAccessGuard.js";
+import { resolveInviterAtRestaurant } from "../lib/userDisplayName.js";
 
 const inviteSchema = z.object({
   fullName: z.string().min(2),
@@ -46,15 +48,6 @@ const INVITE_ROLE_LABELS: Record<string, string> = {
   CASHIER: "Cashier",
   MANAGER: "Venue manager"
 };
-
-function readInviterName(signupProfile: unknown, accountFullName?: string | null): string {
-  if (accountFullName?.trim()) return accountFullName.trim();
-  if (signupProfile && typeof signupProfile === "object" && !Array.isArray(signupProfile)) {
-    const name = (signupProfile as { fullName?: string }).fullName?.trim();
-    if (name) return name;
-  }
-  return "A team admin";
-}
 
 function rosterUpdated(bus: EventEmitter, restaurantId: string) {
   publishStaffRealtimeEvent(bus, { type: "staff.roster.updated", restaurantId });
@@ -122,18 +115,12 @@ export function registerStaffAccessRoutes(
         select: { name: true }
       });
       const restaurantName = restaurant?.name ?? "Venue";
-      const inviter = await prisma.user.findUnique({
-        where: { id: ctx.userId },
-        select: {
-          role: true,
-          signupProfile: true,
-          accountProfile: { select: { fullName: true } }
-        }
+      const inviter = await resolveInviterAtRestaurant(prisma, {
+        userId: ctx.userId,
+        restaurantId
       });
-      const invitedByName = inviter
-        ? readInviterName(inviter.signupProfile, inviter.accountProfile?.fullName)
-        : null;
-      const invitedByRole = inviter ? INVITE_ROLE_LABELS[inviter.role] ?? inviter.role : null;
+      const invitedByName = inviter?.name ?? null;
+      const invitedByRole = inviter?.roleLabel ?? null;
       const roleLabel = INVITE_ROLE_LABELS[body.intendedRole] ?? body.intendedRole;
       let emailResult: { id: string };
       try {
@@ -180,8 +167,12 @@ export function registerStaffAccessRoutes(
         }
       };
     } catch (e: unknown) {
-      const err = e as { statusCode?: number; message?: string };
-      return reply.status(err.statusCode ?? 500).send({ ok: false, error: err.message ?? "error" });
+      const err = e as { statusCode?: number; message?: string; metadata?: unknown };
+      return reply.status(err.statusCode ?? 500).send({
+        ok: false,
+        error: err.message ?? "error",
+        ...(err.metadata ? { metadata: err.metadata } : {})
+      });
     }
   });
 
@@ -267,6 +258,19 @@ export function registerStaffAccessRoutes(
     const { restaurantId, membershipId } = req.params as { restaurantId: string; membershipId: string };
     try {
       const res = await activateMembership(prisma, ctx, restaurantId, membershipId);
+      rosterUpdated(domainEventBus, restaurantId);
+      return res;
+    } catch (e: unknown) {
+      const err = e as { statusCode?: number; message?: string };
+      return reply.status(err.statusCode ?? 500).send({ ok: false, error: err.message ?? "error" });
+    }
+  });
+
+  app.post("/restaurants/:restaurantId/staff/memberships/:membershipId/restore", async (req, reply) => {
+    const ctx = await requireMobileAuth(req, app, prisma);
+    const { restaurantId, membershipId } = req.params as { restaurantId: string; membershipId: string };
+    try {
+      const res = await restoreMembership(prisma, ctx, restaurantId, membershipId);
       rosterUpdated(domainEventBus, restaurantId);
       return res;
     } catch (e: unknown) {
