@@ -368,6 +368,26 @@ export async function resolveWorkspaceInvite(
     })
   };
 
+  let invitedBy: { name: string; roleLabel: string } | null = null;
+  if (invite.invitedByUserId) {
+    const inviter = await prisma.user.findUnique({
+      where: { id: invite.invitedByUserId },
+      select: {
+        role: true,
+        accountProfile: { select: { fullName: true } },
+        signupProfile: true
+      }
+    });
+    if (inviter) {
+      const profile = inviter.signupProfile as { fullName?: string } | null;
+      const name =
+        inviter.accountProfile?.fullName?.trim() ||
+        profile?.fullName?.trim() ||
+        "A team admin";
+      invitedBy = { name, roleLabel: ROLE_LABELS[inviter.role] ?? inviter.role };
+    }
+  }
+
   return {
     ok: true,
     status: "VALID",
@@ -381,7 +401,8 @@ export async function resolveWorkspaceInvite(
       fullName: invite.fullName ?? (inviteUser ? readInviteeFullName(inviteUser) : null),
       intendedRole: invite.intendedRole,
       roleLabel: ROLE_LABELS[invite.intendedRole],
-      expiresAt: invite.expiresAt.toISOString()
+      expiresAt: invite.expiresAt.toISOString(),
+      invitedBy
     },
     identity: {
       state: identityState,

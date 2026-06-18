@@ -61,8 +61,11 @@ import { ADMIN_VENUE_CONTROL_HASH, adminFullPageKey } from "./adminTopHashes";
 import { ADMIN_NAV_SYNC_EVENT, parseAdminRoute } from "./adminWorkspaceRouting";
 import { LogoutConfirmModal } from "./LogoutConfirmModal";
 import { AdminToastProvider } from "./AdminToast";
-import { OwnerTrialNoticeModal } from "./OwnerTrialNoticeModal";
+import { OwnerWorkspaceBanner } from "./OwnerWorkspaceBanner";
 import { WorkspaceLaunchModal } from "./WorkspaceLaunchModal";
+import { canManageBilling } from "./billingPermissions";
+import { ADMIN_TOP_HASHES } from "./adminTopHashes";
+import { WorkspaceAccessPendingPage } from "../enrollment/WorkspaceAccessPendingPage";
 
 function formatMoney(cents: number) {
   return formatMoneyCents(cents);
@@ -70,6 +73,14 @@ function formatMoney(cents: number) {
 
 type Props = {
   onAfterLogout: () => void;
+};
+
+const MEMBERSHIP_ROLE_LABELS: Record<string, string> = {
+  STAFF: "Floor staff",
+  KITCHEN: "Kitchen",
+  CASHIER: "Cashier",
+  MANAGER: "Venue manager",
+  OWNER: "Owner"
 };
 
 export function AdminDashboardPage({ onAfterLogout }: Props) {
@@ -102,7 +113,6 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
   const [hasWorkspaceDeployment, setHasWorkspaceDeployment] = useState(false);
   const [launchModalOpen, setLaunchModalOpen] = useState(false);
   const [trialNotice, setTrialNotice] = useState<TrialNoticePayload | null>(null);
-  const [trialNoticeOpen, setTrialNoticeOpen] = useState(false);
   const [trialNoticeDismissing, setTrialNoticeDismissing] = useState(false);
   const [venueSwitching, setVenueSwitching] = useState(false);
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
@@ -131,22 +141,32 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
   const loadTrialNotice = useCallback(async (t: string) => {
     const res = await fetchOwnerTrialNotice(t);
     if (!res.ok) return;
-    if (res.notice) {
-      setTrialNotice(res.notice);
-      setTrialNoticeOpen(true);
-    } else {
-      setTrialNotice(null);
-      setTrialNoticeOpen(false);
-    }
+    setTrialNotice(res.notice ?? null);
   }, []);
+
+  const ownerCanManageBilling = canManageBilling(ownerUser?.role);
+  const accessPending =
+    restaurants.length > 0 &&
+    restaurants.every((r) => r.status === "PENDING_APPROVAL") &&
+    !ownerCanManageBilling;
+  const pendingVenue = restaurants[0];
+  const pendingRoleLabel = pendingVenue
+    ? MEMBERSHIP_ROLE_LABELS[pendingVenue.role] ?? pendingVenue.role
+    : "";
 
   async function hydrateUser(t: string) {
     const res = await fetchMe(t);
     if (!res.ok || !res.user?.id) return;
     setUserId(res.user.id);
     setOwnerUser(res.user);
-    const status = await fetchWorkspaceDeploymentStatus(t);
-    setHasWorkspaceDeployment(Boolean(status.ok && status.hasDeployment));
+    if (canManageBilling(res.user.role)) {
+      const status = await fetchWorkspaceDeploymentStatus(t);
+      setHasWorkspaceDeployment(Boolean(status.ok && status.hasDeployment));
+    } else {
+      setHasWorkspaceDeployment(true);
+      setLaunchModalOpen(false);
+      setTrialNotice(null);
+    }
   }
 
   useEffect(() => {
@@ -221,21 +241,21 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
   }, [theme, token]);
 
   useEffect(() => {
-    if (!token || !userId || hasWorkspaceDeployment) {
-      setLaunchModalOpen(false);
+    if (!token || !ownerCanManageBilling || hasWorkspaceDeployment) {
       return;
     }
-    const timer = window.setTimeout(() => setLaunchModalOpen(true), 5000);
-    return () => clearTimeout(timer);
-  }, [token, userId, hasWorkspaceDeployment]);
+    if (adminHash === ADMIN_TOP_HASHES.billing) {
+      setLaunchModalOpen(true);
+    }
+  }, [token, ownerCanManageBilling, hasWorkspaceDeployment, adminHash]);
 
   useEffect(() => {
-    if (!token || !hasWorkspaceDeployment || launchModalOpen) return;
+    if (!token || !ownerCanManageBilling || !hasWorkspaceDeployment || launchModalOpen) return;
     const timer = window.setTimeout(() => {
       void loadTrialNotice(token);
     }, 600);
     return () => clearTimeout(timer);
-  }, [token, hasWorkspaceDeployment, launchModalOpen, loadTrialNotice]);
+  }, [token, ownerCanManageBilling, hasWorkspaceDeployment, launchModalOpen, loadTrialNotice]);
 
   async function handleDismissTrialNotice() {
     if (!token || !trialNotice) return;
@@ -245,10 +265,8 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
     if (!res.ok) return;
     if (res.nextNotice) {
       setTrialNotice(res.nextNotice);
-      setTrialNoticeOpen(true);
     } else {
       setTrialNotice(null);
-      setTrialNoticeOpen(false);
     }
   }
 
@@ -354,7 +372,6 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
     setHasWorkspaceDeployment(false);
     setLaunchModalOpen(false);
     setTrialNotice(null);
-    setTrialNoticeOpen(false);
     clearAdminToken();
     setRestaurants([]);
     setSelectedRestaurantId("");
@@ -698,20 +715,12 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
   return (
     <AdminToastProvider>
     <div
-      className={`admin-shell font-ui ${token ? "admin-shell--signed-in" : ""} ${launchModalOpen || trialNoticeOpen ? "h-[100dvh] overflow-hidden" : ""}`}
+      className={`admin-shell font-ui ${token ? "admin-shell--signed-in" : ""} ${launchModalOpen ? "h-[100dvh] overflow-hidden" : ""}`}
       data-theme={theme}
     >
       <LoadingScreen appReady={appReady} />
-      {token ? (
+      {token && ownerCanManageBilling ? (
         <WorkspaceLaunchModal open={launchModalOpen} token={token} onConfirmed={handleDeploymentConfirmed} />
-      ) : null}
-      {token && trialNotice ? (
-        <OwnerTrialNoticeModal
-          open={trialNoticeOpen}
-          notice={trialNotice}
-          dismissing={trialNoticeDismissing}
-          onDismiss={() => void handleDismissTrialNotice()}
-        />
       ) : null}
       <LogoutConfirmModal
         open={logoutModalOpen}
@@ -736,35 +745,61 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
           onSelectRestaurant={(id) => void handleSelectRestaurant(id)}
           ownerSignupProfile={ownerUser?.signupProfile}
           ownerEmail={ownerUser?.email}
+          canManageBilling={ownerCanManageBilling}
           onLogoPress={requestSignOut}
           onSignOut={requestSignOut}
           venueSwitching={venueSwitching}
         >
           <main id="top" className={adminWorkspaceMain}>
-            <AdminPageTransition
-              pageKey={showFullPage ? adminFullPageKey(adminHash) : `ws-${adminRoute.workspaceId}`}
-            >
-              {showFullPage ? (
-                adminHash === ADMIN_VENUE_CONTROL_HASH ? (
-                  <AdminVenueControlCentrePage venueName={selectedVenueName} venueId={selectedRestaurantId} />
-                ) : (
-                  <AdminTopPageView
-                    hash={adminHash}
-                    token={token}
-                    displayName={ownerDisplayName}
-                    email={ownerUser?.email}
-                    restaurantId={selectedRestaurantId}
-                    venueName={selectedVenueName}
-                    onSignOut={requestSignOut}
-                    onEmailChanged={(nextEmail) =>
-                      setOwnerUser((prev) => (prev ? { ...prev, email: nextEmail } : prev))
-                    }
-                  />
-                )
-              ) : (
-                <AdminWorkspaceView workspaceId={adminRoute.workspaceId} presetId={adminRoute.presetId} />
-              )}
-            </AdminPageTransition>
+            {accessPending && pendingVenue ? (
+              <WorkspaceAccessPendingPage
+                shell="admin"
+                restaurantName={pendingVenue.name}
+                roleLabel={pendingRoleLabel}
+                intendedRole={pendingVenue.role}
+                onSignOut={requestSignOut}
+              />
+            ) : (
+              <>
+                <OwnerWorkspaceBanner
+                  canManageBilling={ownerCanManageBilling}
+                  needsDeploymentSetup={!hasWorkspaceDeployment}
+                  trialNotice={trialNotice}
+                  dismissingTrial={trialNoticeDismissing}
+                  onOpenDeployment={() => setLaunchModalOpen(true)}
+                  onDismissTrial={() => void handleDismissTrialNotice()}
+                  onViewBilling={() => {
+                    window.location.hash = ADMIN_TOP_HASHES.billing;
+                  }}
+                />
+                <AdminPageTransition
+                  pageKey={showFullPage ? adminFullPageKey(adminHash) : `ws-${adminRoute.workspaceId}`}
+                >
+                  {showFullPage ? (
+                    adminHash === ADMIN_VENUE_CONTROL_HASH ? (
+                      <AdminVenueControlCentrePage venueName={selectedVenueName} venueId={selectedRestaurantId} />
+                    ) : adminHash === ADMIN_TOP_HASHES.billing && !ownerCanManageBilling ? (
+                      <AdminWorkspaceView workspaceId="live-ops" presetId="live-overview" />
+                    ) : (
+                      <AdminTopPageView
+                        hash={adminHash}
+                        token={token}
+                        displayName={ownerDisplayName}
+                        email={ownerUser?.email}
+                        restaurantId={selectedRestaurantId}
+                        venueName={selectedVenueName}
+                        onSignOut={requestSignOut}
+                        onEmailChanged={(nextEmail) =>
+                          setOwnerUser((prev) => (prev ? { ...prev, email: nextEmail } : prev))
+                        }
+                      />
+                    )
+                  ) : (
+                    <AdminWorkspaceView workspaceId={adminRoute.workspaceId} presetId={adminRoute.presetId} />
+                  )}
+                </AdminPageTransition>
+              </>
+            )}
           </main>
         </AdminWorkspaceShell>
       ) : (

@@ -3107,9 +3107,38 @@ html[data-admin-theme="dark"] .admin-staff-save-row {
   }
 
   .admin-staff-invite-form__assignments {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 1rem 1.25rem;
   }
+}
+
+.admin-staff-invite-venue-note {
+  border-radius: 1rem;
+  border: 1px solid color-mix(in srgb, #7c3aed 16%, #e2e8f0);
+  background: linear-gradient(180deg, #faf5ff 0%, #fff 100%);
+  padding: 0.9rem 1rem;
+}
+
+.admin-staff-invite-venue-note__label {
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.admin-staff-invite-venue-note__value {
+  margin-top: 0.25rem;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.admin-staff-invite-venue-note__hint {
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: #64748b;
 }
 
 /* Inline dropdowns — expand downward in their own column, never over sibling triggers */
@@ -5821,5 +5850,173 @@ html[data-admin-theme="dark"] .admin-staff-danger-btn {
   display: grid;
   gap: 0.65rem;
   margin-top: 1rem;
+}
+
+.enroll-pending {
+  text-align: left;
+}
+
+.enroll-pending-lead {
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  color: #334155;
+}
+
+.enroll-pending-meta {
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+  color: #475569;
+}
+
+.enroll-pending-meta p + p {
+  margin-top: 0.25rem;
+}
+
+.enroll-pending-card {
+  margin-top: 1rem;
+  border-radius: 1rem;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  padding: 1rem 1.1rem;
+}
+
+.enroll-pending-card__title {
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.enroll-pending-status-list {
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.enroll-pending-status-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.875rem;
+  color: #334155;
+}
+
+.enroll-pending-status-icon {
+  display: inline-flex;
+  width: 1.35rem;
+  height: 1.35rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #b45309;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.enroll-pending-status-icon--done {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.enroll-pending-card__note,
+.enroll-pending-card__text {
+  margin-top: 0.65rem;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: #64748b;
+}
+
+.enroll-pending-locked-cta {
+  margin-top: 1.25rem;
+  width: 100%;
+  border-radius: 999px;
+  border: 1px dashed #cbd5e1;
+  background: #f1f5f9;
+  padding: 0.85rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.owner-workspace-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  border-radius: 1rem;
+  border: 1px solid color-mix(in srgb, #7c3aed 18%, #e2e8f0);
+  background: linear-gradient(135deg, #faf5ff 0%, #eff6ff 100%);
+  padding: 0.9rem 1.1rem;
+}
+
+.owner-workspace-banner--setup {
+  border-color: color-mix(in srgb, #2563eb 22%, #e2e8f0);
+}
+
+.owner-workspace-banner--reminder {
+  border-color: color-mix(in srgb, #f59e0b 25%, #e2e8f0);
+  background: linear-gradient(135deg, #fffbeb 0%, #fff 100%);
+}
+
+.owner-workspace-banner__copy {
+  min-width: 0;
+  flex: 1 1 16rem;
+}
+
+.owner-workspace-banner__title {
+  font-size: 0.875rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.owner-workspace-banner__text {
+  margin-top: 0.25rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: #475569;
+}
+
+.owner-workspace-banner__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.owner-workspace-banner__cta {
+  border-radius: 999px;
+  background: linear-gradient(135deg, #7c3aed, #2563eb);
+  padding: 0.55rem 1rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.owner-workspace-banner__link {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #6d28d9;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.admin-shell[data-theme="dark"] .owner-workspace-banner {
+  border-color: rgba(148, 163, 184, 0.25);
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.12), rgba(37, 99, 235, 0.08));
+}
+
+.admin-shell[data-theme="dark"] .owner-workspace-banner__title {
+  color: #f1f5f9;
+}
+
+.admin-shell[data-theme="dark"] .owner-workspace-banner__text {
+  color: #cbd5e1;
 }
 

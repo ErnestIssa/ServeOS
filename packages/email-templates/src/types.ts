@@ -32,6 +32,9 @@ export type StaffInvitationTemplateInput = EmailTemplateBase & {
   fullName: string;
   restaurantName: string;
   intendedRole: string;
+  roleLabel?: string;
+  invitedByName?: string | null;
+  invitedByRole?: string | null;
   acceptUrl: string;
   expiresAt: string;
 };

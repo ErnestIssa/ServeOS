@@ -54,6 +54,9 @@ export async function sendStaffInvitationEmail(params: {
   fullName: string;
   restaurantName: string;
   intendedRole: string;
+  roleLabel?: string;
+  invitedByName?: string | null;
+  invitedByRole?: string | null;
   acceptUrl: string;
   expiresAt: string;
 }): Promise<SendEmailResult> {
@@ -63,6 +66,9 @@ export async function sendStaffInvitationEmail(params: {
     fullName: params.fullName,
     restaurantName: params.restaurantName,
     intendedRole: params.intendedRole,
+    roleLabel: params.roleLabel,
+    invitedByName: params.invitedByName,
+    invitedByRole: params.invitedByRole,
     acceptUrl: params.acceptUrl,
     expiresAt: params.expiresAt
   });

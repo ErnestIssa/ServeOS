@@ -40,7 +40,21 @@ const inviteSchema = z.object({
   notifyChannels: z.array(z.enum(["email", "sms", "whatsapp"])).optional()
 });
 
-const securityPasswordSchema = z.object({ password: z.string().min(1) });
+const INVITE_ROLE_LABELS: Record<string, string> = {
+  STAFF: "Floor staff",
+  KITCHEN: "Kitchen",
+  CASHIER: "Cashier",
+  MANAGER: "Venue manager"
+};
+
+function readInviterName(signupProfile: unknown, accountFullName?: string | null): string {
+  if (accountFullName?.trim()) return accountFullName.trim();
+  if (signupProfile && typeof signupProfile === "object" && !Array.isArray(signupProfile)) {
+    const name = (signupProfile as { fullName?: string }).fullName?.trim();
+    if (name) return name;
+  }
+  return "A team admin";
+}
 
 function rosterUpdated(bus: EventEmitter, restaurantId: string) {
   publishStaffRealtimeEvent(bus, { type: "staff.roster.updated", restaurantId });
@@ -108,6 +122,19 @@ export function registerStaffAccessRoutes(
         select: { name: true }
       });
       const restaurantName = restaurant?.name ?? "Venue";
+      const inviter = await prisma.user.findUnique({
+        where: { id: ctx.userId },
+        select: {
+          role: true,
+          signupProfile: true,
+          accountProfile: { select: { fullName: true } }
+        }
+      });
+      const invitedByName = inviter
+        ? readInviterName(inviter.signupProfile, inviter.accountProfile?.fullName)
+        : null;
+      const invitedByRole = inviter ? INVITE_ROLE_LABELS[inviter.role] ?? inviter.role : null;
+      const roleLabel = INVITE_ROLE_LABELS[body.intendedRole] ?? body.intendedRole;
       let emailResult: { id: string };
       try {
         emailResult = await sendStaffInvitationEmail({
@@ -115,6 +142,9 @@ export function registerStaffAccessRoutes(
           fullName: body.fullName,
           restaurantName,
           intendedRole: body.intendedRole,
+          roleLabel,
+          invitedByName,
+          invitedByRole,
           acceptUrl: created.acceptUrl,
           expiresAt: created.expiresAt.toISOString().slice(0, 10)
         });

@@ -17,6 +17,7 @@ import { AdminBubbleDropdown } from "./AdminBubbleDropdown";
 import { AdminNavChevron } from "./AdminNavChevron";
 import {
   CancelInviteConfirmModal,
+  ApproveAccessConfirmModal,
   InviteDiscardModal,
   SendInviteConfirmModal,
   StaffSecurityActionModal,
@@ -95,37 +96,20 @@ type InviteForm = {
   email: string;
   phone: string;
   role: StaffRole;
-  venue: string;
-  shift: string;
 };
 
 const EMPTY_INVITE_FORM: InviteForm = {
   fullName: "",
   email: "",
   phone: "",
-  role: "STAFF",
-  venue: "current",
-  shift: ""
+  role: "STAFF"
 };
 
 const INVITE_ROLE_OPTIONS = [
-  { value: "STAFF", label: "Floor staff (STAFF)", hint: "Orders, tables, guest messaging" },
-  { value: "KITCHEN", label: "Kitchen (KITCHEN)", hint: "KDS and ticket status only" },
-  { value: "CASHIER", label: "Cashier (CASHIER)", hint: "Checkout and order handoff" },
-  { value: "MANAGER", label: "Venue manager (MANAGER)", hint: "Full venue operations" }
-] as const;
-
-const INVITE_VENUE_OPTIONS = [
-  { value: "current", label: "Active venue only", hint: "Current restaurant in workspace" },
-  { value: "all", label: "All venues in workspace", hint: "Every location you manage" },
-  { value: "stockholm", label: "Stockholm Main", hint: "Single venue assignment" },
-  { value: "soder", label: "Södermalm Pop-up", hint: "Single venue assignment" }
-] as const;
-
-const INVITE_SHIFT_OPTIONS = [
-  { value: "", label: "No shift — assign later", hint: "Schedule after they join" },
-  { value: "floor-am", label: "Floor · morning", hint: "Typically open – 14:00" },
-  { value: "kitchen-pm", label: "Kitchen · evening", hint: "Typically 14:00 – close" }
+  { value: "STAFF", label: "Floor staff", hint: "Orders and tables" },
+  { value: "KITCHEN", label: "Kitchen", hint: "KDS only" },
+  { value: "CASHIER", label: "Cashier", hint: "Checkout" },
+  { value: "MANAGER", label: "Venue manager", hint: "Full venue control" }
 ] as const;
 
 function isInviteDirty(form: InviteForm) {
@@ -133,9 +117,7 @@ function isInviteDirty(form: InviteForm) {
     form.fullName.trim() !== EMPTY_INVITE_FORM.fullName ||
     form.email.trim() !== EMPTY_INVITE_FORM.email ||
     form.phone.trim() !== EMPTY_INVITE_FORM.phone ||
-    form.role !== EMPTY_INVITE_FORM.role ||
-    form.venue !== EMPTY_INVITE_FORM.venue ||
-    form.shift !== EMPTY_INVITE_FORM.shift
+    form.role !== EMPTY_INVITE_FORM.role
   );
 }
 
@@ -147,8 +129,7 @@ function validateInviteForm(form: InviteForm) {
   } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
     errors.email = "Enter a valid email address.";
   }
-  if (!form.role) errors.role = "Choose a role template.";
-  if (!form.venue) errors.venue = "Choose a venue assignment.";
+  if (!form.role) errors.role = "Choose a role.";
   return errors;
 }
 
@@ -874,11 +855,13 @@ function StaffProfileDrawer({
 
 function InviteStaffModal({
   open,
+  venueName,
   onClose,
   onSent,
   onSubmit
 }: {
   open: boolean;
+  venueName: string;
   onClose: () => void;
   onSent: (name: string) => void;
   onSubmit: (input: { fullName: string; email: string; phone?: string; role: string }) => Promise<{ ok: boolean; error?: string }>;
@@ -987,7 +970,7 @@ function InviteStaffModal({
         open={open}
         onClose={attemptClose}
         title="Invite staff"
-        description="Add a team member — they receive an invite to accept and get manager approval."
+        description="Invite a team member by email. They accept the link, then a manager approves access. Assign shifts later from scheduling."
         titleId="invite-staff-title"
         maxWidthClass="max-w-none"
         maxHeightClass="admin-staff-invite-modal-max-h"
@@ -1054,38 +1037,23 @@ function InviteStaffModal({
           </div>
 
           <div className="admin-staff-invite-form__assignments">
+            <div className="admin-staff-invite-venue-note">
+              <p className="admin-staff-invite-venue-note__label">Venue</p>
+              <p className="admin-staff-invite-venue-note__value">{venueName}</p>
+              <p className="admin-staff-invite-venue-note__hint">
+                This invite grants access to the active venue. Schedule shifts after they join.
+              </p>
+            </div>
+
             <div className={fieldClass("role")}>
               <AdminBubbleDropdown
-                label="Role template"
+                label="Role"
                 required
                 dropInline
                 value={form.role}
                 options={[...INVITE_ROLE_OPTIONS]}
                 onChange={(v) => patch("role", v)}
                 onBlur={() => setTouched((p) => ({ ...p, role: true }))}
-              />
-            </div>
-
-            <div className={fieldClass("venue")}>
-              <AdminBubbleDropdown
-                label="Venue assignment"
-                required
-                dropInline
-                value={form.venue}
-                options={[...INVITE_VENUE_OPTIONS]}
-                onChange={(v) => patch("venue", v)}
-                onBlur={() => setTouched((p) => ({ ...p, venue: true }))}
-              />
-            </div>
-
-            <div className={fieldClass("shift")}>
-              <AdminBubbleDropdown
-                label="Shift assignment"
-                dropInline
-                value={form.shift}
-                options={[...INVITE_SHIFT_OPTIONS]}
-                onChange={(v) => patch("shift", v)}
-                onBlur={() => setTouched((p) => ({ ...p, shift: true }))}
               />
             </div>
           </div>
@@ -1229,6 +1197,9 @@ export function AdminStaffManagementPage({
   const [cancelInviteTarget, setCancelInviteTarget] = useState<PendingInvite | null>(null);
   const [cancelInviteBusy, setCancelInviteBusy] = useState(false);
   const [cancelInviteError, setCancelInviteError] = useState<string | null>(null);
+  const [approveTarget, setApproveTarget] = useState<StaffMember | null>(null);
+  const [approveBusy, setApproveBusy] = useState(false);
+  const [approveError, setApproveError] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     if (filter === "on_shift") return staff.filter((s) => s.presence === "on_shift");
@@ -1281,8 +1252,9 @@ export function AdminStaffManagementPage({
       return;
     }
     if (action === "approve") {
-      const res = await runMembershipAction("approve", member.id);
-      pushToast(res.ok ? `${member.name} approved.` : res.error ?? "Could not approve.", res.ok ? "success" : "error");
+      setApproveError(null);
+      setApproveTarget(member);
+      return;
     }
   };
 
@@ -1525,6 +1497,7 @@ export function AdminStaffManagementPage({
 
       <InviteStaffModal
         open={inviteOpen}
+        venueName={venueName}
         onClose={() => setInviteOpen(false)}
         onSent={(name) => pushToast(`Invite sent to ${name}.`, "success")}
         onSubmit={sendInvite}
@@ -1555,6 +1528,36 @@ export function AdminStaffManagementPage({
             }
             pushToast(`Invite for ${cancelInviteTarget.name} cancelled.`, "success");
             setCancelInviteTarget(null);
+          })();
+        }}
+      />
+
+      <ApproveAccessConfirmModal
+        open={approveTarget !== null}
+        fullName={approveTarget?.name ?? ""}
+        email={approveTarget?.email ?? ""}
+        roleLabel={approveTarget?.role ?? ""}
+        venueName={venueName}
+        busy={approveBusy}
+        error={approveError}
+        onCancel={() => {
+          if (approveBusy) return;
+          setApproveTarget(null);
+          setApproveError(null);
+        }}
+        onConfirm={() => {
+          if (!approveTarget) return;
+          void (async () => {
+            setApproveBusy(true);
+            setApproveError(null);
+            const res = await runMembershipAction("approve", approveTarget.id);
+            setApproveBusy(false);
+            if (!res.ok) {
+              setApproveError(res.error ?? "Could not approve access.");
+              return;
+            }
+            pushToast(`${approveTarget.name} approved.`, "success");
+            setApproveTarget(null);
           })();
         }}
       />

@@ -613,6 +613,7 @@ function AdminTopNav({
   onSelectRestaurant,
   ownerSignupProfile,
   ownerEmail,
+  canManageBilling = false,
   onLogoPress,
   onSignOut,
   onOpenMobileNav,
@@ -624,6 +625,7 @@ function AdminTopNav({
   onSelectRestaurant: (id: string) => void;
   ownerSignupProfile?: unknown;
   ownerEmail?: string | null;
+  canManageBilling?: boolean;
   onLogoPress: () => void;
   onSignOut: () => void;
   onOpenMobileNav?: () => void;
@@ -707,13 +709,15 @@ function AdminTopNav({
               badge
               active={hash === ADMIN_TOP_HASHES.notifications}
             />
-            <AdminToolBubbleButton
-              label="Billing"
-              src={ADMIN_TOP_ICONS.billing}
-              href={ADMIN_TOP_HASHES.billing}
-              hint={ADMIN_TOP_TOOL_HINTS.billing}
-              active={hash === ADMIN_TOP_HASHES.billing}
-            />
+            {canManageBilling ? (
+              <AdminToolBubbleButton
+                label="Billing"
+                src={ADMIN_TOP_ICONS.billing}
+                href={ADMIN_TOP_HASHES.billing}
+                hint={ADMIN_TOP_TOOL_HINTS.billing}
+                active={hash === ADMIN_TOP_HASHES.billing}
+              />
+            ) : null}
             <AdminHoverBubble
               open={quickMenu.open}
               onOpenNow={quickMenu.openNow}
@@ -814,6 +818,7 @@ export function AdminWorkspaceShell({
   onSelectRestaurant,
   ownerSignupProfile,
   ownerEmail,
+  canManageBilling = false,
   onLogoPress,
   onSignOut,
   venueSwitching
@@ -824,6 +829,7 @@ export function AdminWorkspaceShell({
   onSelectRestaurant: (id: string) => void;
   ownerSignupProfile?: unknown;
   ownerEmail?: string | null;
+  canManageBilling?: boolean;
   onLogoPress: () => void;
   onSignOut: () => void;
   venueSwitching?: boolean;
@@ -845,6 +851,7 @@ export function AdminWorkspaceShell({
         onSelectRestaurant={onSelectRestaurant}
         ownerSignupProfile={ownerSignupProfile}
         ownerEmail={ownerEmail}
+        canManageBilling={canManageBilling}
         onLogoPress={onLogoPress}
         onSignOut={onSignOut}
         onOpenMobileNav={() => setMobileNavOpen(true)}

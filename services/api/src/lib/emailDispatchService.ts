@@ -64,6 +64,9 @@ function toTemplateInput(input: DispatchEmailInput): ServeOsEmailTemplateInput {
         fullName: input.fullName,
         restaurantName: input.restaurantName,
         intendedRole: input.intendedRole,
+        roleLabel: input.roleLabel,
+        invitedByName: input.invitedByName,
+        invitedByRole: input.invitedByRole,
         acceptUrl: input.acceptUrl,
         expiresAt: input.expiresAt,
         preferencesUrl

@@ -18,7 +18,21 @@ export type AuthUser = {
   preferredRestaurantId?: string | null;
 };
 
-export type AuthResponse = { ok: boolean; token?: string; user?: AuthUser; error?: string; message?: string };
+export type WorkspaceAuthSummary = {
+  state: "none" | "active" | "pending_approval" | "suspended";
+  requiresWorkspaceSelection: boolean;
+  activeWorkspaceCount: number;
+  pendingWorkspaceCount: number;
+};
+
+export type AuthResponse = {
+  ok: boolean;
+  token?: string;
+  user?: AuthUser;
+  workspaceAuth?: WorkspaceAuthSummary;
+  error?: string;
+  message?: string;
+};
 
 export type CompanyLookupResponse =
   | {

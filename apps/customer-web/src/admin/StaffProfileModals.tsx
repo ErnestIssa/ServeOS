@@ -246,6 +246,55 @@ export function SendInviteConfirmModal({
   );
 }
 
+export function ApproveAccessConfirmModal({
+  open,
+  fullName,
+  email,
+  roleLabel,
+  venueName,
+  busy,
+  error,
+  onCancel,
+  onConfirm
+}: {
+  open: boolean;
+  fullName: string;
+  email: string;
+  roleLabel: string;
+  venueName: string;
+  busy: boolean;
+  error?: string | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <ProfileModalShell
+      open={open}
+      onClose={busy ? () => undefined : onCancel}
+      title="Approve workspace access?"
+      description={`Grant ${fullName} (${email}) access to ${venueName}.`}
+      titleId="approve-access-confirm-title"
+      stackLevel="overlay"
+      maxWidthClass="max-w-md"
+      busy={busy}
+    >
+      <ProfileModalNote>
+        Role: <strong>{roleLabel}</strong>
+        <br />
+        They can sign in and use operational tools for this venue after approval.
+      </ProfileModalNote>
+      {error ? <ProfileModalAlert tone="error">{error}</ProfileModalAlert> : null}
+      <ProfileModalFooter
+        onCancel={onCancel}
+        onConfirm={onConfirm}
+        confirmLabel="Approve access"
+        cancelLabel="Not yet"
+        busy={busy}
+      />
+    </ProfileModalShell>
+  );
+}
+
 export function CancelInviteConfirmModal({
   open,
   fullName,

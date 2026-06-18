@@ -15,6 +15,7 @@ export type InviteResolveOk = {
     intendedRole: string;
     roleLabel: string;
     expiresAt: string;
+    invitedBy?: { name: string; roleLabel: string } | null;
   };
   identity: { state: "NEW" | "EXISTING" | "DUAL_ACCOUNT" | "ALREADY_JOINED"; exists: boolean; hasUsableAccount: boolean };
   membershipAtVenue: {

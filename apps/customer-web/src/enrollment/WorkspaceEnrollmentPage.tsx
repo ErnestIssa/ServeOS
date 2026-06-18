@@ -13,10 +13,11 @@ import { clearStoredInviteSearch, readInviteTokenFromLocation } from "../inviteT
 import { IdentityRecoveryPanel } from "../auth/IdentityRecoveryPanel";
 import { inviteEnrollmentReturnPath } from "../auth/safeReturnTo";
 import { PasswordResetWizard } from "../login/PasswordResetWizard";
+import { WorkspaceAccessPendingPage } from "./WorkspaceAccessPendingPage";
 
 const ENROLL_ICON = iconPath("register-svgrepo-com.svg");
 
-type Phase = "loading" | "error" | "gateway" | "create" | "login" | "merge" | "forgot" | "success";
+type Phase = "loading" | "error" | "gateway" | "create" | "login" | "merge" | "forgot" | "success" | "pending-approval";
 
 type Props = {
   onBack: () => void;
@@ -212,6 +213,13 @@ export function WorkspaceEnrollmentPage({ onBack }: Props) {
 
     persistAdminToken(result.token);
     clearStoredInviteSearch();
+
+    if (result.pendingApproval && resolved) {
+      setPhase("pending-approval");
+      setSuccessNote(null);
+      return;
+    }
+
     setPhase("success");
     if (result.merged) {
       setSuccessNote("Accounts merged and workspace connected.");
@@ -286,6 +294,15 @@ export function WorkspaceEnrollmentPage({ onBack }: Props) {
                   Return to ServeOS
                 </button>
               }
+            />
+          ) : null}
+
+          {phase === "pending-approval" && resolved ? (
+            <WorkspaceAccessPendingPage
+              restaurantName={resolved.invite.restaurantName}
+              roleLabel={resolved.invite.roleLabel}
+              intendedRole={resolved.invite.intendedRole}
+              invitedByName={resolved.invite.invitedBy?.name}
             />
           ) : null}
 
