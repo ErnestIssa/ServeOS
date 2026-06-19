@@ -13,8 +13,11 @@ import { ProfileReviewScreen } from "./ProfileReviewScreen";
 import { UpcomingReservationsScreen } from "./UpcomingReservationsScreen";
 import type { MobileExperienceManifest } from "../../mobile/mobileExperienceTypes";
 import type { MeStackRoute } from "./profileHubRoutes";
+import { meStackOverlayTitle } from "./profileHubRoutes";
 import type { CustomerReservationApi } from "../reservations/reservationApi";
-import { ProfileNavHighlightProvider, useProfileNavHighlight } from "./profileNavHighlight";
+import { ProfileNavHighlightProvider, useProfileNavHighlight, type MeNavHighlightKey } from "./profileNavHighlight";
+import { SafetyScreen } from "./SafetyScreen";
+import { SettingsDetailScreen, SettingsHomeScreen } from "./SettingsScreens";
 import {
   REVIEW_CLOSE_FADE_MS,
   REVIEW_CLOSE_Y_MS,
@@ -38,6 +41,7 @@ type Props = {
   onOpenOrders: () => void;
   onOpenSupport: () => void;
   onSignOut: () => void;
+  onChooseExperience?: () => void;
   onAvatarSaved?: (uri: string) => void;
   /** False only for real ME sub-pages — Review overlay keeps hub chrome frozen. */
   onAtRootChange?: (atRoot: boolean) => void;
@@ -70,7 +74,16 @@ function CustomerMeStackInner(props: Props) {
       : route.name === "reservation_details"
         ? "Booking details"
         : null;
-  const title = route.name === "section" ? route.title : null;
+  const title =
+    route.name === "section"
+      ? route.title
+      : route.name === "settings" ||
+          route.name === "settings_detail" ||
+          route.name === "help" ||
+          route.name === "safety" ||
+          route.name === "workspace"
+        ? meStackOverlayTitle(route)
+        : null;
   const reservationExitInFlightRef = React.useRef(false);
   const { motionStyle, scrimStyle, runClose } = useProfileSubpageMotion(isReservationOverlay);
   const reviewFade = React.useRef(new Animated.Value(0)).current;
@@ -209,6 +222,29 @@ function CustomerMeStackInner(props: Props) {
     });
   }, [isReservationOverlay, pop, restoreHubScroll, route.name, runClose]);
 
+  const pushMeSection = React.useCallback(
+    (sectionTitle: string, subtitle: string | undefined, key: MeNavHighlightKey) => {
+      if (key === "app:chip:settings") {
+        navigate(key, () => push({ name: "settings" }));
+        return;
+      }
+      if (key === "app:chip:help") {
+        navigate(key, () => push({ name: "help" }));
+        return;
+      }
+      if (key === "me:manage_account") {
+        navigate(key, () => push({ name: "settings_detail", key: "manage_account" }));
+        return;
+      }
+      if (key === "me:privacy") {
+        navigate(key, () => push({ name: "settings_detail", key: "privacy" }));
+        return;
+      }
+      navigate(key, () => push({ name: "section", title: sectionTitle, subtitle }));
+    },
+    [navigate, push]
+  );
+
   const meHub = (
     <CustomerMeHub
       user={props.user}
@@ -220,9 +256,7 @@ function CustomerMeStackInner(props: Props) {
       activeOrderCount={props.activeOrderCount}
       scrollRefExternal={hubScrollRef}
       scrollEnabled={!isReviewRoute}
-      onNavigateSection={(sectionTitle, subtitle, key) =>
-        navigate(key, () => push({ name: "section", title: sectionTitle, subtitle }))
-      }
+      onNavigateSection={pushMeSection}
       onNavigateScreen={(screenKey, title, subtitle) =>
         navigate(screenKey, () => push({ name: "workspace", screenKey, title, subtitle }))
       }
@@ -230,6 +264,7 @@ function CustomerMeStackInner(props: Props) {
       onOpenBookings={openUpcomingReservations}
       onOpenOrders={props.onOpenOrders}
       onOpenSupport={props.onOpenSupport}
+      onChooseExperience={props.onChooseExperience}
       onSignOut={props.onSignOut}
       onAvatarSaved={props.onAvatarSaved}
       onScrollCapture={captureHubScroll}
@@ -270,6 +305,31 @@ function CustomerMeStackInner(props: Props) {
         topInset={hubTopInset}
         bottomInset={props.bottomInset}
       />
+    ) : route.name === "settings" ? (
+      <SettingsHomeScreen
+        bottomInset={props.bottomInset}
+        accountKeys={props.mobileExperience.settings.accountKeys}
+        generalKeys={props.mobileExperience.settings.generalKeys}
+        onOpenDetail={(key) =>
+          navigate(`app:settings:${key}`, () => push({ name: "settings_detail", key }))
+        }
+      />
+    ) : route.name === "settings_detail" ? (
+      <SettingsDetailScreen
+        detailKey={route.key}
+        user={props.user}
+        authToken={props.authToken}
+        bottomInset={props.bottomInset}
+      />
+    ) : route.name === "help" ? (
+      <ProfilePlaceholderScreen
+        title="Help"
+        subtitle="Guides and contact options"
+        topInset={hubTopInset}
+        bottomInset={props.bottomInset}
+      />
+    ) : route.name === "safety" ? (
+      <SafetyScreen bottomInset={props.bottomInset} />
     ) : route.name === "section" ? (
       <ProfilePlaceholderScreen
         title={route.title}

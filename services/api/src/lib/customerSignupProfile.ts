@@ -2,6 +2,8 @@ import type { Prisma } from "@prisma/client";
 import { resolveCurrencyCode, type SupportedCurrencyCode } from "@serveos/core-shared/currency";
 
 export const PREFERRED_RESTAURANT_KEY = "preferredRestaurantId";
+export const ACTIVE_EXPERIENCE_MODE_KEY = "activeExperienceMode";
+export type ActiveExperienceMode = "CUSTOMER" | "WORKSPACE";
 export const CUSTOMER_PREFERENCES_KEY = "customerAppSettings";
 export const CUSTOMER_AVATAR_KEY = "avatarUri";
 export const CUSTOMER_QUICK_PREFS_KEY = "customerQuickPrefs";
@@ -46,6 +48,24 @@ export function readPreferredRestaurantIdFromProfile(signupProfile: unknown): st
   if (typeof v !== "string") return null;
   const t = v.trim();
   return t.length ? t : null;
+}
+
+export function readActiveExperienceModeFromProfile(signupProfile: unknown): ActiveExperienceMode | null {
+  const v = profileRecord(signupProfile)[ACTIVE_EXPERIENCE_MODE_KEY];
+  if (v === "CUSTOMER" || v === "WORKSPACE") return v;
+  return null;
+}
+
+export function mergeActiveExperienceIntoProfile(
+  current: unknown,
+  input: { mode: ActiveExperienceMode; restaurantId?: string | null }
+): Prisma.InputJsonValue {
+  const base = profileRecord(current);
+  base[ACTIVE_EXPERIENCE_MODE_KEY] = input.mode;
+  if (input.mode === "WORKSPACE" && input.restaurantId?.trim()) {
+    base[PREFERRED_RESTAURANT_KEY] = input.restaurantId.trim();
+  }
+  return base as Prisma.InputJsonValue;
 }
 
 export function mergePreferredRestaurantIntoProfile(

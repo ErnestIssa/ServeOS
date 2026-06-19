@@ -1,7 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@prisma/client";
-import { loadMobileAuthContext } from "../lib/mobileAuthContext.js";
+import { z } from "zod";
+import { loadMobileAuthContext, requireMobileAuth } from "../lib/mobileAuthContext.js";
 import { buildWorkspaceContext } from "../lib/mobileWorkspaceService.js";
+import {
+  buildExperienceSwitcherPayload,
+  setMobileActiveExperience
+} from "../lib/mobileExperienceSwitcher.js";
 
 function bearerSub(headers: { authorization?: string }, app: FastifyInstance): string | null {
   const auth = headers.authorization;
@@ -27,5 +32,34 @@ export function registerMobileExperienceRoutes(app: FastifyInstance, prisma: Pri
         : null;
 
     return { ok: true, experience: ctx.experience, workspace };
+  });
+
+  app.get("/mobile/experience-switcher", async (req, reply) => {
+    const ctx = await requireMobileAuth(req, app, prisma);
+    const switcher = await buildExperienceSwitcherPayload(prisma, ctx.userId);
+    return { ok: true, switcher };
+  });
+
+  app.patch("/mobile/active-experience", async (req, reply) => {
+    const ctx = await requireMobileAuth(req, app, prisma);
+    const body = z
+      .discriminatedUnion("mode", [
+        z.object({ mode: z.literal("CUSTOMER") }),
+        z.object({ mode: z.literal("WORKSPACE"), restaurantId: z.string().min(1) })
+      ])
+      .parse(req.body);
+
+    try {
+      const result = await setMobileActiveExperience(prisma, ctx.userId, body);
+      return {
+        ok: true,
+        experience: result.ctx.experience,
+        switcher: result.switcher,
+        workspace: result.workspace
+      };
+    } catch (e: unknown) {
+      const err = e as { statusCode?: number; message?: string };
+      return reply.status(err.statusCode ?? 400).send({ ok: false, error: err.message ?? "switch_failed" });
+    }
   });
 }

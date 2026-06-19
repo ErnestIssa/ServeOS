@@ -7,6 +7,10 @@ export type MeStackRoute =
   | { name: "review" }
   | { name: "workspace"; screenKey: string; title: string; subtitle?: string }
   | { name: "section"; title: string; subtitle?: string }
+  | { name: "settings" }
+  | { name: "settings_detail"; key: SettingsDetailKey }
+  | { name: "help" }
+  | { name: "safety" }
   | { name: "upcoming_reservations" }
   | { name: "reservation_details"; reservation: CustomerReservationApi };
 
@@ -22,6 +26,42 @@ export type AppStackRoute =
 
 /** @deprecated Use AppStackRoute */
 export type ProfileStackRoute = AppStackRoute;
+
+export function meStackOverlayTitle(route: MeStackRoute): string | null {
+  switch (route.name) {
+    case "home":
+    case "review":
+    case "upcoming_reservations":
+    case "reservation_details":
+      return null;
+    case "settings":
+      return "App settings";
+    case "settings_detail": {
+      const titles: Record<string, string> = {
+        manage_account: "Manage account",
+        privacy: "Privacy",
+        address: "Delivery address",
+        accessibility: "Accessibility",
+        night_mode: "Night mode",
+        shortcuts: "Shortcuts",
+        communication: "Communication",
+        navigation: "Navigation",
+        sounds_voice: "Sounds & voice"
+      };
+      return titles[route.key] ?? "App settings";
+    }
+    case "help":
+      return "Help";
+    case "safety":
+      return "Safety & privacy";
+    case "workspace":
+      return route.title;
+    case "section":
+      return route.title;
+    default:
+      return null;
+  }
+}
 
 export function splitHubStack(stack: AppStackRoute[]): {
   base: AppStackRoute;

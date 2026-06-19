@@ -23,7 +23,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { Easing, runOnJS, useAnimatedReaction, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
 import { ScrollMeshBackground } from "./src/ambient/ScrollMeshBackground";
 import { useAppTheme } from "./src/theme/AppThemeContext";
-import { apiFetch, apiHttpToWsBase, authMe, API_URL, type AuthUser } from "./src/api";
+import { apiFetch, apiHttpToWsBase, authMe, authLogout, API_URL, type AuthUser } from "./src/api";
 import { loadClientConfig } from "./src/bootstrap/clientConfig";
 import { syncDevicePushTokenWithBackend } from "./src/notifications/devicePushRegistration";
 import {
@@ -50,6 +50,7 @@ import { CustomerOrdersVenueScreen } from "./src/customer/CustomerOrdersVenueScr
 import { CustomerReservationFlow } from "./src/customer/reservations/CustomerReservationFlow";
 import { fetchCustomerAppContext } from "./src/customer/customerAppApi";
 import {
+  defaultNavTabKey,
   fetchMobileExperience,
   isChatNavTab,
   isProfileNavTab,
@@ -58,11 +59,15 @@ import {
   navTabLabel,
   navTabsFromUser
 } from "./src/mobile/mobileExperience";
+import {
+  fetchExperienceSwitcher,
+  patchActiveExperience,
+  type ExperienceSwitcherPayload
+} from "./src/mobile/experienceSwitcherApi";
 import { navKeyToAmbientTab } from "./src/mobile/navAmbient";
 import { RoleNavTabPanel } from "./src/workspace/RoleNavTabPanel";
 import {
   fetchWorkspaceContext,
-  patchWorkspaceActiveRestaurant,
   type WorkspaceContext
 } from "./src/mobile/workspaceApi";
 import {
@@ -115,13 +120,7 @@ import { computeNavSheetSnapDims, SHEET_SPRING_CONFIG } from "./src/shell/NavExp
 import { CustomerMeStack } from "./src/customer/profile/CustomerMeStack";
 import { loadProfileAvatarUri } from "./src/customer/profile/profileAvatarStorage";
 import { CustomerNavMenuPage } from "./src/shell/CustomerNavMenuPage";
-import { NotificationsInboxPage } from "./src/shell/NotificationsInboxPage";
-import {
-  connectNotificationSocket,
-  disconnectNotificationSocket,
-  subscribeNotificationRelay
-} from "./src/notifications/notificationSocket";
-import { fetchNotificationUnreadCount } from "./src/notifications/notificationsApi";
+import { ExperienceSwitcherSheet } from "./src/shell/ExperienceSwitcherSheet";
 import { FloatingTopBar, FLOATING_TOP_BAR_HEIGHT } from "./src/shell/FloatingTopBar";
 import { createAppStyles } from "./src/theme/createAppStyles";
 import { R } from "./src/theme";
@@ -187,10 +186,9 @@ export default function App() {
   const [customerSearchQuery, setCustomerSearchQuery] = React.useState("");
   /** Full-screen page from customer top-bar menu (hamburger); back restores prior tab/screen. */
   const [customerNavMenuOpen, setCustomerNavMenuOpen] = React.useState(false);
-  const [notificationsInboxOpen, setNotificationsInboxOpen] = React.useState(false);
-  const [platformNotificationCount, setPlatformNotificationCount] = React.useState(0);
-  const notificationsInboxOpenRef = React.useRef(false);
-  notificationsInboxOpenRef.current = notificationsInboxOpen;
+  const [experienceSwitcherOpen, setExperienceSwitcherOpen] = React.useState(false);
+  const [experienceSwitcher, setExperienceSwitcher] = React.useState<ExperienceSwitcherPayload | null>(null);
+  const [experienceSwitchBusy, setExperienceSwitchBusy] = React.useState(false);
   const [menuRid, setMenuRid] = React.useState("");
   const [menuPreview, setMenuPreview] = React.useState<any>(null);
   const [localCart, setLocalCart] = React.useState<Array<{ menuItemId: string; quantity: number; modifierOptionIds: string[] }>>(
@@ -264,8 +262,60 @@ export default function App() {
   const setWorkspaceVenue = React.useCallback(
     async (restaurantId: string) => {
       if (!token) return;
-      const res = await patchWorkspaceActiveRestaurant(token, restaurantId);
-      if (res.ok) setWorkspaceContext(res.context);
+      setExperienceSwitchBusy(true);
+      try {
+        const res = await patchActiveExperience(token, { mode: "WORKSPACE", restaurantId });
+        if (!res.ok) {
+          setStatus(res.error ?? "Could not switch workspace");
+          return;
+        }
+        setExperienceSwitcher(res.switcher);
+        setSessionUser((u) =>
+          u ? { ...u, roleType: res.experience.roleType, mobileExperience: res.experience } : u
+        );
+        if (res.workspace) setWorkspaceContext(res.workspace);
+        else setWorkspaceContext(null);
+        const nextTab = defaultNavTabKey(res.experience) as TabId;
+        setTab(nextTab);
+      } finally {
+        setExperienceSwitchBusy(false);
+      }
+    },
+    [token]
+  );
+
+  const refreshExperienceSwitcher = React.useCallback(async (jwt?: string) => {
+    const t = jwt ?? token;
+    if (!t) {
+      setExperienceSwitcher(null);
+      return;
+    }
+    const res = await fetchExperienceSwitcher(t);
+    if (res.ok) setExperienceSwitcher(res.switcher);
+  }, [token]);
+
+  const applyActiveExperience = React.useCallback(
+    async (body: { mode: "CUSTOMER" } | { mode: "WORKSPACE"; restaurantId: string }) => {
+      if (!token) return;
+      setExperienceSwitchBusy(true);
+      try {
+        const res = await patchActiveExperience(token, body);
+        if (!res.ok) {
+          setStatus(res.error ?? "Could not switch experience");
+          return;
+        }
+        setExperienceSwitcher(res.switcher);
+        setSessionUser((u) =>
+          u ? { ...u, roleType: res.experience.roleType, mobileExperience: res.experience } : u
+        );
+        if (res.workspace) setWorkspaceContext(res.workspace);
+        else setWorkspaceContext(null);
+        setExperienceSwitcherOpen(false);
+        setTab(defaultNavTabKey(res.experience) as TabId);
+        void refreshRestaurants(token);
+      } finally {
+        setExperienceSwitchBusy(false);
+      }
     },
     [token]
   );
@@ -323,47 +373,24 @@ export default function App() {
     };
   }, [token, isCustomerSession, sessionUser?.id]);
 
-  const refreshPlatformNotificationCount = React.useCallback(async () => {
-    if (!token) {
-      setPlatformNotificationCount(0);
-      return;
-    }
-    const res = await fetchNotificationUnreadCount(token);
-    if (res.ok && typeof res.count === "number") setPlatformNotificationCount(res.count);
-  }, [token]);
-
-  const openNotificationsInbox = React.useCallback(() => {
-    Keyboard.dismiss();
-    if (sheetBackdropActive) closeSheetFromBackdrop();
-    setNotificationsInboxOpen(true);
-  }, [sheetBackdropActive, closeSheetFromBackdrop]);
-
   React.useEffect(() => {
     if (!token) {
-      disconnectNotificationSocket();
-      setPlatformNotificationCount(0);
+      setExperienceSwitcher(null);
       return;
     }
-    connectNotificationSocket(token);
-    void refreshPlatformNotificationCount();
-    const poll = setInterval(() => void refreshPlatformNotificationCount(), 60_000);
-    const off = subscribeNotificationRelay((payload) => {
-      if (payload.type !== "notification") return;
-      void refreshPlatformNotificationCount();
-      if (!notificationsInboxOpenRef.current) {
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-    });
-    return () => {
-      clearInterval(poll);
-      off();
-      disconnectNotificationSocket();
-    };
-  }, [token, refreshPlatformNotificationCount]);
+    void refreshExperienceSwitcher(token);
+  }, [token, refreshExperienceSwitcher]);
 
   const customerSignOut = React.useCallback(async () => {
     disconnectCustomerChatSocket();
-    disconnectNotificationSocket();
+    const jwt = token;
+    if (jwt) {
+      try {
+        await authLogout(jwt);
+      } catch {
+        /* still clear local session */
+      }
+    }
     await cacheInvalidate(authScope(sessionUser?.id));
     await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
     await AsyncStorage.removeItem(CUSTOMER_VENUE_KEY);
@@ -374,9 +401,9 @@ export default function App() {
     setMyOrders([]);
     setMeAvatarUri(null);
     setCustomerNavMenuOpen(false);
-    setNotificationsInboxOpen(false);
-    setPlatformNotificationCount(0);
-  }, [sessionUser?.id]);
+    setExperienceSwitcherOpen(false);
+    setExperienceSwitcher(null);
+  }, [token, sessionUser?.id]);
 
   const customerHomeScrollRef = React.useRef<ScrollView | null>(null);
   const [customerMenuTopY, setCustomerMenuTopY] = React.useState(320);
@@ -659,6 +686,13 @@ export default function App() {
     armNavSheetSnapImpact(target);
     sheetHeightSV.value = withSpring(target, { ...SHEET_SPRING_CONFIG, damping: 28, stiffness: 320, mass: 0.7 });
   }, [insets, sheetHeightSV, homeNavSheetCartEligible, armNavSheetSnapImpact]);
+
+  const openExperienceSwitcher = React.useCallback(() => {
+    Keyboard.dismiss();
+    if (sheetBackdropActive) closeSheetFromBackdrop();
+    void refreshExperienceSwitcher();
+    setExperienceSwitcherOpen(true);
+  }, [sheetBackdropActive, closeSheetFromBackdrop, refreshExperienceSwitcher]);
 
   const openNutritionAfterFullSheet = React.useCallback(() => {
     const { snapHigh } = computeNavSheetSnapDims(Dimensions.get("window").height, insets);
@@ -1517,12 +1551,26 @@ export default function App() {
   const meCompactTopPad = insets.top + 8;
   const hideProfileSubpageTopNav = !!token && mobileExperience && isProfileNavTab(tab) && !meStackAtRoot;
 
+  const profileVenueDisplayName = isCustomerSession
+    ? customerVenueDisplayName
+    : experienceSwitcher?.activeWorkspace?.restaurantName ??
+      workspaceContext?.memberships.find((m) => m.restaurantId === workspaceRestaurantId)?.restaurantName ??
+      "Workspace";
+
   const pageTitle = navTabLabel(mobileExperience, tab) ?? "ServeOS";
 
   const leftLabel =
-    (menuPreview?.ok && menuPreview.restaurant?.name ? String(menuPreview.restaurant.name) : null) ??
-    (restaurants[0]?.name ? String(restaurants[0]?.name) : null) ??
-    "ServeOS";
+    experienceSwitcher?.customerMode.selected
+      ? "Customer"
+      : experienceSwitcher?.activeWorkspace?.restaurantName ??
+        (menuPreview?.ok && menuPreview.restaurant?.name ? String(menuPreview.restaurant.name) : null) ??
+        (restaurants[0]?.name ? String(restaurants[0]?.name) : null) ??
+        "ServeOS";
+
+  const leftSubLabel =
+    experienceSwitcher?.activeWorkspace && !experienceSwitcher.customerMode.selected
+      ? experienceSwitcher.activeWorkspace.roleLabel
+      : undefined;
 
   /** One nav capsule look for all customer tabs (matches Home glass chrome). */
   const navGradient = isCustomerSession
@@ -1609,8 +1657,7 @@ export default function App() {
             searchSheetFullyExpanded={sheetOpenStage === 2}
             onSearchExpandSheet={expandCustomerNavSheetFullFromSearch}
             onSearchSubmit={() => void appendNavSearchRecent(customerSearchQuery.trim())}
-            notificationCount={platformNotificationCount}
-            onNotifications={openNotificationsInbox}
+            onExperienceSwitcher={openExperienceSwitcher}
             onMenu={() => {
               Keyboard.dismiss();
               if (sheetBackdropActive) closeSheetFromBackdrop();
@@ -1625,11 +1672,11 @@ export default function App() {
               scrollY={scrollY}
               navGradient={navGradient}
               leftLabel={leftLabel}
+              leftSubLabel={leftSubLabel}
               centerTitle={pageTitle}
-              notificationCount={platformNotificationCount}
-              onLeftPress={() => setTab(profileTabKey)}
+              onLeftPress={openExperienceSwitcher}
               onSearch={() => setStatus("search")}
-              onNotifications={openNotificationsInbox}
+              onExperienceSwitcher={openExperienceSwitcher}
               onMenu={() => {
                 Keyboard.dismiss();
                 setCustomerNavMenuOpen(true);
@@ -1642,11 +1689,11 @@ export default function App() {
             scrollY={scrollY}
             navGradient={navGradient}
             leftLabel={leftLabel}
+            leftSubLabel={leftSubLabel}
             centerTitle={pageTitle}
-            notificationCount={platformNotificationCount}
-            onLeftPress={() => setTab(profileTabKey)}
+            onLeftPress={openExperienceSwitcher}
             onSearch={() => setStatus("search")}
-            onNotifications={openNotificationsInbox}
+            onExperienceSwitcher={openExperienceSwitcher}
             onMenu={() => setStatus("menu")}
           />
         )}
@@ -1931,7 +1978,7 @@ export default function App() {
           />
         ) : null}
 
-        {isProfileNavTab(tab) && token && mobileExperience && isCustomerSession ? (
+        {isProfileNavTab(tab) && token && mobileExperience ? (
           <View style={styles.scrollLayer}>
             <CustomerMeStack
               topInset={scrollTopPad}
@@ -1941,32 +1988,19 @@ export default function App() {
               authToken={token}
               mobileExperience={mobileExperience}
               workspaceRestaurantId={workspaceRestaurantId}
-              venueName={customerVenueDisplayName}
-              activeOrderCount={activeOrderCount}
+              venueName={profileVenueDisplayName}
+              activeOrderCount={isCustomerSession ? activeOrderCount : 0}
               onOpenOrders={() => setTab("orders")}
               onOpenSupport={() => {
                 const chatTab = navTabs.find((t) => isChatNavTab(t.key))?.key;
                 if (chatTab) setTab(chatTab);
               }}
+              onChooseExperience={openExperienceSwitcher}
               onSignOut={() => void customerSignOut()}
               onAvatarSaved={setMeAvatarUri}
               onAtRootChange={setMeStackAtRoot}
             />
           </View>
-        ) : isProfileNavTab(tab) && token && mobileExperience ? (
-          <RoleNavTabPanel
-            tabKey={tab}
-            mobileExperience={mobileExperience}
-            authToken={token}
-            workspaceContext={workspaceContext}
-            workspaceRestaurantId={workspaceRestaurantId}
-            onSelectVenue={(id) => void setWorkspaceVenue(id)}
-            scrollTopPad={scrollTopPad}
-            scrollBottom={scrollBottom}
-            onScroll={onScroll}
-            onNavigateTab={setTab}
-            onSignOut={() => void customerSignOut()}
-          />
         ) : isProfileNavTab(tab) ? (
           <Animated.ScrollView
             style={styles.scrollLayer}
@@ -2102,14 +2136,28 @@ export default function App() {
       ) : null}
 
       {token ? (
-        <NotificationsInboxPage
-          visible={notificationsInboxOpen}
-          ambientTab={navKeyToAmbientTab(tab)}
-          topInset={insets.top}
-          bottomInset={contentBottomInset(insets.bottom)}
+        <ExperienceSwitcherSheet
+          visible={experienceSwitcherOpen}
           authToken={token}
-          onBack={() => setNotificationsInboxOpen(false)}
-          onUnreadCountChange={setPlatformNotificationCount}
+          switcher={experienceSwitcher}
+          busy={experienceSwitchBusy}
+          onClose={() => setExperienceSwitcherOpen(false)}
+          onSelectCustomer={() => void applyActiveExperience({ mode: "CUSTOMER" })}
+          onSelectWorkspace={(restaurantId) =>
+            void applyActiveExperience({ mode: "WORKSPACE", restaurantId })
+          }
+          onJoined={() => {
+            if (!token) return;
+            void fetchMobileExperience(token).then((experience) => {
+              if (!experience) return;
+              setSessionUser((u) =>
+                u ? { ...u, roleType: experience.roleType, mobileExperience: experience } : u
+              );
+            });
+            void refreshExperienceSwitcher();
+            void refreshWorkspaceContext();
+            void refreshRestaurants(token);
+          }}
         />
       ) : null}
 

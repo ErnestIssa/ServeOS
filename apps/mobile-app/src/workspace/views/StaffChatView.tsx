@@ -29,6 +29,7 @@ type Props = {
   threads: Thread[];
   onReload: () => void;
   onOpenOrder?: (orderId: string) => void;
+  onOpenReservation?: (reservationId: string) => void;
 };
 
 export function StaffChatView(props: Props) {

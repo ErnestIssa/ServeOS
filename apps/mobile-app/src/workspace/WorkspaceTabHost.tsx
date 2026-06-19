@@ -9,7 +9,6 @@ import {
 } from "react-native";
 import type { MobileExperienceManifest } from "../mobile/mobileExperienceTypes";
 import { fetchWorkspaceTab } from "../mobile/workspaceApi";
-import { WorkspaceVenuePicker } from "./WorkspaceVenuePicker";
 import type { WorkspaceContext } from "../mobile/workspaceApi";
 import { useAppTheme } from "../theme/AppThemeContext";
 import { OrdersQueueView } from "./views/OrdersQueueView";
@@ -46,12 +45,16 @@ export function WorkspaceTabHost(props: Props) {
   const [payload, setPayload] = React.useState<unknown>(null);
   const [filter, setFilter] = React.useState("all");
   const [queueMode, setQueueMode] = React.useState<string | undefined>(undefined);
-  const [oclOrderId, setOclOrderId] = React.useState<string | null>(null);
+  const [oclTarget, setOclTarget] = React.useState<OclWorkspaceTarget>(null);
 
   const rid = props.workspaceRestaurantId?.trim() || "";
 
   const openOrderWorkspace = React.useCallback((orderId: string) => {
-    setOclOrderId(orderId);
+    setOclTarget({ entityType: "order", entityId: orderId });
+  }, []);
+
+  const openReservationWorkspace = React.useCallback((reservationId: string) => {
+    setOclTarget({ entityType: "reservation", entityId: reservationId });
   }, []);
 
   const reload = React.useCallback(
@@ -229,13 +232,6 @@ export function WorkspaceTabHost(props: Props) {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}
       showsVerticalScrollIndicator={false}
     >
-      {props.workspaceContext && props.workspaceContext.memberships.length > 1 ? (
-        <WorkspaceVenuePicker
-          memberships={props.workspaceContext.memberships}
-          activeRestaurantId={props.workspaceRestaurantId}
-          onSelect={props.onSelectVenue}
-        />
-      ) : null}
       {body()}
     </ScrollView>
     </>

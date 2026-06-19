@@ -485,11 +485,52 @@ function buildCustomerMeHub(): MeHubSectionManifest[] {
 }
 
 function buildStaffAdminMeHub(roleType: MobileRoleType): MeHubSectionManifest[] {
+  const workspaceRows: MeHubSectionManifest["rows"] = [
+    {
+      id: "me:experience",
+      title: "Switch experience",
+      subtitle: "Customer mode, venues, join or create",
+      action: "choose_venue"
+    }
+  ];
+  if (roleType === "ADMIN") {
+    workspaceRows.push({
+      id: "app:restaurant_profile",
+      title: "Restaurant profile",
+      subtitle: "Venue details, hours, and billing",
+      action: "navigate_screen",
+      screenKey: "admin.restaurant_profile",
+      sectionTitle: "Restaurant profile",
+      sectionSubtitle: "Venue settings"
+    });
+  }
+
   return [
     {
       id: "workspace",
-      label: roleType === "ADMIN" ? "Workspace" : "Shift",
+      label: roleType === "ADMIN" ? "Workspace" : "Venue",
+      rows: workspaceRows
+    },
+    {
+      id: "account",
+      label: "Account",
       rows: [
+        {
+          id: "me:manage_account",
+          title: "Manage account",
+          subtitle: "Email, password, and profile",
+          action: "navigate_section",
+          sectionTitle: "Manage account",
+          sectionSubtitle: "Update your account"
+        },
+        {
+          id: "me:privacy",
+          title: "Privacy",
+          subtitle: "Data and visibility",
+          action: "navigate_section",
+          sectionTitle: "Privacy",
+          sectionSubtitle: "Control your data"
+        },
         {
           id: "me:notifications",
           title: "Notifications",
@@ -501,7 +542,7 @@ function buildStaffAdminMeHub(roleType: MobileRoleType): MeHubSectionManifest[] 
         {
           id: "me:security",
           title: "Security",
-          subtitle: "Password and session safety",
+          subtitle: "Password and active sessions",
           action: "navigate_section",
           sectionTitle: "Security",
           sectionSubtitle: "Protect your account"
@@ -509,8 +550,30 @@ function buildStaffAdminMeHub(roleType: MobileRoleType): MeHubSectionManifest[] 
       ]
     },
     {
+      id: "app",
+      label: "App",
+      rows: [
+        {
+          id: "app:chip:help",
+          title: "Help",
+          subtitle: "Guides and contact",
+          action: "navigate_section",
+          sectionTitle: "Help",
+          sectionSubtitle: "How ServeOS works"
+        },
+        {
+          id: "app:chip:settings",
+          title: "App settings",
+          subtitle: "Theme, accessibility, sounds",
+          action: "navigate_section",
+          sectionTitle: "App settings",
+          sectionSubtitle: "Personalize ServeOS"
+        }
+      ]
+    },
+    {
       id: "help",
-      label: "Help",
+      label: "Support",
       rows: [
         {
           id: "me:support",
@@ -1070,13 +1133,13 @@ export function buildMobileExperienceManifest(input: {
   } else if (roleType === "ADMIN") {
     meHubSections = buildStaffAdminMeHub("ADMIN");
     controlCentre = buildAdminControlCentre(permSet);
-    showNotificationToggles = false;
-    showVenueLine = false;
+    showNotificationToggles = true;
+    showVenueLine = true;
   } else {
     meHubSections = buildStaffAdminMeHub("STAFF");
     controlCentre = buildStaffControlCentre(permSet, staffFlags);
-    showNotificationToggles = false;
-    showVenueLine = false;
+    showNotificationToggles = true;
+    showVenueLine = true;
   }
 
   const settings = settingsForRole(roleType);

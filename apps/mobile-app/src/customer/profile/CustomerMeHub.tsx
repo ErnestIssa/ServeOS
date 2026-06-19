@@ -39,6 +39,7 @@ type Props = {
   onOpenOrders: () => void;
   onOpenSupport: () => void;
   onSignOut: () => void;
+  onChooseExperience?: () => void;
   onAvatarSaved?: (uri: string) => void;
   scrollRefExternal?: React.RefObject<import("react-native").ScrollView | null>;
   scrollEnabled?: boolean;
@@ -66,7 +67,7 @@ export function CustomerMeHub(props: Props) {
   const [avatarOpen, setAvatarOpen] = React.useState(false);
 
   React.useEffect(() => {
-    if (!isCustomerExperience) return;
+    if (!meHub.showNotificationToggles) return;
     let cancelled = false;
     void (async () => {
       const [localUri, q] = await Promise.all([
@@ -76,7 +77,7 @@ export function CustomerMeHub(props: Props) {
       if (cancelled) return;
       let uri = localUri;
       const tok = props.authToken?.trim();
-      if (tok) {
+      if (tok && isCustomerExperience) {
         try {
           const res = await fetchCustomerPreferences(tok);
           if (res.ok && res.avatarUri) {
@@ -95,7 +96,7 @@ export function CustomerMeHub(props: Props) {
     return () => {
       cancelled = true;
     };
-  }, [props.authToken, isCustomerExperience]);
+  }, [props.authToken, isCustomerExperience, meHub.showNotificationToggles]);
 
   React.useEffect(() => {
     if (isCustomerExperience) return;
@@ -124,6 +125,9 @@ export function CustomerMeHub(props: Props) {
           break;
         case "open_support":
           props.onOpenSupport();
+          break;
+        case "choose_venue":
+          props.onChooseExperience?.();
           break;
         case "navigate_screen":
           if (row.screenKey) {
@@ -213,8 +217,10 @@ export function CustomerMeHub(props: Props) {
                 <Text style={{ fontSize: 14, fontWeight: "600", color: t.textMuted }}>Loading…</Text>
               ) : (
                 <>
-                  <View style={switchStyles.switchRow}>
-                    <Text style={switchStyles.switchLabel}>Order & chat push</Text>
+                  <View style={[switchStyles.switchRow, !isCustomerExperience && switchStyles.switchRowLast]}>
+                    <Text style={switchStyles.switchLabel}>
+                      {isCustomerExperience ? "Order & chat push" : "Operational push alerts"}
+                    </Text>
                     <ThemedSwitch
                       value={pushOn}
                       onValueChange={(v) => {
@@ -223,6 +229,7 @@ export function CustomerMeHub(props: Props) {
                       }}
                     />
                   </View>
+                  {isCustomerExperience ? (
                   <View style={[switchStyles.switchRow, switchStyles.switchRowLast]}>
                     <Text style={switchStyles.switchLabel}>Location for venues</Text>
                     <ThemedSwitch
@@ -233,6 +240,7 @@ export function CustomerMeHub(props: Props) {
                       }}
                     />
                   </View>
+                  ) : null}
                 </>
               )}
             </ProfileCard>

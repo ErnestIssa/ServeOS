@@ -7,8 +7,7 @@ import {
   type MobileRoleType,
   type VenueAccessState
 } from "./mobileExperience.js";
-import { readPreferredRestaurantIdFromProfile } from "./customerPreferredVenue.js";
-import { mergePreferredRestaurantIntoProfile } from "./customerSignupProfile.js";
+import { readPreferredRestaurantIdFromProfile, readActiveExperienceModeFromProfile, mergeActiveExperienceIntoProfile, type ActiveExperienceMode } from "./customerSignupProfile.js";
 import { resolveMembershipPermissions } from "./venuePermissions.js";
 
 export type MobileAuthContext = {
@@ -45,11 +44,34 @@ export async function loadMobileAuthContext(
   if (!user) return null;
 
   const activeMemberships = user.memberships.filter((m) => m.status === "ACTIVE");
+  let signupProfile = user.signupProfile;
+  const storedMode = readActiveExperienceModeFromProfile(signupProfile);
+  const preferredStored = readPreferredRestaurantIdFromProfile(signupProfile);
+
+  if (storedMode === "WORKSPACE") {
+    if (activeMemberships.length === 0) {
+      signupProfile = mergeActiveExperienceIntoProfile(signupProfile, { mode: "CUSTOMER" });
+      await prisma.user.update({ where: { id: userId }, data: { signupProfile } });
+    } else if (
+      preferredStored &&
+      !activeMemberships.some((m) => m.restaurantId === preferredStored)
+    ) {
+      signupProfile = mergeActiveExperienceIntoProfile(signupProfile, {
+        mode: "WORKSPACE",
+        restaurantId: activeMemberships[0]!.restaurantId
+      });
+      await prisma.user.update({ where: { id: userId }, data: { signupProfile } });
+    }
+  }
+
   const pendingMemberships = user.memberships.filter((m) => m.status === "PENDING_APPROVAL");
   const suspendedMemberships = user.memberships.filter((m) => m.status === "SUSPENDED");
-  const membershipRoles = activeMemberships.map((m) => m.role);
 
-  const preferred = readPreferredRestaurantIdFromProfile(user.signupProfile);
+  const explicitMode = readActiveExperienceModeFromProfile(signupProfile);
+  const activeExperienceMode: ActiveExperienceMode =
+    explicitMode ?? (activeMemberships.length > 0 ? "WORKSPACE" : "CUSTOMER");
+
+  const preferred = readPreferredRestaurantIdFromProfile(signupProfile);
   const firstActive = activeMemberships[0]?.restaurantId ?? null;
   let activeRestaurantId = preferred ?? firstActive;
 
@@ -60,15 +82,29 @@ export async function loadMobileAuthContext(
     activeRestaurantId = firstActive;
   }
 
+  let effectiveExperienceMode = activeExperienceMode;
+  if (effectiveExperienceMode === "WORKSPACE" && activeMemberships.length === 0) {
+    effectiveExperienceMode = "CUSTOMER";
+  }
+
+  let membershipRoles: string[] = [];
   let grantedPermissions: string[] = [];
   let venueAccessState: VenueAccessState = "none";
   let pendingVenueName: string | undefined;
   let suspendedVenueName: string | undefined;
+  let manifestUserRole = user.role;
 
-  if (activeMemberships.length > 0) {
+  if (effectiveExperienceMode === "CUSTOMER" && activeMemberships.length > 0) {
+    manifestUserRole = "CUSTOMER";
+    venueAccessState = "none";
+    activeRestaurantId = preferred ?? null;
+  } else if (effectiveExperienceMode === "WORKSPACE" && activeMemberships.length > 0) {
     venueAccessState = "active";
     const atVenue =
       activeMemberships.find((m) => m.restaurantId === activeRestaurantId) ?? activeMemberships[0]!;
+    activeRestaurantId = atVenue.restaurantId;
+    manifestUserRole = atVenue.role;
+    membershipRoles = [atVenue.role];
     grantedPermissions = resolveMembershipPermissions(atVenue.role, atVenue.permissions);
   } else if (pendingMemberships.length > 0) {
     venueAccessState = "pending_approval";
@@ -83,9 +119,9 @@ export async function loadMobileAuthContext(
   }
 
   const experience = buildMobileExperienceManifest({
-    userRole: user.role,
+    userRole: manifestUserRole,
     membershipRoles,
-    signupProfile: user.signupProfile,
+    signupProfile,
     grantedPermissions,
     venueAccessState,
     pendingVenueName,
@@ -170,6 +206,11 @@ export async function setActiveRestaurantForUser(
   if (!u) throw Object.assign(new Error("user_not_found"), { statusCode: 404 });
   await prisma.user.update({
     where: { id: userId },
-    data: { signupProfile: mergePreferredRestaurantIntoProfile(u.signupProfile, restaurantId) }
+    data: {
+      signupProfile: mergeActiveExperienceIntoProfile(u.signupProfile, {
+        mode: "WORKSPACE",
+        restaurantId
+      })
+    }
   });
 }
