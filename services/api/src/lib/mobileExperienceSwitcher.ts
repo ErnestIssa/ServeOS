@@ -9,6 +9,7 @@ import { buildWorkspaceContext } from "./mobileWorkspaceService.js";
 import { membershipRoleLabel } from "./userDisplayName.js";
 
 export type ExperienceSwitcherPayload = {
+  customerAccess: true;
   activeMode: ActiveExperienceMode;
   customerMode: { available: true; selected: boolean };
   workspaces: Array<{
@@ -53,10 +54,11 @@ export async function buildExperienceSwitcherPayload(
   if (!user) throw Object.assign(new Error("user_not_found"), { statusCode: 404 });
 
   const ctx = await loadMobileAuthContext(prisma, userId);
+  if (!ctx) throw Object.assign(new Error("user_not_found"), { statusCode: 404 });
+
   const activeMemberships = user.memberships.filter((m) => m.status === "ACTIVE");
   const explicitMode = readActiveExperienceModeFromProfile(user.signupProfile);
-  const activeMode: ActiveExperienceMode =
-    explicitMode ?? (activeMemberships.length > 0 ? "WORKSPACE" : "CUSTOMER");
+  const activeMode: ActiveExperienceMode = explicitMode ?? "CUSTOMER";
 
   const customerSelected = activeMode === "CUSTOMER" || ctx.experience.roleType === "CUSTOMER";
 
@@ -80,10 +82,10 @@ export async function buildExperienceSwitcherPayload(
         }
       : null);
 
-  const canCreateRestaurant =
-    user.role === "OWNER" || activeMemberships.some((m) => m.role === "OWNER");
+  const canCreateRestaurant = true;
 
   return {
+    customerAccess: true,
     activeMode,
     customerMode: { available: true, selected: customerSelected },
     workspaces,

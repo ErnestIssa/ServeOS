@@ -31,7 +31,14 @@ export function registerMobileExperienceRoutes(app: FastifyInstance, prisma: Pri
         ? await buildWorkspaceContext(prisma, ctx)
         : null;
 
-    return { ok: true, experience: ctx.experience, workspace };
+    return {
+      ok: true,
+      customerAccess: true,
+      experience: ctx.experience,
+      memberships: ctx.memberships,
+      activeRestaurantId: ctx.activeRestaurantId,
+      workspace
+    };
   });
 
   app.get("/mobile/experience-switcher", async (req, reply) => {

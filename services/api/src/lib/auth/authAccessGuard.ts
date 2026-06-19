@@ -31,20 +31,40 @@ export function buildIdentityLookupWhere(input: {
 export async function assertSignupIdentityAvailable(
   prisma: PrismaClient,
   input: { email?: string; phone?: string }
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  const where = buildIdentityLookupWhere(input);
-  if (!where) return { ok: false, error: "email_or_phone_required" };
+): Promise<
+  | { ok: true }
+  | { ok: false; error: string; conflictField?: "email" | "phone" }
+> {
+  const email = input.email?.trim() ? normalizeAuthEmail(input.email) : undefined;
+  const phone = input.phone?.trim() ? normalizeAuthPhone(input.phone) : undefined;
+  if (!email && !phone) return { ok: false, error: "email_or_phone_required" };
 
-  const existing = await prisma.user.findFirst({
-    where,
-    select: { id: true, email: true }
-  });
-  if (existing) {
-    if (isMergedIdentityEmail(existing.email)) {
-      return { ok: false, error: "account_merged" };
+  if (email) {
+    const byEmail = await prisma.user.findFirst({
+      where: { email },
+      select: { id: true, email: true }
+    });
+    if (byEmail) {
+      if (isMergedIdentityEmail(byEmail.email)) {
+        return { ok: false, error: "account_merged" };
+      }
+      return { ok: false, error: "email_already_exists", conflictField: "email" };
     }
-    return { ok: false, error: "user_already_exists" };
   }
+
+  if (phone) {
+    const byPhone = await prisma.user.findFirst({
+      where: { phone },
+      select: { id: true, email: true }
+    });
+    if (byPhone) {
+      if (isMergedIdentityEmail(byPhone.email)) {
+        return { ok: false, error: "account_merged" };
+      }
+      return { ok: false, error: "phone_already_exists", conflictField: "phone" };
+    }
+  }
+
   return { ok: true };
 }
 

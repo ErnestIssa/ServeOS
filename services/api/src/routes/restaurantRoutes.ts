@@ -100,14 +100,11 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
 
   app.post("/restaurants/restaurants", async (req, reply) => {
     const user = requireUser(req);
-    if (user.role !== "OWNER") {
-      return reply.status(403).send({ ok: false, error: "owner_only" });
-    }
 
     const body = createRestaurantSchema.parse(req.body);
 
     const ownerMemberships = await prisma.membership.findMany({
-      where: { userId: user.sub, role: "OWNER" },
+      where: { userId: user.sub, role: "OWNER", status: "ACTIVE" },
       select: { restaurantId: true }
     });
     if (ownerMemberships.length === 0) {

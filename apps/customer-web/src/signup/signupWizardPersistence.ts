@@ -9,6 +9,7 @@ import {
 
 const WIZARD_KEY = "serveos.signup.wizard.v2";
 const PHASE_KEY = "serveos.signup.phase.v1";
+const PENDING_BUSINESS_KEY = "serveos.signup.pendingBusiness.v1";
 
 export type SignupPhase = "intro" | "wizard" | "success";
 
@@ -74,6 +75,35 @@ export function clearSignupSession() {
   try {
     sessionStorage.removeItem(WIZARD_KEY);
     sessionStorage.removeItem(PHASE_KEY);
+    sessionStorage.removeItem(PENDING_BUSINESS_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function savePendingBusinessProvision(registrationProfile: Record<string, unknown>) {
+  try {
+    sessionStorage.setItem(PENDING_BUSINESS_KEY, JSON.stringify({ registrationProfile }));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function loadPendingBusinessProvision(): { registrationProfile: Record<string, unknown> } | null {
+  try {
+    const raw = sessionStorage.getItem(PENDING_BUSINESS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { registrationProfile?: Record<string, unknown> };
+    if (!parsed.registrationProfile || typeof parsed.registrationProfile !== "object") return null;
+    return { registrationProfile: parsed.registrationProfile };
+  } catch {
+    return null;
+  }
+}
+
+export function clearPendingBusinessProvision() {
+  try {
+    sessionStorage.removeItem(PENDING_BUSINESS_KEY);
   } catch {
     /* ignore */
   }

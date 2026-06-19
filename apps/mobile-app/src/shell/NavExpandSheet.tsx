@@ -1,6 +1,6 @@
 import React from "react";
 import { useWindowDimensions } from "react-native";
-import { Gesture } from "react-native-gesture-handler";
+import { Gesture, type NativeGesture } from "react-native-gesture-handler";
 import type { SharedValue } from "react-native-reanimated";
 import { runOnJS, useAnimatedReaction, useSharedValue, withSpring } from "react-native-reanimated";
 import type { EdgeInsets } from "react-native-safe-area-context";
@@ -91,7 +91,24 @@ type PanDeps = {
   /** Set on pan end before spring so snap-impact reaction can fire on first band entry. */
   snapImpactTargetSV: SharedValue<number>;
   snapImpactArmedSV: SharedValue<number>;
+  /** When set, sheet pan defers to in-sheet scroll until top/bottom overscroll. */
+  sheetContentScrollYSV?: SharedValue<number>;
+  sheetContentScrollAtEndSV?: SharedValue<number>;
+  nativeScrollGesture?: NativeGesture;
 };
+
+const SCROLL_TOP_HANDOFF_PX = 10;
+
+function sheetPanShouldDeferToScroll(
+  scrollY: number,
+  atEnd: boolean,
+  translationY: number
+): boolean {
+  "worklet";
+  if (scrollY > SCROLL_TOP_HANDOFF_PX && translationY < 0 && !atEnd) return true;
+  if (scrollY > SCROLL_TOP_HANDOFF_PX && translationY > 0) return true;
+  return false;
+}
 
 export function buildSheetPan({
   sheetHeightSV,
@@ -102,9 +119,12 @@ export function buildSheetPan({
   onUserDragFromCollapsed,
   allowHalfDetent,
   snapImpactTargetSV,
-  snapImpactArmedSV
+  snapImpactArmedSV,
+  sheetContentScrollYSV,
+  sheetContentScrollAtEndSV,
+  nativeScrollGesture
 }: PanDeps) {
-  return Gesture.Pan()
+  const pan = Gesture.Pan()
     .maxPointers(1)
     /** Prevent accidental sheet close while scrolling inside the sheet. */
     .minDistance(10)
@@ -121,6 +141,9 @@ export function buildSheetPan({
     .onUpdate((e) => {
       const max = snapHighSV.value;
       if (max <= 0) return;
+      const scrollY = sheetContentScrollYSV?.value ?? 0;
+      const atEnd = (sheetContentScrollAtEndSV?.value ?? 0) > 0.5;
+      if (sheetPanShouldDeferToScroll(scrollY, atEnd, e.translationY)) return;
       let next = startH.value - e.translationY;
       if (next < 0) {
         next *= RUBBER;
@@ -163,6 +186,11 @@ export function buildSheetPan({
     .onFinalize(() => {
       if (dragSessionSV) dragSessionSV.value = 0;
     });
+
+  if (nativeScrollGesture) {
+    pan.simultaneousWithExternalGesture(nativeScrollGesture);
+  }
+  return pan;
 }
 
 export function useNavSheetPanGestures(
@@ -173,6 +201,9 @@ export function useNavSheetPanGestures(
     allowHalfDetent?: boolean;
     snapImpactTargetSV?: SharedValue<number>;
     snapImpactArmedSV?: SharedValue<number>;
+    sheetContentScrollYSV?: SharedValue<number>;
+    sheetContentScrollAtEndSV?: SharedValue<number>;
+    nativeScrollGesture?: NativeGesture;
   }
 ) {
   const { height: H } = useWindowDimensions();
@@ -207,6 +238,10 @@ export function useNavSheetPanGestures(
 
   const sheetPanDragSessionSV = useSharedValue(0);
 
+  const sheetContentScrollYSV = options?.sheetContentScrollYSV;
+  const sheetContentScrollAtEndSV = options?.sheetContentScrollAtEndSV;
+  const nativeScrollGesture = options?.nativeScrollGesture;
+
   const deps: PanDeps = {
     sheetHeightSV,
     startH,
@@ -216,7 +251,10 @@ export function useNavSheetPanGestures(
     onUserDragFromCollapsed,
     allowHalfDetent,
     snapImpactTargetSV,
-    snapImpactArmedSV
+    snapImpactArmedSV,
+    sheetContentScrollYSV,
+    sheetContentScrollAtEndSV,
+    nativeScrollGesture
   };
 
   const panMemoDeps: unknown[] = [
@@ -228,7 +266,10 @@ export function useNavSheetPanGestures(
     onUserDragFromCollapsed,
     allowHalfDetent,
     snapImpactTargetSV,
-    snapImpactArmedSV
+    snapImpactArmedSV,
+    sheetContentScrollYSV,
+    sheetContentScrollAtEndSV,
+    nativeScrollGesture
   ];
 
   const panVerticalOnSheetBody = React.useMemo(() => buildSheetPan(deps), panMemoDeps);

@@ -36,6 +36,10 @@ const MESSAGES: Record<string, string> = {
   not_found: "We could not find what you requested.",
   server_error: "Something went wrong. Try again.",
   user_already_exists: "That email is already registered — use Log in instead.",
+  email_already_exists:
+    "An account already exists with this email. Sign in to continue — your customer history and workspace access stay on one identity.",
+  phone_already_exists:
+    "An account already exists with this phone number. Sign in to continue.",
   identity_exists_use_login:
     "This email already has a ServeOS account. Sign in to join this workspace — no new account is needed.",
   email_or_phone_required: "Email or phone is required.",
@@ -55,7 +59,23 @@ const MESSAGES: Record<string, string> = {
   login_required: "Sign in to continue.",
   email_mismatch: "This invite was sent to a different email address.",
   account_already_exists: "An account already exists for this email. Sign in instead.",
-  sign_up_failed: "Could not create your account. Try again."
+  sign_up_failed: "Could not create your account. Try again.",
+  provision_failed: "Could not create your restaurant workspace. Try again.",
+  first_venue_requires_business_signup:
+    "Complete business onboarding to create your first restaurant workspace.",
+  trust_action_blocked:
+    "This action is blocked for fraud and conflict-of-interest protection.",
+  trust_approval_required:
+    "This action requires manager or owner approval before it can proceed.",
+  approval_not_found: "Approval request not found.",
+  approval_already_resolved: "This approval request was already handled.",
+  approval_expired: "This approval request has expired. Submit a new request.",
+  self_approval_forbidden: "You cannot approve your own request.",
+  owner_approval_required: "An owner must approve this action.",
+  manager_approval_required: "A manager or owner must approve this action.",
+  trust_block_overrides_approval: "This action is permanently blocked and cannot be approved.",
+  approval_not_approved: "This action has not been approved yet.",
+  approval_requester_mismatch: "Only the original requester can execute this approved action."
 };
 
 export function apiErrorMessage(code?: string | null): string {

@@ -304,6 +304,20 @@ model Restaurant {
   @@index([companyId])
 }
 
+/// Recent staff action velocity window for fraud detection (in-memory substitute persisted per actor).
+model TrustActionVelocity {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  actionType  String
+  count       Int      @default(1)
+  windowStart DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([workspaceId, userId, actionType])
+  @@index([workspaceId, userId])
+}
+
 /// In-progress customer table booking per venue (mobile Book tab); server source of truth.
 model CustomerReservationDraft {
   id                 String   @id @default(cuid())
@@ -500,13 +514,108 @@ enum OrderStatus {
   CANCELLED
 }
 
+/// Immutable context at order creation — customer identity cannot be overridden by role switching.
+enum OrderCreatedContext {
+  CUSTOMER
+  STAFF
+}
+
+enum TrustEventType {
+  FRAUD_DETECTED
+  APPROVAL_REQUESTED
+  APPROVED
+  REJECTED
+  EXECUTED
+  BLOCKED
+  AUDIT_LOG
+}
+
+enum TrustEntityType {
+  ORDER
+  PAYMENT
+  USER
+  MENU
+  STAFF
+  SHIFT
+}
+
+enum TrustActionType {
+  DISCOUNT
+  REFUND
+  COMP
+  ORDER_EDIT
+  ORDER_CANCEL
+  ORDER_STATUS
+  PRICE_EDIT
+  ROLE_CHANGE
+  PERMISSION_CHANGE
+}
+
+enum TrustActorContext {
+  CUSTOMER
+  STAFF
+  ADMIN
+}
+
+enum TrustDecision {
+  ALLOW
+  REQUIRE_APPROVAL
+  BLOCK
+  FLAG
+}
+
+enum TrustEventStatus {
+  PENDING
+  RESOLVED
+  FINAL
+}
+
+enum FraudDetectorType {
+  COI_DETECTED
+  DISCOUNT_ABUSE
+  REFUND_ABUSE
+  VELOCITY_ANOMALY
+  ROLE_ABUSE
+  IDENTITY_SWITCHING
+  COLLUSION
+  SHIFT_ANOMALY
+  PRICE_MANIPULATION
+}
+
+enum ApprovalTaskStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+  ESCALATED
+}
+
+enum ApprovalRequiredRole {
+  MANAGER
+  OWNER
+  SHIFT_LEAD
+  INDEPENDENT_STAFF
+}
+
+enum ApprovalActionType {
+  APPROVE
+  REJECT
+  ESCALATE
+}
+
 model Order {
   id             String      @id @default(cuid())
   restaurantId   String
   customerUserId String?
+  /// User who initiated the order (usually same as customerUserId for customer-placed orders).
+  createdByUserId  String?
+  /// Locked at creation — staff role switching cannot change financial ownership.
+  createdByContext OrderCreatedContext @default(CUSTOMER)
   status         OrderStatus @default(PENDING)
   subtotalCents  Int
   taxCents       Int         @default(0)
+  discountCents  Int         @default(0)
+  refundedCents  Int         @default(0)
   totalCents     Int
   note           String?
   createdAt      DateTime    @default(now())
@@ -519,6 +628,120 @@ model Order {
 
   @@index([restaurantId, createdAt])
   @@index([customerUserId])
+  @@index([createdByUserId])
+}
+
+/// Unified trust layer — fraud, approval, and audit share this root event.
+model TrustEvent {
+  id           String            @id @default(cuid())
+  workspaceId  String
+  userId       String
+  type         TrustEventType
+  entityType   TrustEntityType
+  entityId     String
+  actionType   TrustActionType
+  context      TrustActorContext
+  riskScore    Int               @default(0)
+  decision     TrustDecision
+  status       TrustEventStatus  @default(PENDING)
+  payload      Json?
+  metadata     Json?
+  createdAt    DateTime          @default(now())
+
+  fraudSignals   FraudSignal[]
+  fraudScore     FraudScore?
+  approvalTask   ApprovalTask?
+  auditLogs      TrustAuditLog[]
+
+  @@index([workspaceId, createdAt])
+  @@index([userId, createdAt])
+  @@index([entityType, entityId])
+  @@index([type, status])
+}
+
+model FraudSignal {
+  id            String            @id @default(cuid())
+  trustEventId  String
+  workspaceId   String
+  userId        String
+  detectorType  FraudDetectorType
+  severity      Int
+  reason        Json?
+  createdAt     DateTime          @default(now())
+
+  trustEvent TrustEvent @relation(fields: [trustEventId], references: [id], onDelete: Cascade)
+
+  @@index([trustEventId])
+  @@index([workspaceId, detectorType])
+  @@index([userId, createdAt])
+}
+
+model FraudScore {
+  id           String        @id @default(cuid())
+  trustEventId String        @unique
+  finalScore   Int
+  decision     TrustDecision
+  computedAt   DateTime      @default(now())
+
+  trustEvent TrustEvent @relation(fields: [trustEventId], references: [id], onDelete: Cascade)
+}
+
+model ApprovalTask {
+  id                String               @id @default(cuid())
+  trustEventId      String               @unique
+  workspaceId       String
+  entityType        TrustEntityType
+  entityId          String
+  requestedByUserId String
+  requiredRole      ApprovalRequiredRole
+  status            ApprovalTaskStatus   @default(PENDING)
+  riskScore         Int
+  expiresAt         DateTime
+  executedAt        DateTime?
+  createdAt         DateTime             @default(now())
+
+  trustEvent TrustEvent       @relation(fields: [trustEventId], references: [id], onDelete: Cascade)
+  actions    ApprovalAction[]
+
+  @@index([workspaceId, status])
+  @@index([requestedByUserId])
+  @@index([expiresAt])
+}
+
+model ApprovalAction {
+  id             String             @id @default(cuid())
+  approvalTaskId String
+  actedByUserId  String
+  action         ApprovalActionType
+  comment        String?
+  createdAt      DateTime           @default(now())
+
+  approvalTask ApprovalTask @relation(fields: [approvalTaskId], references: [id], onDelete: Cascade)
+
+  @@index([approvalTaskId])
+  @@index([actedByUserId])
+}
+
+/// Immutable forensic history for trust-layer actions.
+model TrustAuditLog {
+  id           String          @id @default(cuid())
+  trustEventId String
+  workspaceId  String
+  actorId      String
+  actionType   TrustActionType
+  entityType   TrustEntityType
+  entityId     String
+  beforeState  Json?
+  afterState   Json?
+  ipAddress    String?
+  deviceId     String?
+  createdAt    DateTime        @default(now())
+
+  trustEvent TrustEvent @relation(fields: [trustEventId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([entityType, entityId])
+  @@index([actorId])
 }
 
 enum ChatRoomType {

@@ -45,7 +45,7 @@ import { SignupConfirmModal } from "./SignupConfirmModal";
 import { VenueCountryModal } from "./VenueCountryModal";
 import { handoffToAdminApp } from "./adminHandoff";
 import { IdentityRecoveryPanel } from "../auth/IdentityRecoveryPanel";
-import { clearSignupSession, loadWizardState, saveWizardState } from "./signupWizardPersistence";
+import { clearSignupSession, clearPendingBusinessProvision, loadWizardState, savePendingBusinessProvision, saveWizardState } from "./signupWizardPersistence";
 import { SignupRegistrationLoader } from "./SignupRegistrationLoader";
 import { SignupStepShell, SignupWizardActions } from "./SignupShell";
 
@@ -190,6 +190,20 @@ export function SignupWizard({ flow, onExit, onSuccess, onGoLogin, onAccountCrea
   const [fieldErrors, setFieldErrors] = useState<Record<string, boolean>>({});
   const [bannerErr, setBannerErr] = useState<string | null>(null);
   const [identityRecovery, setIdentityRecovery] = useState(false);
+
+  function isIdentityRecoveryError(code?: string) {
+    return (
+      code === "user_already_exists" ||
+      code === "email_already_exists" ||
+      code === "phone_already_exists"
+    );
+  }
+
+  function rememberPendingBusinessProvision(payload: { registrationProfile?: Record<string, unknown> }) {
+    if (payload.registrationProfile) {
+      savePendingBusinessProvision(payload.registrationProfile);
+    }
+  }
   const [btnErr, setBtnErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [bizLookupBusy, setBizLookupBusy] = useState(false);
@@ -332,7 +346,10 @@ export function SignupWizard({ flow, onExit, onSuccess, onGoLogin, onAccountCrea
     const res = await authSignup(fin.payload);
     setBusy(false);
     if (!res.ok || !res.token) {
-      setIdentityRecovery(res.error === "user_already_exists");
+      setIdentityRecovery(isIdentityRecoveryError(res.error));
+      if (isIdentityRecoveryError(res.error)) {
+        rememberPendingBusinessProvision(fin.payload);
+      }
       setBannerErr(readApiMessage(res));
       return;
     }
@@ -368,7 +385,10 @@ export function SignupWizard({ flow, onExit, onSuccess, onGoLogin, onAccountCrea
 
     if (!res.ok || !res.token) {
       setBizAccountCreating(false);
-      setIdentityRecovery(res.error === "user_already_exists");
+      setIdentityRecovery(isIdentityRecoveryError(res.error));
+      if (isIdentityRecoveryError(res.error)) {
+        rememberPendingBusinessProvision(fin.payload);
+      }
       const msg = readApiMessage(res);
       setBannerErr(msg);
       setBtnErr(msg);
@@ -1153,6 +1173,7 @@ export function SignupWizard({ flow, onExit, onSuccess, onGoLogin, onAccountCrea
                 onTryAnotherEmail={() => {
                   setIdentityRecovery(false);
                   setBannerErr(null);
+                  clearPendingBusinessProvision();
                 }}
               />
             </div>

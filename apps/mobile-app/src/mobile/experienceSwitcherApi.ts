@@ -3,6 +3,7 @@ import type { MobileExperienceManifest } from "./mobileExperienceTypes";
 import type { WorkspaceContext } from "./workspaceApi";
 
 export type ExperienceSwitcherPayload = {
+  customerAccess: true;
   activeMode: "CUSTOMER" | "WORKSPACE";
   customerMode: { available: true; selected: boolean };
   workspaces: Array<{

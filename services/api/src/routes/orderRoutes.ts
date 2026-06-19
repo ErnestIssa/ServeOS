@@ -8,6 +8,12 @@ import { priceMenuItemLineInput, type ModifierSnap } from "../lib/menuItemLinePr
 import { autoTerminateStaleActiveOrdersForCustomer } from "../lib/autoTerminateStaleActiveOrders.js";
 import { isVenueMembershipRole } from "../lib/membershipAccess.js";
 import { applyOrderStatusOcl, loadCustomerOrderOcl } from "../lib/orderOcl.js";
+import {
+  finalizeOrderStatusAudit,
+  guardOrderStatusChange,
+  handleOrderDiscountRequest,
+  handleOrderRefundRequest
+} from "../lib/trust/orderTrustGuard.js";
 
 function roomOrder(id: string) {
   return `order:${id}`;
@@ -261,6 +267,8 @@ export async function registerOrderRoutes(
         data: {
           restaurantId: body.restaurantId,
           customerUserId: customer?.sub ?? null,
+          createdByUserId: customer?.sub ?? null,
+          createdByContext: "CUSTOMER",
           status: "PENDING",
           subtotalCents,
           taxCents,
@@ -408,11 +416,37 @@ export async function registerOrderRoutes(
     const existing = await prisma.order.findUnique({ where: { id: orderId } });
     if (!existing) throw Object.assign(new Error("order_not_found"), { statusCode: 404 });
     const user = await requireStaff(req, existing.restaurantId);
+
+    const approvalTaskId =
+      typeof (req.body as { approvalTaskId?: string }).approvalTaskId === "string"
+        ? (req.body as { approvalTaskId: string }).approvalTaskId
+        : undefined;
+
+    const { trustEventId } = await guardOrderStatusChange(
+      prisma,
+      {
+        orderId,
+        actorUserId: user.sub,
+        targetStatus: body.status,
+        approvalTaskId
+      },
+      domainEventBus
+    );
+
     const order = await applyOrderStatusOcl(
       prisma,
       { orderId, status: body.status, actorUserId: user.sub },
       { chatBus, domainEventBus }
     );
+
+    await finalizeOrderStatusAudit(prisma, {
+      trustEventId,
+      orderId,
+      actorUserId: user.sub,
+      beforeStatus: existing.status,
+      afterStatus: body.status
+    });
+
     return {
       ok: true,
       order: {
@@ -420,6 +454,63 @@ export async function registerOrderRoutes(
         lines: await prisma.orderLineItem.findMany({ where: { orderId: order.id } })
       }
     };
+  });
+
+  const discountSchema = z.object({
+    discountCents: z.number().int().positive(),
+    reason: z.string().max(500).optional(),
+    approvalTaskId: z.string().optional()
+  });
+
+  app.post("/orders/:orderId/discount", async (req) => {
+    const { orderId } = req.params as { orderId: string };
+    const body = discountSchema.parse(req.body);
+    const existing = await prisma.order.findUnique({ where: { id: orderId } });
+    if (!existing) throw Object.assign(new Error("order_not_found"), { statusCode: 404 });
+    const user = await requireStaff(req, existing.restaurantId);
+
+    const order = await handleOrderDiscountRequest(
+      prisma,
+      {
+        orderId,
+        actorUserId: user.sub,
+        discountCents: body.discountCents,
+        reason: body.reason,
+        approvalTaskId: body.approvalTaskId
+      },
+      domainEventBus
+    );
+
+    await publishOrderEvent(order.id);
+    return { ok: true, order };
+  });
+
+  const refundSchema = z.object({
+    refundCents: z.number().int().positive(),
+    reason: z.string().max(500).optional(),
+    approvalTaskId: z.string().optional()
+  });
+
+  app.post("/orders/:orderId/refund", async (req) => {
+    const { orderId } = req.params as { orderId: string };
+    const body = refundSchema.parse(req.body);
+    const existing = await prisma.order.findUnique({ where: { id: orderId } });
+    if (!existing) throw Object.assign(new Error("order_not_found"), { statusCode: 404 });
+    const user = await requireStaff(req, existing.restaurantId);
+
+    const order = await handleOrderRefundRequest(
+      prisma,
+      {
+        orderId,
+        actorUserId: user.sub,
+        refundCents: body.refundCents,
+        reason: body.reason,
+        approvalTaskId: body.approvalTaskId
+      },
+      domainEventBus
+    );
+
+    return { ok: true, order };
   });
 
   app.get("/customer/orders/:orderId/ocl", async (req, reply) => {

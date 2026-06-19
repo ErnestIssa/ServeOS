@@ -39,6 +39,8 @@ import { apiErrorMessage, apiFail, enrichApiPayload } from "./lib/apiErrors.js";
 import { registerConfigRoutes } from "./routes/configRoutes.js";
 import { registerCommunicationRoutes } from "./routes/communicationRoutes.js";
 import { registerWorkspaceEnrollmentRoutes } from "./routes/workspaceEnrollmentRoutes.js";
+import { registerWorkspaceProvisioningRoutes } from "./routes/workspaceProvisioningRoutes.js";
+import { registerTrustRoutes } from "./routes/trustRoutes.js";
 
 const port = Number(process.env.PORT ?? process.env.API_GATEWAY_PORT ?? 3000);
 /** Render / Docker: set `HOST=0.0.0.0` so the service accepts external connections. */
@@ -194,6 +196,7 @@ async function main() {
       "/customer/chat/*",
       "/restaurants/*",
       "/orders/*",
+      "/trust/*",
       "/cart/*",
       "/notifications/*",
       "/workspace-deployment/*"
@@ -210,6 +213,7 @@ async function main() {
   registerConfigRoutes(app);
   registerCommunicationRoutes(app, prisma);
   registerWorkspaceEnrollmentRoutes(app, prisma, domainEventBus);
+  registerWorkspaceProvisioningRoutes(app, prisma);
   registerAuthRoutes(app, prisma, domainEventBus);
   registerMeRoutes(app, prisma);
   registerMediaRoutes(app, prisma);
@@ -222,6 +226,7 @@ async function main() {
   registerCustomerReservationRoutes(app, prisma);
   registerCustomerChatRoutes(app, prisma, chatBus, domainEventBus);
   await registerOrderRoutes(app, prisma, orderBus, chatBus, domainEventBus);
+  registerTrustRoutes(app, prisma, domainEventBus);
   registerCustomerChatRealtime(app, prisma, chatBus);
   registerRestaurantChatRealtime(app, prisma, chatBus);
   registerNotificationRoutes(app, prisma, domainEventBus);

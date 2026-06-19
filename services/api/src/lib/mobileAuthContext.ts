@@ -68,8 +68,8 @@ export async function loadMobileAuthContext(
   const suspendedMemberships = user.memberships.filter((m) => m.status === "SUSPENDED");
 
   const explicitMode = readActiveExperienceModeFromProfile(signupProfile);
-  const activeExperienceMode: ActiveExperienceMode =
-    explicitMode ?? (activeMemberships.length > 0 ? "WORKSPACE" : "CUSTOMER");
+  /** Customer is an experience — default to browsing unless user explicitly chose a workspace. */
+  const activeExperienceMode: ActiveExperienceMode = explicitMode ?? "CUSTOMER";
 
   const preferred = readPreferredRestaurantIdFromProfile(signupProfile);
   const firstActive = activeMemberships[0]?.restaurantId ?? null;
@@ -125,7 +125,16 @@ export async function loadMobileAuthContext(
     grantedPermissions,
     venueAccessState,
     pendingVenueName,
-    suspendedVenueName
+    suspendedVenueName,
+    hasWorkspaceMemberships: activeMemberships.length > 0,
+    activeExperienceMode: effectiveExperienceMode,
+    activeRestaurantId:
+      effectiveExperienceMode === "WORKSPACE" ? activeRestaurantId : preferred ?? null,
+    activeRestaurantName:
+      effectiveExperienceMode === "WORKSPACE" && activeRestaurantId
+        ? activeMemberships.find((m) => m.restaurantId === activeRestaurantId)?.restaurant.name ??
+          null
+        : null
   });
 
   if (experience.roleType === "CUSTOMER") {

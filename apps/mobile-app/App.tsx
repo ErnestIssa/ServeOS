@@ -120,7 +120,7 @@ import { computeNavSheetSnapDims, SHEET_SPRING_CONFIG } from "./src/shell/NavExp
 import { CustomerMeStack } from "./src/customer/profile/CustomerMeStack";
 import { loadProfileAvatarUri } from "./src/customer/profile/profileAvatarStorage";
 import { CustomerNavMenuPage } from "./src/shell/CustomerNavMenuPage";
-import { ExperienceSwitcherSheet } from "./src/shell/ExperienceSwitcherSheet";
+import { ExperienceSwitcherPanel } from "./src/shell/ExperienceSwitcherPanel";
 import { FloatingTopBar, FLOATING_TOP_BAR_HEIGHT } from "./src/shell/FloatingTopBar";
 import { createAppStyles } from "./src/theme/createAppStyles";
 import { R } from "./src/theme";
@@ -186,7 +186,6 @@ export default function App() {
   const [customerSearchQuery, setCustomerSearchQuery] = React.useState("");
   /** Full-screen page from customer top-bar menu (hamburger); back restores prior tab/screen. */
   const [customerNavMenuOpen, setCustomerNavMenuOpen] = React.useState(false);
-  const [experienceSwitcherOpen, setExperienceSwitcherOpen] = React.useState(false);
   const [experienceSwitcher, setExperienceSwitcher] = React.useState<ExperienceSwitcherPayload | null>(null);
   const [experienceSwitchBusy, setExperienceSwitchBusy] = React.useState(false);
   const [menuRid, setMenuRid] = React.useState("");
@@ -294,32 +293,6 @@ export default function App() {
     if (res.ok) setExperienceSwitcher(res.switcher);
   }, [token]);
 
-  const applyActiveExperience = React.useCallback(
-    async (body: { mode: "CUSTOMER" } | { mode: "WORKSPACE"; restaurantId: string }) => {
-      if (!token) return;
-      setExperienceSwitchBusy(true);
-      try {
-        const res = await patchActiveExperience(token, body);
-        if (!res.ok) {
-          setStatus(res.error ?? "Could not switch experience");
-          return;
-        }
-        setExperienceSwitcher(res.switcher);
-        setSessionUser((u) =>
-          u ? { ...u, roleType: res.experience.roleType, mobileExperience: res.experience } : u
-        );
-        if (res.workspace) setWorkspaceContext(res.workspace);
-        else setWorkspaceContext(null);
-        setExperienceSwitcherOpen(false);
-        setTab(defaultNavTabKey(res.experience) as TabId);
-        void refreshRestaurants(token);
-      } finally {
-        setExperienceSwitchBusy(false);
-      }
-    },
-    [token]
-  );
-
   React.useEffect(() => {
     if (!isProfileNavTab(tab)) setMeStackAtRoot(true);
   }, [tab]);
@@ -401,7 +374,7 @@ export default function App() {
     setMyOrders([]);
     setMeAvatarUri(null);
     setCustomerNavMenuOpen(false);
-    setExperienceSwitcherOpen(false);
+    setNavSheetExperienceMode(false);
     setExperienceSwitcher(null);
   }, [token, sessionUser?.id]);
 
@@ -447,6 +420,7 @@ export default function App() {
   const [homeNavSheetCartEligible, setHomeNavSheetCartEligible] = React.useState(false);
   /** True from search-bar open until sheet fully closes or cart sheet takes over — drives full-only sheet snap + early mount. */
   const [navSheetSearchMode, setNavSheetSearchMode] = React.useState(false);
+  const [navSheetExperienceMode, setNavSheetExperienceMode] = React.useState(false);
 
   const skipCartNotePersistRef = React.useRef(true);
   const cartNoteSaveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -541,6 +515,7 @@ export default function App() {
   const openCartSheetHalf = React.useCallback(() => {
     if (tabRef.current !== "home") setTab("home");
     setNavSheetSearchMode(false);
+    setNavSheetExperienceMode(false);
     setHomeNavSheetCartEligible(true);
     const { snapMid } = computeNavSheetSnapDims(Dimensions.get("window").height, insets);
     armNavSheetSnapImpact(snapMid + 3);
@@ -551,6 +526,7 @@ export default function App() {
   const onSheetDragOpenFromCollapsed = React.useCallback(() => {
     if (tabRef.current !== "home") return;
     setNavSheetSearchMode(false);
+    setNavSheetExperienceMode(false);
     setHomeNavSheetCartEligible(true);
   }, []);
 
@@ -559,6 +535,7 @@ export default function App() {
     Keyboard.dismiss();
     setCustomerSearchQuery("");
     setHomeNavSheetCartEligible(false);
+    setNavSheetExperienceMode(false);
     setNavSheetSearchMode(true);
     const { snapHigh } = computeNavSheetSnapDims(Dimensions.get("window").height, insets);
     armNavSheetSnapImpact(snapHigh);
@@ -659,6 +636,7 @@ export default function App() {
         if (typeof prevH === "number" && prevH > 12) {
           runOnJS(setHomeNavSheetCartEligible)(false);
           runOnJS(setNavSheetSearchMode)(false);
+          runOnJS(setNavSheetExperienceMode)(false);
         }
       }
 
@@ -689,10 +667,50 @@ export default function App() {
 
   const openExperienceSwitcher = React.useCallback(() => {
     Keyboard.dismiss();
-    if (sheetBackdropActive) closeSheetFromBackdrop();
+    setCustomerNavMenuOpen(false);
+    setHomeNavSheetCartEligible(false);
+    setNavSheetSearchMode(false);
+    setNavSheetExperienceMode(true);
     void refreshExperienceSwitcher();
-    setExperienceSwitcherOpen(true);
-  }, [sheetBackdropActive, closeSheetFromBackdrop, refreshExperienceSwitcher]);
+    const { snapHigh } = computeNavSheetSnapDims(Dimensions.get("window").height, insets);
+    armNavSheetSnapImpact(snapHigh);
+    sheetHeightSV.value = withTiming(snapHigh, {
+      duration: SEARCH_SHEET_OPEN_MS,
+      easing: Easing.inOut(Easing.cubic)
+    });
+  }, [insets, sheetHeightSV, armNavSheetSnapImpact, refreshExperienceSwitcher]);
+
+  const closeNavSheetFully = React.useCallback(() => {
+    armNavSheetSnapImpact(0);
+    sheetHeightSV.value = withTiming(0, { duration: 520, easing: Easing.inOut(Easing.cubic) });
+  }, [armNavSheetSnapImpact, sheetHeightSV]);
+
+  const applyActiveExperience = React.useCallback(
+    async (body: { mode: "CUSTOMER" } | { mode: "WORKSPACE"; restaurantId: string }) => {
+      if (!token) return;
+      setExperienceSwitchBusy(true);
+      try {
+        const res = await patchActiveExperience(token, body);
+        if (!res.ok) {
+          setStatus(res.error ?? "Could not switch experience");
+          return;
+        }
+        setExperienceSwitcher(res.switcher);
+        setSessionUser((u) =>
+          u ? { ...u, roleType: res.experience.roleType, mobileExperience: res.experience } : u
+        );
+        if (res.workspace) setWorkspaceContext(res.workspace);
+        else setWorkspaceContext(null);
+        setNavSheetExperienceMode(false);
+        closeNavSheetFully();
+        setTab(defaultNavTabKey(res.experience) as TabId);
+        void refreshRestaurants(token);
+      } finally {
+        setExperienceSwitchBusy(false);
+      }
+    },
+    [token, closeNavSheetFully]
+  );
 
   const openNutritionAfterFullSheet = React.useCallback(() => {
     const { snapHigh } = computeNavSheetSnapDims(Dimensions.get("window").height, insets);
@@ -809,8 +827,9 @@ export default function App() {
       }
     }
     setSessionUser(user);
+    void refreshExperienceSwitcher(jwt);
     return user;
-  }, []);
+  }, [refreshExperienceSwitcher]);
 
   const completeAuthSession = React.useCallback(
     async ({ token: jwt }: { token: string; user: AuthUser }) => {
@@ -818,6 +837,8 @@ export default function App() {
       await AsyncStorage.setItem(AUTH_TOKEN_KEY, jwt);
       setToken(jwt);
       setUserRole(meUser.role);
+      const exp = meUser.mobileExperience ?? (await fetchMobileExperience(jwt));
+      if (exp) setTab(defaultNavTabKey(exp) as TabId);
       setStatus("");
       void syncDevicePushTokenWithBackend(jwt);
     },
@@ -836,6 +857,7 @@ export default function App() {
             if (cancelled) return;
             setToken(stored);
             setUserRole(user.role);
+            if (user.mobileExperience) setTab(defaultNavTabKey(user.mobileExperience) as TabId);
             void syncDevicePushTokenWithBackend(stored);
           } catch {
             await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
@@ -1560,17 +1582,19 @@ export default function App() {
   const pageTitle = navTabLabel(mobileExperience, tab) ?? "ServeOS";
 
   const leftLabel =
-    experienceSwitcher?.customerMode.selected
+    mobileExperience?.activeExperience?.label ??
+    (experienceSwitcher?.customerMode.selected
       ? "Customer"
       : experienceSwitcher?.activeWorkspace?.restaurantName ??
         (menuPreview?.ok && menuPreview.restaurant?.name ? String(menuPreview.restaurant.name) : null) ??
         (restaurants[0]?.name ? String(restaurants[0]?.name) : null) ??
-        "ServeOS";
+        "ServeOS");
 
   const leftSubLabel =
-    experienceSwitcher?.activeWorkspace && !experienceSwitcher.customerMode.selected
+    mobileExperience?.activeExperience?.roleLabel ??
+    (experienceSwitcher?.activeWorkspace && !experienceSwitcher.customerMode.selected
       ? experienceSwitcher.activeWorkspace.roleLabel
-      : undefined;
+      : undefined);
 
   /** One nav capsule look for all customer tabs (matches Home glass chrome). */
   const navGradient = isCustomerSession
@@ -1613,6 +1637,7 @@ export default function App() {
     token &&
     isCustomerSession &&
     !homeNavSheetCartEligible &&
+    !navSheetExperienceMode &&
     (navSheetSearchMode || sheetBackdropActive) &&
     menuPreview?.ok &&
     menuPreview.restaurant ? (
@@ -1625,6 +1650,50 @@ export default function App() {
         onAddItem={(it) => void addMenuLineFromBrowse(it.id)}
         addingItemIds={addingById}
         markedMenuItemIds={markedMenuItemIds}
+      />
+    ) : null;
+
+  const sheetExperiencePanel =
+    token &&
+    navSheetExperienceMode &&
+    !homeNavSheetCartEligible &&
+    !navSheetSearchMode ? (
+      <ExperienceSwitcherPanel
+        authToken={token}
+        switcher={experienceSwitcher}
+        busy={experienceSwitchBusy}
+        userId={sessionUser?.id}
+        userDisplayName={customerDisplayName(sessionUser?.signupProfile, sessionUser?.email ?? undefined)}
+        activeVenueId={activeRestaurantId()}
+        activeVenueName={
+          menuPreview?.ok &&
+          menuPreview.restaurant &&
+          String(menuPreview.restaurant.id).trim() === activeRestaurantId().trim()
+            ? String(menuPreview.restaurant.name ?? "")
+            : ""
+        }
+        venueSwitchLocked={isServeosDemoMenuEnabled()}
+        onVenueHydrated={async (restaurantId) => {
+          await applyCustomerVenueChange(restaurantId);
+          setNavSheetExperienceMode(false);
+          closeNavSheetFully();
+        }}
+        onSelectCustomer={() => void applyActiveExperience({ mode: "CUSTOMER" })}
+        onSelectWorkspace={(restaurantId) =>
+          void applyActiveExperience({ mode: "WORKSPACE", restaurantId })
+        }
+        onJoined={() => {
+          if (!token) return;
+          void fetchMobileExperience(token).then((experience) => {
+            if (!experience) return;
+            setSessionUser((u) =>
+              u ? { ...u, roleType: experience.roleType, mobileExperience: experience } : u
+            );
+          });
+          void refreshExperienceSwitcher();
+          void refreshWorkspaceContext();
+          void refreshRestaurants(token);
+        }}
       />
     ) : null;
 
@@ -1656,8 +1725,10 @@ export default function App() {
             searchPlaceholder="Search dishes, drinks…"
             searchSheetFullyExpanded={sheetOpenStage === 2}
             onSearchExpandSheet={expandCustomerNavSheetFullFromSearch}
-            onSearchSubmit={() => void appendNavSearchRecent(customerSearchQuery.trim())}
-            onExperienceSwitcher={openExperienceSwitcher}
+      onSearchSubmit={() => void appendNavSearchRecent(customerSearchQuery.trim())}
+      experienceModeLabel={mobileExperience?.activeExperience?.label ?? "Customer"}
+      onExperienceModePress={openExperienceSwitcher}
+      onExperienceSwitcher={openExperienceSwitcher}
             onMenu={() => {
               Keyboard.dismiss();
               if (sheetBackdropActive) closeSheetFromBackdrop();
@@ -2135,32 +2206,6 @@ export default function App() {
         />
       ) : null}
 
-      {token ? (
-        <ExperienceSwitcherSheet
-          visible={experienceSwitcherOpen}
-          authToken={token}
-          switcher={experienceSwitcher}
-          busy={experienceSwitchBusy}
-          onClose={() => setExperienceSwitcherOpen(false)}
-          onSelectCustomer={() => void applyActiveExperience({ mode: "CUSTOMER" })}
-          onSelectWorkspace={(restaurantId) =>
-            void applyActiveExperience({ mode: "WORKSPACE", restaurantId })
-          }
-          onJoined={() => {
-            if (!token) return;
-            void fetchMobileExperience(token).then((experience) => {
-              if (!experience) return;
-              setSessionUser((u) =>
-                u ? { ...u, roleType: experience.roleType, mobileExperience: experience } : u
-              );
-            });
-            void refreshExperienceSwitcher();
-            void refreshWorkspaceContext();
-            void refreshRestaurants(token);
-          }}
-        />
-      ) : null}
-
       <FloatingGlassTabBar
         tab={tab}
         onChange={(next) => {
@@ -2172,9 +2217,9 @@ export default function App() {
         sheetHeightSV={sheetHeightSV}
         snapImpactTargetSV={snapImpactTargetSV}
         snapImpactArmedSV={snapImpactArmedSV}
-        sheetContent={sheetCartPanel ?? sheetSearchPanel ?? undefined}
+        sheetContent={sheetCartPanel ?? sheetExperiencePanel ?? sheetSearchPanel ?? undefined}
         onSheetDragOpenFromCollapsed={onSheetDragOpenFromCollapsed}
-        sheetFullOnly={navSheetSearchMode}
+        sheetFullOnly={navSheetSearchMode || navSheetExperienceMode}
         messagesUnreadCount={chatUnreadCount}
         ordersActiveCount={ordersTabBadgeCount}
         bookingsUpcomingCount={bookTabBadgeCount}

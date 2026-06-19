@@ -567,6 +567,10 @@ export function createInitialSignupForm(): SignupFormState {
 
 export const AUTH_ERROR_MESSAGES: Record<string, string> = {
   user_already_exists: "An account with this email or phone already exists.",
+  email_already_exists:
+    "An account already exists with this email. Sign in to continue with your existing identity.",
+  phone_already_exists:
+    "An account already exists with this phone number. Sign in to continue.",
   email_or_phone_required: "Email or phone is required.",
   sign_up_failed: "Could not create your account. Try again.",
   invalid_registration_profile:

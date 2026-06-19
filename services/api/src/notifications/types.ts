@@ -19,7 +19,15 @@ export type DomainEventType =
   | "staff.rejected"
   | "system.alert"
   | "device.offline"
-  | "integration.failed";
+  | "integration.failed"
+  | "fraud.risk.detected"
+  | "fraud.action.blocked"
+  | "approval.request.created"
+  | "approval.request.approved"
+  | "approval.request.rejected"
+  | "approval.request.expired"
+  | "order.discount.applied"
+  | "order.refunded";
 
 export type DomainEvent = {
   id: string;

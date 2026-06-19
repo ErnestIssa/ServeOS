@@ -42,6 +42,8 @@ type Props =
       searchSheetFullyExpanded?: boolean;
       /** First taps on the search field call this (no keyboard); typing works once the sheet is fully open. */
       onSearchExpandSheet?: () => void;
+      experienceModeLabel?: string;
+      onExperienceModePress?: () => void;
       onExperienceSwitcher?: () => void;
       onMenu?: () => void;
     };
@@ -92,6 +94,8 @@ function CustomerTopBarChrome({
   onSearchSubmit,
   searchSheetFullyExpanded,
   onSearchExpandSheet,
+  onExperienceModePress,
+  experienceModeLabel,
   onExperienceSwitcher,
   onMenu
 }: CustomerChromeProps) {
@@ -100,6 +104,14 @@ function CustomerTopBarChrome({
 
   return (
     <View style={[styles.row, styles.customerRow]}>
+      {experienceModeLabel && onExperienceModePress ? (
+        <Pressable onPress={onExperienceModePress} style={styles.customerModeChip} hitSlop={8}>
+          <Text style={styles.customerModeChipText} numberOfLines={1}>
+            {experienceModeLabel}
+          </Text>
+          <Text style={styles.customerModeChev}>▼</Text>
+        </Pressable>
+      ) : null}
       <View style={styles.searchFieldCustomer}>
         <IconSearch color="rgba(15,23,42,0.4)" />
         <TextInput
@@ -340,6 +352,29 @@ const styles = StyleSheet.create({
   customerRow: {
     gap: 10,
     paddingHorizontal: 10
+  },
+  customerModeChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.22)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.45)",
+    maxWidth: 118
+  },
+  customerModeChipText: {
+    color: "rgba(255,255,255,0.92)",
+    fontSize: 12,
+    fontWeight: "800",
+    flexShrink: 1
+  },
+  customerModeChev: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 10,
+    fontWeight: "800"
   },
   searchFieldCustomer: {
     flex: 1,

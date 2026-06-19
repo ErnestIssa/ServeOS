@@ -32,7 +32,8 @@ export type MeHubRowAction =
   | "open_support"
   | "navigate_section"
   | "navigate_screen"
-  | "sign_out";
+  | "sign_out"
+  | "choose_venue";
 
 export type ControlCentreRowAction =
   | "navigate_help"
@@ -100,11 +101,21 @@ export type SettingsDetailKey =
   | "navigation"
   | "sounds_voice";
 
-export type VenueAccessState = "none" | "active" | "pending_approval";
+export type VenueAccessState = "none" | "active" | "pending_approval" | "suspended";
+
+export type ActiveExperienceInfo = {
+  mode: "CUSTOMER" | "WORKSPACE";
+  label: string;
+  restaurantId?: string;
+  restaurantName?: string;
+  roleLabel?: string;
+};
 
 export type MobileExperienceManifest = {
   roleType: MobileRoleType;
   permissions: string[];
+  customerAccess: boolean;
+  activeExperience: ActiveExperienceInfo;
   venueAccess?: {
     state: VenueAccessState;
     pendingVenueName?: string;

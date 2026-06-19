@@ -1,8 +1,9 @@
 import { readApiMessage } from "../bootstrap/clientConfig";
 import { useState, type ReactNode } from "react";
-import { login } from "../api";
+import { login, provisionBusinessWorkspace } from "../api";
 import { iconPath } from "../marketing/assetPaths";
 import { handoffToAdminApp } from "../signup/adminHandoff";
+import { clearPendingBusinessProvision, clearSignupSession, loadPendingBusinessProvision } from "../signup/signupWizardPersistence";
 import { SignupRegistrationLoader } from "../signup/SignupRegistrationLoader";
 import { SignupStepShell, SignupWizardActions } from "../signup/SignupShell";
 
@@ -134,6 +135,22 @@ export function LoginWizard({ onExit, onForgotPassword, onSigningInChange }: Pro
       setBtnErr(readApiMessage(res));
       return;
     }
+
+    const pending = loadPendingBusinessProvision();
+    if (pending?.registrationProfile) {
+      const provisioned = await provisionBusinessWorkspace(res.token, pending.registrationProfile);
+      if (!provisioned.ok || !provisioned.token) {
+        setBusy(false);
+        onSigningInChange?.(false);
+        setBtnErr(readApiMessage(provisioned));
+        return;
+      }
+      clearPendingBusinessProvision();
+      clearSignupSession();
+      handoffToAdminApp(provisioned.token);
+      return;
+    }
+
     handoffToAdminApp(res.token);
   };
 

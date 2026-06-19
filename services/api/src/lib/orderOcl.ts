@@ -20,6 +20,10 @@ import { notifyOclUpdated } from "../notifications/integrations/ocl.js";
 import { notifyOrderUpdated } from "../notifications/integrations/orders.js";
 import type { EventEmitter } from "node:events";
 import { formatMoneyCentsPlain } from "./formatMoney.js";
+import {
+  finalizeOrderStatusAudit,
+  guardOrderStatusChange
+} from "./trust/orderTrustGuard.js";
 
 export type OclTimelineEvent = {
   id: string;
@@ -406,7 +410,7 @@ export async function performOclStatusAction(
   ctx: MobileAuthContext,
   orderId: string,
   nextStatus: OrderStatus,
-  opts?: { announceInChat?: boolean; note?: string },
+  opts?: { announceInChat?: boolean; note?: string; approvalTaskId?: string },
   chatBus?: EventEmitter,
   domainEventBus?: EventEmitter
 ) {
@@ -417,6 +421,17 @@ export async function performOclStatusAction(
   });
   if (!order) throw Object.assign(new Error("order_not_found"), { statusCode: 404 });
   await requireVenueMembership(prisma, ctx, order.restaurantId);
+
+  const { trustEventId } = await guardOrderStatusChange(
+    prisma,
+    {
+      orderId,
+      actorUserId: ctx.userId,
+      targetStatus: nextStatus,
+      approvalTaskId: opts?.approvalTaskId
+    },
+    domainEventBus
+  );
 
   const announce = opts?.announceInChat !== false;
   if (announce) {
@@ -445,6 +460,14 @@ export async function performOclStatusAction(
       });
     }
   }
+
+  await finalizeOrderStatusAudit(prisma, {
+    trustEventId,
+    orderId,
+    actorUserId: ctx.userId,
+    beforeStatus: order.status,
+    afterStatus: nextStatus
+  });
 
   if (opts?.note?.trim()) {
     let chatRoomId = order.chatRoom?.id ?? null;

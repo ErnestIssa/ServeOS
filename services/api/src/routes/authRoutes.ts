@@ -4,8 +4,6 @@ import type { FastifyInstance } from "fastify";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { toJwtRole } from "../plugins/auth.js";
-import { readPreferredRestaurantIdFromProfile } from "../lib/customerPreferredVenue.js";
-import { loadMobileAuthContext } from "../lib/mobileAuthContext.js";
 import { completeWorkspaceEnrollment, inviteEmailForToken } from "../lib/workspaceEnrollmentService.js";
 import { notifyStaffPendingApproval } from "../notifications/integrations/staff.js";
 import { isAuthTokenRevoked, revokeAuthToken } from "../lib/authTokenRevocation.js";
@@ -33,7 +31,7 @@ import {
   recordLoginFailure
 } from "../lib/auth/loginProtectionService.js";
 import { verifyUserPassword } from "../lib/auth/verifyUserPassword.js";
-import { readUserDisplayName } from "../lib/userDisplayName.js";
+import { publicUserFromDbRow, enrichUserWithExperience } from "../lib/auth/authRouteHelpers.js";
 
 /** Fields that exist on every deployed DB revision (safe for signup response + fallbacks). */
 const USER_CORE_SELECT = {
@@ -42,42 +40,6 @@ const USER_CORE_SELECT = {
   phone: true,
   role: true
 } as const;
-
-function publicUserFromDbRow(row: {
-  id: string;
-  email: string | null;
-  phone: string | null;
-  role: string;
-  signupProfile?: unknown | null;
-  accountFullName?: string | null;
-}) {
-  const displayName = readUserDisplayName({
-    email: row.email,
-    signupProfile: row.signupProfile,
-    accountFullName: row.accountFullName
-  });
-  return {
-    id: row.id,
-    email: row.email,
-    phone: row.phone,
-    role: row.role,
-    displayName,
-    fullName: displayName,
-    signupProfile: row.signupProfile ?? null,
-    preferredRestaurantId: readPreferredRestaurantIdFromProfile(row.signupProfile)
-  };
-}
-
-async function enrichUserWithExperience(prisma: PrismaClient, userId: string, base: ReturnType<typeof publicUserFromDbRow>) {
-  const ctx = await loadMobileAuthContext(prisma, userId);
-  if (!ctx) return base;
-  return {
-    ...base,
-    roleType: ctx.experience.roleType,
-    mobileExperience: ctx.experience,
-    venueAccessState: ctx.venueAccessState
-  };
-}
 
 async function findUserForAuthMe(prisma: PrismaClient, sub: string) {
   try {
@@ -112,32 +74,10 @@ async function findUserForAuthMe(prisma: PrismaClient, sub: string) {
 
 const SALT_ROUNDS = 10;
 
-function normalizeOrgNumber(raw: string): string {
-  const digits = raw.replace(/\D+/g, "");
-  if (digits.length > 0) return digits;
-  return raw.trim().toLowerCase();
-}
-
-/** Mobile business wizard final payload subset required to provision Company + first Restaurant */
-const businessSignupProvisionSchema = z
-  .object({
-    flow: z.literal("BUSINESS"),
-    orgNumber: z.string().min(1),
-    companyName: z.string().min(1),
-    venueTradingName: z.string().min(2),
-    businessType: z.enum(["Restaurant", "Cafe", "Bakery", "Other"]),
-    businessTypeOtherDescription: z.string().optional(),
-    establishmentLocation: z.string().min(2),
-    offeringsDescription: z.string().min(2)
-  })
-  .superRefine((d, ctx) => {
-    if (d.businessType === "Other" && !(d.businessTypeOtherDescription ?? "").trim()) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["businessTypeOtherDescription"]
-      });
-    }
-  });
+import {
+  businessProvisionSchema,
+  provisionBusinessWorkspaceForUser
+} from "../lib/businessProvisioningService.js";
 
 export function registerAuthRoutes(
   app: FastifyInstance,
@@ -172,9 +112,16 @@ export function registerAuthRoutes(
 
     const identityGate = await assertSignupIdentityAvailable(prisma, normalized);
     if (!identityGate.ok) {
-      return reply.status(identityGate.error === "user_already_exists" ? 409 : 400).send({
+      const status =
+        identityGate.error === "email_already_exists" ||
+        identityGate.error === "phone_already_exists" ||
+        identityGate.error === "user_already_exists"
+          ? 409
+          : 400;
+      return reply.status(status).send({
         ok: false,
-        error: identityGate.error
+        error: identityGate.error,
+        ...(identityGate.conflictField ? { conflictField: identityGate.conflictField } : {})
       });
     }
 
@@ -205,9 +152,9 @@ export function registerAuthRoutes(
       reg &&
       typeof reg === "object" &&
       (reg as { flow?: unknown }).flow === "BUSINESS";
-    let businessProvision: z.infer<typeof businessSignupProvisionSchema> | null = null;
+    let businessProvision: z.infer<typeof businessProvisionSchema> | null = null;
     if (needsBusinessBootstrap) {
-      const parsed = businessSignupProvisionSchema.safeParse(reg);
+      const parsed = businessProvisionSchema.safeParse(reg);
       if (!parsed.success) {
         return reply.status(400).send({ ok: false, error: "invalid_registration_profile" });
       }
@@ -249,38 +196,9 @@ export function registerAuthRoutes(
     }
 
     if (businessProvision && dbUser.role === "OWNER") {
-      const orgKey = normalizeOrgNumber(businessProvision.orgNumber);
       try {
-        await prisma.$transaction(async (tx) => {
-          const company = await tx.company.upsert({
-            where: { orgNumberNormalized: orgKey },
-            create: { orgNumberNormalized: orgKey, legalName: businessProvision!.companyName.trim() },
-            update: { legalName: businessProvision!.companyName.trim() }
-          });
-          const otherDesc =
-            businessProvision!.businessType === "Other"
-              ? businessProvision!.businessTypeOtherDescription!.trim()
-              : null;
-          const restaurant = await tx.restaurant.create({
-            data: {
-              name: businessProvision!.venueTradingName.trim(),
-              companyId: company.id,
-              venueSubtype: businessProvision!.businessType,
-              venueSubtypeOther: otherDesc,
-              establishmentLocation: businessProvision!.establishmentLocation.trim(),
-              offeringsDescription: businessProvision!.offeringsDescription.trim(),
-              accessPolicy: { maxManagers: 3, allowManagersToInviteManagers: false }
-            },
-            select: { id: true }
-          });
-          await tx.membership.create({
-            data: {
-              userId: dbUser.id,
-              restaurantId: restaurant.id,
-              role: "OWNER",
-              status: "ACTIVE"
-            }
-          });
+        await provisionBusinessWorkspaceForUser(prisma, dbUser.id, businessProvision, {
+          registrationProfile: reg as Record<string, unknown> | undefined
         });
       } catch (e) {
         await prisma.user.delete({ where: { id: dbUser.id } }).catch(() => undefined);

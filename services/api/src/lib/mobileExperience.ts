@@ -8,6 +8,7 @@ import {
   screenKeysForManifest,
   WORKSPACE_SCREENS
 } from "./mobileScreenRegistry.js";
+import { membershipRoleLabel } from "./userDisplayName.js";
 
 export type MobileRoleType = "CUSTOMER" | "ADMIN" | "STAFF";
 
@@ -44,7 +45,8 @@ export type MeHubRowAction =
   | "open_support"
   | "navigate_section"
   | "navigate_screen"
-  | "sign_out";
+  | "sign_out"
+  | "choose_venue";
 
 export type ControlCentreRowAction =
   | "navigate_help"
@@ -128,6 +130,16 @@ export type MobileExperienceManifest = {
   tabScreens: Partial<Record<string, string>>;
   /** Bottom navigation — order, labels, icons, visibility (single source of truth). */
   tabs: MobileTabManifest[];
+  /** Platform identity always has customer capabilities when authenticated. */
+  customerAccess: boolean;
+  /** Active experience context — drives top chrome and switcher selection. */
+  activeExperience: {
+    mode: "CUSTOMER" | "WORKSPACE";
+    label: string;
+    restaurantId?: string;
+    restaurantName?: string;
+    roleLabel?: string;
+  };
   meHub: {
     sections: MeHubSectionManifest[];
     showNotificationToggles: boolean;
@@ -309,6 +321,34 @@ export function readStaffCapabilityFlags(signupProfile: unknown, membershipRoles
   };
 }
 
+function buildTabsForMembershipRole(
+  roleType: MobileRoleType,
+  membershipRole: string | undefined,
+  staffFlags: StaffCapabilityFlags
+): MobileTabManifest[] {
+  if (roleType !== "STAFF") return buildTabsForRole(roleType);
+  const r = (membershipRole ?? "STAFF").trim().toUpperCase();
+  if (r === "CASHIER") {
+    return [
+      { key: "orders", label: "Orders", icon: "orders", visible: true },
+      { key: "tasks", label: "Checkout", icon: "tasks", visible: staffFlags.checkout },
+      { key: "chat", label: "Chat", icon: "chat", visible: true },
+      { key: "schedule", label: "Schedule", icon: "schedule", visible: true },
+      { key: "profile", label: "Profile", icon: "profile", visible: true }
+    ];
+  }
+  if (r === "KITCHEN") {
+    return [
+      { key: "orders", label: "Kitchen", icon: "orders", visible: true },
+      { key: "tasks", label: "Tickets", icon: "tasks", visible: staffFlags.kitchen },
+      { key: "chat", label: "Chat", icon: "chat", visible: true },
+      { key: "schedule", label: "Schedule", icon: "schedule", visible: true },
+      { key: "profile", label: "Profile", icon: "profile", visible: true }
+    ];
+  }
+  return buildTabsForRole("STAFF");
+}
+
 function buildTabsForRole(roleType: MobileRoleType): MobileTabManifest[] {
   switch (roleType) {
     case "CUSTOMER":
@@ -341,7 +381,8 @@ function buildTabsForRole(roleType: MobileRoleType): MobileTabManifest[] {
 function tabScreensForRole(
   roleType: MobileRoleType,
   permSet: Set<string>,
-  staffFlags: StaffCapabilityFlags
+  staffFlags: StaffCapabilityFlags,
+  membershipRole?: string
 ): Partial<Record<string, string>> {
   if (roleType === "ADMIN") {
     const out: Partial<Record<string, string>> = {};
@@ -353,6 +394,25 @@ function tabScreensForRole(
     return out;
   }
   if (roleType === "STAFF") {
+    const r = (membershipRole ?? "STAFF").trim().toUpperCase();
+    if (r === "CASHIER") {
+      return {
+        orders: "staff.orders",
+        tasks: staffFlags.checkout ? "staff.checkout_queue" : "staff.tasks",
+        chat: "staff.chat",
+        schedule: "staff.schedule",
+        profile: "staff.profile"
+      };
+    }
+    if (r === "KITCHEN") {
+      return {
+        orders: "staff.orders",
+        tasks: staffFlags.kitchen ? "staff.kitchen_queue" : "staff.tasks",
+        chat: "staff.chat",
+        schedule: "staff.schedule",
+        profile: "staff.profile"
+      };
+    }
     return {
       orders: "staff.orders",
       tasks: "staff.tasks",
@@ -364,8 +424,23 @@ function tabScreensForRole(
   return {};
 }
 
-function buildCustomerMeHub(): MeHubSectionManifest[] {
-  return [
+function buildCustomerMeHub(options?: { showExperienceSwitcher?: boolean }): MeHubSectionManifest[] {
+  const workspaceSection: MeHubSectionManifest | null = options?.showExperienceSwitcher
+    ? {
+        id: "workspace",
+        label: "Experiences",
+        rows: [
+          {
+            id: "me:experience",
+            title: "Switch experience",
+            subtitle: "Customer mode or a restaurant workspace",
+            action: "choose_venue"
+          }
+        ]
+      }
+    : null;
+
+  const core: MeHubSectionManifest[] = [
     {
       id: "activity",
       label: "Activity",
@@ -482,6 +557,37 @@ function buildCustomerMeHub(): MeHubSectionManifest[] {
       ]
     }
   ];
+
+  return workspaceSection ? [workspaceSection, ...core] : core;
+}
+
+function buildActiveExperienceMeta(input: {
+  mode: "CUSTOMER" | "WORKSPACE";
+  restaurantId?: string | null;
+  restaurantName?: string | null;
+  roleLabel?: string | null;
+}): MobileExperienceManifest["activeExperience"] {
+  if (input.mode === "CUSTOMER") {
+    return { mode: "CUSTOMER", label: "Customer" };
+  }
+  return {
+    mode: "WORKSPACE",
+    label: input.restaurantName?.trim() || "Workspace",
+    restaurantId: input.restaurantId ?? undefined,
+    restaurantName: input.restaurantName ?? undefined,
+    roleLabel: input.roleLabel ?? undefined
+  };
+}
+
+function withExperienceIdentity(
+  manifest: Omit<MobileExperienceManifest, "customerAccess" | "activeExperience">,
+  activeExperience: MobileExperienceManifest["activeExperience"]
+): MobileExperienceManifest {
+  return {
+    ...manifest,
+    customerAccess: true,
+    activeExperience
+  };
 }
 
 function buildStaffAdminMeHub(roleType: MobileRoleType): MeHubSectionManifest[] {
@@ -1055,59 +1161,70 @@ export function buildMobileExperienceManifest(input: {
   venueAccessState?: VenueAccessState;
   pendingVenueName?: string;
   suspendedVenueName?: string;
+  hasWorkspaceMemberships?: boolean;
+  activeExperienceMode?: "CUSTOMER" | "WORKSPACE";
+  activeRestaurantId?: string | null;
+  activeRestaurantName?: string | null;
 }): MobileExperienceManifest {
   const venueAccessState = input.venueAccessState ?? (input.membershipRoles.length ? "active" : "none");
 
   if (venueAccessState === "suspended") {
     const customerPerms = permissionsForRoleType("CUSTOMER", readStaffCapabilityFlags(input.signupProfile, []));
-    return {
-      roleType: "CUSTOMER",
-      permissions: customerPerms,
-      venueAccess: {
-        state: "suspended",
-        suspendedVenueName: input.suspendedVenueName
+    return withExperienceIdentity(
+      {
+        roleType: "CUSTOMER",
+        permissions: customerPerms,
+        venueAccess: {
+          state: "suspended",
+          suspendedVenueName: input.suspendedVenueName
+        },
+        screens: screenKeysForManifest("CUSTOMER", customerPerms),
+        tabScreens: {},
+        tabs: buildTabsForRole("CUSTOMER"),
+        meHub: {
+          sections: buildCustomerMeHub({ showExperienceSwitcher: !!input.hasWorkspaceMemberships }),
+          showNotificationToggles: true,
+          showVenueLine: true
+        },
+        controlCentre: {
+          ...buildCustomerControlCentre(),
+          showDarkModeToggle: true
+        },
+        settings: settingsForRole("CUSTOMER")
       },
-      screens: screenKeysForManifest("CUSTOMER", customerPerms),
-      tabScreens: {},
-      tabs: buildTabsForRole("CUSTOMER"),
-      meHub: {
-        sections: buildCustomerMeHub(),
-        showNotificationToggles: true,
-        showVenueLine: true
-      },
-      controlCentre: {
-        ...buildCustomerControlCentre(),
-        showDarkModeToggle: true
-      },
-      settings: settingsForRole("CUSTOMER")
-    };
+      buildActiveExperienceMeta({ mode: "CUSTOMER" })
+    );
   }
 
   if (venueAccessState === "pending_approval") {
     const customerPerms = permissionsForRoleType("CUSTOMER", readStaffCapabilityFlags(input.signupProfile, []));
-    return {
-      roleType: "CUSTOMER",
-      permissions: customerPerms,
-      venueAccess: {
-        state: "pending_approval",
-        pendingVenueName: input.pendingVenueName
+    return withExperienceIdentity(
+      {
+        roleType: "CUSTOMER",
+        permissions: customerPerms,
+        venueAccess: {
+          state: "pending_approval",
+          pendingVenueName: input.pendingVenueName
+        },
+        screens: screenKeysForManifest("CUSTOMER", customerPerms),
+        tabScreens: {},
+        tabs: buildTabsForRole("CUSTOMER"),
+        meHub: {
+          sections: buildCustomerMeHub({ showExperienceSwitcher: !!input.hasWorkspaceMemberships }),
+          showNotificationToggles: true,
+          showVenueLine: true
+        },
+        controlCentre: {
+          ...buildCustomerControlCentre(),
+          showDarkModeToggle: true
+        },
+        settings: settingsForRole("CUSTOMER")
       },
-      screens: screenKeysForManifest("CUSTOMER", customerPerms),
-      tabScreens: {},
-      tabs: buildTabsForRole("CUSTOMER"),
-      meHub: {
-        sections: buildCustomerMeHub(),
-        showNotificationToggles: true,
-        showVenueLine: true
-      },
-      controlCentre: {
-        ...buildCustomerControlCentre(),
-        showDarkModeToggle: true
-      },
-      settings: settingsForRole("CUSTOMER")
-    };
+      buildActiveExperienceMeta({ mode: "CUSTOMER" })
+    );
   }
 
+  const primaryMembershipRole = input.membershipRoles[0];
   const roleStrings = [input.userRole, ...input.membershipRoles];
   const roleType = resolveMobileRoleType(roleStrings);
   const staffFlags =
@@ -1126,7 +1243,7 @@ export function buildMobileExperienceManifest(input: {
   let showVenueLine: boolean;
 
   if (roleType === "CUSTOMER") {
-    meHubSections = buildCustomerMeHub();
+    meHubSections = buildCustomerMeHub({ showExperienceSwitcher: !!input.hasWorkspaceMemberships });
     controlCentre = buildCustomerControlCentre();
     showNotificationToggles = true;
     showVenueLine = true;
@@ -1153,27 +1270,39 @@ export function buildMobileExperienceManifest(input: {
     sections: enrichSectionsWithScreens(meHubSections, permissions)
   };
 
-  return {
-    roleType,
-    permissions,
-    venueAccess: {
-      state: venueAccessState === "active" ? "active" : venueAccessState === "suspended" ? "suspended" : "none",
-      ...(venueAccessState === "suspended" ? { suspendedVenueName: input.suspendedVenueName } : {})
+  const activeExperience =
+    input.activeExperienceMode === "WORKSPACE" && roleType !== "CUSTOMER"
+      ? buildActiveExperienceMeta({
+          mode: "WORKSPACE",
+          restaurantId: input.activeRestaurantId,
+          restaurantName: input.activeRestaurantName,
+          roleLabel: primaryMembershipRole ? membershipRoleLabel(primaryMembershipRole) : undefined
+        })
+      : buildActiveExperienceMeta({ mode: "CUSTOMER" });
+
+  return withExperienceIdentity(
+    {
+      roleType,
+      permissions,
+      venueAccess: {
+        state: venueAccessState === "active" ? "active" : "none"
+      },
+      screens,
+      tabScreens: tabScreensForRole(roleType, permSet, staffFlags, primaryMembershipRole),
+      tabs: buildTabsForMembershipRole(roleType, primaryMembershipRole, staffFlags),
+      meHub: {
+        sections: enrichedMe.sections,
+        showNotificationToggles,
+        showVenueLine
+      },
+      controlCentre: {
+        ...enrichedControl,
+        showDarkModeToggle: permSet.has(PERMS.shared.theme)
+      },
+      settings
     },
-    screens,
-    tabScreens: tabScreensForRole(roleType, permSet, staffFlags),
-    tabs: buildTabsForRole(roleType),
-    meHub: {
-      sections: enrichedMe.sections,
-      showNotificationToggles,
-      showVenueLine
-    },
-    controlCentre: {
-      ...enrichedControl,
-      showDarkModeToggle: permSet.has(PERMS.shared.theme)
-    },
-    settings
-  };
+    activeExperience
+  );
 }
 
 function enrichSectionsWithScreens<T extends { id: string; rows: Array<{ id: string; action: string; title: string; subtitle: string; sectionTitle?: string; sectionSubtitle?: string; screenKey?: string }> }>(

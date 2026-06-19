@@ -143,6 +143,24 @@ export async function login(params: { email: string; password: string }): Promis
   });
 }
 
+export type ProvisionBusinessResponse = AuthResponse & {
+  restaurantId?: string;
+  companyId?: string;
+  membershipId?: string;
+};
+
+/** Attach a new OWNER workspace to the signed-in identity (no duplicate user). */
+export async function provisionBusinessWorkspace(
+  token: string,
+  registrationProfile: Record<string, unknown>
+): Promise<ProvisionBusinessResponse> {
+  return apiFetch<ProvisionBusinessResponse>("/workspaces/provision-business", {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ registrationProfile })
+  });
+}
+
 export async function requestPasswordReset(
   email: string,
   returnTo?: string | null

@@ -50,6 +50,10 @@ import {
 } from "./NavTabIcons";
 import { FLOATING_TOP_BAR_HEIGHT, FLOATING_TOP_GAP } from "./FloatingTopBar";
 import { computeNavSheetSnapDims, useNavSheetPanGestures } from "./NavExpandSheet";
+import {
+  NavSheetScrollProvider,
+  createNavSheetNativeScrollGesture
+} from "./NavSheetScrollContext";
 import { R } from "../theme";
 import { useAppTheme } from "../theme/AppThemeContext";
 
@@ -232,12 +236,29 @@ export function FloatingGlassTabBar({
     [isDark]
   );
 
+  const navSheetScrollYSV = useSharedValue(0);
+  const navSheetScrollAtEndSV = useSharedValue(0);
+  const navSheetNativeScrollGesture = React.useMemo(() => createNavSheetNativeScrollGesture(), []);
+
+  useAnimatedReaction(
+    () => sheetHeightSV.value,
+    (h) => {
+      if (h <= 2) {
+        navSheetScrollYSV.value = 0;
+        navSheetScrollAtEndSV.value = 0;
+      }
+    }
+  );
+
   const { panVerticalOnSheetBody, panVerticalSeamGrab, panVerticalWithTabsDuplicate, sheetPanDragSessionSV } =
     useNavSheetPanGestures(insets, sheetHeightSV, {
       onUserDragFromCollapsed: onSheetDragOpenFromCollapsed,
       allowHalfDetent: !sheetFullOnly,
       snapImpactTargetSV,
-      snapImpactArmedSV
+      snapImpactArmedSV,
+      sheetContentScrollYSV: navSheetScrollYSV,
+      sheetContentScrollAtEndSV: navSheetScrollAtEndSV,
+      nativeScrollGesture: navSheetNativeScrollGesture
     });
 
   const dockBottom = insets.bottom + FLOAT_MARGIN_BOTTOM;
@@ -634,7 +655,13 @@ export function FloatingGlassTabBar({
                 </Animated.View>
                 <Pressable accessible={false} style={styles.sheetBodyHost} collapsable={false} onPress={Keyboard.dismiss}>
                   <View style={styles.sheetBodyInner} collapsable={false}>
-                    {sheetContent}
+                    <NavSheetScrollProvider
+                      scrollYSV={navSheetScrollYSV}
+                      scrollAtEndSV={navSheetScrollAtEndSV}
+                      nativeScrollGesture={navSheetNativeScrollGesture}
+                    >
+                      {sheetContent}
+                    </NavSheetScrollProvider>
                   </View>
                 </Pressable>
               </Animated.View>
