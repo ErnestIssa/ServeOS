@@ -46,6 +46,7 @@ function mapOrderRow(
   o: {
     id: string;
     displaySeq: number | null;
+    displayPeriodKey: string;
     status: OrderStatus;
     source: string;
     paymentStatus: string;
@@ -85,7 +86,7 @@ function mapOrderRow(
 
   return {
     id: o.id,
-    displayNumber: formatDisplayNumber(o.displaySeq, o.id),
+    displayNumber: formatDisplayNumber(o.displaySeq, o.id, o.displayPeriodKey),
     status: canon,
     rawStatus: o.status,
     source: o.source,

@@ -112,6 +112,7 @@ export function buildOrderEventEnvelope(input: {
   totalCents: number;
   customerUserId?: string | null;
   displaySeq?: number | null;
+  displayPeriodKey?: string;
   paymentStatus?: string;
   fromStatus?: string | null;
   actorUserId?: string | null;
@@ -130,7 +131,7 @@ export function buildOrderEventEnvelope(input: {
       canonicalStatus: normalizeOrderStatus(input.status as never),
       totalCents: input.totalCents,
       customerUserId: input.customerUserId ?? null,
-      displayNumber: formatDisplayNumber(input.displaySeq, input.orderId),
+      displayNumber: formatDisplayNumber(input.displaySeq, input.orderId, input.displayPeriodKey ?? "all"),
       paymentStatus: input.paymentStatus ?? null,
       fromStatus: input.fromStatus ?? null,
       actorUserId: input.actorUserId ?? null,
@@ -150,6 +151,7 @@ export async function enqueueOrderOutboxEvent(
       totalCents: number;
       customerUserId: string | null;
       displaySeq?: number | null;
+      displayPeriodKey?: string;
       paymentStatus?: string;
     };
     fromStatus?: string | null;
@@ -167,6 +169,7 @@ export async function enqueueOrderOutboxEvent(
     totalCents: input.order.totalCents,
     customerUserId: input.order.customerUserId,
     displaySeq: input.order.displaySeq,
+    displayPeriodKey: input.order.displayPeriodKey,
     paymentStatus: input.order.paymentStatus,
     fromStatus: input.fromStatus,
     actorUserId: input.actorUserId,

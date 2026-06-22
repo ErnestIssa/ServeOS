@@ -21,6 +21,24 @@ import { listPendingCompensations } from "../lib/orders/orderCompensationService
 import { loadRestaurantOrderPolicy, mergeOrderEnginePolicy } from "../lib/orders/orderTenantPolicies.js";
 import { searchOrders } from "../lib/orders/orderSearchService.js";
 import { ORDER_READ_MODEL_POLICY } from "../lib/orders/orderReadModelPolicy.js";
+import {
+  buildOrderIdentitySnapshot,
+  listOrdersBySessionId,
+  loadRestaurantIdentityPolicy,
+  mergeOrderIdentityPolicy,
+  resolveOrderByInternalId,
+  resolveOrderByPaymentReference,
+  resolveOrderByTenantNumber,
+  resolveOrderByReceiptHash,
+  resolveOrderByGs1Identifier,
+  resolveOrderByFederationId,
+  resolveOrderByPartnerIdentity,
+  resolveOrderFromAuditLog,
+  registerPartnerOrderIdentity,
+  validateIdentityPolicyChange,
+  HISTORICAL_IDENTITY_GUARANTEE
+} from "../lib/orderIdentity/index.js";
+import { getOrderOwnership } from "../lib/orderOwnership/index.js";
 import { ORDER_STATUS_VALUES } from "../lib/orders/orderStatusValues.js";
 import { autoTerminateStaleActiveOrdersForCustomer } from "../lib/autoTerminateStaleActiveOrders.js";
 import { isVenueMembershipRole } from "../lib/membershipAccess.js";
@@ -221,7 +239,11 @@ export async function registerOrderRoutes(
       restaurantId: z.string(),
       note: z.string().max(2000).optional(),
       lines: z.array(orderLineBody).optional(),
-      fromCart: z.boolean().optional()
+      fromCart: z.boolean().optional(),
+      sourceSessionId: z.string().max(200).optional(),
+      sourceSessionType: z.string().max(50).optional(),
+      deviceId: z.string().max(200).optional(),
+      reservationId: z.string().max(200).optional()
     })
     .refine(
       (b) => (b.fromCart ? true : !!(b.lines && b.lines.length > 0)),
@@ -285,6 +307,10 @@ export async function registerOrderRoutes(
         createdByUserId: customer?.sub ?? null,
         createdByContext: "CUSTOMER",
         source: "QR_ORDER",
+        sourceSessionId: body.sourceSessionId,
+        sourceSessionType: body.sourceSessionType,
+        deviceId: body.deviceId,
+        reservationId: body.reservationId,
         idempotencyKey: readIdempotencyKey(req)
       },
       { domainEventBus, orderBus },
@@ -297,6 +323,9 @@ export async function registerOrderRoutes(
       });
     }
 
+    const identityPolicy = await loadRestaurantIdentityPolicy(prisma, order.restaurantId);
+    const identity = buildOrderIdentitySnapshot(order, identityPolicy);
+
     return {
       ok: true,
       order: {
@@ -304,6 +333,8 @@ export async function registerOrderRoutes(
         restaurantId: order.restaurantId,
         status: order.status,
         displaySeq: order.displaySeq,
+        displayPeriodKey: order.displayPeriodKey,
+        identity,
         subtotalCents: order.subtotalCents,
         taxCents: order.taxCents,
         totalCents: order.totalCents,
@@ -472,6 +503,161 @@ export async function registerOrderRoutes(
     });
 
     return { ok: true, policy: merged };
+  });
+
+  app.get("/orders/restaurant/:restaurantId/identity-policy", async (req) => {
+    const { restaurantId } = req.params as { restaurantId: string };
+    await requireStaff(req, restaurantId);
+    const policy = await loadRestaurantIdentityPolicy(prisma, restaurantId);
+    return { ok: true, policy };
+  });
+
+  const identityPolicyPatchSchema = z.object({
+    displayNumberReset: z.enum(["never", "yearly", "monthly"]).optional(),
+    trackingCodePrefix: z.string().min(2).max(8).optional(),
+    internalIdSchema: z.enum(["cuid", "ulid"]).optional()
+  });
+
+  app.patch("/orders/restaurant/:restaurantId/identity-policy", async (req) => {
+    const { restaurantId } = req.params as { restaurantId: string };
+    const user = await requireStaff(req, restaurantId);
+    const m = await prisma.membership.findUnique({
+      where: { userId_restaurantId: { userId: user.sub, restaurantId } }
+    });
+    if (!m || (m.role !== "OWNER" && m.role !== "MANAGER")) {
+      throw Object.assign(new Error("manager_required"), { statusCode: 403 });
+    }
+    const patch = identityPolicyPatchSchema.parse(req.body);
+    const existing = await prisma.restaurant.findUnique({
+      where: { id: restaurantId },
+      select: { orderIdentityPolicy: true }
+    });
+    const merged = mergeOrderIdentityPolicy({
+      ...(typeof existing?.orderIdentityPolicy === "object" && existing.orderIdentityPolicy !== null
+        ? existing.orderIdentityPolicy
+        : {}),
+      ...patch
+    });
+    const policyChange = validateIdentityPolicyChange(existing?.orderIdentityPolicy, merged);
+    await prisma.restaurant.update({
+      where: { id: restaurantId },
+      data: { orderIdentityPolicy: merged as never }
+    });
+    return { ok: true, policy: merged, policyChange, historicalGuarantee: HISTORICAL_IDENTITY_GUARANTEE };
+  });
+
+  app.get("/orders/identity/resolve", async (req) => {
+    const q = req.query as Record<string, string | undefined>;
+    const by = q.by ?? "internal";
+
+    if (by === "internal") {
+      if (!q.orderId) throw Object.assign(new Error("orderId_required"), { statusCode: 400 });
+      const order = await prisma.order.findUnique({ where: { id: q.orderId }, select: { restaurantId: true } });
+      if (!order) throw Object.assign(new Error("order_not_found"), { statusCode: 404 });
+      await requireStaff(req, order.restaurantId);
+      const identity = await resolveOrderByInternalId(prisma, q.orderId);
+      return { ok: true, identity };
+    }
+
+    if (by === "display") {
+      if (!q.restaurantId || !q.displaySeq) {
+        throw Object.assign(new Error("restaurantId_and_displaySeq_required"), { statusCode: 400 });
+      }
+      await requireStaff(req, q.restaurantId);
+      const identity = await resolveOrderByTenantNumber(
+        prisma,
+        q.restaurantId,
+        Number(q.displaySeq),
+        q.displayPeriodKey
+      );
+      return { ok: true, identity };
+    }
+
+    if (by === "payment") {
+      if (!q.provider || !q.externalId) {
+        throw Object.assign(new Error("provider_and_externalId_required"), { statusCode: 400 });
+      }
+      const result = await resolveOrderByPaymentReference(prisma, q.provider, q.externalId);
+      await requireStaff(req, result.restaurantId);
+      return { ok: true, identity: result };
+    }
+
+    if (by === "session") {
+      if (!q.sessionId) throw Object.assign(new Error("sessionId_required"), { statusCode: 400 });
+      const orders = await listOrdersBySessionId(prisma, q.sessionId);
+      if (orders.length > 0) await requireStaff(req, orders[0]!.restaurantId);
+      return { ok: true, orders };
+    }
+
+    if (by === "receipt") {
+      if (!q.hash) throw Object.assign(new Error("hash_required"), { statusCode: 400 });
+      const identity = await resolveOrderByReceiptHash(prisma, q.hash);
+      await requireStaff(req, identity.restaurantId);
+      return { ok: true, identity };
+    }
+
+    if (by === "gs1") {
+      if (!q.gs1) throw Object.assign(new Error("gs1_required"), { statusCode: 400 });
+      const identity = await resolveOrderByGs1Identifier(prisma, q.gs1);
+      await requireStaff(req, identity.restaurantId);
+      return { ok: true, identity };
+    }
+
+    if (by === "federation") {
+      if (!q.federationId) throw Object.assign(new Error("federationId_required"), { statusCode: 400 });
+      const identity = await resolveOrderByFederationId(prisma, q.federationId);
+      await requireStaff(req, identity.restaurantId);
+      return { ok: true, identity };
+    }
+
+    if (by === "partner") {
+      if (!q.partnerId || !q.externalOrderId) {
+        throw Object.assign(new Error("partnerId_and_externalOrderId_required"), { statusCode: 400 });
+      }
+      const row = await resolveOrderByPartnerIdentity(prisma, q.partnerId, q.externalOrderId);
+      await requireStaff(req, row.restaurantId);
+      return { ok: true, partner: row, identity: buildOrderIdentitySnapshot(row.order) };
+    }
+
+    if (by === "audit") {
+      if (!q.auditLogId) throw Object.assign(new Error("auditLogId_required"), { statusCode: 400 });
+      const identity = await resolveOrderFromAuditLog(prisma, q.auditLogId);
+      await requireStaff(req, identity.restaurantId);
+      return { ok: true, identity };
+    }
+
+    throw Object.assign(new Error("invalid_resolve_by"), { statusCode: 400 });
+  });
+
+  app.get("/orders/:orderId/ownership", async (req) => {
+    const { orderId } = req.params as { orderId: string };
+    const order = await prisma.order.findUnique({ where: { id: orderId }, select: { restaurantId: true } });
+    if (!order) throw Object.assign(new Error("order_not_found"), { statusCode: 404 });
+    await requireStaff(req, order.restaurantId);
+    const ownership = await getOrderOwnership(prisma, orderId);
+    return { ok: true, ownership };
+  });
+
+  const partnerIdentitySchema = z.object({
+    partnerId: z.string().min(1),
+    externalOrderId: z.string().min(1),
+    metadata: z.record(z.unknown()).optional()
+  });
+
+  app.post("/orders/:orderId/partner-identity", async (req) => {
+    const { orderId } = req.params as { orderId: string };
+    const body = partnerIdentitySchema.parse(req.body);
+    const order = await prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw Object.assign(new Error("order_not_found"), { statusCode: 404 });
+    await requireStaff(req, order.restaurantId);
+    const row = await registerPartnerOrderIdentity(prisma, {
+      orderId,
+      restaurantId: order.restaurantId,
+      partnerId: body.partnerId,
+      externalOrderId: body.externalOrderId,
+      metadata: body.metadata
+    });
+    return { ok: true, partnerIdentity: row };
   });
 
   app.get("/orders/mine", async (req) => {

@@ -8,6 +8,7 @@ import { classifyPaymentWebhook, httpStatusForPaymentEdge } from "./orderPayment
 import { transitionOrderStatus } from "./orderTransitionService.js";
 import { loadRestaurantOrderPolicy } from "./orderTenantPolicies.js";
 import { normalizeOrderStatus } from "./orderTypes.js";
+import { linkPaymentReferenceIdentity } from "../orderIdentity/orderPaymentIdentity.js";
 
 export type PaymentWebhookInput = {
   provider: string;
@@ -82,23 +83,15 @@ export async function applyPaymentSucceededWebhook(
         throw Object.assign(new Error("payment_invalid_order_state"), { statusCode: 409 });
       }
 
-      await prisma.orderPaymentReference.upsert({
-        where: { provider_externalId: { provider: input.provider, externalId: input.externalId } },
-        create: {
-          orderId: order.id,
-          restaurantId: order.restaurantId,
-          provider: input.provider,
-          externalId: input.externalId,
-          amountCents: input.amountCents,
-          currency: input.currency ?? "SEK",
-          status: "SUCCEEDED",
-          idempotencyKey
-        },
-        update: {
-          status: "SUCCEEDED",
-          amountCents: input.amountCents,
-          idempotencyKey
-        }
+      await linkPaymentReferenceIdentity(prisma, {
+        orderId: order.id,
+        restaurantId: order.restaurantId,
+        provider: input.provider,
+        externalId: input.externalId,
+        amountCents: input.amountCents,
+        currency: input.currency,
+        status: "SUCCEEDED",
+        idempotencyKey
       });
 
       const canon = normalizeOrderStatus(order.status);
@@ -166,19 +159,15 @@ export async function applyPaymentFailedWebhook(
       const order = await prisma.order.findUnique({ where: { id: input.orderId } });
       if (!order) throw Object.assign(new Error("order_not_found"), { statusCode: 404 });
 
-      await prisma.orderPaymentReference.upsert({
-        where: { provider_externalId: { provider: input.provider, externalId: input.externalId } },
-        create: {
-          orderId: order.id,
-          restaurantId: order.restaurantId,
-          provider: input.provider,
-          externalId: input.externalId,
-          amountCents: input.amountCents,
-          currency: input.currency ?? "SEK",
-          status: "FAILED",
-          idempotencyKey
-        },
-        update: { status: "FAILED", idempotencyKey }
+      await linkPaymentReferenceIdentity(prisma, {
+        orderId: order.id,
+        restaurantId: order.restaurantId,
+        provider: input.provider,
+        externalId: input.externalId,
+        amountCents: input.amountCents,
+        currency: input.currency,
+        status: "FAILED",
+        idempotencyKey
       });
 
       if (order.paymentStatus !== "PAID") {

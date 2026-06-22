@@ -14,14 +14,16 @@ import { describePricingSnapshot } from "./orderEventSchema.js";
 import { transitionOrderStatus } from "./orderTransitionService.js";
 import { mergeOrderEnginePolicy } from "./orderTenantPolicies.js";
 import { normalizeOrderStatus, toPrismaOrderStatus, type PlaceOrderInput } from "./orderTypes.js";
-
-async function nextDisplaySeq(tx: Prisma.TransactionClient, restaurantId: string): Promise<number> {
-  const agg = await tx.order.aggregate({
-    where: { restaurantId },
-    _max: { displaySeq: true }
-  });
-  return (agg._max.displaySeq ?? 0) + 1;
-}
+import {
+  prepareOrderIdentityFields,
+  recordOrderIdentityAssignments,
+  normalizeSourceSessionType
+} from "../orderIdentity/orderIdentityFacade.js";
+import { mergeOrderIdentityPolicy, loadRestaurantIdentityPolicy } from "../orderIdentity/orderIdentityPolicy.js";
+import { generateInternalOrderId } from "../orderIdentity/orderInternalId.js";
+import { buildExtendedIdentityFields } from "../orderIdentity/orderExtendedIdentity.js";
+import { logIdentityAssignment } from "../orderIdentity/orderIdentityAudit.js";
+import { captureOrderOwnership } from "../orderOwnership/orderOwnershipCapture.js";
 
 function resolveOrderSource(input: PlaceOrderInput): OrderSource {
   if (input.source) return input.source;
@@ -48,15 +50,30 @@ async function createOrderRecord(
   const paymentStatus = input.paymentStatus ?? "UNPAID";
 
   const created = await prisma.$transaction(async (tx) => {
-    const displaySeq = await nextDisplaySeq(tx, input.restaurantId);
+    const identityPolicy = await loadRestaurantIdentityPolicy(tx as unknown as PrismaClient, input.restaurantId);
+    const identity = await prepareOrderIdentityFields(tx, {
+      restaurantId: input.restaurantId,
+      sourceSessionId: input.sourceSessionId,
+      sourceSessionType: normalizeSourceSessionType(input.sourceSessionType)
+    });
+
+    const ulidId =
+      identityPolicy.internalIdSchema === "ulid" ? generateInternalOrderId("ulid").id : undefined;
+    const createdAt = new Date();
 
     const o = await tx.order.create({
       data: {
+        ...(ulidId ? { id: ulidId } : {}),
         restaurantId: input.restaurantId,
         customerUserId: input.customerUserId ?? null,
         createdByUserId: input.createdByUserId ?? input.customerUserId ?? null,
         createdByContext: input.createdByContext ?? (input.customerUserId ? "CUSTOMER" : "STAFF"),
-        displaySeq,
+        displaySeq: identity.displaySeq,
+        displayPeriodKey: identity.displayPeriodKey,
+        sourceSessionId: identity.sourceSessionId,
+        sourceSessionType: identity.sourceSessionType,
+        deviceId: input.deviceId?.trim() || null,
+        reservationId: input.reservationId?.trim() || null,
         source,
         status: initialStatus,
         paymentStatus,
@@ -84,8 +101,64 @@ async function createOrderRecord(
       include: { lines: true, restaurant: { select: { name: true } } }
     });
 
-    await appendOrderStatusHistory(tx, {
+    const extended = buildExtendedIdentityFields({
       orderId: o.id,
+      restaurantId: o.restaurantId,
+      displaySeq: identity.displaySeq,
+      displayPeriodKey: identity.displayPeriodKey,
+      totalCents: o.totalCents,
+      createdAt: o.createdAt ?? createdAt,
+      internalIdSchema: identityPolicy.internalIdSchema
+    });
+
+    const enriched = await tx.order.update({
+      where: { id: o.id },
+      data: extended,
+      include: { lines: true, restaurant: { select: { name: true } } }
+    });
+
+    await recordOrderIdentityAssignments(tx, {
+      orderId: enriched.id,
+      restaurantId: enriched.restaurantId,
+      displaySeq: identity.displaySeq,
+      displayPeriodKey: identity.displayPeriodKey,
+      sourceSessionId: identity.sourceSessionId,
+      sourceSessionType: identity.sourceSessionType,
+      actorUserId: input.createdByUserId ?? input.customerUserId ?? null,
+      actorSource: input.createdByContext === "STAFF" ? "STAFF" : input.customerUserId ? "CUSTOMER" : "SYSTEM"
+    });
+
+    await logIdentityAssignment(tx, {
+      orderId: enriched.id,
+      restaurantId: enriched.restaurantId,
+      action: "identity.tracking_derived",
+      metadata: {
+        gs1Identifier: extended.gs1Identifier,
+        receiptSearchHash: extended.receiptSearchHash,
+        federationId: extended.federationId,
+        internalIdSchema: extended.internalIdSchema
+      }
+    });
+
+    await captureOrderOwnership(tx, {
+      orderId: enriched.id,
+      restaurantId: enriched.restaurantId,
+      customerUserId: enriched.customerUserId,
+      createdByUserId: enriched.createdByUserId,
+      createdByContext: enriched.createdByContext,
+      assignedStaffUserId: enriched.assignedStaffUserId,
+      tableLabel: enriched.tableLabel,
+      reservationId: enriched.reservationId,
+      deviceId: enriched.deviceId,
+      source: enriched.source,
+      sourceSessionId: enriched.sourceSessionId,
+      customerEmail: enriched.customerEmail,
+      customerPhone: enriched.customerPhone,
+      customerName: enriched.customerName
+    });
+
+    await appendOrderStatusHistory(tx, {
+      orderId: enriched.id,
       fromStatus: null,
       toStatus: initialStatus,
       actorUserId: input.createdByUserId ?? input.customerUserId ?? null,
@@ -94,16 +167,16 @@ async function createOrderRecord(
     });
 
     await appendOrderAuditLog(tx, {
-      orderId: o.id,
-      restaurantId: o.restaurantId,
+      orderId: enriched.id,
+      restaurantId: enriched.restaurantId,
       action: "order.created",
       actorUserId: input.createdByUserId ?? input.customerUserId ?? null,
       actorSource: input.createdByContext === "STAFF" ? "STAFF" : input.customerUserId ? "CUSTOMER" : "SYSTEM",
       afterState: {
-        status: o.status,
-        paymentStatus: o.paymentStatus,
-        totalCents: o.totalCents,
-        lineCount: o.lines.length,
+        status: enriched.status,
+        paymentStatus: enriched.paymentStatus,
+        totalCents: enriched.totalCents,
+        lineCount: enriched.lines.length,
         pricingSnapshot: describePricingSnapshot(null)
       },
       metadata: { source, lineSnapshots: pricedLines }
@@ -111,18 +184,18 @@ async function createOrderRecord(
 
     const envelope = await enqueueOrderOutboxEvent(tx, {
       type: "order.created",
-      order: o,
+      order: enriched,
       actorUserId: input.createdByUserId ?? input.customerUserId ?? null
     });
 
     await persistOrderDomainEvent(tx, {
-      orderId: o.id,
-      restaurantId: o.restaurantId,
+      orderId: enriched.id,
+      restaurantId: enriched.restaurantId,
       type: "order.created",
       payload: envelope as unknown as Record<string, unknown>
     });
 
-    return o;
+    return enriched;
   });
 
   if (buses) {

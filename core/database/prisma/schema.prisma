@@ -287,6 +287,8 @@ model Restaurant {
   accessPolicy            Json?
   /// Per-venue order engine rules (cancellation, SLA, auto-accept, refunds).
   orderEnginePolicy       Json?
+  /// Per-venue order identity rules (display number reset, tracking code format).
+  orderIdentityPolicy     Json?
 
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -296,6 +298,7 @@ model Restaurant {
   customerInvitations CustomerInvitation[]
   menuCategories MenuCategory[]
   orders         Order[]
+  orderCounter   RestaurantOrderCounter?
   shoppingCarts  ShoppingCart[]
   chatRooms      ChatRoom[]
   reservationDrafts CustomerReservationDraft[]
@@ -651,6 +654,23 @@ model Order {
   createdByContext OrderCreatedContext @default(CUSTOMER)
   /// Human-facing ticket number within the venue (e.g. 1042 → "#1042").
   displaySeq     Int?
+  /// Period bucket for tenant display number — enables safe yearly/monthly reset without history collision.
+  displayPeriodKey String @default("all")
+  /// Session / source traceability (QR, staff device, walk-in, reservation).
+  sourceSessionId   String?
+  sourceSessionType String?
+  /// Device that originated the order (staff tablet, kiosk).
+  deviceId          String?
+  /// Linked reservation when order originated from a booking.
+  reservationId     String?
+  /// Internal ID schema used at creation — supports cuid → ulid migration path.
+  internalIdSchema  String   @default("cuid")
+  /// GS1-inspired global trade identifier (derived, immutable).
+  gs1Identifier     String?  @unique
+  /// Searchable receipt fingerprint for customer/staff lookup.
+  receiptSearchHash String?
+  /// Global federation key for cross-network order references.
+  federationId      String?  @unique
   source         OrderSource @default(QR_ORDER)
   status         OrderStatus @default(CREATED)
   paymentStatus  OrderPaymentStatus @default(UNPAID)
@@ -688,12 +708,75 @@ model Order {
   paymentReferences OrderPaymentReference[]
   recoveryLogs OrderRecoveryLog[]
   compensationLogs OrderCompensationLog[]
+  ownershipRecord OrderOwnershipRecord?
+  partnerIdentities OrderPartnerIdentity[]
 
-  @@unique([restaurantId, displaySeq])
+  @@unique([restaurantId, displayPeriodKey, displaySeq])
   @@index([restaurantId, createdAt])
   @@index([restaurantId, status])
   @@index([customerUserId])
   @@index([createdByUserId])
+  @@index([sourceSessionId])
+  @@index([receiptSearchHash])
+  @@index([reservationId])
+  @@index([deviceId])
+}
+
+/// Immutable ownership snapshot — who owns/created/is accountable for the order at placement.
+model OrderOwnershipRecord {
+  orderId                 String              @id
+  restaurantId            String
+  accountableRestaurantId String
+  ownershipType           String
+  customerUserId          String?
+  guestKey                String?
+  createdByUserId         String?
+  createdByContext        OrderCreatedContext
+  assignedStaffUserId     String?
+  tableLabel              String?
+  reservationId           String?
+  deviceId                String?
+  source                  OrderSource
+  sourceSessionId         String?
+  lockedAt                DateTime            @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId])
+  @@index([customerUserId])
+  @@index([guestKey])
+  @@index([assignedStaffUserId])
+}
+
+/// External partner order mapping (Deliveroo, Uber Eats, POS integrations).
+model OrderPartnerIdentity {
+  id              String   @id @default(cuid())
+  orderId         String
+  restaurantId    String
+  partnerId       String
+  externalOrderId String
+  metadata        Json?
+  createdAt       DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([partnerId, externalOrderId])
+  @@index([orderId])
+  @@index([restaurantId, partnerId])
+}
+
+/// Atomic per-restaurant order number counter — concurrency-safe tenant display allocation.
+model RestaurantOrderCounter {
+  restaurantId   String   @id
+  /// Monotonic sequence — never decrements; survives display period resets.
+  nextSeq        Int      @default(0)
+  /// Current display period key (all | 2026 | 2026-06).
+  periodKey      String   @default("all")
+  /// nextSeq value at period start — human number = nextSeq - periodStartSeq after allocation.
+  periodStartSeq Int      @default(0)
+  updatedAt      DateTime @updatedAt
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 }
 
 /// Immutable status transition record — append-only.

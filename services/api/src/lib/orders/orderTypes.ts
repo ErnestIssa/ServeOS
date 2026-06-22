@@ -4,6 +4,7 @@ import type {
   OrderSource,
   OrderStatus
 } from "@prisma/client";
+import { formatDisplayNumber as formatOrderDisplayNumber } from "../orderIdentity/orderTenantDisplay.js";
 
 /** Canonical lifecycle status — legacy PENDING/CONFIRMED are normalized away. */
 export type CanonicalOrderStatus =
@@ -76,6 +77,11 @@ export type PlaceOrderInput = {
   paymentStatus?: OrderPaymentStatus;
   /** Idempotency-Key header value — duplicate requests return the same order. */
   idempotencyKey?: string;
+  /** Source session traceability (QR scan, staff device, walk-in, reservation). */
+  sourceSessionId?: string | null;
+  sourceSessionType?: string | null;
+  deviceId?: string | null;
+  reservationId?: string | null;
 };
 
 export type OrderLockFlags = {
@@ -96,9 +102,12 @@ export type OrderEventType =
   | "order.completed"
   | "order.archived";
 
-export function formatDisplayNumber(displaySeq: number | null | undefined, orderId: string): string {
-  if (displaySeq != null && displaySeq > 0) return `#${displaySeq}`;
-  return `#${orderId.slice(-6).toUpperCase()}`;
+export function formatDisplayNumber(
+  displaySeq: number | null | undefined,
+  orderId: string,
+  displayPeriodKey = "all"
+): string {
+  return formatOrderDisplayNumber(displaySeq, orderId, displayPeriodKey);
 }
 
 export const ACTIVE_KITCHEN_STATUSES: CanonicalOrderStatus[] = [
