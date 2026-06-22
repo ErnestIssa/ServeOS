@@ -17,13 +17,18 @@ import {
 import { markCustomerMessagesDeliveredForOrder, markRestaurantReadInRoom } from "./chatReceipts.js";
 import { notifyChatMessage } from "../notifications/integrations/chat.js";
 import { notifyOclUpdated } from "../notifications/integrations/ocl.js";
-import { notifyOrderUpdated } from "../notifications/integrations/orders.js";
 import type { EventEmitter } from "node:events";
 import { formatMoneyCentsPlain } from "./formatMoney.js";
 import {
   finalizeOrderStatusAudit,
   guardOrderStatusChange
 } from "./trust/orderTrustGuard.js";
+import {
+  getKitchenAdvanceTarget,
+  normalizeOrderStatus,
+  STATUS_LABELS,
+  transitionOrderStatus
+} from "./orders/index.js";
 
 export type OclTimelineEvent = {
   id: string;
@@ -41,23 +46,20 @@ export type OclAction = {
   variant: "primary" | "secondary";
 };
 
-const NEXT_STATUS: Record<string, OrderStatus> = {
-  PENDING: "CONFIRMED",
-  CONFIRMED: "PREPARING",
-  PREPARING: "READY",
-  READY: "COMPLETED"
-};
+
+function resolveNextKitchenStatus(status: OrderStatus): OrderStatus | null {
+  const next = getKitchenAdvanceTarget(status);
+  return next ? (next as OrderStatus) : null;
+}
 
 const STATUS_LABEL: Record<string, string> = {
-  PENDING: "New",
-  CONFIRMED: "Accepted",
-  PREPARING: "Preparing",
-  READY: "Ready",
-  COMPLETED: "Completed",
-  CANCELLED: "Cancelled"
+  ...STATUS_LABELS,
+  PENDING: "Created",
+  CONFIRMED: "Accepted"
 };
 
 const STAFF_STATUS_ANNOUNCE: Partial<Record<OrderStatus, string>> = {
+  ACCEPTED: "Order accepted by the kitchen",
   CONFIRMED: "Order accepted by the kitchen",
   PREPARING: "Cooking started",
   READY: "Order is ready for handoff",
@@ -191,7 +193,7 @@ export async function loadOrderOclThread(
     }
   );
 
-  const next = NEXT_STATUS[order.status];
+  const next = resolveNextKitchenStatus(order.status);
   const actions: OclAction[] = [];
   if (canUpdate && next) {
     actions.push({
@@ -280,11 +282,19 @@ async function publishOrderStatusChatMessage(
   });
 }
 
-/** SSOT order status change — used by legacy PATCH and workspace OCL actions. */
+/** SSOT order status change — delegates to order engine, then syncs OCL chat. */
 export async function applyOrderStatusOcl(
   prisma: PrismaClient,
-  input: { orderId: string; status: OrderStatus; actorUserId: string },
-  buses?: { chatBus?: EventEmitter; domainEventBus?: EventEmitter }
+  input: {
+    orderId: string;
+    status: OrderStatus;
+    actorUserId: string;
+    membershipRole?: string | null;
+    permissions?: string[];
+    idempotencyKey?: string;
+  },
+  buses?: { chatBus?: EventEmitter; domainEventBus?: EventEmitter; orderBus?: EventEmitter },
+  log?: import("fastify").FastifyBaseLogger
 ) {
   const existing = await prisma.order.findUnique({
     where: { id: input.orderId },
@@ -292,16 +302,30 @@ export async function applyOrderStatusOcl(
   });
   if (!existing) throw Object.assign(new Error("order_not_found"), { statusCode: 404 });
 
-  const order = await prisma.order.update({
-    where: { id: input.orderId },
-    data: { status: input.status },
-    include: { restaurant: { select: { name: true } }, chatRoom: true }
-  });
+  const order = await transitionOrderStatus(
+    prisma,
+    {
+      orderId: input.orderId,
+      targetStatus: input.status,
+      actor: {
+        userId: input.actorUserId,
+        source: "STAFF",
+        membershipRole: input.membershipRole,
+        permissions: input.permissions
+      },
+      idempotencyKey: input.idempotencyKey
+    },
+    buses,
+    log
+  );
+
+  const fromCanon = normalizeOrderStatus(existing.status);
+  const toCanon = normalizeOrderStatus(input.status);
 
   if (
-    existing.status === "PENDING" &&
-    input.status !== "PENDING" &&
-    input.status !== "CANCELLED" &&
+    fromCanon === "CREATED" &&
+    toCanon !== "CREATED" &&
+    toCanon !== "CANCELLED" &&
     buses?.chatBus
   ) {
     await markCustomerMessagesDeliveredForOrder(prisma, buses.chatBus, order.id);
@@ -330,13 +354,6 @@ export async function applyOrderStatusOcl(
   }
 
   if (buses?.domainEventBus) {
-    await notifyOrderUpdated(buses.domainEventBus, {
-      orderId: order.id,
-      restaurantId: order.restaurantId,
-      status: order.status,
-      totalCents: order.totalCents,
-      customerUserId: order.customerUserId
-    });
     await notifyOclUpdated(buses.domainEventBus, {
       entityType: "order",
       entityId: order.id,
@@ -434,22 +451,37 @@ export async function performOclStatusAction(
   );
 
   const announce = opts?.announceInChat !== false;
+  const membership = ctx.memberships.find((m) => m.restaurantId === order.restaurantId);
+
   if (announce) {
     await applyOrderStatusOcl(
       prisma,
-      { orderId, status: nextStatus, actorUserId: ctx.userId },
-      { chatBus, domainEventBus }
+      {
+        orderId,
+        status: nextStatus,
+        actorUserId: ctx.userId,
+        membershipRole: membership?.role,
+        permissions: ctx.experience.permissions
+      },
+      { chatBus, domainEventBus, orderBus: chatBus }
     );
   } else {
-    await prisma.order.update({ where: { id: orderId }, data: { status: nextStatus } });
+    await transitionOrderStatus(
+      prisma,
+      {
+        orderId,
+        targetStatus: nextStatus,
+        actor: {
+          userId: ctx.userId,
+          source: "STAFF",
+          membershipRole: membership?.role,
+          permissions: ctx.experience.permissions
+        },
+        trustEventId
+      },
+      { domainEventBus, orderBus: chatBus }
+    );
     if (domainEventBus) {
-      await notifyOrderUpdated(domainEventBus, {
-        orderId: order.id,
-        restaurantId: order.restaurantId,
-        status: nextStatus,
-        totalCents: order.totalCents,
-        customerUserId: order.customerUserId
-      });
       await notifyOclUpdated(domainEventBus, {
         entityType: "order",
         entityId: order.id,

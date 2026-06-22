@@ -285,6 +285,8 @@ model Restaurant {
   offeringsDescription    String?
   /// Owner-configured caps: maxManagers, allowManagersToInviteManagers, etc.
   accessPolicy            Json?
+  /// Per-venue order engine rules (cancellation, SLA, auto-accept, refunds).
+  orderEnginePolicy       Json?
 
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -506,12 +508,48 @@ model CartLine {
 }
 
 enum OrderStatus {
+  /// Legacy — migrated to CREATED; kept for backward-compatible reads.
   PENDING
+  /// Legacy — migrated to ACCEPTED; kept for backward-compatible reads.
   CONFIRMED
+  CREATED
+  PENDING_PAYMENT
+  PAID
+  ACCEPTED
+  REJECTED
   PREPARING
   READY
   COMPLETED
   CANCELLED
+  REFUNDED
+  PARTIALLY_REFUNDED
+  ARCHIVED
+}
+
+enum OrderSource {
+  QR_ORDER
+  STAFF_CREATED
+  WALK_IN
+  PHONE_ORDER
+  RESERVATION
+  DELIVERY_PARTNER
+}
+
+enum OrderPaymentStatus {
+  UNPAID
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+  PARTIAL_REFUND
+}
+
+enum OrderActorSource {
+  CUSTOMER
+  STAFF
+  SYSTEM
+  PAYMENT
+  ADMIN
 }
 
 /// Immutable context at order creation — customer identity cannot be overridden by role switching.
@@ -611,13 +649,31 @@ model Order {
   createdByUserId  String?
   /// Locked at creation — staff role switching cannot change financial ownership.
   createdByContext OrderCreatedContext @default(CUSTOMER)
-  status         OrderStatus @default(PENDING)
+  /// Human-facing ticket number within the venue (e.g. 1042 → "#1042").
+  displaySeq     Int?
+  source         OrderSource @default(QR_ORDER)
+  status         OrderStatus @default(CREATED)
+  paymentStatus  OrderPaymentStatus @default(UNPAID)
   subtotalCents  Int
   taxCents       Int         @default(0)
+  serviceFeeCents Int        @default(0)
   discountCents  Int         @default(0)
   refundedCents  Int         @default(0)
   totalCents     Int
   note           String?
+  /// Guest / walk-in contact when no customer account.
+  customerName   String?
+  customerPhone  String?
+  customerEmail  String?
+  tableLabel     String?
+  assignedStaffUserId String?
+  /// Frozen after payment confirmed — line pricing must not change after this.
+  pricingLockedAt DateTime?
+  /// Set when kitchen enters PREPARING — item edits restricted after this.
+  kitchenStartedAt DateTime?
+  completedAt    DateTime?
+  /// Optimistic concurrency — every mutation increments; stale writes rejected.
+  version        Int         @default(0)
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -625,10 +681,172 @@ model Order {
   customer   User?      @relation("CustomerOrders", fields: [customerUserId], references: [id], onDelete: SetNull)
   lines      OrderLineItem[]
   chatRoom   ChatRoom?
+  statusHistory OrderStatusHistory[]
+  auditLogs  OrderAuditLog[]
+  domainEvents OrderDomainEvent[]
+  outboxEvents OrderEventOutbox[]
+  paymentReferences OrderPaymentReference[]
+  recoveryLogs OrderRecoveryLog[]
+  compensationLogs OrderCompensationLog[]
 
+  @@unique([restaurantId, displaySeq])
   @@index([restaurantId, createdAt])
+  @@index([restaurantId, status])
   @@index([customerUserId])
   @@index([createdByUserId])
+}
+
+/// Immutable status transition record — append-only.
+model OrderStatusHistory {
+  id          String       @id @default(cuid())
+  orderId     String
+  fromStatus  OrderStatus?
+  toStatus    OrderStatus
+  actorUserId String?
+  actorSource OrderActorSource @default(SYSTEM)
+  reason      String?
+  createdAt   DateTime     @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
+}
+
+/// Operational audit trail — append-only; complements trust-layer audit.
+model OrderAuditLog {
+  id           String          @id @default(cuid())
+  orderId      String
+  restaurantId String
+  actorUserId  String?
+  actorSource  OrderActorSource @default(SYSTEM)
+  action       String
+  beforeState  Json?
+  afterState   Json?
+  metadata     Json?
+  createdAt    DateTime        @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
+  @@index([restaurantId, createdAt])
+}
+
+/// Domain events emitted by the order engine — source of truth for downstream consumers.
+model OrderDomainEvent {
+  id           String   @id @default(cuid())
+  orderId      String
+  restaurantId String
+  type         String
+  payload      Json
+  createdAt    DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
+  @@index([restaurantId, createdAt])
+  @@index([type, createdAt])
+}
+
+enum OrderOutboxStatus {
+  PENDING
+  PUBLISHED
+  FAILED
+}
+
+/// Transactional outbox — events are written in the same DB transaction as order mutations, then published reliably.
+model OrderEventOutbox {
+  id             String            @id @default(cuid())
+  orderId        String
+  restaurantId   String
+  /// Monotonic per orderId — guarantees downstream ordering.
+  sequence       Int
+  eventType      String
+  schemaVersion  Int               @default(1)
+  payload        Json
+  status         OrderOutboxStatus @default(PENDING)
+  attempts       Int               @default(0)
+  lastError      String?
+  createdAt      DateTime          @default(now())
+  publishedAt    DateTime?
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, sequence])
+  @@index([status, createdAt])
+  @@index([orderId, sequence])
+}
+
+/// Idempotency keys for place-order, transitions, and payment webhooks.
+model OrderIdempotencyKey {
+  id           String   @id @default(cuid())
+  scope        String
+  key          String
+  restaurantId String?
+  orderId      String?
+  requestHash  String?
+  response     Json?
+  status       String   @default("IN_PROGRESS")
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+
+  @@unique([scope, key])
+  @@index([expiresAt])
+}
+
+/// Payment provider references — webhook idempotency via unique (provider, externalId).
+model OrderPaymentReference {
+  id             String   @id @default(cuid())
+  orderId        String
+  restaurantId   String
+  provider       String
+  externalId     String
+  amountCents    Int
+  currency       String   @default("SEK")
+  status         String   @default("PENDING")
+  idempotencyKey String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, externalId])
+  @@index([orderId])
+}
+
+/// Self-healing actions taken by the recovery worker (escalation, reconcile, retry).
+model OrderRecoveryLog {
+  id           String   @id @default(cuid())
+  orderId      String
+  restaurantId String
+  action       String
+  reason       String
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
+  @@index([restaurantId, createdAt])
+}
+
+/// Compensation when business state diverges (payment vs order, delivery vs rollback).
+model OrderCompensationLog {
+  id           String   @id @default(cuid())
+  orderId      String
+  restaurantId String
+  type         String
+  trigger      String
+  status       String   @default("PENDING")
+  beforeState  Json?
+  afterState   Json?
+  metadata     Json?
+  createdAt    DateTime @default(now())
+  resolvedAt   DateTime?
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
+  @@index([restaurantId, status])
 }
 
 /// Unified trust layer — fraud, approval, and audit share this root event.

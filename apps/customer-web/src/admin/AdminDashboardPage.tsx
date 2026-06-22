@@ -814,7 +814,11 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
                       />
                     )
                   ) : (
-                    <AdminWorkspaceView workspaceId={adminRoute.workspaceId} presetId={adminRoute.presetId} />
+                    <AdminWorkspaceView
+                      workspaceId={adminRoute.workspaceId}
+                      presetId={adminRoute.presetId}
+                      venueName={selectedVenueName}
+                    />
                   )}
                 </AdminPageTransition>
               </>

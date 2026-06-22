@@ -1,10 +1,27 @@
 import { EventEmitter } from "node:events";
 import type { FastifyInstance } from "fastify";
 import jwt from "jsonwebtoken";
-import type { Prisma, PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { notifyOrderCreated, notifyOrderUpdated } from "../notifications/integrations/orders.js";
-import { priceMenuItemLineInput, type ModifierSnap } from "../lib/menuItemLinePricing.js";
+import type { OrderEventPayload } from "@serveos/core-upstash";
+import { placeOrder, applyPaymentSucceededWebhook, applyPaymentFailedWebhook } from "../lib/orders/index.js";
+import {
+  getAdminOrderDetail,
+  getAdminOrderStats,
+  listAdminOrders
+} from "../lib/orders/orderQueryService.js";
+import {
+  countOutboxByStatus,
+  listDeadLetterOutboxEvents,
+  replayDeadLetterOutboxEvent
+} from "../lib/orders/orderOutboxDeadLetter.js";
+import { getOrderEngineOperationalSnapshot } from "../lib/orders/orderRecoveryService.js";
+import { listPendingCompensations } from "../lib/orders/orderCompensationService.js";
+import { loadRestaurantOrderPolicy, mergeOrderEnginePolicy } from "../lib/orders/orderTenantPolicies.js";
+import { searchOrders } from "../lib/orders/orderSearchService.js";
+import { ORDER_READ_MODEL_POLICY } from "../lib/orders/orderReadModelPolicy.js";
+import { ORDER_STATUS_VALUES } from "../lib/orders/orderStatusValues.js";
 import { autoTerminateStaleActiveOrdersForCustomer } from "../lib/autoTerminateStaleActiveOrders.js";
 import { isVenueMembershipRole } from "../lib/membershipAccess.js";
 import { applyOrderStatusOcl, loadCustomerOrderOcl } from "../lib/orderOcl.js";
@@ -23,6 +40,11 @@ function roomRestaurant(id: string) {
 }
 function roomCustomer(id: string) {
   return `customer:${id}`;
+}
+
+function readIdempotencyKey(req: { headers: Record<string, unknown> }): string | undefined {
+  const raw = req.headers["idempotency-key"] ?? req.headers["x-idempotency-key"];
+  return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
 }
 
 export async function registerOrderRoutes(
@@ -241,61 +263,39 @@ export async function registerOrderRoutes(
 
     const lineInputs: Array<{
       menuItemId: string;
-      nameSnapshot: string;
       quantity: number;
-      unitPriceCents: number;
-      selectedModifiers: ModifierSnap[];
-      lineTotalCents: number;
+      modifierOptionIds?: string[];
     }> = [];
 
     for (const line of lineSources) {
-      const priced = await priceMenuItemLineInput(prisma, {
-        restaurantId: body.restaurantId,
+      lineInputs.push({
         menuItemId: line.menuItemId,
         quantity: line.quantity,
         modifierOptionIds: line.modifierOptionIds
       });
-      lineInputs.push(priced);
     }
 
-    const subtotalCents = lineInputs.reduce((s, l) => s + l.lineTotalCents, 0);
-    const taxCents = 0;
-    const totalCents = subtotalCents + taxCents;
+    const order = await placeOrder(
+      prisma,
+      {
+        restaurantId: body.restaurantId,
+        note: orderNote,
+        lines: lineInputs,
+        customerUserId: customer?.sub ?? null,
+        createdByUserId: customer?.sub ?? null,
+        createdByContext: "CUSTOMER",
+        source: "QR_ORDER",
+        idempotencyKey: readIdempotencyKey(req)
+      },
+      { domainEventBus, orderBus },
+      app.log
+    );
 
-    const order = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const o = await tx.order.create({
-        data: {
-          restaurantId: body.restaurantId,
-          customerUserId: customer?.sub ?? null,
-          createdByUserId: customer?.sub ?? null,
-          createdByContext: "CUSTOMER",
-          status: "PENDING",
-          subtotalCents,
-          taxCents,
-          totalCents,
-          note: orderNote,
-          lines: {
-            create: lineInputs.map((l) => ({
-              menuItemId: l.menuItemId,
-              nameSnapshot: l.nameSnapshot,
-              quantity: l.quantity,
-              unitPriceCents: l.unitPriceCents,
-              selectedModifiers: l.selectedModifiers as unknown as any,
-              lineTotalCents: l.lineTotalCents
-            }))
-          }
-        },
-        include: { lines: true }
+    if (body.fromCart && customer) {
+      await prisma.shoppingCart.deleteMany({
+        where: { userId: customer.sub, restaurantId: body.restaurantId }
       });
-      if (body.fromCart && customer) {
-        await tx.shoppingCart.deleteMany({
-          where: { userId: customer.sub, restaurantId: body.restaurantId }
-        });
-      }
-      return o;
-    });
-
-    await publishOrderEvent(order.id, true);
+    }
 
     return {
       ok: true,
@@ -303,10 +303,11 @@ export async function registerOrderRoutes(
         id: order.id,
         restaurantId: order.restaurantId,
         status: order.status,
+        displaySeq: order.displaySeq,
         subtotalCents: order.subtotalCents,
         taxCents: order.taxCents,
         totalCents: order.totalCents,
-        lines: order.lines.map((l: (typeof order.lines)[number]) => ({
+        lines: order.lines.map((l) => ({
           id: l.id,
           name: l.nameSnapshot,
           quantity: l.quantity,
@@ -319,27 +320,158 @@ export async function registerOrderRoutes(
   app.get("/orders/restaurant/:restaurantId", async (req) => {
     const { restaurantId } = req.params as { restaurantId: string };
     await requireStaff(req, restaurantId);
-    const orders = await prisma.order.findMany({
-      where: { restaurantId },
-      orderBy: { createdAt: "desc" },
-      take: 100,
-      include: { lines: true }
+    const q = req.query as Record<string, string | undefined>;
+    const result = await listAdminOrders(prisma, {
+      restaurantId,
+      page: q.page ? Number(q.page) : 1,
+      pageSize: q.pageSize ? Number(q.pageSize) : 25,
+      status: (q.status as never) ?? (q.preset === "active" ? "active" : q.preset === "completed" ? "completed" : q.preset === "problem" ? "problem" : undefined),
+      source: q.source,
+      paymentStatus: q.paymentStatus,
+      search: q.search,
+      assignedStaffUserId: q.staff
     });
-    return {
-      ok: true,
-      orders: orders.map((o: (typeof orders)[number]) => ({
-        id: o.id,
-        status: o.status,
-        totalCents: o.totalCents,
-        customerUserId: o.customerUserId,
-        createdAt: o.createdAt,
-        lines: o.lines.map((l: (typeof o.lines)[number]) => ({
-          name: l.nameSnapshot,
-          quantity: l.quantity,
-          lineTotalCents: l.lineTotalCents
-        }))
-      }))
-    };
+    return { ok: true, ...result };
+  });
+
+  app.get("/orders/restaurant/:restaurantId/stats", async (req) => {
+    const { restaurantId } = req.params as { restaurantId: string };
+    await requireStaff(req, restaurantId);
+    const stats = await getAdminOrderStats(prisma, restaurantId);
+    return { ok: true, stats };
+  });
+
+  app.get("/orders/restaurant/:restaurantId/:orderId/admin", async (req) => {
+    const { restaurantId, orderId } = req.params as { restaurantId: string; orderId: string };
+    await requireStaff(req, restaurantId);
+    const order = await getAdminOrderDetail(prisma, restaurantId, orderId);
+    return { ok: true, order };
+  });
+
+  app.get("/orders/restaurant/:restaurantId/outbox/dead-letter", async (req) => {
+    const { restaurantId } = req.params as { restaurantId: string };
+    await requireStaff(req, restaurantId);
+    const events = await listDeadLetterOutboxEvents(prisma, { restaurantId });
+    const counts = await countOutboxByStatus(prisma, restaurantId);
+    return { ok: true, events, counts };
+  });
+
+  app.post("/orders/restaurant/:restaurantId/outbox/:outboxId/replay", async (req) => {
+    const { restaurantId, outboxId } = req.params as { restaurantId: string; outboxId: string };
+    await requireStaff(req, restaurantId);
+    const row = await replayDeadLetterOutboxEvent(prisma, outboxId, { domainEventBus, orderBus }, app.log);
+    if (row.restaurantId !== restaurantId) {
+      throw Object.assign(new Error("forbidden"), { statusCode: 403 });
+    }
+    return { ok: true, event: row };
+  });
+
+  app.get("/orders/restaurant/:restaurantId/search", async (req) => {
+    const { restaurantId } = req.params as { restaurantId: string };
+    await requireStaff(req, restaurantId);
+    const q = req.query as { q?: string; limit?: string };
+    if (!q.q?.trim()) {
+      return { ok: true, results: [] };
+    }
+    const results = await searchOrders(prisma, {
+      restaurantId,
+      q: q.q,
+      limit: q.limit ? Number(q.limit) : 25
+    });
+    return { ok: true, results };
+  });
+
+  app.get("/orders/restaurant/:restaurantId/operational", async (req) => {
+    const { restaurantId } = req.params as { restaurantId: string };
+    await requireStaff(req, restaurantId);
+    const snapshot = await getOrderEngineOperationalSnapshot(prisma, restaurantId);
+    return { ok: true, ...snapshot };
+  });
+
+  app.get("/orders/restaurant/:restaurantId/compensations", async (req) => {
+    const { restaurantId } = req.params as { restaurantId: string };
+    await requireStaff(req, restaurantId);
+    const compensations = await listPendingCompensations(prisma, restaurantId);
+    return { ok: true, compensations };
+  });
+
+  app.get("/orders/restaurant/:restaurantId/engine-policy", async (req) => {
+    const { restaurantId } = req.params as { restaurantId: string };
+    await requireStaff(req, restaurantId);
+    const policy = await loadRestaurantOrderPolicy(prisma, restaurantId);
+    return { ok: true, policy, readModelPolicy: ORDER_READ_MODEL_POLICY };
+  });
+
+  const enginePolicyPatchSchema = z.object({
+    cancelAfterAccepted: z.boolean().optional(),
+    cancelAfterKitchenStart: z.boolean().optional(),
+    autoAcceptOnPayment: z.boolean().optional(),
+    autoAcceptOnCreate: z.boolean().optional(),
+    refundRequiresManager: z.boolean().optional(),
+    customerCancelBeforeAccepted: z.boolean().optional(),
+    sla: z
+      .object({
+        maxActiveAgeMs: z.number().int().positive().optional(),
+        preparingDelayWarningMs: z.number().int().positive().optional(),
+        acceptedWithoutPrepEscalationMs: z.number().int().positive().optional(),
+        readyHandoffDelayMs: z.number().int().positive().optional()
+      })
+      .optional(),
+    recovery: z
+      .object({
+        autoEscalateStuckOrders: z.boolean().optional(),
+        autoRetryKdsOutbox: z.boolean().optional(),
+        autoReconcilePaidMismatch: z.boolean().optional()
+      })
+      .optional()
+  });
+
+  app.patch("/orders/restaurant/:restaurantId/engine-policy", async (req) => {
+    const { restaurantId } = req.params as { restaurantId: string };
+    const user = await requireStaff(req, restaurantId);
+    const m = await prisma.membership.findUnique({
+      where: { userId_restaurantId: { userId: user.sub, restaurantId } }
+    });
+    if (!m || (m.role !== "OWNER" && m.role !== "MANAGER")) {
+      throw Object.assign(new Error("manager_required"), { statusCode: 403 });
+    }
+
+    const patch = enginePolicyPatchSchema.parse(req.body);
+    const existing = await prisma.restaurant.findUnique({
+      where: { id: restaurantId },
+      select: { orderEnginePolicy: true }
+    });
+    const merged = mergeOrderEnginePolicy({
+      ...(typeof existing?.orderEnginePolicy === "object" && existing.orderEnginePolicy !== null
+        ? existing.orderEnginePolicy
+        : {}),
+      ...patch,
+      sla: {
+        ...(typeof existing?.orderEnginePolicy === "object" &&
+        existing.orderEnginePolicy !== null &&
+        "sla" in existing.orderEnginePolicy &&
+        typeof (existing.orderEnginePolicy as { sla?: object }).sla === "object"
+          ? (existing.orderEnginePolicy as { sla: object }).sla
+          : {}),
+        ...(patch.sla ?? {})
+      },
+      recovery: {
+        ...(typeof existing?.orderEnginePolicy === "object" &&
+        existing.orderEnginePolicy !== null &&
+        "recovery" in existing.orderEnginePolicy &&
+        typeof (existing.orderEnginePolicy as { recovery?: object }).recovery === "object"
+          ? (existing.orderEnginePolicy as { recovery: object }).recovery
+          : {}),
+        ...(patch.recovery ?? {})
+      }
+    });
+
+    await prisma.restaurant.update({
+      where: { id: restaurantId },
+      data: { orderEnginePolicy: merged as never }
+    });
+
+    return { ok: true, policy: merged };
   });
 
   app.get("/orders/mine", async (req) => {
@@ -407,7 +539,7 @@ export async function registerOrderRoutes(
   });
 
   const patchStatusSchema = z.object({
-    status: z.enum(["PENDING", "CONFIRMED", "PREPARING", "READY", "COMPLETED", "CANCELLED"])
+    status: z.enum(ORDER_STATUS_VALUES)
   });
 
   app.patch("/orders/:orderId/status", async (req) => {
@@ -435,8 +567,14 @@ export async function registerOrderRoutes(
 
     const order = await applyOrderStatusOcl(
       prisma,
-      { orderId, status: body.status, actorUserId: user.sub },
-      { chatBus, domainEventBus }
+      {
+        orderId,
+        status: body.status,
+        actorUserId: user.sub,
+        idempotencyKey: readIdempotencyKey(req)
+      },
+      { chatBus, domainEventBus, orderBus },
+      app.log
     );
 
     await finalizeOrderStatusAudit(prisma, {
@@ -511,6 +649,58 @@ export async function registerOrderRoutes(
     );
 
     return { ok: true, order };
+  });
+
+  const paymentWebhookSchema = z.object({
+    orderId: z.string(),
+    externalId: z.string().min(1),
+    amountCents: z.number().int().positive(),
+    currency: z.string().optional(),
+    idempotencyKey: z.string().optional()
+  });
+
+  app.post("/webhooks/payments/:provider/succeeded", async (req) => {
+    const { provider } = req.params as { provider: string };
+    const body = paymentWebhookSchema.parse(req.body);
+    const webhookSecret = process.env.PAYMENT_WEBHOOK_SECRET?.trim();
+    const provided = req.headers["x-payment-webhook-secret"];
+    if (webhookSecret && provided !== webhookSecret) {
+      throw Object.assign(new Error("webhook_unauthorized"), { statusCode: 401 });
+    }
+
+    const result = await applyPaymentSucceededWebhook(
+      prisma,
+      {
+        provider,
+        externalId: body.externalId,
+        orderId: body.orderId,
+        amountCents: body.amountCents,
+        currency: body.currency,
+        idempotencyKey: body.idempotencyKey ?? readIdempotencyKey(req)
+      },
+      { domainEventBus, orderBus },
+      app.log
+    );
+
+    return { ok: true, ...result };
+  });
+
+  app.post("/webhooks/payments/:provider/failed", async (req) => {
+    const { provider } = req.params as { provider: string };
+    const body = paymentWebhookSchema.parse(req.body);
+    const result = await applyPaymentFailedWebhook(
+      prisma,
+      {
+        provider,
+        externalId: body.externalId,
+        orderId: body.orderId,
+        amountCents: body.amountCents,
+        currency: body.currency,
+        idempotencyKey: body.idempotencyKey ?? readIdempotencyKey(req)
+      },
+      app.log
+    );
+    return { ok: true, ...result };
   });
 
   app.get("/customer/orders/:orderId/ocl", async (req, reply) => {

@@ -7,7 +7,6 @@ import {
   ADMIN_TOP_HASHES,
   ADMIN_TOP_ICONS,
   ADMIN_TOP_TOOL_HINTS,
-  defaultGroupHref,
   readAdminTheme,
   readUserDisplayName,
   readSidebarPinned,
@@ -89,17 +88,14 @@ function NavGroupBlock({
   onNavigate?: () => void;
 }) {
   const groupActive = isGroupActive(group, hash, expanded);
-  const groupHref = defaultGroupHref(group);
 
   return (
     <div
       className="admin-side-group"
       style={{ "--nav-group-index": groupIndex } as CSSProperties}
     >
-      <a
-        href={groupHref}
+      <div
         title={group.label}
-        onClick={onNavigate}
         className={`admin-side-group-head ${groupActive ? "admin-side-group-head--active" : ""}`}
       >
         <span className="admin-side-group-icon" aria-hidden>
@@ -110,7 +106,7 @@ function NavGroupBlock({
         >
           {group.label}
         </span>
-      </a>
+      </div>
       <ul className="admin-side-group-items" aria-hidden={!expanded}>
         {group.items.map((item, itemIndex) => {
           const active = isItemActive(item.id, hash);

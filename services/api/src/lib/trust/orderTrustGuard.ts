@@ -8,6 +8,8 @@ import {
 } from "./trustGuard.js";
 import { markTrustEventExecuted } from "./trustEventService.js";
 import { writeTrustAuditLog } from "./auditLogService.js";
+import { deriveLockFlags, validateTransition } from "../orders/orderStatusMachine.js";
+import { loadRestaurantOrderPolicy } from "../orders/orderTenantPolicies.js";
 
 export async function guardOrderStatusChange(
   prisma: PrismaClient,
@@ -23,6 +25,20 @@ export async function guardOrderStatusChange(
   if (!order) throw Object.assign(new Error("order_not_found"), { statusCode: 404 });
 
   const ctx = await buildStaffTrustContext(prisma, params.actorUserId, order.restaurantId);
+  const tenant = await loadRestaurantOrderPolicy(prisma, order.restaurantId);
+
+  validateTransition(
+    order.status,
+    params.targetStatus,
+    {
+      userId: params.actorUserId,
+      source: "STAFF",
+      membershipRole: ctx.actorMembershipRole,
+      permissions: []
+    },
+    deriveLockFlags(order),
+    tenant
+  );
 
   const guard = await guardSensitiveAction(
     prisma,

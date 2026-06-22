@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { AdminPanel, AdminSectionHeader, subPanelCls } from "./AdminUi";
+import { AdminOrdersManagementPage } from "./orders/AdminOrdersManagementPage";
 import { AdminWorkspaceInnerTransition } from "./AdminWorkspaceInnerTransition";
 import {
   resolveWorkspacePreset,
@@ -127,6 +128,7 @@ type WorkspaceBodyProps = {
   workspaceId: WorkspaceId;
   activePresetId: string;
   onSelectTab: (tab: string) => void;
+  venueName?: string;
 };
 
 function LiveOpsBody({ workspaceId, activePresetId, onSelectTab }: WorkspaceBodyProps) {
@@ -152,31 +154,8 @@ function LiveOpsBody({ workspaceId, activePresetId, onSelectTab }: WorkspaceBody
   );
 }
 
-function OrdersBody({ workspaceId, activePresetId, onSelectTab }: WorkspaceBodyProps) {
-  const preset = resolveWorkspacePreset(workspaceId, activePresetId);
-  const isKds = preset.tab === "kds";
-  return (
-    <WorkspaceShell workspaceId={workspaceId} activePresetId={activePresetId} onSelectTab={onSelectTab}>
-      <PlaceholderGrid
-        tiles={[
-          { label: "Open tickets", value: "—" },
-          { label: "Avg prep time", value: "—" },
-          { label: "Delayed", value: "—" },
-          { label: "Completed today", value: "—" }
-        ]}
-      />
-      <PanelBlock title={isKds ? "Kitchen display" : "Order board"}>
-        <div className={`admin-ws-kds-grid grid gap-2 ${isKds ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
-          {Array.from({ length: isKds ? 6 : 4 }, (_, i) => (
-            <div key={i} className="admin-venue-table-tile rounded-xl border p-4">
-              <p className="text-xs font-bold text-slate-500">Order slot {i + 1}</p>
-              <p className="mt-2 font-display text-lg font-bold">—</p>
-            </div>
-          ))}
-        </div>
-      </PanelBlock>
-    </WorkspaceShell>
-  );
+function OrdersBody({ activePresetId, venueName }: WorkspaceBodyProps) {
+  return <AdminOrdersManagementPage presetId={activePresetId} venueName={venueName} />;
 }
 
 function VenueBody({ workspaceId, activePresetId, onSelectTab }: WorkspaceBodyProps) {
@@ -303,12 +282,24 @@ function AnalyticsBody({ workspaceId, activePresetId, onSelectTab }: WorkspaceBo
   );
 }
 
-function WorkspaceBody({ workspaceId, activePresetId, onSelectTab }: WorkspaceBodyProps) {
+function WorkspaceBody({
+  workspaceId,
+  activePresetId,
+  onSelectTab,
+  venueName
+}: WorkspaceBodyProps) {
   switch (workspaceId) {
     case "live-ops":
       return <LiveOpsBody workspaceId={workspaceId} activePresetId={activePresetId} onSelectTab={onSelectTab} />;
     case "orders":
-      return <OrdersBody workspaceId={workspaceId} activePresetId={activePresetId} onSelectTab={onSelectTab} />;
+      return (
+        <OrdersBody
+          workspaceId={workspaceId}
+          activePresetId={activePresetId}
+          onSelectTab={onSelectTab}
+          venueName={venueName}
+        />
+      );
     case "venue":
       return <VenueBody workspaceId={workspaceId} activePresetId={activePresetId} onSelectTab={onSelectTab} />;
     case "devices":
@@ -331,9 +322,10 @@ function WorkspaceBody({ workspaceId, activePresetId, onSelectTab }: WorkspaceBo
 type Props = {
   workspaceId: WorkspaceId;
   presetId: string;
+  venueName?: string;
 };
 
-export function AdminWorkspaceView({ workspaceId, presetId: routePresetId }: Props) {
+export function AdminWorkspaceView({ workspaceId, presetId: routePresetId, venueName = "" }: Props) {
   const [activePresetId, setActivePresetId] = useState(routePresetId);
   const lastByTabRef = useRef<Record<string, string>>({});
 
@@ -363,5 +355,12 @@ export function AdminWorkspaceView({ workspaceId, presetId: routePresetId }: Pro
     [workspaceId, selectPreset]
   );
 
-  return <WorkspaceBody workspaceId={workspaceId} activePresetId={activePresetId} onSelectTab={onSelectTab} />;
+  return (
+    <WorkspaceBody
+      workspaceId={workspaceId}
+      activePresetId={activePresetId}
+      onSelectTab={onSelectTab}
+      venueName={venueName}
+    />
+  );
 }

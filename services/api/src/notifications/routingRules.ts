@@ -162,5 +162,14 @@ export const ROUTING_RULES: Record<DomainEventType, RouteRule> = {
     recipients: "restaurant_admins",
     title: () => "Integration error",
     body: (p) => String(p.integration ?? "An integration needs attention")
+  },
+  "order.recovery.escalated": {
+    category: "ORDER",
+    priority: "CRITICAL",
+    channels: ["IN_APP", "PUSH"],
+    recipients: "restaurant_admins",
+    title: () => "Order needs attention",
+    body: (p) =>
+      `Order ${String(p.orderId ?? "").slice(0, 8)} — ${String(p.slaSignal ?? p.signal ?? "stuck")}`
   }
 };

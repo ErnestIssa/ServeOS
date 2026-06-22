@@ -173,6 +173,13 @@ export const WORKSPACE_PRESETS: Record<WorkspaceId, WorkspacePreset[]> = {
     { id: "all-orders", label: "All orders", tab: "board", filter: "all" },
     { id: "active-orders", label: "Active orders", tab: "board", filter: "active" },
     { id: "kitchen-view", label: "Kitchen view", tab: "kds", layout: "kds-full", description: "KDS mode" },
+    {
+      id: "problem-orders",
+      label: "Problem orders",
+      tab: "board",
+      filter: "problems",
+      description: "Delays, refunds, and failures"
+    },
     { id: "completed-orders", label: "Completed orders", tab: "board", filter: "completed" },
     { id: "order-history", label: "Order history", tab: "timeline", layout: "history" }
   ],

@@ -27,7 +27,8 @@ export type DomainEventType =
   | "approval.request.rejected"
   | "approval.request.expired"
   | "order.discount.applied"
-  | "order.refunded";
+  | "order.refunded"
+  | "order.recovery.escalated";
 
 export type DomainEvent = {
   id: string;

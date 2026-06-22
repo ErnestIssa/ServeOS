@@ -85,6 +85,8 @@ const SUGGESTED_IDS = [
   "live-overview",
   "live-orders",
   "all-orders",
+  "active-orders",
+  "problem-orders",
   "reservations",
   "menu-builder",
   "top-notifications",

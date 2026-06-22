@@ -7,13 +7,13 @@
     "seed": "tsx ./prisma/seed.ts"
   },
   "scripts": {
-    "db:generate": "prisma generate --schema ./prisma/schema.prisma",
-    "db:migrate:dev": "prisma migrate dev --schema ./prisma/schema.prisma",
-    "db:migrate:deploy": "prisma migrate deploy --schema ./prisma/schema.prisma",
-    "db:migrate:status": "prisma migrate status --schema ./prisma/schema.prisma",
-    "db:push": "prisma db push --schema ./prisma/schema.prisma",
-    "db:studio": "prisma studio --schema ./prisma/schema.prisma",
-    "db:seed": "prisma db seed --schema ./prisma/schema.prisma"
+    "db:generate": "tsx ./scripts/prisma-with-env.ts generate",
+    "db:migrate:dev": "tsx ./scripts/prisma-with-env.ts migrate dev",
+    "db:migrate:deploy": "tsx ./scripts/prisma-with-env.ts migrate deploy",
+    "db:migrate:status": "tsx ./scripts/prisma-with-env.ts migrate status",
+    "db:push": "tsx ./scripts/prisma-with-env.ts db push",
+    "db:studio": "tsx ./scripts/prisma-with-env.ts studio",
+    "db:seed": "tsx ./scripts/prisma-with-env.ts db seed"
   },
   "dependencies": {
     "@prisma/client": "^6.16.1"

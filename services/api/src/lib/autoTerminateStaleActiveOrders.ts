@@ -1,16 +1,13 @@
 import type { PrismaClient } from "@prisma/client";
+import { ACTIVE_KITCHEN_STATUSES, transitionOrderStatus } from "./orders/index.js";
+import { ORDER_SLA_POLICY } from "./orders/orderSlaPolicies.js";
 import { isVenueOpenNow } from "./venueOpenNow.js";
 
-const ACTIVE_TERMINATION_STATUSES = ["PENDING", "CONFIRMED", "PREPARING", "READY"] as const;
-
-/** Rolling 24 hours from `createdAt` (not calendar midnight). */
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-/**
- * Do not apply “venue closed now” to orders newer than this — avoids cancelling an order
- * the guest just placed when server TZ / hours disagree with reality, and keeps `/orders/mine`
- * showing the active order immediately after checkout.
- */
-const MIN_AGE_MS_FOR_VENUE_CLOSED_TERMINATION = 30 * 60 * 1000;
+const ACTIVE_TERMINATION_STATUSES = [
+  ...ACTIVE_KITCHEN_STATUSES,
+  "PENDING",
+  "CONFIRMED"
+] as const;
 
 /**
  * Sets matching orders to `CANCELLED` when they are still “active” but:
@@ -40,8 +37,8 @@ export async function autoTerminateStaleActiveOrdersForCustomer(
   const ids = candidates
     .filter((o) => {
       const ageMs = now.getTime() - o.createdAt.getTime();
-      if (ageMs >= MS_PER_DAY) return true;
-      if (ageMs < MIN_AGE_MS_FOR_VENUE_CLOSED_TERMINATION) return false;
+      if (ageMs >= ORDER_SLA_POLICY.maxActiveAgeMs) return true;
+      if (ageMs < ORDER_SLA_POLICY.minAgeForVenueClosedCancelMs) return false;
       const hours = o.restaurant?.openingHours ?? null;
       if (!isVenueOpenNow(hours, now)) return true;
       return false;
@@ -50,10 +47,14 @@ export async function autoTerminateStaleActiveOrdersForCustomer(
 
   if (ids.length === 0) return [];
 
-  await prisma.order.updateMany({
-    where: { id: { in: ids } },
-    data: { status: "CANCELLED" }
-  });
+  for (const id of ids) {
+    await transitionOrderStatus(prisma, {
+      orderId: id,
+      targetStatus: "CANCELLED",
+      actor: { source: "SYSTEM" },
+      reason: "auto_terminated_stale"
+    });
+  }
 
   return ids;
 }
