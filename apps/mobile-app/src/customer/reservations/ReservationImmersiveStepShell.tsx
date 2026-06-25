@@ -17,6 +17,8 @@ type Props = {
   hasVenue: boolean;
   scrollY: Animated.Value;
   onScroll: ReturnType<typeof Animated.event>;
+  onScrollEndDrag?: () => void;
+  onMomentumScrollEnd?: () => void;
   scrollTopPad: number;
   scrollBottom: number;
   onBack?: () => void;
@@ -87,6 +89,8 @@ export function ReservationImmersiveStepShell(props: Props) {
           layout="immersive"
           showUxTagline={false}
           onScroll={props.onScroll}
+          onScrollEndDrag={props.onScrollEndDrag}
+          onMomentumScrollEnd={props.onMomentumScrollEnd}
           scrollTopPad={props.scrollTopPad}
           scrollBottom={props.scrollBottom}
           sheetTopOffset={sheetTopOffset}

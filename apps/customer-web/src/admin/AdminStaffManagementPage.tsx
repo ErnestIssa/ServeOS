@@ -10,6 +10,7 @@ import {
   AdminSectionHeader,
   subPanelCls
 } from "./AdminUi";
+import { AdminSkeletonStaffTable, AdminSkeletonStatGrid, AdminStaleContent } from "./AdminSkeleton";
 import { ADMIN_TOP_HASHES } from "./adminTopHashes";
 import { ProfileModalShell } from "./profile/ProfileModalShell";
 import { useAdminToast } from "./AdminToast";
@@ -1320,7 +1321,8 @@ export function AdminStaffManagementPage({
 }) {
   const { pushToast } = useAdminToast();
   const {
-    loading,
+    initialLoading,
+    refreshing,
     error,
     staff,
     pendingInvites,
@@ -1529,9 +1531,13 @@ export function AdminStaffManagementPage({
           <p className="mt-6 text-sm font-semibold text-rose-600" role="alert">
             {error}
           </p>
-        ) : loading ? (
-          <p className="mt-6 text-sm admin-staff-text-muted">Loading staff…</p>
+        ) : initialLoading ? (
+          <div className="mt-8 space-y-5">
+            <AdminSkeletonStatGrid />
+            <AdminSkeletonStaffTable rows={6} />
+          </div>
         ) : (
+          <AdminStaleContent refreshing={refreshing}>
           <>
         <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatTile label="Total staff" value={String(stats.total)} hint="Across assigned venues" />
@@ -1693,6 +1699,7 @@ export function AdminStaffManagementPage({
         </div>
         ) : null}
           </>
+          </AdminStaleContent>
         )}
       </AdminPanel>
 

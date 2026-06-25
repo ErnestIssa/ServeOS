@@ -41,6 +41,8 @@ type Props = {
   stepLabel?: string;
   onBack?: () => void;
   onScroll: ReturnType<typeof Animated.event>;
+  onScrollEndDrag?: () => void;
+  onMomentumScrollEnd?: () => void;
   scrollTopPad: number;
   scrollBottom: number;
   /** Optional external ref so parent can programmatically scroll the sheet. */
@@ -223,13 +225,26 @@ export function ReservationScreenShell(props: Props) {
     hitBottomRef.current = false;
   }, [hasFixedHero, clearBounceTimer]);
 
-  const handleScrollEnd = React.useCallback(
+  const handleScrollEndDrag = React.useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      if (!hasFixedHero) return;
-      draggingRef.current = false;
-      settleScroll(e.nativeEvent.contentOffset.y);
+      if (hasFixedHero) {
+        draggingRef.current = false;
+        settleScroll(e.nativeEvent.contentOffset.y);
+      }
+      props.onScrollEndDrag?.();
     },
-    [hasFixedHero, settleScroll]
+    [hasFixedHero, props.onScrollEndDrag, settleScroll]
+  );
+
+  const handleMomentumScrollEnd = React.useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (hasFixedHero) {
+        draggingRef.current = false;
+        settleScroll(e.nativeEvent.contentOffset.y);
+      }
+      props.onMomentumScrollEnd?.();
+    },
+    [hasFixedHero, props.onMomentumScrollEnd, settleScroll]
   );
 
   return (
@@ -239,8 +254,8 @@ export function ReservationScreenShell(props: Props) {
       scrollEnabled={props.sheetScrollEnabled !== false}
       onScroll={handleScroll}
       onScrollBeginDrag={hasFixedHero ? handleScrollBeginDrag : undefined}
-      onScrollEndDrag={hasFixedHero ? handleScrollEnd : undefined}
-      onMomentumScrollEnd={hasFixedHero ? handleScrollEnd : undefined}
+      onScrollEndDrag={props.onScrollEndDrag || hasFixedHero ? handleScrollEndDrag : undefined}
+      onMomentumScrollEnd={props.onMomentumScrollEnd || hasFixedHero ? handleMomentumScrollEnd : undefined}
       scrollEventThrottle={16}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}

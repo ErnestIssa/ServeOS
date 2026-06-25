@@ -4,6 +4,7 @@ import React from "react";
 import { Animated, Easing, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { R } from "../theme";
 import { NavIconOrdersMark } from "../shell/NavTabIcons";
+import { noMenuAtVenueMessage } from "./venueContentHelpers";
 import { getRestaurantPrefsForCustomer, type RestaurantPrefs } from "../menu/menuPreferencesStorage";
 
 /**
@@ -191,7 +192,10 @@ type Props = {
   phraseLandTick: number;
   /** Pauses phrase transitions (e.g. while search sheet is open on Orders). */
   motionPaused?: boolean;
+  /** Venue is selected but has no customer-facing menu items. */
+  noBrowsableMenu?: boolean;
   onPrimaryCta: () => void;
+  onSwitchVenue?: () => void;
   authToken?: string | null;
 };
 
@@ -203,7 +207,9 @@ export function EmptyOrdersCtaSection({
   ordersSessionVisits,
   phraseLandTick,
   motionPaused = false,
+  noBrowsableMenu = false,
   onPrimaryCta,
+  onSwitchVenue,
   authToken
 }: Props) {
   const { width: screenW } = useWindowDimensions();
@@ -314,34 +320,44 @@ export function EmptyOrdersCtaSection({
     motionPaused
   );
   const engaged = prefs ? menuEngaged(prefs) : false;
-  const ctaLabel = primaryCtaLabel({
-    cartCount: cartItemCount,
-    engaged,
-    ordersSessionVisits
-  });
+  const ctaLabel = noBrowsableMenu
+    ? "Switch venue"
+    : primaryCtaLabel({
+        cartCount: cartItemCount,
+        engaged,
+        ordersSessionVisits
+      });
+  const ctaAction = noBrowsableMenu ? (onSwitchVenue ?? onPrimaryCta) : onPrimaryCta;
+  const staticNoMenuPhrase = noMenuAtVenueMessage(venueName);
 
   const stripMaxW = Math.min(520, screenW - 32);
-  const fg = swapColorOnLight(swap.colorIndex);
+  const fg = noBrowsableMenu ? R.textSecondary : swapColorOnLight(swap.colorIndex);
 
   return (
     <View style={styles.root}>
       <View style={[styles.phraseStrip, { maxWidth: stripMaxW }]}>
-        <Animated.View
-          style={[styles.phraseRow, { opacity: swap.opacity, transform: [{ translateX: swap.x }] }]}
-        >
-          <Animated.Text
-            style={[styles.phraseBig, { color: fg }]}
-            numberOfLines={1}
-            ellipsizeMode="tail"
+        {noBrowsableMenu ? (
+          <Text style={[styles.phraseBig, styles.phraseStatic, { color: fg }]} numberOfLines={3}>
+            {staticNoMenuPhrase}
+          </Text>
+        ) : (
+          <Animated.View
+            style={[styles.phraseRow, { opacity: swap.opacity, transform: [{ translateX: swap.x }] }]}
           >
-            {swap.text}
-          </Animated.Text>
-          {swap.icon === "orders" ? (
-            <View style={styles.iconPad}>
-              <NavIconOrdersMark size={22} color={fg} />
-            </View>
-          ) : null}
-        </Animated.View>
+            <Animated.Text
+              style={[styles.phraseBig, { color: fg }]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
+              {swap.text}
+            </Animated.Text>
+            {swap.icon === "orders" ? (
+              <View style={styles.iconPad}>
+                <NavIconOrdersMark size={22} color={fg} />
+              </View>
+            ) : null}
+          </Animated.View>
+        )}
       </View>
 
       <Pressable
@@ -349,7 +365,7 @@ export function EmptyOrdersCtaSection({
         accessibilityLabel={ctaLabel}
         onPress={() => {
           void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          onPrimaryCta();
+          ctaAction();
         }}
         style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
       >
@@ -389,6 +405,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
     textAlign: "center"
   },
+  phraseStatic: { width: "100%" },
   iconPad: { flexShrink: 0, paddingTop: 1 },
   cta: {
     marginTop: 22,

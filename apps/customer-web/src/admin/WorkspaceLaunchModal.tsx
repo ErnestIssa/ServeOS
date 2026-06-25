@@ -16,6 +16,7 @@ import {
   type WorkspaceDeploymentInput,
   type WorkspacePlanId
 } from "./deploymentApi";
+import { AdminSkeletonDeploymentPlans, AdminSkeletonQuote } from "./AdminSkeleton";
 
 const EXIT_MS = 300;
 const STEP_TRANSITION_MS = 340;
@@ -470,7 +471,7 @@ export function WorkspaceLaunchModal({ open, token, onConfirmed }: Props) {
               disabled={!hasEnabledHardware || quoteLoading || isStepTransitioning}
               className={`rounded-full px-8 py-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-45 ${launchBtnCls}`}
             >
-              {quoteLoading ? "Calculating…" : step2CtaLabel}
+              {step2CtaLabel}
             </button>
           </div>
         </>
@@ -538,8 +539,10 @@ export function WorkspaceLaunchModal({ open, token, onConfirmed }: Props) {
               </p>
             ) : null}
           </div>
+        ) : quoteLoading ? (
+          <AdminSkeletonQuote />
         ) : (
-          <p className="mt-4 text-center text-sm text-slate-600">{quoteLoading ? "Loading quote…" : "Quote unavailable."}</p>
+          <p className="mt-4 text-center text-sm text-slate-600">Quote unavailable.</p>
         )}
 
         {actionError ? <p className="mt-3 text-center text-xs font-medium text-red-600">{actionError}</p> : null}
@@ -584,7 +587,7 @@ export function WorkspaceLaunchModal({ open, token, onConfirmed }: Props) {
         {catalogError ? (
           <p className="text-center text-sm font-medium text-red-600">{catalogError}</p>
         ) : !selectedPlan || !hardware ? (
-          <p className="signup-phase text-center text-sm text-slate-600">Loading deployment options…</p>
+          <AdminSkeletonDeploymentPlans />
         ) : (
           <div className="deployment-step-stage">
             {leavingStep ? (

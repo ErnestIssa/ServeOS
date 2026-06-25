@@ -2,19 +2,22 @@ import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
 import { Animated, Platform, StyleSheet, Text, View } from "react-native";
-import { FLOATING_TOP_BAR_HEIGHT, FLOATING_TOP_GAP, FLOATING_TOP_NUDGE } from "../../shell/FloatingTopBar";
+import {
+  CONTENT_GAP_BELOW_TOP_NAV,
+  FLOATING_TOP_BAR_HEIGHT,
+  FLOAT_MARGIN_TOP,
+  floatingTopBarBottomY
+} from "../../shell/navBottomMetrics";
 import { useAppTheme } from "../../theme/AppThemeContext";
 import { R } from "../../theme";
 import type { CustomerChatVenueStatus } from "../customerChatApi";
 import { ChatVenueStatusRow } from "./ChatVenueStatusRow";
 
-/** Must match `scrollTopPad` in App.tsx: `R.space.sm + safeTop + FLOATING_TOP_BAR_HEIGHT + this`. */
-const SCROLL_GAP_BELOW_TOP_NAV = 18;
-
 /** Highest compact title Y: 2px under the floating search capsule. */
 function compactTitleTop(scrollTopPad: number): number {
-  const safeTop = scrollTopPad - R.space.sm - FLOATING_TOP_BAR_HEIGHT - SCROLL_GAP_BELOW_TOP_NAV;
-  return FLOATING_TOP_NUDGE + safeTop + FLOATING_TOP_GAP + FLOATING_TOP_BAR_HEIGHT + 4;
+  const topInset =
+    scrollTopPad - CONTENT_GAP_BELOW_TOP_NAV - FLOAT_MARGIN_TOP - FLOATING_TOP_BAR_HEIGHT - R.space.sm;
+  return floatingTopBarBottomY(Math.max(0, topInset)) + 4;
 }
 
 /** Body height below safe-area inset (large title + status row). */

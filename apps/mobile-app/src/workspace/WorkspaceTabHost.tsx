@@ -32,6 +32,8 @@ type Props = {
   scrollTopPad: number;
   scrollBottom: number;
   onScroll: (e: { nativeEvent: { contentOffset: { y: number } } }) => void;
+  onScrollEndDrag?: () => void;
+  onMomentumScrollEnd?: () => void;
   onNavigateTab?: (tabKey: string) => void;
   onSignOut?: () => void;
 };
@@ -226,6 +228,8 @@ export function WorkspaceTabHost(props: Props) {
     <ScrollView
       style={styles.scroll}
       onScroll={props.onScroll}
+      onScrollEndDrag={props.onScrollEndDrag}
+      onMomentumScrollEnd={props.onMomentumScrollEnd}
       scrollEventThrottle={16}
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={{ paddingTop: props.scrollTopPad, paddingBottom: props.scrollBottom, paddingHorizontal: 16 }}

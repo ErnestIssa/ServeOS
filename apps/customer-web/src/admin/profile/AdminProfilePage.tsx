@@ -7,6 +7,7 @@ import {
   AdminSectionHeader,
   subPanelCls
 } from "../AdminUi";
+import { AdminSkeletonProfile } from "../AdminSkeleton";
 import { ADMIN_TOP_HASHES } from "../adminTopHashes";
 import {
   type AccountBundle,
@@ -238,9 +239,7 @@ export function AdminProfilePage({ token, displayName, email, onSignOut, onEmail
       ) : null}
 
       {loading ? (
-        <div className="mt-8">
-          <AdminEmptyState>Loading your account…</AdminEmptyState>
-        </div>
+        <AdminSkeletonProfile />
       ) : (
         <div className="mt-8 space-y-5">
           <div className="grid gap-5 xl:grid-cols-12">

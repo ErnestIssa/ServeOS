@@ -44,6 +44,7 @@ import { isIncomingMessage, isMessageUnread } from "./chat/chatUnreadHelpers";
 import { joinChatRoom, sendChatRead, sendChatTyping, subscribeChatRelay } from "./chat/customerChatSocket";
 import { ChatVenueTypeRotator } from "./chat/ChatVenueTypeRotator";
 import { ScreenErrorState } from "../errors";
+import { noMenuAtVenueMessage } from "./venueContentHelpers";
 
 const TYPING_EMIT_MS = 400;
 const TYPING_IDLE_MS = 2800;
@@ -67,6 +68,8 @@ type Props = {
   money: (cents: number) => string;
   scrollY: Animated.Value;
   onScroll: ReturnType<typeof Animated.event>;
+  onScrollEndDrag?: () => void;
+  onMomentumScrollEnd?: () => void;
   scrollTopPad: number;
   scrollBottom: number;
   userId?: string | null;
@@ -77,6 +80,9 @@ type Props = {
   onOpenCart: () => void;
   onPlaceOrder: () => void;
   onReorder: () => void;
+  hasBrowsableMenu?: boolean;
+  venueDisplayName?: string;
+  onSwitchVenue?: () => void;
 };
 
 function patchMyDeliveryStatus(
@@ -106,6 +112,8 @@ export function CustomerChatScreen(props: Props) {
     money,
     scrollY,
     onScroll,
+    onScrollEndDrag,
+    onMomentumScrollEnd,
     scrollTopPad,
     scrollBottom,
     userId,
@@ -115,7 +123,10 @@ export function CustomerChatScreen(props: Props) {
     onPopularItems,
     onOpenCart,
     onPlaceOrder,
-    onReorder
+    onReorder,
+    hasBrowsableMenu = true,
+    venueDisplayName = "",
+    onSwitchVenue
   } = props;
 
   const [hub, setHub] = React.useState<CustomerChatHubResponse | null>(null);
@@ -195,6 +206,10 @@ export function CustomerChatScreen(props: Props) {
     async (opts?: { force?: boolean }) => {
       const rid = restaurantId.trim();
       if (!rid) {
+        resetNoVenueState();
+        return;
+      }
+      if (!hasBrowsableMenu) {
         resetNoVenueState();
         return;
       }
@@ -281,7 +296,7 @@ export function CustomerChatScreen(props: Props) {
       applyHubResponse(res, serverFeed, true);
       void writeChatSnapshot(userId, rid, res, serverFeed);
     },
-    [token, restaurantId, userId, feedMessagesOnly, applyHubResponse, resetNoVenueState, syncUnreadBadge]
+    [token, restaurantId, userId, feedMessagesOnly, applyHubResponse, resetNoVenueState, syncUnreadBadge, hasBrowsableMenu]
   );
 
   const tryMarkThreadRead = React.useCallback(() => {
@@ -334,8 +349,12 @@ export function CustomerChatScreen(props: Props) {
       resetNoVenueState();
       return;
     }
+    if (!hasBrowsableMenu) {
+      resetNoVenueState();
+      return;
+    }
     void loadHub();
-  }, [loadHub, hasVenueSelected, resetNoVenueState]);
+  }, [loadHub, hasVenueSelected, hasBrowsableMenu, resetNoVenueState]);
 
   React.useEffect(() => {
     if (!hub?.ok) return;
@@ -588,6 +607,7 @@ export function CustomerChatScreen(props: Props) {
   }
 
   const needsVenue = !hasVenueSelected || hub?.needsVenue === true;
+  const needsMenu = hasVenueSelected && !hasBrowsableMenu;
 
   const oclTimeline =
     hub?.scene === "active_order" && (hub.timeline?.length ?? 0) > 0 ? (
@@ -632,7 +652,7 @@ export function CustomerChatScreen(props: Props) {
         onAddItems={() => runQuickAction("view_menu")}
       />
 
-      {loading && !hub?.ok && !needsVenue ? (
+      {loading && !hub?.ok && !needsVenue && !needsMenu ? (
         <Pressable style={styles.loadingRow} onPress={dismissKeyboard}>
           <ActivityIndicator color={R.accentPurple} />
           <Text style={styles.loadingText}>Loading thread…</Text>
@@ -644,7 +664,7 @@ export function CustomerChatScreen(props: Props) {
         </View>
       ) : null}
 
-      {loadErr && !loading && hasVenueSelected && !needsVenue ? (
+      {loadErr && !loading && hasVenueSelected && !needsVenue && !needsMenu ? (
         <ScreenErrorState
           style={{ flex: 1, marginTop: listTopInset }}
           title="Could not connect"
@@ -653,7 +673,7 @@ export function CustomerChatScreen(props: Props) {
         />
       ) : null}
 
-      {needsVenue && !loadErr ? (
+      {needsVenue && !loadErr && !needsMenu ? (
         <View style={[styles.noVenueColumn, { paddingTop: listTopInset, paddingBottom: scrollBottom }]}>
           <View style={styles.noVenueCenter}>
             <ChatVenueTypeRotator />
@@ -662,7 +682,31 @@ export function CustomerChatScreen(props: Props) {
         </View>
       ) : null}
 
-      {!needsVenue && !loading && hub?.ok && !loadErr ? (
+      {needsMenu && !loadErr ? (
+        <View style={[styles.noVenueColumn, { paddingTop: listTopInset, paddingBottom: scrollBottom }]}>
+          <View style={styles.noVenueCenter}>
+            <Text style={styles.noMenuHeadline}>{noMenuAtVenueMessage(venueDisplayName)}</Text>
+            <Text style={styles.noVenueSub}>
+              Switch venue to message a location with a published menu and ordering.
+            </Text>
+            {onSwitchVenue ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Switch venue"
+                onPress={() => {
+                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  onSwitchVenue();
+                }}
+                style={({ pressed }) => [styles.switchVenueBtn, pressed && styles.pressed]}
+              >
+                <Text style={styles.switchVenueBtnText}>Switch venue</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
+
+      {!needsVenue && !needsMenu && !loading && hub?.ok && !loadErr ? (
         <View style={styles.threadColumn}>
           <Animated.FlatList
             ref={listRef as React.RefObject<FlatList<ThreadFeedItem>>}
@@ -677,6 +721,8 @@ export function CustomerChatScreen(props: Props) {
             ListHeaderComponent={oclTimeline}
             ListFooterComponent={listFooter}
             onScrollBeginDrag={dismissKeyboard}
+            onScrollEndDrag={onScrollEndDrag}
+            onMomentumScrollEnd={onMomentumScrollEnd}
             onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
             onViewableItemsChanged={onViewableItemsChanged}
             viewabilityConfig={viewabilityConfig}
@@ -758,6 +804,29 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     fontWeight: "600",
     color: R.textMuted
+  },
+  noMenuHeadline: {
+    textAlign: "center",
+    fontSize: 20,
+    lineHeight: 28,
+    fontWeight: "900",
+    color: R.textSecondary,
+    letterSpacing: 0.2
+  },
+  switchVenueBtn: {
+    marginTop: 8,
+    minWidth: 228,
+    paddingVertical: 15,
+    paddingHorizontal: 28,
+    borderRadius: R.radius.pill,
+    backgroundColor: R.accentPurple,
+    alignItems: "center"
+  },
+  switchVenueBtnText: {
+    color: "#FFFFFF",
+    fontSize: R.type.body,
+    fontWeight: "800",
+    letterSpacing: 0.2
   },
   footerPad: { paddingHorizontal: 8, paddingTop: 8 },
   typingRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8, paddingLeft: 8 },

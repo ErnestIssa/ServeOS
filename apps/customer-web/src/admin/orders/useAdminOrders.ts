@@ -10,7 +10,7 @@ import {
   type OrderEditOperation,
   type SourceInterpretation
 } from "./ordersApi";
-import { enrichOrderDetail, mapApiOrderRow, presetToApiQuery } from "./ordersApiMappers";
+import { applyOptimisticApiStatus, enrichOrderDetail, mapApiOrderRow, presetToApiQuery } from "./ordersApiMappers";
 import type { AdminOrderVm } from "./ordersApiMappers";
 import type { OrderFilters, OrderViewPreset } from "./ordersTypes";
 
@@ -29,8 +29,20 @@ export function useAdminOrders(input: {
   const [error, setError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
   const versionMap = useRef<Record<string, number>>({});
+  const hasLoadedOnce = useRef(false);
 
   const enabled = Boolean(input.token && input.restaurantId);
+  const initialLoading = loading && !hasLoadedOnce.current;
+  const refreshing = loading && hasLoadedOnce.current;
+
+  const patchOrderLocal = useCallback((orderId: string, patch: Partial<AdminOrderVm> | ((order: AdminOrderVm) => AdminOrderVm)) => {
+    setOrders((prev) =>
+      prev.map((o) => {
+        if (o.id !== orderId) return o;
+        return typeof patch === "function" ? patch(o) : { ...o, ...patch };
+      })
+    );
+  }, []);
 
   const reload = useCallback(async () => {
     if (!enabled || !input.token || !input.restaurantId) return;
@@ -50,6 +62,7 @@ export function useAdminOrders(input: {
       fetchAdminOrderStats(input.token, input.restaurantId)
     ]);
     setLoading(false);
+    hasLoadedOnce.current = true;
     if (!listRes.ok) {
       setError(listRes.error ?? "Failed to load orders");
       return;
@@ -74,6 +87,12 @@ export function useAdminOrders(input: {
   ]);
 
   useEffect(() => {
+    hasLoadedOnce.current = false;
+    setOrders([]);
+    setTotal(0);
+  }, [input.token, input.restaurantId]);
+
+  useEffect(() => {
     void reload();
   }, [reload]);
 
@@ -96,8 +115,18 @@ export function useAdminOrders(input: {
   const updateStatus = useCallback(
     async (orderId: string, status: string) => {
       if (!input.token) return { ok: false as const, error: "Not signed in" };
+      let snapshot: AdminOrderVm | undefined;
+      setOrders((prev) => {
+        snapshot = prev.find((o) => o.id === orderId);
+        if (!snapshot) return prev;
+        return prev.map((o) => (o.id === orderId ? applyOptimisticApiStatus(o, status) : o));
+      });
       const res = await patchOrderStatus(input.token, orderId, status);
-      if (res.ok) void reload();
+      if (!res.ok && snapshot) {
+        setOrders((prev) => prev.map((o) => (o.id === orderId ? snapshot! : o)));
+      } else if (res.ok) {
+        void reload();
+      }
       return res;
     },
     [input.token, reload]
@@ -138,10 +167,11 @@ export function useAdminOrders(input: {
   return {
     orders,
     stats,
-    meta: { enabled, loading, error, total },
+    meta: { enabled, loading, initialLoading, refreshing, error, total },
     refresh: reload,
     loadOrderDetail,
     updateStatus,
+    patchOrderLocal,
     runEdit,
     runSourceInterpretation
   };

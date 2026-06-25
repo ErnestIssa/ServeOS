@@ -52,6 +52,8 @@ type Props = ReservationFlowContext & {
   openingHours?: string | null;
   scrollY: Animated.Value;
   onScroll: ReturnType<typeof Animated.event>;
+  onScrollEndDrag?: () => void;
+  onMomentumScrollEnd?: () => void;
   scrollTopPad: number;
   scrollBottom: number;
   onChooseVenue: () => void;
@@ -130,16 +132,21 @@ export function CustomerReservationFlow(props: Props) {
     return { token: Date.now(), screen: cached!.screen, y };
   });
 
-  const onBookingsScroll = React.useMemo(
-    () =>
-      Animated.event([{ nativeEvent: { contentOffset: { y: props.scrollY } } }], {
-        useNativeDriver: false,
-        listener: (e: { nativeEvent: { contentOffset: { y: number } } }) => {
-          screenScrollYRef.current[screenRef.current] = Math.max(0, e.nativeEvent.contentOffset.y);
-        }
-      }),
-    [props.scrollY]
+  const onBookingsScroll = React.useCallback(
+    (e: { nativeEvent: { contentOffset: { y: number } } }) => {
+      props.onScroll(e);
+      screenScrollYRef.current[screenRef.current] = Math.max(0, e.nativeEvent.contentOffset.y);
+    },
+    [props.onScroll]
   );
+
+  const onBookingsScrollEndDrag = React.useCallback(() => {
+    props.onScrollEndDrag?.();
+  }, [props.onScrollEndDrag]);
+
+  const onBookingsMomentumScrollEnd = React.useCallback(() => {
+    props.onMomentumScrollEnd?.();
+  }, [props.onMomentumScrollEnd]);
 
   React.useEffect(() => {
     if (props.openingHours !== undefined) {
@@ -500,6 +507,8 @@ export function CustomerReservationFlow(props: Props) {
   const shared = {
     scrollY: props.scrollY,
     onScroll: onBookingsScroll,
+    onScrollEndDrag: onBookingsScrollEndDrag,
+    onMomentumScrollEnd: onBookingsMomentumScrollEnd,
     scrollTopPad: props.scrollTopPad,
     scrollBottom: props.scrollBottom
   };

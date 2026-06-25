@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   activateStaffMembership,
   adminResetStaffPassword,
@@ -31,6 +31,7 @@ import {
 export function useStaffManagement(token: string | null, restaurantId: string, venueName: string) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const hasLoadedOnce = useRef(false);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([]);
   const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
@@ -46,6 +47,7 @@ export function useStaffManagement(token: string | null, restaurantId: string, v
       setInviteHistory([]);
       setRecentlyRemoved([]);
       setLoading(false);
+      hasLoadedOnce.current = false;
       return;
     }
     setLoading(true);
@@ -139,6 +141,7 @@ export function useStaffManagement(token: string | null, restaurantId: string, v
       }))
     );
     setLoading(false);
+    hasLoadedOnce.current = true;
   }, [token, restaurantId, venueName]);
 
   useEffect(() => {
@@ -244,6 +247,8 @@ export function useStaffManagement(token: string | null, restaurantId: string, v
 
   return {
     loading,
+    initialLoading: loading && !hasLoadedOnce.current,
+    refreshing: loading && hasLoadedOnce.current,
     error,
     staff,
     pendingInvites,

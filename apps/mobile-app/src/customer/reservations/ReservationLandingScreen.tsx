@@ -21,6 +21,8 @@ type Props = ReservationFlowContext & {
   authToken: string | null;
   scrollY: Animated.Value;
   onScroll: ReturnType<typeof import("react-native").Animated.event>;
+  onScrollEndDrag?: () => void;
+  onMomentumScrollEnd?: () => void;
   scrollTopPad: number;
   scrollBottom: number;
   draft: ReservationDraft;
@@ -144,6 +146,8 @@ export function ReservationLandingScreen(props: Props) {
       hasVenue={props.hasVenue}
       scrollY={props.scrollY}
       onScroll={props.onScroll}
+      onScrollEndDrag={props.onScrollEndDrag}
+      onMomentumScrollEnd={props.onMomentumScrollEnd}
       scrollTopPad={props.scrollTopPad}
       scrollBottom={props.scrollBottom}
       scrollRefExternal={scrollRef}

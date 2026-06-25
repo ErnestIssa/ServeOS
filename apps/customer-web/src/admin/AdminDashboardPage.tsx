@@ -19,6 +19,11 @@ import {
   adminWorkspaceMain,
   subPanelCls
 } from "./AdminUi";
+import {
+  AdminSkeletonMenuPreview,
+  AdminSkeletonTable,
+  AdminStaleContent
+} from "./AdminSkeleton";
 import { AdminThemeFab, AdminWorkspaceShell, useAdminTheme } from "./AdminNav";
 import { MobileFloatingDock } from "../MobileFloatingDock";
 import { formatMoneyCents } from "@serveos/core-shared/currency";
@@ -96,6 +101,10 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
 
   const [selectedRestaurantId, setSelectedRestaurantId] = useState<string>("");
   const [menu, setMenu] = useState<MenuTree | null>(null);
+  const [menuLoading, setMenuLoading] = useState(false);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [menuReady, setMenuReady] = useState(false);
+  const [ordersReady, setOrdersReady] = useState(false);
 
   const [newCategoryName, setNewCategoryName] = useState("Mains");
   const [itemCategoryId, setItemCategoryId] = useState("");
@@ -294,10 +303,13 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
   }
 
   async function refreshMenu(t: string, restaurantId: string) {
+    setMenuLoading(true);
     const res = await getMenuAdmin(t, restaurantId);
+    setMenuLoading(false);
+    setMenuReady(true);
     if (!res.ok || !res.categories) {
       setStatus(res.error ?? "menu_load_failed");
-      setMenu(null);
+      if (!menu) setMenu(null);
       return;
     }
     setMenu({
@@ -307,9 +319,12 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
   }
 
   async function refreshOrders(t: string, restaurantId: string) {
+    setOrdersLoading(true);
     const res = await listRestaurantOrders(t, restaurantId);
+    setOrdersLoading(false);
+    setOrdersReady(true);
     if (!res.ok) {
-      setOrders([]);
+      if (!orders.length) setOrders([]);
       return;
     }
     setOrders(res.orders ?? []);
@@ -340,6 +355,8 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
 
   useEffect(() => {
     if (!token || !selectedRestaurantId) return;
+    setMenuReady(false);
+    setOrdersReady(false);
     void refreshMenu(token, selectedRestaurantId);
     void refreshOrders(token, selectedRestaurantId);
   }, [token, selectedRestaurantId]);
@@ -609,7 +626,13 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
           </div>
         </div>
 
-        {menu?.categories?.length ? (
+        {menuLoading && !menuReady ? (
+          <div className={`${subPanelCls} mt-8`}>
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Live menu preview</p>
+            <AdminSkeletonMenuPreview />
+          </div>
+        ) : menu?.categories?.length ? (
+          <AdminStaleContent refreshing={menuLoading && menuReady}>
           <div className={`${subPanelCls} mt-8`}>
             <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Live menu preview</p>
             <div className="mt-4 max-h-80 space-y-5 overflow-y-auto text-sm">
@@ -641,11 +664,12 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
               ))}
             </div>
           </div>
-        ) : (
+          </AdminStaleContent>
+        ) : menuReady ? (
           <div className="mt-6">
-            <AdminEmptyState>No menu data yet â€” add a category first.</AdminEmptyState>
+            <AdminEmptyState>No menu data yet — add a category first.</AdminEmptyState>
           </div>
-        )}
+        ) : null}
       </AdminPanel>
 
       <AdminPanel id="orders" className={token ? "" : "mt-8"}>
@@ -667,7 +691,11 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
           }
         />
 
+        <AdminStaleContent refreshing={ordersLoading && ordersReady}>
         <div className="mt-6 overflow-x-auto rounded-xl border border-slate-200/80 bg-white/85">
+          {ordersLoading && !ordersReady ? (
+            <AdminSkeletonTable rows={5} columns={5} />
+          ) : (
           <table className="w-full min-w-[640px] text-left text-sm">
             <thead>
               <tr className="border-b border-slate-200/80 bg-slate-50/80 text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -691,9 +719,14 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
                       onChange={async (e) => {
                         if (!token) return;
                         const next = e.target.value;
+                        const prevStatus = o.status;
+                        setOrders((list) => list.map((row) => (row.id === o.id ? { ...row, status: next } : row)));
                         const res = await patchOrderStatus(token, o.id, next);
-                        if (!res.ok) return setStatus(res.error ?? "status_failed");
-                        await refreshOrders(token, selectedRestaurantId);
+                        if (!res.ok) {
+                          setOrders((list) => list.map((row) => (row.id === o.id ? { ...row, status: prevStatus } : row)));
+                          return setStatus(res.error ?? "status_failed");
+                        }
+                        void refreshOrders(token, selectedRestaurantId);
                       }}
                     >
                       {(["PENDING", "CONFIRMED", "PREPARING", "READY", "COMPLETED", "CANCELLED"] as const).map((s) => (
@@ -714,12 +747,14 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
               ))}
             </tbody>
           </table>
-          {orders.length === 0 ? (
+          )}
+          {ordersReady && orders.length === 0 ? (
             <div className="px-4 py-6">
-              <AdminEmptyState>No orders yet â€” place one from the customer app.</AdminEmptyState>
+              <AdminEmptyState>No orders yet — place one from the customer app.</AdminEmptyState>
             </div>
           ) : null}
         </div>
+        </AdminStaleContent>
 
         {status ? (
           <div className="mt-4">

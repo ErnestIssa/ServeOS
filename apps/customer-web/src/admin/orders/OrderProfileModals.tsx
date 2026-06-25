@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AdminBubbleDropdown } from "../AdminBubbleDropdown";
 import { AdminBtnSecondary, AdminInput, AdminLabel } from "../AdminUi";
 import { ProfileModalFooter, ProfileModalNote, ProfileModalShell } from "../profile/ProfileModalShell";
+import { AdminSkeletonFormRows } from "../AdminSkeleton";
 import { getMenuAdmin } from "../../api";
 import { placeStaffOrder } from "./ordersApi";
 import {
@@ -274,6 +275,7 @@ export function CreateOrderModal({
   const [busy, setBusy] = useState(false);
   const [menuItems, setMenuItems] = useState<MenuItemOption[]>([]);
   const [menuLoading, setMenuLoading] = useState(false);
+  const [menuLoadedOnce, setMenuLoadedOnce] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const errors = useMemo(() => validateCreateOrderForm(form), [form]);
@@ -305,6 +307,7 @@ export function CreateOrderModal({
       setShakeSubmit(false);
       setBusy(false);
       setSubmitError(null);
+      setMenuLoadedOnce(false);
       return;
     }
     if (!token || !restaurantId) return;
@@ -314,6 +317,7 @@ export function CreateOrderModal({
       const menu = await getMenuAdmin(token, restaurantId);
       if (cancelled) return;
       setMenuLoading(false);
+      setMenuLoadedOnce(true);
       if (!menu.ok) {
         setMenuItems([]);
         return;
@@ -596,8 +600,8 @@ export function CreateOrderModal({
               Add item
             </AdminBtnSecondary>
           </div>
-          {menuLoading ? <p className="mt-3 text-sm text-slate-500">Loading menu…</p> : null}
-          {!menuLoading && menuItems.length === 0 ? (
+          {menuLoading && !menuLoadedOnce ? <AdminSkeletonFormRows rows={2} /> : null}
+          {!menuLoading && menuItems.length === 0 && menuLoadedOnce ? (
             <p className="mt-3 text-sm text-slate-500">No menu items available. Add items in Menu builder first.</p>
           ) : null}
           <ul className="admin-orders-create-items-list mt-3 space-y-3">

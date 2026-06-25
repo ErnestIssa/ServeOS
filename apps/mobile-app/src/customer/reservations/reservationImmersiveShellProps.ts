@@ -6,6 +6,8 @@ export type ReservationImmersiveShellProps = {
   hasVenue: boolean;
   scrollY: Animated.Value;
   onScroll: ReturnType<typeof Animated.event>;
+  onScrollEndDrag?: () => void;
+  onMomentumScrollEnd?: () => void;
   scrollTopPad: number;
   scrollBottom: number;
   onBack?: () => void;
@@ -33,6 +35,8 @@ export function immersiveShellPassThrough(props: ReservationImmersiveShellProps)
     hasVenue: props.hasVenue,
     scrollY: props.scrollY,
     onScroll: props.onScroll,
+    onScrollEndDrag: props.onScrollEndDrag,
+    onMomentumScrollEnd: props.onMomentumScrollEnd,
     scrollTopPad: props.scrollTopPad,
     scrollBottom: props.scrollBottom,
     onBack: props.onBack,

@@ -1,4 +1,8 @@
-import { ambientNativePalettes, type AmbientNativeTab } from "@serveos/core-ambient/themes";
+import {
+  ambientNativeMeshGradient,
+  ambientNativePalettes,
+  type AmbientNativeTab
+} from "@serveos/core-ambient/themes";
 import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
 import { Animated, StyleSheet, View } from "react-native";
@@ -10,8 +14,8 @@ type Props = {
 };
 
 /**
- * Two-color vertical background only (light → dark, top → bottom). Scroll deepens the whole
- * surface uniformly — no patchy blobs or mixed light/dark spots.
+ * Multi-stop vertical mesh (light → deep, top → bottom). Scroll deepens the whole
+ * surface uniformly — no patchy blobs or hard midpoint bands.
  */
 export function ScrollMeshBackground({ tab, scrollY }: Props) {
   const { isDark, colors: theme } = useAppTheme();
@@ -19,9 +23,14 @@ export function ScrollMeshBackground({ tab, scrollY }: Props) {
   const top = isDark ? theme.meshTop : ambient.top;
   const bottom = isDark ? theme.meshBottom : ambient.bottom;
 
+  const mesh = React.useMemo(
+    () => ambientNativeMeshGradient(top, bottom),
+    [top, bottom]
+  );
+
   const scrollDepth = scrollY.interpolate({
-    inputRange: [0, 480],
-    outputRange: [0, isDark ? 0.12 : 0.22],
+    inputRange: [0, 120, 480],
+    outputRange: [0, isDark ? 0.04 : 0.06, isDark ? 0.12 : 0.2],
     extrapolate: "clamp"
   });
 
@@ -30,8 +39,8 @@ export function ScrollMeshBackground({ tab, scrollY }: Props) {
   return (
     <View style={[StyleSheet.absoluteFill, { zIndex: 0 }]} pointerEvents="none">
       <LinearGradient
-        colors={[top, bottom]}
-        locations={[0, 1]}
+        colors={mesh.colors as [string, string, ...string[]]}
+        locations={mesh.locations as [number, number, ...number[]]}
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
         style={StyleSheet.absoluteFill}

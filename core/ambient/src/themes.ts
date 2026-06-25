@@ -86,6 +86,23 @@ function rgbToHex(r: number, g: number, b: number): string {
     .join("")}`;
 }
 
+/** Multi-stop vertical mesh — no visible midpoint band between two page hues. */
+export function ambientNativeMeshGradient(
+  top: string,
+  bottom: string
+): { colors: string[]; locations: number[] } {
+  const a = hexToRgb(top);
+  const b = hexToRgb(bottom);
+  const locations = [0, 0.1, 0.24, 0.4, 0.56, 0.72, 0.86, 1];
+  const colors = locations.map((t) => {
+    const r = a.r + (b.r - a.r) * t;
+    const g = a.g + (b.g - a.g) * t;
+    const bl = a.b + (b.b - a.b) * t;
+    return rgbToHex(r, g, bl);
+  });
+  return { colors, locations };
+}
+
 /**
  * Saturated accent for floating nav — same hue DNA as {@link ambientNativePalettes} for `tab`,
  * blended toward the page “bottom” color and deepened so it reads as a bold capsule over the gradient.

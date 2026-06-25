@@ -10,6 +10,11 @@ import {
   AdminSectionHeader,
   subPanelCls
 } from "../AdminUi";
+import {
+  AdminSkeletonStatGrid,
+  AdminSkeletonTable,
+  AdminStaleContent
+} from "../AdminSkeleton";
 import { useAdminToast } from "../AdminToast";
 import { fetchVenueStaff } from "../staffApi";
 import { resolveWorkspacePreset, WORKSPACE_META, type WorkspacePreset } from "../adminWorkspaceRouting";
@@ -22,7 +27,6 @@ import { CreateOrderModal, OrderActionConfirmModal } from "./OrderProfileModals"
 import { DEFAULT_ORDERS_PAGE_SIZE, OrdersPagination } from "./OrdersPagination";
 import { useDebouncedValue } from "./useDebouncedValue";
 import { useAdminOrders } from "./useAdminOrders";
-import { patchOrderStatusApi } from "./ordersApi";
 import type { AdminOrderVm } from "./ordersApiMappers";
 import {
   DEFAULT_FILTERS,
@@ -261,13 +265,15 @@ function OrdersTable({
   variant,
   onOpen,
   onStatus,
-  onPrint
+  onPrint,
+  optimisticIds
 }: {
   orders: AdminOrder[];
   variant: "all" | "active" | "completed" | "problem" | "history";
   onOpen: (order: AdminOrder) => void;
   onStatus: (order: AdminOrder) => void;
   onPrint: (order: AdminOrder) => void;
+  optimisticIds?: Set<string>;
 }) {
   if (!orders.length) {
     return <p className="admin-orders-empty">No orders match this view.</p>;
@@ -302,7 +308,7 @@ function OrdersTable({
           {orders.map((order) => (
             <tr
               key={order.id}
-              className="admin-orders-row"
+              className={`admin-orders-row${optimisticIds?.has(order.id) ? " admin-orders-row--optimistic" : ""}`}
               onClick={() => onOpen(order)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
@@ -417,6 +423,7 @@ export function AdminOrdersManagementPage({ presetId, venueName = "", token = nu
   const [pendingAction, setPendingAction] = useState<PendingOrderAction | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [staffOptions, setStaffOptions] = useState(DEFAULT_STAFF_OPTIONS);
+  const [optimisticOrderIds, setOptimisticOrderIds] = useState<Set<string>>(() => new Set());
 
   const apiEnabled = Boolean(token && restaurantId);
 
@@ -479,13 +486,18 @@ export function AdminOrdersManagementPage({ presetId, venueName = "", token = nu
   const handleKitchenStatusChange = useCallback(
     async (ticket: AdminOrder, nextStatus: string, label: string) => {
       if (!token || !apiEnabled) return;
-      const res = await patchOrderStatusApi(token, ticket.id, nextStatus);
+      setOptimisticOrderIds((prev) => new Set(prev).add(ticket.id));
+      const res = await api.updateStatus(ticket.id, nextStatus);
+      setOptimisticOrderIds((prev) => {
+        const next = new Set(prev);
+        next.delete(ticket.id);
+        return next;
+      });
       if (!res.ok) {
         pushToast(res.error ?? "Status update failed", "error");
         return;
       }
       pushToast(label, "success");
-      api.refresh();
     },
     [token, apiEnabled, api, pushToast]
   );
@@ -526,7 +538,8 @@ export function AdminOrdersManagementPage({ presetId, venueName = "", token = nu
 
   const kdsKanbanProps = {
     tickets: kitchenTickets,
-    loading: api.meta.loading,
+    initialLoading: api.meta.initialLoading,
+    refreshing: api.meta.refreshing,
     onOpen: openOrder,
     onStatusChange: handleKitchenStatusChange
   };
@@ -565,13 +578,18 @@ export function AdminOrdersManagementPage({ presetId, venueName = "", token = nu
               : raw === "READY"
                 ? "COMPLETED"
                 : pendingAction.order.status;
-      const res = await patchOrderStatusApi(token, pendingAction.order.id, next);
+      setOptimisticOrderIds((prev) => new Set(prev).add(pendingAction.order.id));
+      const res = await api.updateStatus(pendingAction.order.id, next);
+      setOptimisticOrderIds((prev) => {
+        const n = new Set(prev);
+        n.delete(pendingAction.order.id);
+        return n;
+      });
       setActionBusy(false);
       if (!res.ok) {
         pushToast(res.error ?? "Status update failed", "error");
       } else {
         pushToast(`${pendingAction.order.displayNumber} → ${next}`, "success");
-        api.refresh();
       }
       setPendingAction(null);
       return;
@@ -670,12 +688,19 @@ export function AdminOrdersManagementPage({ presetId, venueName = "", token = nu
           }
         />
 
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatTile label="Open tickets" value={String(stats.open)} hint="Active in kitchen flow" />
-          <StatTile label="Avg wait" value={`${stats.avgWait} min`} hint="Active orders only" />
-          <StatTile label="Problems" value={String(stats.problems)} hint="Needs manager attention" />
-          <StatTile label="Completed today" value={String(stats.completedToday)} hint="Finished orders" />
-        </div>
+        <AdminStaleContent refreshing={api.meta.refreshing}>
+          {api.meta.initialLoading ? (
+            <div className="mt-8">
+              <AdminSkeletonStatGrid />
+            </div>
+          ) : (
+            <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <StatTile label="Open tickets" value={String(stats.open)} hint="Active in kitchen flow" />
+              <StatTile label="Avg wait" value={`${stats.avgWait} min`} hint="Active orders only" />
+              <StatTile label="Problems" value={String(stats.problems)} hint="Needs manager attention" />
+              <StatTile label="Completed today" value={String(stats.completedToday)} hint="Finished orders" />
+            </div>
+          )}
 
         {viewPreset !== "kitchen-view" ? (
           <div className={`${subPanelCls} admin-orders-section mt-5 p-4`}>
@@ -717,20 +742,29 @@ export function AdminOrdersManagementPage({ presetId, venueName = "", token = nu
                     exit={{ opacity: 0, y: -14 }}
                     transition={RESULTS_TRANSITION}
                   >
-                    <OrdersTable
-                      orders={pagedOrders}
-                      variant={tableVariant}
-                      onOpen={openOrder}
-                      onStatus={(order) => setPendingAction({ type: "status", order })}
-                      onPrint={(order) => setPendingAction({ type: "print", order })}
-                    />
-                    <OrdersPagination
-                      page={page}
-                      pageSize={pageSize}
-                      total={listTotal}
-                      onPageChange={setPage}
-                      onPageSizeChange={setPageSize}
-                    />
+                    <AdminStaleContent refreshing={api.meta.refreshing}>
+                      {api.meta.initialLoading ? (
+                        <AdminSkeletonTable rows={8} columns={tableVariant === "active" ? 9 : 7} />
+                      ) : (
+                        <>
+                          <OrdersTable
+                            orders={pagedOrders}
+                            variant={tableVariant}
+                            onOpen={openOrder}
+                            onStatus={(order) => setPendingAction({ type: "status", order })}
+                            onPrint={(order) => setPendingAction({ type: "print", order })}
+                            optimisticIds={optimisticOrderIds}
+                          />
+                          <OrdersPagination
+                            page={page}
+                            pageSize={pageSize}
+                            total={listTotal}
+                            onPageChange={setPage}
+                            onPageSizeChange={setPageSize}
+                          />
+                        </>
+                      )}
+                    </AdminStaleContent>
                   </motion.div>
                 </AnimatePresence>
               )}
@@ -741,10 +775,10 @@ export function AdminOrdersManagementPage({ presetId, venueName = "", token = nu
         {viewPreset !== "kitchen-view" ? (
           <p className="mt-4 text-xs admin-orders-text-subtle">
             {listTotal} order{listTotal === 1 ? "" : "s"} in this view
-            {api.meta.loading ? " · loading…" : ""}
             {api.meta.error ? ` · ${api.meta.error}` : ""}
           </p>
         ) : null}
+        </AdminStaleContent>
       </AdminPanel>
 
       <KitchenFullscreenView

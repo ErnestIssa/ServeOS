@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState, type CSSProperties, type DragEvent } from "react";
 import { ORDER_SOURCE_LABELS } from "./ordersTypes";
+import { AdminSkeletonKanban, AdminStaleContent } from "../AdminSkeleton";
 import {
   apiStatusForKitchenAction,
   apiStatusForKitchenColumn,
@@ -38,7 +39,8 @@ function ticketsForColumn(tickets: KitchenTicket[], columnId: KitchenColumnId): 
 
 type Props = {
   tickets: KitchenTicket[];
-  loading?: boolean;
+  initialLoading?: boolean;
+  refreshing?: boolean;
   onOpen: (order: KitchenTicket) => void;
   onStatusChange: (ticket: KitchenTicket, nextStatus: string, label: string) => void | Promise<void>;
   fullscreen?: boolean;
@@ -78,7 +80,14 @@ function PreparingBorderTrace({ ticketId }: { ticketId: string }) {
   );
 }
 
-export function KitchenKanban({ tickets, loading = false, onOpen, onStatusChange, fullscreen = false }: Props) {
+export function KitchenKanban({
+  tickets,
+  initialLoading = false,
+  refreshing = false,
+  onOpen,
+  onStatusChange,
+  fullscreen = false
+}: Props) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<KitchenColumnId | null>(null);
 
@@ -244,16 +253,12 @@ export function KitchenKanban({ tickets, loading = false, onOpen, onStatusChange
 
   const rootClass = `admin-orders-kds${fullscreen ? " admin-orders-kds--fullscreen" : ""}`;
 
-  if (loading) {
-    return (
-      <div className={rootClass}>
-        <p className="admin-orders-kds-empty p-6 text-sm text-slate-500">Loading kitchen queue…</p>
-      </div>
-    );
+  if (initialLoading) {
+    return <AdminSkeletonKanban />;
   }
 
   return (
-    <div className={rootClass}>
+    <AdminStaleContent refreshing={refreshing} className={rootClass}>
       {COLUMNS.map((col) => {
         const colOrders = columnTickets[col.id];
         const listClass = fullscreen
@@ -300,6 +305,6 @@ export function KitchenKanban({ tickets, loading = false, onOpen, onStatusChange
           </div>
         );
       })}
-    </div>
+    </AdminStaleContent>
   );
 }

@@ -4,8 +4,8 @@ import { Gesture, type NativeGesture } from "react-native-gesture-handler";
 import type { SharedValue } from "react-native-reanimated";
 import { runOnJS, useAnimatedReaction, useSharedValue, withSpring } from "react-native-reanimated";
 import type { EdgeInsets } from "react-native-safe-area-context";
-import { FLOATING_TAB_BAR_HEIGHT, FLOAT_MARGIN_BOTTOM } from "./navBottomMetrics";
-import { FLOATING_TOP_BAR_HEIGHT, FLOATING_TOP_GAP } from "./FloatingTopBar";
+import { FLOATING_TAB_BAR_HEIGHT, DOCK_SHEET_GAP, floatingDockBottomY } from "./navBottomMetrics";
+import { FLOATING_TOP_BAR_HEIGHT, FLOAT_MARGIN_TOP } from "./FloatingTopBar";
 import { NAV_SHEET_SNAP_IMPACT_BAND_PX, onNavSheetSnapSettled } from "./navSheetSnapHaptics";
 
 /** Settle after release — velocity is applied for continuity with the finger. */
@@ -19,8 +19,8 @@ const VELOCITY_SNAP_SCALE = 0.11;
 const MAX_VELOCITY_SNAP_FRAC = 0.3;
 
 export function computeNavSheetSnapDims(screenH: number, insets: EdgeInsets) {
-  const pillAnchorBottom = FLOAT_MARGIN_BOTTOM + insets.bottom + FLOATING_TAB_BAR_HEIGHT;
-  const topReserve = insets.top + FLOATING_TOP_BAR_HEIGHT + FLOATING_TOP_GAP + 8;
+  const pillAnchorBottom = floatingDockBottomY(insets.bottom) + FLOATING_TAB_BAR_HEIGHT + DOCK_SHEET_GAP;
+  const topReserve = insets.top + FLOAT_MARGIN_TOP + FLOATING_TOP_BAR_HEIGHT + 8;
   const fullH = Math.max(120, screenH - topReserve);
   const dockMaxH = Math.max(0, fullH - pillAnchorBottom);
   const hMid = Math.max(140, Math.min(dockMaxH * 0.48, fullH * 0.42)) + 3 + 15;
@@ -84,8 +84,8 @@ type PanDeps = {
   snapHighSV: SharedValue<number>;
   /** 1 while this pan is active (finger down, recognized); used so UI does not tear down other detectors mid-gesture */
   dragSessionSV?: SharedValue<number>;
-  /** Fires on JS once when a vertical sheet pan begins while the sheet was collapsed (user drag-open). */
-  onUserDragFromCollapsed?: () => void;
+  /** When false, finger pans cannot raise sheet height from collapsed (programmatic open only). */
+  allowDragOpen?: boolean;
   /** When false, sheet can only settle at 0 or full height (no half detent). */
   allowHalfDetent: boolean;
   /** Set on pan end before spring so snap-impact reaction can fire on first band entry. */
@@ -116,7 +116,7 @@ export function buildSheetPan({
   snapMidSV,
   snapHighSV,
   dragSessionSV,
-  onUserDragFromCollapsed,
+  allowDragOpen = false,
   allowHalfDetent,
   snapImpactTargetSV,
   snapImpactArmedSV,
@@ -134,9 +134,6 @@ export function buildSheetPan({
       const h0 = sheetHeightSV.value;
       startH.value = h0;
       if (dragSessionSV) dragSessionSV.value = 1;
-      if (onUserDragFromCollapsed && h0 <= NAV_SHEET_DRAG_OPEN_COLLAPSED_MAX_H) {
-        runOnJS(onUserDragFromCollapsed)();
-      }
     })
     .onUpdate((e) => {
       const max = snapHighSV.value;
@@ -145,6 +142,9 @@ export function buildSheetPan({
       const atEnd = (sheetContentScrollAtEndSV?.value ?? 0) > 0.5;
       if (sheetPanShouldDeferToScroll(scrollY, atEnd, e.translationY)) return;
       let next = startH.value - e.translationY;
+      if (!allowDragOpen && startH.value <= NAV_SHEET_DRAG_OPEN_COLLAPSED_MAX_H && next > startH.value) {
+        return;
+      }
       if (next < 0) {
         next *= RUBBER;
       } else if (next > max) {
@@ -171,6 +171,16 @@ export function buildSheetPan({
       }
 
       const h = cur > max ? max : cur;
+      if (!allowDragOpen && startH.value <= NAV_SHEET_DRAG_OPEN_COLLAPSED_MAX_H && h < snapMid * 0.42) {
+        snapImpactTargetSV.value = 0;
+        snapImpactArmedSV.value = 1;
+        sheetHeightSV.value = withSpring(0, {
+          ...SHEET_SPRING_CONFIG,
+          velocity: -vy
+        });
+        return;
+      }
+
       const maxNudge = max * MAX_VELOCITY_SNAP_FRAC;
       const nudge = clampWorklet(vy * VELOCITY_SNAP_SCALE, -maxNudge, maxNudge);
       const biasedH = clampWorklet(h - nudge, 0, max);
@@ -197,7 +207,7 @@ export function useNavSheetPanGestures(
   insets: EdgeInsets,
   sheetHeightSV: SharedValue<number>,
   options?: {
-    onUserDragFromCollapsed?: () => void;
+    allowDragOpen?: boolean;
     allowHalfDetent?: boolean;
     snapImpactTargetSV?: SharedValue<number>;
     snapImpactArmedSV?: SharedValue<number>;
@@ -208,7 +218,7 @@ export function useNavSheetPanGestures(
 ) {
   const { height: H } = useWindowDimensions();
 
-  const onUserDragFromCollapsed = options?.onUserDragFromCollapsed;
+  const allowDragOpen = options?.allowDragOpen ?? false;
   const allowHalfDetent = options?.allowHalfDetent ?? true;
 
   const fallbackSnapImpactTargetSV = useSharedValue(-1);
@@ -248,7 +258,7 @@ export function useNavSheetPanGestures(
     snapMidSV,
     snapHighSV,
     dragSessionSV: sheetPanDragSessionSV,
-    onUserDragFromCollapsed,
+    allowDragOpen,
     allowHalfDetent,
     snapImpactTargetSV,
     snapImpactArmedSV,
@@ -263,7 +273,7 @@ export function useNavSheetPanGestures(
     snapMidSV,
     snapHighSV,
     sheetPanDragSessionSV,
-    onUserDragFromCollapsed,
+    allowDragOpen,
     allowHalfDetent,
     snapImpactTargetSV,
     snapImpactArmedSV,
@@ -273,11 +283,6 @@ export function useNavSheetPanGestures(
   ];
 
   const panVerticalOnSheetBody = React.useMemo(() => buildSheetPan(deps), panMemoDeps);
-
-  /** Same logic; separate instance so RNGH allows a second GestureDetector (seam strip when sheet height is 0). */
-  const panVerticalSeamGrab = React.useMemo(() => buildSheetPan(deps), panMemoDeps);
-
-  const panVerticalWithTabsDuplicate = React.useMemo(() => buildSheetPan(deps), panMemoDeps);
 
   useAnimatedReaction(
     () => sheetHeightSV.value,
@@ -302,8 +307,6 @@ export function useNavSheetPanGestures(
 
   return {
     panVerticalOnSheetBody,
-    panVerticalSeamGrab,
-    panVerticalWithTabsDuplicate,
     sheetPanDragSessionSV
   };
 }

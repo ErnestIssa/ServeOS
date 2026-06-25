@@ -87,6 +87,21 @@ export function enrichOrderDetail(base: AdminOrderVm, detail: ApiAdminOrderDetai
   };
 }
 
+export function applyOptimisticApiStatus(order: AdminOrderVm, nextApiStatus: string): AdminOrderVm {
+  let kitchenStatus = order.kitchenStatus;
+  if (nextApiStatus === "PREPARING") kitchenStatus = "PREPARING";
+  else if (nextApiStatus === "READY") kitchenStatus = "READY";
+  else if (nextApiStatus === "ACCEPTED") kitchenStatus = "ACCEPTED";
+  else if (nextApiStatus === "CREATED" || nextApiStatus === "PAID" || nextApiStatus === "PENDING_PAYMENT") kitchenStatus = "NEW";
+
+  return {
+    ...order,
+    apiStatus: nextApiStatus,
+    status: mapStatus(nextApiStatus),
+    kitchenStatus
+  };
+}
+
 export function presetToApiQuery(preset: string): Record<string, string | undefined> {
   switch (preset) {
     case "active-orders":

@@ -7,8 +7,7 @@ import { loadRestaurantDirectoryCached } from "../data/customerDataCache";
 import { ScreenErrorState, formatAppError } from "../errors";
 import { R } from "../theme";
 import { useAppTheme } from "../theme/AppThemeContext";
-import { FLOATING_TOP_BAR_HEIGHT } from "../shell/FloatingTopBar";
-import { contentBottomInset } from "../shell/navBottomMetrics";
+import { contentTopInset, contentBottomInset, FLOATING_TOP_BAR_HEIGHT } from "../shell/navBottomMetrics";
 import { CustomerOrderTrackingSection, pickActiveOrder, type CustomerMineOrder } from "./CustomerOrderTrackingSection";
 import { CustomerVenueActionsModal } from "./CustomerVenueActionsModal";
 import { EmptyOrdersCartAnimation } from "./EmptyOrdersCartAnimation";
@@ -29,6 +28,9 @@ type Props = {
   onVenueSwitchError?: (message: string) => void;
   /** Opens the global restaurant picker (store icon sheet). */
   onChooseVenue?: () => void;
+  /** Venue selected but public menu has no browsable items. */
+  hasBrowsableMenu?: boolean;
+  onSwitchVenue?: () => void;
   /** Customer’s orders from `GET /orders/mine` (same list as app shell). */
   customerOrders: CustomerMineOrder[];
   money: (cents: number) => string;
@@ -56,6 +58,8 @@ export function CustomerOrdersVenueScreen(props: Props) {
     onVenueHydrated,
     onVenueSwitchError,
     onChooseVenue,
+    hasBrowsableMenu = true,
+    onSwitchVenue,
     customerOrders,
     money,
     onBrowseMenu,
@@ -137,7 +141,7 @@ export function CustomerOrdersVenueScreen(props: Props) {
 
   const ordersEmptyMinHeight = React.useMemo(() => {
     const scrollBottom = contentBottomInset(insets.bottom);
-    const scrollTopPad = R.space.sm + insets.top + FLOATING_TOP_BAR_HEIGHT + 18;
+    const scrollTopPad = contentTopInset(insets.top);
     return Math.max(320, windowHeight - scrollTopPad - scrollBottom);
   }, [windowHeight, insets.top, insets.bottom]);
 
@@ -256,8 +260,10 @@ export function CustomerOrdersVenueScreen(props: Props) {
             ordersSessionVisits={ordersEmptySessionVisits}
             phraseLandTick={phraseLandTick}
             motionPaused={emptyMotionPaused}
+            noBrowsableMenu={!hasBrowsableMenu}
             authToken={token}
             onPrimaryCta={onBrowseMenu}
+            onSwitchVenue={onSwitchVenue ?? onChooseVenue}
           />
         </View>
         {venueModal}

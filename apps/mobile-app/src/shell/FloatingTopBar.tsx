@@ -1,26 +1,40 @@
-import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
-import { Animated, Image, Keyboard, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Keyboard, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import Animated, {
+  Extrapolation,
+  interpolate,
+  type SharedValue,
+  useAnimatedStyle,
+  useSharedValue
+} from "react-native-reanimated";
 import Svg, { Path } from "react-native-svg";
+import { useAppTheme } from "../theme/AppThemeContext";
+import { LiquidGlassChrome } from "./LiquidGlassChrome";
+import { navDockGlassTokens } from "./navDockGlass";
+import {
+  FLOAT_MARGIN_SIDE,
+  FLOAT_MARGIN_TOP,
+  FLOATING_TOP_BAR_HEIGHT
+} from "./navBottomMetrics";
 
-export const FLOATING_TOP_BAR_HEIGHT = 56;
-export const FLOATING_TOP_GAP = 0;
-/** Negative lifts the chrome into the safe-area (closer to physical top edge). */
-export const FLOATING_TOP_NUDGE = -8;
-/** Thin outer stroke for the floating nav capsule (bold violet). */
-const NAV_PURPLE_BORDER = "#7C3AED";
+export {
+  FLOATING_TOP_BAR_HEIGHT,
+  FLOAT_MARGIN_TOP
+} from "./navBottomMetrics";
+
+/** @deprecated Use FLOAT_MARGIN_TOP — kept for legacy layout math. */
+export const FLOATING_TOP_GAP = FLOAT_MARGIN_TOP;
+/** @deprecated Top dock no longer uses negative nudge. */
+export const FLOATING_TOP_NUDGE = 0;
 
 const STORE_ICON = require("../../assets/store.png");
-
-/** Matches current tab ambient page colors in a richer, capsule-friendly gradient. */
-export type NavPageGradient = { crest: string; deep: string };
+const DOCK_RADIUS = 999;
 
 type Props =
   | {
       variant?: "default";
       topInset: number;
-      scrollY: Animated.Value;
-      navGradient: NavPageGradient;
+      navFocusSV?: SharedValue<number>;
       leftLabel: string;
       leftSubLabel?: string;
       centerTitle: string;
@@ -31,15 +45,12 @@ type Props =
   | {
       variant: "customer";
       topInset: number;
-      scrollY: Animated.Value;
-      navGradient: NavPageGradient;
+      navFocusSV?: SharedValue<number>;
       searchPlaceholder?: string;
       searchValue: string;
       onSearchChange: (text: string) => void;
       onSearchSubmit?: () => void;
-      /** When `onSearchExpandSheet` is set, taps open the nav sheet until this is true (full detent). */
       searchSheetFullyExpanded?: boolean;
-      /** First taps on the search field call this (no keyboard); typing works once the sheet is fully open. */
       onSearchExpandSheet?: () => void;
       onExperienceSwitcher?: () => void;
     };
@@ -55,7 +66,13 @@ function IconSearch({ color }: { color: string }) {
   );
 }
 
-function StoreSwitcherButton({ onPress }: { onPress?: () => void }) {
+function StoreSwitcherButton({
+  onPress,
+  tintColor
+}: {
+  onPress?: () => void;
+  tintColor: string;
+}) {
   if (!onPress) return null;
   return (
     <Pressable
@@ -64,15 +81,25 @@ function StoreSwitcherButton({ onPress }: { onPress?: () => void }) {
       hitSlop={12}
       accessibilityLabel="Switch experience"
     >
-      <Image source={STORE_ICON} style={styles.storeIcon} resizeMode="contain" />
+      <Image source={STORE_ICON} style={[styles.storeIcon, { tintColor }]} resizeMode="contain" />
     </Pressable>
   );
 }
 
-type CustomerChromeProps = Extract<Props, { variant: "customer" }> & { iconColor: string };
+type CustomerChromeProps = Extract<Props, { variant: "customer" }> & {
+  iconColor: string;
+  searchBorderColor: string;
+  searchFieldBg: string;
+  searchTextColor: string;
+  searchPlaceholderColor: string;
+};
 
 function CustomerTopBarChrome({
   iconColor,
+  searchBorderColor,
+  searchFieldBg,
+  searchTextColor,
+  searchPlaceholderColor,
   searchValue,
   onSearchChange,
   searchPlaceholder,
@@ -86,14 +113,14 @@ function CustomerTopBarChrome({
 
   return (
     <View style={[styles.row, styles.customerRow]}>
-      <View style={styles.searchFieldCustomer}>
-        <IconSearch color="rgba(15,23,42,0.4)" />
+      <View style={[styles.searchFieldCustomer, { backgroundColor: searchFieldBg, borderColor: searchBorderColor }]}>
+        <IconSearch color={iconColor} />
         <TextInput
           value={searchValue}
           onChangeText={onSearchChange}
           placeholder={searchPlaceholder ?? "Search"}
-          placeholderTextColor="rgba(15,23,42,0.42)"
-          style={styles.searchInputCustomer}
+          placeholderTextColor={searchPlaceholderColor}
+          style={[styles.searchInputCustomer, { color: searchTextColor }]}
           returnKeyType="search"
           onSubmitEditing={onSearchSubmit}
           accessibilityLabel="Search"
@@ -113,15 +140,21 @@ function CustomerTopBarChrome({
           />
         ) : null}
       </View>
-      <StoreSwitcherButton onPress={onExperienceSwitcher} />
+      <StoreSwitcherButton onPress={onExperienceSwitcher} tintColor={iconColor} />
     </View>
   );
 }
 
-type BusinessChromeProps = Exclude<Props, { variant: "customer" }> & { iconColor: string };
+type BusinessChromeProps = Exclude<Props, { variant: "customer" }> & {
+  iconColor: string;
+  titleColor: string;
+  subColor: string;
+};
 
 function BusinessTopBarChrome({
   iconColor,
+  titleColor,
+  subColor,
   leftLabel,
   leftSubLabel,
   centerTitle,
@@ -134,13 +167,13 @@ function BusinessTopBarChrome({
       <Pressable onPress={onLeftPress} style={styles.left} hitSlop={10}>
         <View style={styles.leftTextCol}>
           <View style={styles.leftTitleRow}>
-            <Text style={styles.leftText} numberOfLines={1}>
+            <Text style={[styles.leftText, { color: titleColor }]} numberOfLines={1}>
               {leftLabel}
             </Text>
-            <Text style={styles.chev}>▼</Text>
+            <Text style={[styles.chev, { color: subColor }]}>▼</Text>
           </View>
           {leftSubLabel ? (
-            <Text style={styles.leftSubText} numberOfLines={1}>
+            <Text style={[styles.leftSubText, { color: subColor }]} numberOfLines={1}>
               {leftSubLabel}
             </Text>
           ) : null}
@@ -148,7 +181,7 @@ function BusinessTopBarChrome({
       </Pressable>
 
       <View style={styles.center} pointerEvents="none">
-        <Text style={styles.title} numberOfLines={1}>
+        <Text style={[styles.title, { color: titleColor }]} numberOfLines={1}>
           {centerTitle}
         </Text>
       </View>
@@ -157,100 +190,119 @@ function BusinessTopBarChrome({
         <Pressable onPress={onSearch} style={styles.iconBtn} hitSlop={10} accessibilityLabel="Search">
           <IconSearch color={iconColor} />
         </Pressable>
-
-        <StoreSwitcherButton onPress={onExperienceSwitcher} />
+        <StoreSwitcherButton onPress={onExperienceSwitcher} tintColor={iconColor} />
       </View>
     </View>
   );
 }
 
 export function FloatingTopBar(props: Props) {
-  const topInset = props.topInset;
-  const hideY = 0;
-  const hideOpacity = 1;
-  const iconColor = "rgba(255,255,255,0.92)";
+  const { isDark, colors: theme } = useAppTheme();
+  const glass = React.useMemo(() => navDockGlassTokens(isDark), [isDark]);
+  const fallbackFocusSV = useSharedValue(1);
+  const navFocusSV = props.navFocusSV ?? fallbackFocusSV;
+  const dockTop = props.topInset + FLOAT_MARGIN_TOP;
+
+  const dockShellStyle = useAnimatedStyle(() => {
+    const focus = navFocusSV.value;
+    const scale = interpolate(focus, [0, 1], [0.94, 1], Extrapolation.CLAMP);
+    const opacity = interpolate(focus, [0, 1], [0.8, 1], Extrapolation.CLAMP);
+    const height = interpolate(
+      focus,
+      [0, 1],
+      [FLOATING_TOP_BAR_HEIGHT - 6, FLOATING_TOP_BAR_HEIGHT],
+      Extrapolation.CLAMP
+    );
+    return {
+      transform: [{ scale }],
+      opacity,
+      height
+    };
+  });
+
+  const iconColor = theme.navIconIdle;
+  const titleColor = theme.text;
+  const subColor = theme.textMuted;
+  const searchBorderColor = glass.shellBorder;
+  const searchFieldBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.28)";
+  const searchTextColor = theme.text;
+  const searchPlaceholderColor = theme.textMuted;
 
   return (
-    <Animated.View
-      pointerEvents="box-none"
-      style={[
-        styles.anchor,
-        {
-          paddingTop: topInset + FLOATING_TOP_GAP,
-          transform: [{ translateY: hideY }],
-          opacity: hideOpacity
-        }
-      ]}
-    >
-      <View style={styles.outer}>
-        <LinearGradient
-          colors={[props.navGradient.crest, props.navGradient.deep]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.gradientShell}
-        >
-          <View style={styles.sheen} pointerEvents="none" />
+    <View pointerEvents="box-none" style={styles.screenAnchor}>
+      <Animated.View
+        style={[
+          styles.chromeShell,
+          dockShellStyle,
+          {
+            top: dockTop,
+            left: FLOAT_MARGIN_SIDE,
+            right: FLOAT_MARGIN_SIDE,
+            shadowColor: glass.shadowColor,
+            shadowOpacity: glass.shadowOpacity
+          }
+        ]}
+      >
+        <LiquidGlassChrome
+          tokens={glass}
+          variant="shell"
+          borderRadius={DOCK_RADIUS}
+          focusSV={navFocusSV}
+        />
 
+        <View style={styles.chromeBody}>
           {props.variant === "customer" ? (
             <Pressable accessible={false} onPress={Keyboard.dismiss} style={styles.customerChromeDismissTap}>
-              <CustomerTopBarChrome iconColor={iconColor} {...props} />
+              <CustomerTopBarChrome
+                iconColor={iconColor}
+                searchBorderColor={searchBorderColor}
+                searchFieldBg={searchFieldBg}
+                searchTextColor={searchTextColor}
+                searchPlaceholderColor={searchPlaceholderColor}
+                {...props}
+              />
             </Pressable>
           ) : (
-            <BusinessTopBarChrome iconColor={iconColor} {...props} />
+            <BusinessTopBarChrome
+              iconColor={iconColor}
+              titleColor={titleColor}
+              subColor={subColor}
+              {...props}
+            />
           )}
-        </LinearGradient>
-      </View>
-    </Animated.View>
+        </View>
+      </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  anchor: {
-    position: "absolute",
-    top: FLOATING_TOP_NUDGE,
-    left: 0,
-    right: 0,
+  screenAnchor: {
+    ...StyleSheet.absoluteFillObject,
     zIndex: 30,
     pointerEvents: "box-none"
   },
-  outer: {
-    marginHorizontal: 10,
-    borderRadius: 22,
+  chromeShell: {
+    position: "absolute",
     overflow: "hidden",
+    borderRadius: DOCK_RADIUS,
     ...Platform.select({
       ios: {
-        shadowColor: "#0f172a",
         shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.22,
         shadowRadius: 24
       },
       android: { elevation: 16 },
       default: {}
     })
   },
-  customerChromeDismissTap: {
-    alignSelf: "stretch",
+  chromeBody: {
+    flex: 1,
     minHeight: FLOATING_TOP_BAR_HEIGHT
   },
-  gradientShell: {
+  customerChromeDismissTap: {
+    flex: 1,
     minHeight: FLOATING_TOP_BAR_HEIGHT,
-    borderRadius: 22,
-    overflow: "hidden",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: NAV_PURPLE_BORDER,
-    ...Platform.select({
-      android: {
-        borderWidth: 1,
-        borderColor: NAV_PURPLE_BORDER
-      },
-      default: {}
-    })
-  },
-  sheen: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 22,
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22
+    justifyContent: "center"
   },
   row: {
     minHeight: FLOATING_TOP_BAR_HEIGHT,
@@ -267,19 +319,16 @@ const styles = StyleSheet.create({
   leftTextCol: { flex: 1, minWidth: 0 },
   leftTitleRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   leftText: {
-    color: "rgba(255,255,255,0.92)",
     fontSize: 14,
     fontWeight: "800",
     flexShrink: 1
   },
   leftSubText: {
-    color: "rgba(255,255,255,0.72)",
     fontSize: 11,
     fontWeight: "700",
     marginTop: 1
   },
   chev: {
-    color: "rgba(255,255,255,0.75)",
     fontSize: 11,
     marginTop: 1
   },
@@ -290,7 +339,6 @@ const styles = StyleSheet.create({
     justifyContent: "center"
   },
   title: {
-    color: "rgba(255,255,255,0.92)",
     fontSize: 14,
     fontWeight: "800",
     letterSpacing: 0.2
@@ -312,8 +360,7 @@ const styles = StyleSheet.create({
   },
   storeIcon: {
     width: 22,
-    height: 22,
-    tintColor: "rgba(255,255,255,0.92)"
+    height: 22
   },
   customerRow: {
     gap: 10,
@@ -328,9 +375,7 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 12,
     borderRadius: 18,
-    backgroundColor: "rgba(255,255,255,0.42)",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.55)",
     position: "relative",
     overflow: "hidden"
   },
@@ -343,7 +388,6 @@ const styles = StyleSheet.create({
     minWidth: 0,
     paddingVertical: Platform.OS === "ios" ? 10 : 8,
     fontSize: 15,
-    fontWeight: "700",
-    color: "#0f172a"
+    fontWeight: "700"
   }
 });

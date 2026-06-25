@@ -36,6 +36,8 @@ type HeaderArgs = {
   restaurantName?: string | null;
   cartCount: number;
   hasVenue: boolean;
+  /** When false and `hasVenue`, home copy explains the venue has no published menu yet. */
+  hasBrowsableMenu?: boolean;
   /** Lowercase phrase from `mobileExperience.activeExperience` — e.g. "customer", "manager". */
   userRoleExperience?: string;
 };
@@ -58,6 +60,13 @@ const NO_VENUE_SUBS: readonly string[] = [
   "Pick a bar, restaurant, or venue — your {{experience}} experience comes alive once you're connected.",
   "Set your venue to see what's on offer and order in a few taps, {{name}}.",
   "{{name}}, your menu and orders start with one venue — take a moment to choose yours."
+];
+
+const NO_MENU_SUBS: readonly string[] = [
+  "{{venue}} doesn't have a menu for customers yet. Switch venue to browse dishes and place orders.",
+  "Nothing is published on the menu at **{{venue}}** right now. Try another venue, {{name}}.",
+  "{{name}}, **{{venue}}** isn't serving a menu in the app yet — switch venue to keep exploring.",
+  "The kitchen at **{{venue}}** hasn't published a menu yet. Pick another venue when you're ready."
 ];
 
 const GREETINGS: Record<TimeBucket, readonly string[]> = {
@@ -129,6 +138,14 @@ export function buildCustomerHomeHeader(args: HeaderArgs): { greeting: string; s
       .replace(/\{\{name\}\}/g, args.firstName)
       .replace(/\{\{experience\}\}/g, experience);
     return { greeting, sub: subRaw };
+  }
+
+  if (args.hasBrowsableMenu === false) {
+    const venue = args.restaurantName?.trim() || "This venue";
+    const subRaw = NO_MENU_SUBS[pickIndex(`nomenu|${seedBase}`, NO_MENU_SUBS.length)]
+      .replace(/\{\{name\}\}/g, args.firstName)
+      .replace(/\{\{venue\}\}/g, venue);
+    return { greeting, sub: plainSub(subRaw) };
   }
 
   let sub: string;

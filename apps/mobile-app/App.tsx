@@ -1,7 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { StatusBar } from "expo-status-bar";
-import { nativeNavBoldGradient } from "@serveos/core-ambient/themes";
 import { formatMoneyCents } from "@serveos/core-shared/currency";
 import { ServeOSBrandScreenNative } from "@serveos/core-loading-native";
 import React from "react";
@@ -47,7 +46,7 @@ import {
   subscribeChatRelay
 } from "./src/customer/chat/customerChatSocket";
 import { CustomerOrdersVenueScreen } from "./src/customer/CustomerOrdersVenueScreen";
-import { formatApiError, isStalePreferredVenue, menuHasBrowsableItems } from "./src/customer/venueContentHelpers";
+import { formatApiError, isStalePreferredVenue, menuHasBrowsableItems, venueHasNoBrowsableMenu } from "./src/customer/venueContentHelpers";
 import { VenueEmptyCard } from "./src/components/VenueEmptyCard";
 import { CustomerReservationFlow } from "./src/customer/reservations/CustomerReservationFlow";
 import { fetchCustomerAppContext } from "./src/customer/customerAppApi";
@@ -103,21 +102,25 @@ import { buildCustomerHomeHeader, customerDisplayName, formatUserRoleExperience 
 import { CustomerMenuBrowsing, recordOrderedItemsForRestaurant } from "./src/menu/CustomerMenuBrowsing";
 import { bumpBrowseEngagement } from "./src/menu/menuPreferencesStorage";
 import { buildFilteredMenuPool, flattenMenu, type MenuCategoryLite } from "./src/menu/menuBrowseUtils";
-import { BottomNavContentDimmer } from "./src/shell/BottomNavContentDimmer";
-import { TopNavContentDimmer } from "./src/shell/TopNavContentDimmer";
+import { NavTopScrim } from "./src/shell/NavTopScrim";
 import {
   contentBottomInset,
+  contentTopInset,
   FLOATING_TAB_BAR_HEIGHT,
-  FLOAT_MARGIN_BOTTOM,
   FLOAT_MARGIN_SIDE,
+  floatingDockBottomY
+} from "./src/shell/navBottomMetrics";
+import {
   FloatingGlassTabBar,
   type TabId
 } from "./src/shell/FloatingGlassTabBar";
 import { computeNavSheetSnapDims, SHEET_SPRING_CONFIG } from "./src/shell/NavExpandSheet";
+import { NavExpandSheetHost } from "./src/shell/NavExpandSheetHost";
+import { NavBottomScrim } from "./src/shell/NavBottomScrim";
 import { CustomerMeStack } from "./src/customer/profile/CustomerMeStack";
 import { loadProfileAvatarUri } from "./src/customer/profile/profileAvatarStorage";
 import { ExperienceSwitcherPanel } from "./src/shell/ExperienceSwitcherPanel";
-import { FloatingTopBar, FLOATING_TOP_BAR_HEIGHT } from "./src/shell/FloatingTopBar";
+import { FloatingTopBar } from "./src/shell/FloatingTopBar";
 import { createAppStyles } from "./src/theme/createAppStyles";
 import { R } from "./src/theme";
 import { isLikelyErrorStatus, useAppErrors } from "./src/errors";
@@ -382,6 +385,10 @@ export default function App() {
   const [customerMenuTopY, setCustomerMenuTopY] = React.useState(320);
 
   const scrollY = React.useRef(new Animated.Value(0)).current;
+  const sheetHeightSV = useSharedValue(0);
+  const navFocusSV = useSharedValue(1);
+  const snapImpactTargetSV = useSharedValue(-1);
+  const snapImpactArmedSV = useSharedValue(0);
   const resetBookingsScroll = React.useCallback(() => {
     scrollY.setValue(0);
   }, [scrollY]);
@@ -394,14 +401,17 @@ export default function App() {
   const onScroll = React.useMemo(
     () =>
       Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
-        useNativeDriver: false
+        useNativeDriver: false,
+        listener: () => {
+          navFocusSV.value = withTiming(0, { duration: 140 });
+        }
       }),
-    [scrollY]
+    [scrollY, navFocusSV]
   );
 
-  const sheetHeightSV = useSharedValue(0);
-  const snapImpactTargetSV = useSharedValue(-1);
-  const snapImpactArmedSV = useSharedValue(0);
+  const onScrollEnd = React.useCallback(() => {
+    navFocusSV.value = withSpring(1, { damping: 20, stiffness: 180, mass: 0.65 });
+  }, [navFocusSV]);
 
   const armNavSheetSnapImpact = React.useCallback(
     (target: number) => {
@@ -412,10 +422,8 @@ export default function App() {
   );
 
   /**
-   * Cart UI in the nav sheet is shown only after:
-   * - cart FAB on Home, or
-   * - user drag-opens from collapsed on Home (see `onSheetDragOpenFromCollapsed`).
-   * Cleared when sheet fully collapses or search programmatically opens the sheet.
+   * Cart UI in the nav sheet is shown only after cart FAB on Home or explicit open actions.
+   * Cleared when sheet fully collapses or search/experience programmatically opens the sheet.
    */
   const [homeNavSheetCartEligible, setHomeNavSheetCartEligible] = React.useState(false);
   /** True from search-bar open until sheet fully closes or cart sheet takes over — drives full-only sheet snap + early mount. */
@@ -529,13 +537,6 @@ export default function App() {
     sheetHeightSV.value = withSpring(snapMid + 3, SHEET_SPRING_CONFIG);
     setCartFabDeferred(true);
   }, [insets, sheetHeightSV, armNavSheetSnapImpact]);
-
-  const onSheetDragOpenFromCollapsed = React.useCallback(() => {
-    if (tabRef.current !== "home") return;
-    setNavSheetSearchMode(false);
-    setNavSheetExperienceMode(false);
-    setHomeNavSheetCartEligible(true);
-  }, []);
 
   /** Customer top search: first taps expand nav sheet to full without raising the keyboard. */
   const expandCustomerNavSheetFullFromSearch = React.useCallback(() => {
@@ -1517,6 +1518,8 @@ export default function App() {
   }
 
   const customerHasVenue = Boolean(activeRestaurantId().trim());
+  const customerVenueNoMenu = customerHasVenue && venueHasNoBrowsableMenu(menuPreview);
+  const customerHasBrowsableMenu = customerHasVenue && menuHasBrowsableItems(menuPreview);
 
   const customerHomeHeader = React.useMemo(() => {
     const firstName = customerDisplayName(sessionUser?.signupProfile, sessionUser?.email ?? undefined);
@@ -1527,6 +1530,7 @@ export default function App() {
       restaurantName: venueName,
       cartCount: isCustomerSession ? customerCart.totalQuantity : localCart.reduce((s, l) => s + l.quantity, 0),
       hasVenue: customerHasVenue,
+      hasBrowsableMenu: !customerVenueNoMenu,
       userRoleExperience: formatUserRoleExperience(mobileExperience?.activeExperience)
     });
   }, [
@@ -1537,6 +1541,7 @@ export default function App() {
     customerCart.totalQuantity,
     localCart,
     customerHasVenue,
+    customerVenueNoMenu,
     mobileExperience?.activeExperience
   ]);
 
@@ -1610,7 +1615,7 @@ export default function App() {
   }
 
   const scrollBottom = contentBottomInset(insets.bottom);
-  const scrollTopPad = R.space.sm + insets.top + FLOATING_TOP_BAR_HEIGHT + 18;
+  const scrollTopPad = contentTopInset(insets.top);
   const meCompactTopPad = insets.top + 8;
   const hideProfileSubpageTopNav = !!token && mobileExperience && isProfileNavTab(tab) && !meStackAtRoot;
 
@@ -1637,10 +1642,6 @@ export default function App() {
       ? experienceSwitcher.activeWorkspace.roleLabel
       : undefined);
 
-  /** One nav capsule look for all customer tabs (matches Home glass chrome). */
-  const navGradient = isCustomerSession
-    ? nativeNavBoldGradient("home")
-    : nativeNavBoldGradient(navKeyToAmbientTab(tab));
   /** Home only: full-width menu rails. Orders keeps normal horizontal padding so layout matches other tabs. */
   const customerScreenEdgeBleed = isCustomerSession && tab === "home";
   /** Empty Orders: pause cart bounce + CTA rotation while customer search sheet is open. */
@@ -1753,55 +1754,13 @@ export default function App() {
 
       <View style={styles.main}>
         <ScrollMeshBackground tab={navKeyToAmbientTab(tab)} scrollY={scrollY} />
-        {!hideProfileSubpageTopNav ? <TopNavContentDimmer topInset={insets.top} /> : null}
-        {isCustomerSession ? (
-          !hideProfileSubpageTopNav ? (
-          <FloatingTopBar
-            variant="customer"
-            topInset={insets.top}
-            scrollY={scrollY}
-            navGradient={navGradient}
-            searchValue={customerSearchQuery}
-            onSearchChange={setCustomerSearchQuery}
-            searchPlaceholder="Search dishes, drinks…"
-            searchSheetFullyExpanded={sheetOpenStage === 2}
-            onSearchExpandSheet={expandCustomerNavSheetFullFromSearch}
-      onSearchSubmit={() => void appendNavSearchRecent(customerSearchQuery.trim())}
-      onExperienceSwitcher={openExperienceSwitcher}
-          />
-          ) : null
-        ) : token && mobileExperience ? (
-          !hideProfileSubpageTopNav ? (
-            <FloatingTopBar
-              topInset={insets.top}
-              scrollY={scrollY}
-              navGradient={navGradient}
-              leftLabel={leftLabel}
-              leftSubLabel={leftSubLabel}
-              centerTitle={pageTitle}
-              onLeftPress={openExperienceSwitcher}
-              onSearch={() => setStatus("search")}
-              onExperienceSwitcher={openExperienceSwitcher}
-            />
-          ) : null
-        ) : (
-          <FloatingTopBar
-            topInset={insets.top}
-            scrollY={scrollY}
-            navGradient={navGradient}
-            leftLabel={leftLabel}
-            leftSubLabel={leftSubLabel}
-            centerTitle={pageTitle}
-            onLeftPress={openExperienceSwitcher}
-            onSearch={() => setStatus("search")}
-            onExperienceSwitcher={openExperienceSwitcher}
-          />
-        )}
         {tab === "home" && (
           <Animated.ScrollView
             ref={isCustomerSession ? (customerHomeScrollRef as React.RefObject<any>) : undefined}
             style={styles.scrollLayer}
             onScroll={onScroll}
+            onScrollEndDrag={onScrollEnd}
+            onMomentumScrollEnd={onScrollEnd}
             scrollEventThrottle={16}
             nestedScrollEnabled
             keyboardShouldPersistTaps="handled"
@@ -1822,20 +1781,20 @@ export default function App() {
                       <>
                         <Pressable
                           style={({ pressed }) => [styles.pillPrimary, styles.customerPrimaryCta, pressed && styles.pressed]}
-                          onPress={customerStartOrdering}
+                          onPress={customerVenueNoMenu ? openExperienceSwitcher : customerStartOrdering}
                         >
                           <Text style={styles.pillPrimaryText}>
-                            {menuPreview?.ok && menuPreview.restaurant ? "Start ordering" : "Choose a venue"}
+                            {customerVenueNoMenu ? "Switch venue" : "Start ordering"}
                           </Text>
                         </Pressable>
-                        <Pressable
-                          style={({ pressed }) => [pressed && styles.pressed, { alignSelf: "center" }]}
-                          onPress={customerPopularPicks}
-                        >
-                          <Text style={styles.customerSecondaryCta}>
-                            {menuPreview?.ok && menuPreview.restaurant ? "Popular picks" : "Browse menu"}
-                          </Text>
-                        </Pressable>
+                        {customerHasBrowsableMenu ? (
+                          <Pressable
+                            style={({ pressed }) => [pressed && styles.pressed, { alignSelf: "center" }]}
+                            onPress={customerPopularPicks}
+                          >
+                            <Text style={styles.customerSecondaryCta}>Popular picks</Text>
+                          </Pressable>
+                        ) : null}
                       </>
                     ) : (
                       <Pressable
@@ -1872,23 +1831,14 @@ export default function App() {
                       onAddItem={(it) => void addMenuLineFromBrowse(it.id)}
                     />
                   </View>
-                ) : customerHasVenue ? (
+                ) : customerHasVenue && !menuPreview?.ok ? (
                   <View style={styles.customerHomeCopyInset}>
-                    {menuPreview?.ok && menuPreview.restaurant ? (
-                      <VenueEmptyCard
-                        title={`${menuPreview.restaurant.name ?? "This venue"} has no menu yet`}
-                        message="There are no dishes published for this venue right now. Try another venue or check back later."
-                        actionLabel="Switch venue"
-                        onAction={openExperienceSwitcher}
-                      />
-                    ) : (
-                      <VenueEmptyCard
-                        title="Could not load this venue"
-                        message="This venue may no longer be available. Choose another venue to continue."
-                        actionLabel="Choose a venue"
-                        onAction={openExperienceSwitcher}
-                      />
-                    )}
+                    <VenueEmptyCard
+                      title="Could not load this venue"
+                      message="This venue may no longer be available. Choose another venue to continue."
+                      actionLabel="Switch venue"
+                      onAction={openExperienceSwitcher}
+                    />
                   </View>
                 ) : null}
 
@@ -1956,6 +1906,8 @@ export default function App() {
             userId={sessionUser?.id}
             scrollY={scrollY}
             onScroll={onScroll}
+            onScrollEndDrag={onScrollEnd}
+            onMomentumScrollEnd={onScrollEnd}
             scrollTopPad={scrollTopPad}
             scrollBottom={scrollBottom}
             onChooseVenue={openExperienceSwitcher}
@@ -1994,6 +1946,8 @@ export default function App() {
               onVenueHydrated={applyCustomerVenueChange}
               onVenueSwitchError={(message) => setStatus(message)}
               onChooseVenue={openExperienceSwitcher}
+              hasBrowsableMenu={!customerVenueNoMenu}
+              onSwitchVenue={openExperienceSwitcher}
               customerOrders={myOrders as CustomerMineOrder[]}
               money={money}
               onBrowseMenu={() => {
@@ -2012,6 +1966,8 @@ export default function App() {
           <Animated.ScrollView
             style={styles.scrollLayer}
             onScroll={onScroll}
+            onScrollEndDrag={onScrollEnd}
+            onMomentumScrollEnd={onScrollEnd}
             scrollEventThrottle={16}
             nestedScrollEnabled
             keyboardShouldPersistTaps="handled"
@@ -2038,6 +1994,8 @@ export default function App() {
                 onVenueHydrated={applyCustomerVenueChange}
                 onVenueSwitchError={(message) => setStatus(message)}
                 onChooseVenue={openExperienceSwitcher}
+                hasBrowsableMenu={!customerVenueNoMenu}
+                onSwitchVenue={openExperienceSwitcher}
                 customerOrders={myOrders as CustomerMineOrder[]}
                 money={money}
                 onBrowseMenu={() => {
@@ -2066,6 +2024,8 @@ export default function App() {
             money={money}
             scrollY={scrollY}
             onScroll={onScroll}
+            onScrollEndDrag={onScrollEnd}
+            onMomentumScrollEnd={onScrollEnd}
             scrollTopPad={scrollTopPad}
             scrollBottom={scrollBottom}
             chatFocused={isChatNavTab(tab)}
@@ -2090,6 +2050,9 @@ export default function App() {
               setTab("home");
               setTimeout(() => customerScrollToMenu(0), 400);
             }}
+            hasBrowsableMenu={!customerVenueNoMenu}
+            venueDisplayName={customerVenueDisplayName}
+            onSwitchVenue={openExperienceSwitcher}
           />
           </View>
         ) : null}
@@ -2105,6 +2068,8 @@ export default function App() {
             scrollTopPad={scrollTopPad}
             scrollBottom={scrollBottom}
             onScroll={onScroll}
+            onScrollEndDrag={onScrollEnd}
+            onMomentumScrollEnd={onScrollEnd}
             onNavigateTab={setTab}
             onSignOut={() => void customerSignOut()}
           />
@@ -2137,6 +2102,8 @@ export default function App() {
           <Animated.ScrollView
             style={styles.scrollLayer}
             onScroll={onScroll}
+            onScrollEndDrag={onScrollEnd}
+            onMomentumScrollEnd={onScrollEnd}
             scrollEventThrottle={16}
             keyboardDismissMode={SCROLL_KEYBOARD_DISMISS_MODE}
             contentContainerStyle={[styles.scrollPad, { paddingTop: scrollTopPad, paddingBottom: scrollBottom }]}
@@ -2206,8 +2173,51 @@ export default function App() {
             </View>
           </Animated.ScrollView>
         ) : null}
-        <BottomNavContentDimmer bottomInset={insets.bottom} />
       </View>
+
+      {!hideProfileSubpageTopNav ? (
+        <NavTopScrim topInset={insets.top} navFocusSV={navFocusSV} />
+      ) : null}
+      {isCustomerSession ? (
+        !hideProfileSubpageTopNav ? (
+          <FloatingTopBar
+            variant="customer"
+            topInset={insets.top}
+            navFocusSV={navFocusSV}
+            searchValue={customerSearchQuery}
+            onSearchChange={setCustomerSearchQuery}
+            searchPlaceholder="Search dishes, drinks…"
+            searchSheetFullyExpanded={sheetOpenStage === 2}
+            onSearchExpandSheet={expandCustomerNavSheetFullFromSearch}
+            onSearchSubmit={() => void appendNavSearchRecent(customerSearchQuery.trim())}
+            onExperienceSwitcher={openExperienceSwitcher}
+          />
+        ) : null
+      ) : token && mobileExperience ? (
+        !hideProfileSubpageTopNav ? (
+          <FloatingTopBar
+            topInset={insets.top}
+            navFocusSV={navFocusSV}
+            leftLabel={leftLabel}
+            leftSubLabel={leftSubLabel}
+            centerTitle={pageTitle}
+            onLeftPress={openExperienceSwitcher}
+            onSearch={() => setStatus("search")}
+            onExperienceSwitcher={openExperienceSwitcher}
+          />
+        ) : null
+      ) : (
+        <FloatingTopBar
+          topInset={insets.top}
+          navFocusSV={navFocusSV}
+          leftLabel={leftLabel}
+          leftSubLabel={leftSubLabel}
+          centerTitle={pageTitle}
+          onLeftPress={openExperienceSwitcher}
+          onSearch={() => setStatus("search")}
+          onExperienceSwitcher={openExperienceSwitcher}
+        />
+      )}
 
       {sheetBackdropActive ? (
         <Pressable
@@ -2227,7 +2237,7 @@ export default function App() {
             active={displayCartQty > 0 && !cartFabDeferred && !(sheetBackdropActive && !homeNavSheetCartEligible)}
             bumpKey={cartFabBump}
             totalQuantity={displayCartQty}
-            bottomOffset={insets.bottom + FLOAT_MARGIN_BOTTOM + FLOATING_TAB_BAR_HEIGHT + 12}
+            bottomOffset={floatingDockBottomY(insets.bottom) + FLOATING_TAB_BAR_HEIGHT + 12}
             rightOffset={FLOAT_MARGIN_SIDE + 4}
             onOpenCart={openCartSheetHalf}
           />
@@ -2256,19 +2266,26 @@ export default function App() {
         </View>
       ) : null}
 
-      <FloatingGlassTabBar
-        tab={tab}
-        onChange={(next) => {
-          Keyboard.dismiss();
-          setTab(next);
-        }}
+      <NavExpandSheetHost
         insets={insets}
         sheetHeightSV={sheetHeightSV}
         snapImpactTargetSV={snapImpactTargetSV}
         snapImpactArmedSV={snapImpactArmedSV}
         sheetContent={sheetCartPanel ?? sheetExperiencePanel ?? sheetSearchPanel ?? undefined}
-        onSheetDragOpenFromCollapsed={onSheetDragOpenFromCollapsed}
         sheetFullOnly={navSheetSearchMode || navSheetExperienceMode}
+      />
+
+      <NavBottomScrim navFocusSV={navFocusSV} />
+
+      <FloatingGlassTabBar
+        tab={tab}
+        onChange={(next) => {
+          Keyboard.dismiss();
+          navFocusSV.value = withSpring(1, { damping: 20, stiffness: 180, mass: 0.65 });
+          setTab(next);
+        }}
+        insets={insets}
+        navFocusSV={navFocusSV}
         messagesUnreadCount={chatUnreadCount}
         ordersActiveCount={ordersTabBadgeCount}
         bookingsUpcomingCount={bookTabBadgeCount}

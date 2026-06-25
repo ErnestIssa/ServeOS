@@ -12,6 +12,20 @@ export function menuHasBrowsableItems(menu: PublicMenuSnapshot | null | undefine
   return menu.categories.some((c) => (c.items?.length ?? 0) > 0);
 }
 
+/** Venue is selected and menu loaded successfully but has no customer-facing items. */
+export function venueHasNoBrowsableMenu(menu: PublicMenuSnapshot | null | undefined): boolean {
+  return menu?.ok === true && !menuHasBrowsableItems(menu);
+}
+
+/** Customer-facing copy when a venue is selected but has nothing browsable yet. */
+export function noMenuAtVenueMessage(venueName: string): string {
+  const name = venueName.trim();
+  if (!name || name === "Your venue" || name === "No venue yet" || name === "Your restaurant") {
+    return "No menu at this venue currently";
+  }
+  return `No menu at ${name} currently`;
+}
+
 export function formatApiError(error?: string): string {
   if (!error?.trim()) return "Something went wrong. Try again.";
   if (error === "restaurant_not_found") return "This restaurant is no longer available.";
