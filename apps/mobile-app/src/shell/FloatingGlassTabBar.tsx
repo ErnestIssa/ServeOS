@@ -2,7 +2,6 @@ import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import React from "react";
 import {
-  Keyboard,
   Platform,
   StyleSheet,
   Text,
@@ -122,8 +121,6 @@ const TAB_EDGE_INSET_H = 10;
 const TAB_STRIP_PAD_ABOVE_TABS = 10;
 /** Space between tab row zone and inner bottom corners of purple chrome. */
 const TAB_STRIP_PAD_BELOW_TABS = 10;
-/** Overlays sheet↔tabs seam so drags work when sheet layout height is 0 (zero-height views don't receive touches). */
-const SHEET_SEAM_GRAB_HEIGHT = 36;
 /** When sheet is taller than this and finger is up, hide seam grab so only the sheet pan runs (no double updates). */
 const SEAM_GRAB_HIDE_ABOVE_H = 28;
 
@@ -250,7 +247,7 @@ export function FloatingGlassTabBar({
     }
   );
 
-  const { panVerticalOnSheetBody, panVerticalSeamGrab, panVerticalWithTabsDuplicate, sheetPanDragSessionSV } =
+  const { panVerticalOnSheetBody, panVerticalSeamGrab, sheetPanDragSessionSV } =
     useNavSheetPanGestures(insets, sheetHeightSV, {
       onUserDragFromCollapsed: onSheetDragOpenFromCollapsed,
       allowHalfDetent: !sheetFullOnly,
@@ -287,15 +284,15 @@ export function FloatingGlassTabBar({
   const pillDragDidMoveSV = useSharedValue(0);
   const tabIndexSV = useSharedValue(0);
   const tabRowWidthSV = useSharedValue(0);
+  const tabIndex = React.useMemo(
+    () => Math.max(0, visibleTabs.findIndex((t) => t.id === tab)),
+    [tab, visibleTabs]
+  );
 
   React.useLayoutEffect(() => {
     tabIndexSV.value = tabIndex;
   }, [tabIndex, tabIndexSV]);
 
-  const tabIndex = React.useMemo(
-    () => Math.max(0, visibleTabs.findIndex((t) => t.id === tab)),
-    [tab, visibleTabs]
-  );
   const tabRef = React.useRef(tab);
   tabRef.current = tab;
   const pillDragActiveRef = React.useRef(false);
@@ -381,8 +378,8 @@ export function FloatingGlassTabBar({
       .minPointers(1)
       .maxPointers(1)
       .minDistance(PILL_DRAG_MIN_DISTANCE)
-      .activeOffsetX([-10, 10])
-      .failOffsetY([-22, 22]);
+      .activeOffsetX([-8, 8])
+      .failOffsetY([-14, 14]);
 
     pan.onBegin(() => {
       "worklet";
@@ -459,14 +456,8 @@ export function FloatingGlassTabBar({
   ]);
 
   const panTabRowWithPress = React.useMemo(
-    () => Gesture.Simultaneous(panTabRow, Gesture.Native()),
+    () => Gesture.Exclusive(Gesture.Native(), panTabRow),
     [panTabRow]
-  );
-
-  /** Vertical sheet open vs horizontal tab pill — first axis to activate wins. */
-  const panTabsWithSheet = React.useMemo(
-    () => Gesture.Race(panVerticalWithTabsDuplicate, panTabRowWithPress),
-    [panTabRowWithPress, panVerticalWithTabsDuplicate]
   );
 
   const pillAnimatedStyle = useAnimatedStyle(() => {
@@ -653,8 +644,8 @@ export function FloatingGlassTabBar({
                 >
                   <View style={styles.sheetTopHandleDash} />
                 </Animated.View>
-                <Pressable accessible={false} style={styles.sheetBodyHost} collapsable={false} onPress={Keyboard.dismiss}>
-                  <View style={styles.sheetBodyInner} collapsable={false}>
+                <View style={styles.sheetBodyHost} collapsable={false} pointerEvents="box-none">
+                  <View style={styles.sheetBodyInner} collapsable={false} pointerEvents="box-none">
                     <NavSheetScrollProvider
                       scrollYSV={navSheetScrollYSV}
                       scrollAtEndSV={navSheetScrollAtEndSV}
@@ -663,7 +654,7 @@ export function FloatingGlassTabBar({
                       {sheetContent}
                     </NavSheetScrollProvider>
                   </View>
-                </Pressable>
+                </View>
               </Animated.View>
             </GestureDetector>
 
@@ -674,7 +665,7 @@ export function FloatingGlassTabBar({
 
               <View style={styles.gestureHost}>
                 <View style={styles.tabGestureSizer}>
-                  <GestureDetector gesture={panTabsWithSheet}>
+                  <GestureDetector gesture={panTabRowWithPress}>
                     <View style={styles.tabSwipeArea}>
                       <Animated.View
                         style={[styles.liquidPill, pillAnimatedStyle]}
@@ -707,10 +698,7 @@ export function FloatingGlassTabBar({
                                 : undefined
                             }
                             onLayout={onTabItemLayout(index)}
-                            onPress={() => {
-                              if (pillDragActiveRef.current) return;
-                              onTabPress(t.id, index);
-                            }}
+                            onPress={() => onTabPress(t.id, index)}
                           >
                             <View style={styles.tabGlyphWrap}>
                               <TabGlyph icon={t.icon} color={iconColor} meAvatarUri={meAvatarUri} />
@@ -856,13 +844,13 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     backgroundColor: "rgba(15,23,42,0.88)"
   },
-  /** Bridges the collapsed sheet (h=0) and tab strip so vertical pans always have a hit target. */
+  /** Narrow handle above tabs — drag to expand sheet without blocking tab taps. */
   sheetSeamGrabBridge: {
     position: "absolute",
     top: 0,
-    left: 0,
-    right: 0,
-    height: SHEET_SEAM_GRAB_HEIGHT,
+    alignSelf: "center",
+    width: 72,
+    height: 18,
     zIndex: 40,
     backgroundColor: "transparent"
   },
@@ -870,7 +858,7 @@ const styles = StyleSheet.create({
     flex: 1,
     width: "100%",
     position: "relative",
-    zIndex: 32,
+    zIndex: 45,
     justifyContent: "flex-start",
     paddingHorizontal: TAB_EDGE_INSET_H,
     paddingTop: TAB_STRIP_PAD_ABOVE_TABS,

@@ -82,6 +82,11 @@ export type PlaceOrderInput = {
   sourceSessionType?: string | null;
   deviceId?: string | null;
   reservationId?: string | null;
+  /** Delivery partner registry */
+  partnerId?: string | null;
+  externalPartnerOrderId?: string | null;
+  /** Partner-reported total for reconciliation (cents). */
+  partnerTotalCents?: number | null;
 };
 
 export type OrderLockFlags = {
@@ -100,7 +105,11 @@ export type OrderEventType =
   | "order.refunded"
   | "order.partially_refunded"
   | "order.completed"
-  | "order.archived";
+  | "order.archived"
+  | "order.edited"
+  | "order.item_added"
+  | "order.item_removed"
+  | "order.pricing_updated";
 
 export function formatDisplayNumber(
   displaySeq: number | null | undefined,

@@ -81,8 +81,14 @@ export async function loadChatHubCached(
   onUpdate: (result: LoadChatHubResult) => void,
   opts?: { force?: boolean }
 ): Promise<CustomerChatHubResponse> {
+  const rid = restaurantId.trim();
+  if (!rid) {
+    const empty: CustomerChatHubResponse = { ok: true, needsVenue: true, scene: "new" };
+    onUpdate({ fromCache: false, data: empty });
+    return empty;
+  }
   const scope = authScope(userId);
-  const key = chatHubKey(scope, restaurantId);
+  const key = chatHubKey(scope, rid);
   let sawCache = false;
 
   const hub = await fetchWithCache(
@@ -123,8 +129,10 @@ export function refreshChatHubSilent(
   userId: string | null | undefined,
   onFresh: (hub: CustomerChatHubResponse) => void
 ): void {
+  const rid = restaurantId.trim();
+  if (!rid) return;
   const scope = authScope(userId);
-  const key = chatHubKey(scope, restaurantId);
+  const key = chatHubKey(scope, rid);
   revalidateInBackground(
     key,
     TTL.chatHub,
@@ -180,6 +188,11 @@ export function refreshMyOrdersSilent(
     },
     onFresh
   );
+}
+
+export async function invalidateRestaurantDirectory(userId: string | null | undefined): Promise<void> {
+  const scope = authScope(userId);
+  await cacheInvalidate(restaurantDirectoryKey(scope));
 }
 
 export async function loadRestaurantDirectoryCached(

@@ -62,6 +62,7 @@ function mapOrderRow(
     completedAt: Date | null;
     kitchenStartedAt: Date | null;
     note: string | null;
+    version: number;
     lines: Array<{ id: string; nameSnapshot: string; quantity: number; lineTotalCents: number }>;
     customer?: { email: string | null } | null;
   },
@@ -105,6 +106,7 @@ function mapOrderRow(
     slaSignal,
     isProblem: slaSignal !== "none" || ["CANCELLED", "REFUNDED", "REJECTED"].includes(canon),
     note: o.note,
+    version: o.version,
     createdAt: o.createdAt.toISOString(),
     completedAt: o.completedAt?.toISOString() ?? null,
     lines: o.lines.map((l) => ({

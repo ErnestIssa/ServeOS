@@ -6,18 +6,24 @@ import {
   formatDateTime,
   ORDER_SOURCE_LABELS,
   ORDER_STATUS_LABELS,
-  type MockOrder
-} from "./ordersMockData";
+  type AdminOrder
+} from "./ordersTypes";
+import { OrderEngineActionsPanel } from "./OrderEngineActionsPanel";
+import type { AdminOrderVm } from "./ordersApiMappers";
 
 type Props = {
-  order: MockOrder | null;
+  order: (AdminOrder & { version?: number }) | null;
   open: boolean;
   onClose: () => void;
   onUpdateStatus?: () => void;
   onPrintReceipt?: () => void;
+  token?: string | null;
+  restaurantId?: string | null;
+  onOrderRefresh?: () => void;
+  onToast?: (msg: string, tone?: "success" | "error") => void;
 };
 
-function StatusBadge({ status }: { status: MockOrder["status"] }) {
+function StatusBadge({ status }: { status: AdminOrder["status"] }) {
   const tone =
     status === "COMPLETED"
       ? "completed"
@@ -31,7 +37,17 @@ function StatusBadge({ status }: { status: MockOrder["status"] }) {
   return <span className={`admin-orders-status admin-orders-status--${tone}`}>{ORDER_STATUS_LABELS[status]}</span>;
 }
 
-export function OrderDetailsDrawer({ order, open, onClose, onUpdateStatus, onPrintReceipt }: Props) {
+export function OrderDetailsDrawer({
+  order,
+  open,
+  onClose,
+  onUpdateStatus,
+  onPrintReceipt,
+  token,
+  restaurantId,
+  onOrderRefresh,
+  onToast
+}: Props) {
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
@@ -176,6 +192,16 @@ export function OrderDetailsDrawer({ order, open, onClose, onUpdateStatus, onPri
                     ))}
                   </ul>
                 </section>
+              ) : null}
+
+              {token && order ? (
+                <OrderEngineActionsPanel
+                  token={token}
+                  restaurantId={restaurantId ?? ""}
+                  order={order as AdminOrderVm}
+                  onUpdated={() => onOrderRefresh?.()}
+                  onToast={(msg, tone) => onToast?.(msg, tone)}
+                />
               ) : null}
             </div>
 

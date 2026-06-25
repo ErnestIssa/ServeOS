@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import {
   AdminBtnPrimary,
   AdminBtnSecondary,
+  AdminEmptyState,
   AdminPanel,
   AdminSectionHeader,
   subPanelCls
@@ -42,47 +43,6 @@ function Chip({ children, tone = "default" }: { children: ReactNode; tone?: "def
   return <span className={`admin-page-chip admin-page-chip--${tone}`}>{children}</span>;
 }
 
-const MOCK_INVOICES = [
-  { id: "INV-2026-0412", date: "Apr 12, 2026", amount: "2 490 kr", status: "Paid" },
-  { id: "INV-2026-0312", date: "Mar 12, 2026", amount: "2 490 kr", status: "Paid" },
-  { id: "INV-2026-0212", date: "Feb 12, 2026", amount: "2 490 kr", status: "Paid" }
-] as const;
-
-const MOCK_NOTIFICATIONS = [
-  {
-    id: "n1",
-    title: "Kitchen delay threshold reached",
-    body: "Order #4821 has been in PREPARING for 18 minutes at Main Dining.",
-    time: "4 min ago",
-    category: "Orders",
-    unread: true
-  },
-  {
-    id: "n2",
-    title: "New staff invite accepted",
-    body: "Sara Lindström joined as Floor Manager for your Stockholm venue.",
-    time: "1 hr ago",
-    category: "Staff",
-    unread: true
-  },
-  {
-    id: "n3",
-    title: "Trial reminder",
-    body: "Your workspace trial ends in 9 days. Review billing before auto-renewal.",
-    time: "Yesterday",
-    category: "System",
-    unread: false
-  },
-  {
-    id: "n4",
-    title: "Printer offline",
-    body: "Bar printer stopped responding. Last successful job 22 minutes ago.",
-    time: "Yesterday",
-    category: "System",
-    unread: false
-  }
-] as const;
-
 const HELP_CATEGORIES = [
   { title: "Getting started", desc: "Workspace setup, venues, and first menu.", articles: 12 },
   { title: "Orders & kitchen", desc: "KDS flow, statuses, and order chats.", articles: 18 },
@@ -112,85 +72,30 @@ export function AdminBillingPage() {
       id={ADMIN_TOP_HASHES.billing.slice(1)}
       eyebrow="Business"
       title="Billing & subscription"
-      description="Manage your ServeOS plan, payment methods, invoices, and payout preferences. Data will sync from your account once billing APIs are connected."
+      description="Manage your ServeOS plan, payment methods, invoices, and payout preferences."
       action={<AdminBtnSecondary>Download statements</AdminBtnSecondary>}
     >
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Current plan" value="Growth" hint="Billed monthly" />
-        <StatTile label="Next invoice" value="Jun 12" hint="2 490 kr / month" />
-        <StatTile label="Trial status" value="Active" hint="9 days remaining" />
-        <StatTile label="Venues on plan" value="2 / 3" hint="Add-on slots available" />
+        <StatTile label="Current plan" value="—" hint="Connect billing to view" />
+        <StatTile label="Next invoice" value="—" hint="No upcoming invoice" />
+        <StatTile label="Trial status" value="—" hint="—" />
+        <StatTile label="Venues on plan" value="—" hint="—" />
       </div>
 
       <div className="mt-8 grid gap-5 lg:grid-cols-5">
         <div className={`${subPanelCls} admin-top-page-card lg:col-span-3`}>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Subscription</p>
-              <p className="mt-1 font-display text-lg font-bold text-slate-900">Growth — multi-venue</p>
-            </div>
-            <Chip tone="success">Active</Chip>
-          </div>
-          <ul className="admin-page-feature-list mt-5 space-y-2 text-sm">
-            <li>Live orders, KDS, and floor operations</li>
-            <li>Reservations, queue, and venue timeline</li>
-            <li>Staff roles, automations, and insights</li>
-          </ul>
-          <div className="mt-6 flex flex-wrap gap-2">
-            <AdminBtnPrimary>Change plan</AdminBtnPrimary>
-            <AdminBtnSecondary>Compare plans</AdminBtnSecondary>
-          </div>
+          <AdminEmptyState>No active subscription on file yet.</AdminEmptyState>
         </div>
 
         <div className={`${subPanelCls} admin-top-page-card lg:col-span-2`}>
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Payment method</p>
-          <div className="admin-payment-card mt-4 rounded-xl border p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold">Visa •••• 4242</p>
-                <p className="mt-0.5 text-xs text-slate-500">Expires 08/28 · Default</p>
-              </div>
-              <Chip tone="violet">Primary</Chip>
-            </div>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <AdminBtnSecondary>Update card</AdminBtnSecondary>
-            <AdminBtnSecondary>Add method</AdminBtnSecondary>
-          </div>
+          <AdminEmptyState>No payment method on file yet.</AdminEmptyState>
         </div>
       </div>
 
       <div className={`${subPanelCls} admin-top-page-card mt-5`}>
         <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Invoice history</p>
-        <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200/80">
-          <table className="admin-page-table w-full min-w-[520px] text-left text-sm">
-            <thead>
-              <tr>
-                <th>Invoice</th>
-                <th>Date</th>
-                <th>Amount</th>
-                <th>Status</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {MOCK_INVOICES.map((row) => (
-                <tr key={row.id}>
-                  <td className="font-mono text-xs">{row.id}</td>
-                  <td>{row.date}</td>
-                  <td className="font-semibold">{row.amount}</td>
-                  <td>
-                    <Chip tone="success">{row.status}</Chip>
-                  </td>
-                  <td className="text-right">
-                    <button type="button" className="admin-page-link-btn text-xs font-semibold">
-                      PDF
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="mt-4">
+          <AdminEmptyState>No invoices yet.</AdminEmptyState>
         </div>
       </div>
     </AdminPageShell>
@@ -199,16 +104,13 @@ export function AdminBillingPage() {
 
 export function AdminNotificationsPage() {
   const [filter, setFilter] = useState<"All" | "Orders" | "Staff" | "System">("All");
-  const filtered =
-    filter === "All" ? MOCK_NOTIFICATIONS : MOCK_NOTIFICATIONS.filter((n) => n.category === filter);
-  const unreadCount = MOCK_NOTIFICATIONS.filter((n) => n.unread).length;
 
   return (
     <AdminPageShell
       id={ADMIN_TOP_HASHES.notifications.slice(1)}
       eyebrow="Alerts"
       title="Notifications"
-      description="System alerts, venue updates, and operational signals across your workspace. Live delivery connects when notification APIs are enabled."
+      description="System alerts, venue updates, and operational signals across your workspace."
       action={
         <div className="flex flex-wrap gap-2">
           <AdminBtnSecondary>Mark all read</AdminBtnSecondary>
@@ -217,9 +119,9 @@ export function AdminNotificationsPage() {
       }
     >
       <div className="grid gap-4 sm:grid-cols-3">
-        <StatTile label="Unread" value={String(unreadCount)} hint="Across all venues" />
-        <StatTile label="Today" value="6" hint="Last 24 hours" />
-        <StatTile label="Critical" value="1" hint="Needs attention" />
+        <StatTile label="Unread" value="0" hint="Across all venues" />
+        <StatTile label="Today" value="0" hint="Last 24 hours" />
+        <StatTile label="Critical" value="0" hint="Needs attention" />
       </div>
 
       <div className="admin-page-tabs mt-8 flex flex-wrap gap-2">
@@ -235,26 +137,9 @@ export function AdminNotificationsPage() {
         ))}
       </div>
 
-      <ul className="mt-5 space-y-3">
-        {filtered.map((item) => (
-          <li
-            key={item.id}
-            className={`admin-notification-row rounded-xl border p-4 transition ${item.unread ? "admin-notification-row--unread" : ""}`}
-          >
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="font-semibold text-slate-900">{item.title}</p>
-                  <Chip>{item.category}</Chip>
-                  {item.unread ? <span className="admin-top-tool-badge static" aria-label="Unread" /> : null}
-                </div>
-                <p className="mt-1 text-sm leading-relaxed text-slate-600">{item.body}</p>
-              </div>
-              <span className="shrink-0 text-xs text-slate-500">{item.time}</span>
-            </div>
-          </li>
-        ))}
-      </ul>
+      <div className={`${subPanelCls} mt-5 p-6`}>
+        <AdminEmptyState>No notifications yet.</AdminEmptyState>
+      </div>
     </AdminPageShell>
   );
 }

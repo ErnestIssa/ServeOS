@@ -27,7 +27,6 @@ type Props =
       onLeftPress?: () => void;
       onSearch?: () => void;
       onExperienceSwitcher?: () => void;
-      onMenu?: () => void;
     }
   | {
       variant: "customer";
@@ -42,10 +41,7 @@ type Props =
       searchSheetFullyExpanded?: boolean;
       /** First taps on the search field call this (no keyboard); typing works once the sheet is fully open. */
       onSearchExpandSheet?: () => void;
-      experienceModeLabel?: string;
-      onExperienceModePress?: () => void;
       onExperienceSwitcher?: () => void;
-      onMenu?: () => void;
     };
 
 function IconSearch({ color }: { color: string }) {
@@ -54,17 +50,6 @@ function IconSearch({ color }: { color: string }) {
       <Path
         fill={color}
         d="M10 18a8 8 0 1 1 5.293-14.01A8 8 0 0 1 10 18Zm0-14a6 6 0 1 0 3.96 10.5A6 6 0 0 0 10 4Zm10.707 17.293-4.112-4.112a1 1 0 0 1 1.414-1.414l4.112 4.112a1 1 0 0 1-1.414 1.414Z"
-      />
-    </Svg>
-  );
-}
-
-function IconMenu({ color }: { color: string }) {
-  return (
-    <Svg width={22} height={22} viewBox="0 0 24 24">
-      <Path
-        fill={color}
-        d="M4 7a1 1 0 0 1 1-1h14a1 1 0 1 1 0 2H5a1 1 0 0 1-1-1Zm0 5a1 1 0 0 1 1-1h14a1 1 0 1 1 0 2H5a1 1 0 0 1-1-1Zm1 4a1 1 0 1 0 0 2h14a1 1 0 1 0 0-2H5Z"
       />
     </Svg>
   );
@@ -94,24 +79,13 @@ function CustomerTopBarChrome({
   onSearchSubmit,
   searchSheetFullyExpanded,
   onSearchExpandSheet,
-  onExperienceModePress,
-  experienceModeLabel,
-  onExperienceSwitcher,
-  onMenu
+  onExperienceSwitcher
 }: CustomerChromeProps) {
   const expandFirst = typeof onSearchExpandSheet === "function";
   const sheetReadyForTyping = !expandFirst || !!searchSheetFullyExpanded;
 
   return (
     <View style={[styles.row, styles.customerRow]}>
-      {experienceModeLabel && onExperienceModePress ? (
-        <Pressable onPress={onExperienceModePress} style={styles.customerModeChip} hitSlop={8}>
-          <Text style={styles.customerModeChipText} numberOfLines={1}>
-            {experienceModeLabel}
-          </Text>
-          <Text style={styles.customerModeChev}>▼</Text>
-        </Pressable>
-      ) : null}
       <View style={styles.searchFieldCustomer}>
         <IconSearch color="rgba(15,23,42,0.4)" />
         <TextInput
@@ -140,9 +114,6 @@ function CustomerTopBarChrome({
         ) : null}
       </View>
       <StoreSwitcherButton onPress={onExperienceSwitcher} />
-      <Pressable onPress={onMenu} style={styles.iconBtn} hitSlop={12} accessibilityLabel="Menu">
-        <IconMenu color={iconColor} />
-      </Pressable>
     </View>
   );
 }
@@ -156,8 +127,7 @@ function BusinessTopBarChrome({
   centerTitle,
   onLeftPress,
   onSearch,
-  onExperienceSwitcher,
-  onMenu
+  onExperienceSwitcher
 }: BusinessChromeProps) {
   return (
     <View style={styles.row}>
@@ -189,10 +159,6 @@ function BusinessTopBarChrome({
         </Pressable>
 
         <StoreSwitcherButton onPress={onExperienceSwitcher} />
-
-        <Pressable onPress={onMenu} style={styles.iconBtn} hitSlop={10} accessibilityLabel="Menu">
-          <IconMenu color={iconColor} />
-        </Pressable>
       </View>
     </View>
   );
@@ -352,29 +318,6 @@ const styles = StyleSheet.create({
   customerRow: {
     gap: 10,
     paddingHorizontal: 10
-  },
-  customerModeChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.22)",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.45)",
-    maxWidth: 118
-  },
-  customerModeChipText: {
-    color: "rgba(255,255,255,0.92)",
-    fontSize: 12,
-    fontWeight: "800",
-    flexShrink: 1
-  },
-  customerModeChev: {
-    color: "rgba(255,255,255,0.75)",
-    fontSize: 10,
-    fontWeight: "800"
   },
   searchFieldCustomer: {
     flex: 1,

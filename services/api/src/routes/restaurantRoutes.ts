@@ -4,6 +4,7 @@ import type { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { fetchMenuTree } from "../lib/menu.js";
+import { isCustomerBrowsableRestaurant } from "../lib/customerRestaurantDirectory.js";
 import { isVenueMembershipRole } from "../lib/membershipAccess.js";
 
 export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaClient) {
@@ -162,6 +163,8 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
 
   app.get("/restaurants/public/menu/:restaurantId", async (req, reply) => {
     const { restaurantId } = req.params as { restaurantId: string };
+    const browsable = await isCustomerBrowsableRestaurant(prisma, restaurantId);
+    if (!browsable) return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
     const r = await prisma.restaurant.findUnique({ where: { id: restaurantId } });
     if (!r) return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
     const categories = await fetchMenuTree(prisma, restaurantId, { onlyActive: true });

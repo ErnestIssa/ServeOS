@@ -1,11 +1,12 @@
 import { useCallback, useMemo, useState, type CSSProperties, type DragEvent } from "react";
-import { ORDER_SOURCE_LABELS } from "./ordersMockData";
+import { ORDER_SOURCE_LABELS } from "./ordersTypes";
 import {
-  createKitchenBoard,
+  apiStatusForKitchenAction,
+  apiStatusForKitchenColumn,
   ticketTraceStyle,
   type KitchenColumnId,
   type KitchenTicket
-} from "./kitchenMockData";
+} from "./kitchenData";
 
 function WaitingBadge({ minutes }: { minutes: number }) {
   const tone = minutes >= 30 ? "critical" : minutes >= 15 ? "warning" : "normal";
@@ -35,39 +36,11 @@ function ticketsForColumn(tickets: KitchenTicket[], columnId: KitchenColumnId): 
   return tickets.filter((t) => t.kitchenColumn === columnId);
 }
 
-function applyColumn(ticket: KitchenTicket, column: KitchenColumnId): KitchenTicket {
-  if (ticket.readyLocked && column !== "ready") return ticket;
-
-  if (column === "ready") {
-    return {
-      ...ticket,
-      kitchenColumn: "ready",
-      kitchenStatus: "READY",
-      status: "READY",
-      readyLocked: true
-    };
-  }
-  if (column === "preparing") {
-    return {
-      ...ticket,
-      kitchenColumn: "preparing",
-      kitchenStatus: "PREPARING",
-      status: "PREPARING",
-      readyLocked: false
-    };
-  }
-  return {
-    ...ticket,
-    kitchenColumn: "new",
-    kitchenStatus: "NEW",
-    status: "CREATED",
-    readyLocked: false
-  };
-}
-
 type Props = {
+  tickets: KitchenTicket[];
+  loading?: boolean;
   onOpen: (order: KitchenTicket) => void;
-  onAction: (label: string) => void;
+  onStatusChange: (ticket: KitchenTicket, nextStatus: string, label: string) => void | Promise<void>;
   fullscreen?: boolean;
 };
 
@@ -105,35 +78,27 @@ function PreparingBorderTrace({ ticketId }: { ticketId: string }) {
   );
 }
 
-export function KitchenKanban({ onOpen, onAction, fullscreen = false }: Props) {
-  const [tickets, setTickets] = useState<KitchenTicket[]>(() => createKitchenBoard(20));
+export function KitchenKanban({ tickets, loading = false, onOpen, onStatusChange, fullscreen = false }: Props) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<KitchenColumnId | null>(null);
 
-  const moveToColumn = useCallback((ticketId: string, column: KitchenColumnId) => {
-    setTickets((prev) =>
-      prev.map((t) => {
-        if (t.id !== ticketId) return t;
-        if (t.readyLocked) return t;
-        return applyColumn(t, column);
-      })
-    );
-  }, []);
-
   const runAction = useCallback(
     (ticket: KitchenTicket, action: string) => {
-      if (action === "Start" || action === "Accept") {
-        if (ticket.kitchenColumn === "new" && !ticket.readyLocked) {
-          moveToColumn(ticket.id, "preparing");
-        }
-      } else if (action === "Ready") {
-        moveToColumn(ticket.id, "ready");
-      } else if (action === "Complete") {
-        setTickets((prev) => prev.filter((t) => t.id !== ticket.id));
-      }
-      onAction(`${action} — ${ticket.displayNumber}`);
+      const next = apiStatusForKitchenAction(ticket, action);
+      if (!next) return;
+      void onStatusChange(ticket, next, `${action} — ${ticket.displayNumber}`);
     },
-    [moveToColumn, onAction]
+    [onStatusChange]
+  );
+
+  const moveToColumn = useCallback(
+    (ticket: KitchenTicket, column: KitchenColumnId) => {
+      if (ticket.readyLocked) return;
+      const next = apiStatusForKitchenColumn(ticket, column);
+      if (!next) return;
+      void onStatusChange(ticket, next, `Moved — ${ticket.displayNumber}`);
+    },
+    [onStatusChange]
   );
 
   const onDragStart = (e: DragEvent<HTMLLIElement>, ticket: KitchenTicket) => {
@@ -163,7 +128,7 @@ export function KitchenKanban({ onOpen, onAction, fullscreen = false }: Props) {
     if (!id) return;
     const ticket = tickets.find((t) => t.id === id);
     if (!ticket || ticket.readyLocked) return;
-    moveToColumn(id, columnId);
+    moveToColumn(ticket, columnId);
     setDraggingId(null);
     setDragOverColumn(null);
   };
@@ -279,6 +244,14 @@ export function KitchenKanban({ onOpen, onAction, fullscreen = false }: Props) {
 
   const rootClass = `admin-orders-kds${fullscreen ? " admin-orders-kds--fullscreen" : ""}`;
 
+  if (loading) {
+    return (
+      <div className={rootClass}>
+        <p className="admin-orders-kds-empty p-6 text-sm text-slate-500">Loading kitchen queue…</p>
+      </div>
+    );
+  }
+
   return (
     <div className={rootClass}>
       {COLUMNS.map((col) => {
@@ -300,7 +273,7 @@ export function KitchenKanban({ onOpen, onAction, fullscreen = false }: Props) {
               onDrop={(e) => onColumnDrop(e, col.id)}
             >
               {colOrders.length === 0 ? (
-                <li className="admin-orders-kds-fs-empty">Drop tickets here</li>
+                <li className="admin-orders-kds-fs-empty">No tickets</li>
               ) : (
                 colOrders.map((ticket) => renderTicket(ticket, col, true))
               )}
@@ -319,7 +292,7 @@ export function KitchenKanban({ onOpen, onAction, fullscreen = false }: Props) {
               onDrop={(e) => onColumnDrop(e, col.id)}
             >
               {colOrders.length === 0 ? (
-                <li className="admin-orders-kds-empty">Drop tickets here</li>
+                <li className="admin-orders-kds-empty">No tickets</li>
               ) : (
                 colOrders.map((ticket) => renderTicket(ticket, col, false))
               )}

@@ -6,9 +6,9 @@ import { type CustomerRestaurantRow } from "../api";
 import { loadRestaurantDirectoryCached } from "../data/customerDataCache";
 import { ScreenErrorState, formatAppError } from "../errors";
 import { R } from "../theme";
+import { useAppTheme } from "../theme/AppThemeContext";
 import { FLOATING_TOP_BAR_HEIGHT } from "../shell/FloatingTopBar";
 import { contentBottomInset } from "../shell/navBottomMetrics";
-import { getServeosDemoPublicMenu, SERVEOS_DEMO_RESTAURANT_ID } from "./demoPeakModeMenu";
 import { CustomerOrderTrackingSection, pickActiveOrder, type CustomerMineOrder } from "./CustomerOrderTrackingSection";
 import { CustomerVenueActionsModal } from "./CustomerVenueActionsModal";
 import { EmptyOrdersCartAnimation } from "./EmptyOrdersCartAnimation";
@@ -22,15 +22,19 @@ type Props = {
   /** Venue currently driving menus & cart across the app. */
   activeId: string;
   activeName: string;
-  /** When true (demo menu env), venue switching in the modal is disabled — layout stays identical. */
+  /** When true, venue switching in the modal is disabled. */
   venueSwitchLocked: boolean;
   /** Persist new venue everywhere (menus, cart, profile). Caller may bump keys / reload shell. */
   onVenueHydrated: (restaurantId: string) => Promise<void>;
+  onVenueSwitchError?: (message: string) => void;
+  /** Opens the global restaurant picker (store icon sheet). */
+  onChooseVenue?: () => void;
   /** Customer’s orders from `GET /orders/mine` (same list as app shell). */
   customerOrders: CustomerMineOrder[];
   money: (cents: number) => string;
   onBrowseMenu: () => void;
   onNeedHelp: () => void;
+  onOrdersRefresh?: () => void;
   /** Empty-state CTA: server cart lines (customer session). */
   cartItemCount?: number;
   /** Bumps when menu hearts change so empty Orders CTA reloads prefs. */
@@ -50,6 +54,8 @@ export function CustomerOrdersVenueScreen(props: Props) {
     activeName,
     venueSwitchLocked,
     onVenueHydrated,
+    onVenueSwitchError,
+    onChooseVenue,
     customerOrders,
     money,
     onBrowseMenu,
@@ -59,11 +65,13 @@ export function CustomerOrdersVenueScreen(props: Props) {
     ordersEmptySessionVisits = 0,
     emptyMotionPaused = false
   } = props;
+  const { colors: t } = useAppTheme();
   const clock = useVenueClockTick(30000);
   const { height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [rows, setRows] = React.useState<CustomerRestaurantRow[] | null>(null);
   const [loadErr, setLoadErr] = React.useState<string | null>(null);
+  const [directoryLoading, setDirectoryLoading] = React.useState(false);
   const [directoryRetryTick, setDirectoryRetryTick] = React.useState(0);
   const [venueModalOpen, setVenueModalOpen] = React.useState(false);
   const [phraseLandTick, setPhraseLandTick] = React.useState(0);
@@ -75,9 +83,10 @@ export function CustomerOrdersVenueScreen(props: Props) {
   );
 
   React.useEffect(() => {
-    if (!token || !activeOrderForPage) return;
+    if (!token) return;
     let cancelled = false;
     setLoadErr(null);
+    setDirectoryLoading(true);
     void (async () => {
       try {
         const list = await loadRestaurantDirectoryCached(token, userId, (cached) => {
@@ -89,26 +98,27 @@ export function CustomerOrdersVenueScreen(props: Props) {
           setRows([]);
           setLoadErr("directory_failed");
         }
+      } finally {
+        if (!cancelled) setDirectoryLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [token, userId, activeOrderForPage, directoryRetryTick]);
+  }, [token, userId, directoryRetryTick]);
 
   const currentRow = React.useMemo(
-    () => (rows && activeId ? rows.find((r) => r.id === activeId.trim()) : undefined),
-    [rows, activeId]
+    () => (rows && aid ? rows.find((r) => r.id === aid) : undefined),
+    [rows, aid]
   );
 
-  const demoNameFallback =
-    aid === SERVEOS_DEMO_RESTAURANT_ID ? String(getServeosDemoPublicMenu().restaurant.name ?? "Demo venue") : "Your venue";
   const displayVenueName =
-    (currentRow?.name ?? activeName).trim() || (aid ? demoNameFallback : "No venue yet");
+    (currentRow?.name ?? activeName).trim() || (aid ? "Your venue" : "Choose a venue");
 
   const hoursSource = currentRow?.openingHours ?? null;
-  const cardBusy = rows === null;
-  const openNow = isVenueOpenNow(hoursSource, clock);
+  const cardBusy = rows === null && directoryLoading;
+  const openNow = aid ? isVenueOpenNow(hoursSource, clock) : null;
+  const cardDisabled = venueSwitchLocked;
 
   const modalActive = React.useMemo(
     () => ({
@@ -120,12 +130,10 @@ export function CustomerOrdersVenueScreen(props: Props) {
   );
 
   function openVenueModal() {
-    if (!aid && !venueSwitchLocked) return;
+    if (venueSwitchLocked) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setVenueModalOpen(true);
   }
-
-  const cardDisabled = !aid && !venueSwitchLocked;
 
   const ordersEmptyMinHeight = React.useMemo(() => {
     const scrollBottom = contentBottomInset(insets.bottom);
@@ -133,82 +141,134 @@ export function CustomerOrdersVenueScreen(props: Props) {
     return Math.max(320, windowHeight - scrollTopPad - scrollBottom);
   }, [windowHeight, insets.top, insets.bottom]);
 
-  if (!activeOrderForPage) {
-    return (
-      <View
-        style={{
-          minHeight: ordersEmptyMinHeight,
-          width: "100%",
-          justifyContent: "center",
-          alignItems: "stretch"
-        }}
+  const venueBar = (
+    <View style={styles.venueBarWrap}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={cardDisabled ? undefined : `${displayVenueName}, venue and hours`}
+        accessibilityHint={cardDisabled ? undefined : "Opens venue options"}
+        android_ripple={cardDisabled ? undefined : { color: "rgba(15, 23, 42, 0.06)" }}
+        onPress={openVenueModal}
+        disabled={cardDisabled}
+        style={({ pressed }) => [
+          styles.venueBar,
+          cardBusy && styles.cardBusy,
+          cardDisabled && styles.cardDisabled,
+          pressed && !cardDisabled && styles.pressed
+        ]}
       >
-        <EmptyOrdersCartAnimation
-          embedded
-          paused={emptyMotionPaused}
-          onLastBounceLand={() => setPhraseLandTick((n) => n + 1)}
-        />
-        <EmptyOrdersCtaSection
-          restaurantId={aid}
-          venueName={displayVenueName}
-          cartItemCount={cartItemCount}
-          menuPrefsVersion={menuPrefsVersion}
-          ordersSessionVisits={ordersEmptySessionVisits}
-          phraseLandTick={phraseLandTick}
-          motionPaused={emptyMotionPaused}
-          authToken={token}
-          onPrimaryCta={onBrowseMenu}
-        />
+        <View style={styles.venueBarInner}>
+          <Text style={styles.venueBarTitle} numberOfLines={1}>
+            {displayVenueName}
+          </Text>
+          <View style={styles.venueBarRight}>
+            {aid && openNow !== null ? (
+              <Text style={[styles.venueBarStatus, openNow ? styles.venueOpen : styles.venueClosed]}>
+                {openNow ? "Open" : "Closed"}
+              </Text>
+            ) : null}
+            {!cardDisabled ? <Text style={styles.venueBarCue}>›</Text> : null}
+          </View>
+        </View>
+      </Pressable>
+    </View>
+  );
+
+  const directoryError = loadErr ? (
+    <ScreenErrorState
+      title="Venues unavailable"
+      message={formatAppError(loadErr)}
+      onRetry={() => {
+        setLoadErr(null);
+        setDirectoryRetryTick((n) => n + 1);
+      }}
+      style={styles.screenError}
+    />
+  ) : null;
+
+  const venueModal = (
+    <CustomerVenueActionsModal
+      visible={venueModalOpen}
+      onDismiss={() => setVenueModalOpen(false)}
+      userDisplayName={userDisplayName}
+      active={modalActive}
+      restaurants={rows ?? []}
+      directoryLoading={directoryLoading}
+      token={token}
+      onVenueHydrated={onVenueHydrated}
+      changeDisabled={venueSwitchLocked}
+      onSwitchError={onVenueSwitchError}
+    />
+  );
+
+  if (!activeOrderForPage) {
+    if (!aid) {
+      return (
+        <View style={[styles.inset, styles.noVenueRoot, { minHeight: ordersEmptyMinHeight }]}>
+          {directoryError}
+          <View style={styles.noVenueCenter}>
+            <Text style={[styles.noVenueMessage, { color: t.textSecondary }]}>
+              Select preferred venue to start ordering
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Choose a venue"
+              onPress={() => {
+                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                (onChooseVenue ?? openVenueModal)();
+              }}
+              style={({ pressed }) => [
+                styles.chooseVenueBtn,
+                { backgroundColor: t.accentPurple },
+                pressed && styles.pressed
+              ]}
+            >
+              <Text style={styles.chooseVenueBtnText}>Choose a venue</Text>
+            </Pressable>
+          </View>
+          {venueModal}
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.inset}>
+        {venueBar}
+        {directoryError}
+        <View
+          style={{
+            minHeight: ordersEmptyMinHeight,
+            width: "100%",
+            justifyContent: "center",
+            alignItems: "stretch"
+          }}
+        >
+          <EmptyOrdersCartAnimation
+            embedded
+            paused={emptyMotionPaused}
+            onLastBounceLand={() => setPhraseLandTick((n) => n + 1)}
+          />
+          <EmptyOrdersCtaSection
+            restaurantId={aid}
+            venueName={displayVenueName}
+            cartItemCount={cartItemCount}
+            menuPrefsVersion={menuPrefsVersion}
+            ordersSessionVisits={ordersEmptySessionVisits}
+            phraseLandTick={phraseLandTick}
+            motionPaused={emptyMotionPaused}
+            authToken={token}
+            onPrimaryCta={onBrowseMenu}
+          />
+        </View>
+        {venueModal}
       </View>
     );
   }
 
   return (
     <View style={styles.inset}>
-      <View style={styles.venueBarWrap}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={cardDisabled ? undefined : `${displayVenueName}, venue and hours`}
-          accessibilityHint={cardDisabled ? undefined : "Opens venue options"}
-          android_ripple={cardDisabled ? undefined : { color: "rgba(15, 23, 42, 0.06)" }}
-          onPress={openVenueModal}
-          disabled={cardDisabled}
-          style={({ pressed }) => [
-            styles.venueBar,
-            cardBusy && styles.cardBusy,
-            cardDisabled && styles.cardDisabled,
-            pressed && !cardDisabled && styles.pressed
-          ]}
-        >
-          <View style={styles.venueBarInner}>
-            <Text style={styles.venueBarTitle} numberOfLines={1}>
-              {displayVenueName}
-            </Text>
-            <View style={styles.venueBarRight}>
-              <Text style={[styles.venueBarStatus, openNow ? styles.venueOpen : styles.venueClosed]}>
-                {openNow ? "Open" : "Closed"}
-              </Text>
-              {!cardDisabled ? <Text style={styles.venueBarCue}>›</Text> : null}
-            </View>
-          </View>
-        </Pressable>
-      </View>
-
-      {venueSwitchLocked ? (
-        <Text style={styles.pageSub}>Demo menu mode — venue switching is turned off while previewing this build.</Text>
-      ) : null}
-
-      {loadErr ? (
-        <ScreenErrorState
-          title="Venues unavailable"
-          message={formatAppError(loadErr)}
-          onRetry={() => {
-            setLoadErr(null);
-            setDirectoryRetryTick((n) => n + 1);
-          }}
-          style={styles.screenError}
-        />
-      ) : null}
+      {venueBar}
+      {directoryError}
 
       <CustomerOrderTrackingSection
         orders={customerOrders}
@@ -217,18 +277,10 @@ export function CustomerOrdersVenueScreen(props: Props) {
         money={money}
         onBrowseMenu={onBrowseMenu}
         onNeedHelp={onNeedHelp}
+        onOrdersRefresh={props.onOrdersRefresh}
       />
 
-      <CustomerVenueActionsModal
-        visible={venueModalOpen}
-        onDismiss={() => setVenueModalOpen(false)}
-        userDisplayName={userDisplayName}
-        active={modalActive}
-        restaurants={rows ?? []}
-        token={token}
-        onVenueHydrated={onVenueHydrated}
-        changeDisabled={venueSwitchLocked}
-      />
+      {venueModal}
     </View>
   );
 }
@@ -283,17 +335,37 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     minHeight: 160
   },
-  pageSub: {
-    marginTop: 18,
-    fontSize: 15,
-    lineHeight: 22,
-    color: R.textMuted,
-    alignSelf: "center",
+  noVenueRoot: {
+    justifyContent: "center",
+    alignItems: "stretch"
+  },
+  noVenueCenter: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 28,
+    gap: 20
+  },
+  noVenueMessage: {
+    fontSize: 16,
+    lineHeight: 24,
+    fontWeight: "600",
     textAlign: "center",
-    paddingHorizontal: 8
+    maxWidth: 300
+  },
+  chooseVenueBtn: {
+    borderRadius: 16,
+    paddingHorizontal: 22,
+    paddingVertical: 14,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  chooseVenueBtnText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "900"
   },
   cardBusy: { opacity: 0.72 },
   cardDisabled: { opacity: 0.55 },
-  pressed: { opacity: 0.92 },
-  warn: { marginTop: 12, fontSize: 14, color: R.danger, alignSelf: "center", textAlign: "center", paddingHorizontal: 8 }
+  pressed: { opacity: 0.92 }
 });

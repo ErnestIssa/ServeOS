@@ -1,39 +1,41 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { AdminBubbleDropdown } from "../AdminBubbleDropdown";
 import {
   AdminBtnPrimary,
   AdminBtnSecondary,
+  AdminEmptyState,
   AdminInput,
   AdminPanel,
   AdminSectionHeader,
   subPanelCls
 } from "../AdminUi";
 import { useAdminToast } from "../AdminToast";
+import { fetchVenueStaff } from "../staffApi";
 import { resolveWorkspacePreset, WORKSPACE_META, type WorkspacePreset } from "../adminWorkspaceRouting";
 import { FullscreenIcon, KitchenFullscreenView } from "./KitchenFullscreenView";
 import { KitchenKanban } from "./KitchenKanban";
+import { ordersToKitchenTickets } from "./kitchenData";
 import { KitchenMoreMenu, type KitchenMenuAction } from "./KitchenMoreMenu";
 import { OrderDetailsDrawer } from "./OrderDetailsDrawer";
 import { CreateOrderModal, OrderActionConfirmModal } from "./OrderProfileModals";
-import { DEFAULT_ORDERS_PAGE_SIZE, OrdersPagination, paginateSlice } from "./OrdersPagination";
+import { DEFAULT_ORDERS_PAGE_SIZE, OrdersPagination } from "./OrdersPagination";
 import { useDebouncedValue } from "./useDebouncedValue";
+import { useAdminOrders } from "./useAdminOrders";
+import { patchOrderStatusApi } from "./ordersApi";
+import type { AdminOrderVm } from "./ordersApiMappers";
 import {
   DEFAULT_FILTERS,
   formatCurrency,
   formatTime,
-  MOCK_ORDERS,
-  MOCK_STAFF_OPTIONS,
   ORDER_SOURCE_LABELS,
   ORDER_STATUS_LABELS,
-  orderStats,
-  ordersForPreset,
   problemLabel,
   waitingTone,
-  type MockOrder,
+  type AdminOrder,
   type OrderFilters,
   type OrderViewPreset
-} from "./ordersMockData";
+} from "./ordersTypes";
 
 const FILTER_TRANSITION = { duration: 0.34, ease: [0.22, 1, 0.36, 1] as const };
 const RESULTS_TRANSITION = { duration: 0.52, ease: [0.22, 1, 0.36, 1] as const };
@@ -89,10 +91,7 @@ const PAYMENT_OPTIONS = [
   { value: "PARTIAL_REFUND", label: "Partial refund" }
 ];
 
-const STAFF_OPTIONS = MOCK_STAFF_OPTIONS.map((s) => ({
-  value: s === "All staff" ? "all" : s,
-  label: s
-}));
+const DEFAULT_STAFF_OPTIONS = [{ value: "all", label: "All staff" }];
 
 function StatTile({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
@@ -104,7 +103,7 @@ function StatTile({ label, value, hint }: { label: string; value: string; hint?:
   );
 }
 
-function StatusBadge({ status }: { status: MockOrder["status"] }) {
+function StatusBadge({ status }: { status: AdminOrder["status"] }) {
   const tone =
     status === "COMPLETED"
       ? "completed"
@@ -123,7 +122,7 @@ function WaitingBadge({ minutes }: { minutes: number }) {
   return <span className={`admin-orders-wait admin-orders-wait--${tone}`}>{minutes} min</span>;
 }
 
-function PriorityDot({ priority }: { priority: MockOrder["priority"] }) {
+function PriorityDot({ priority }: { priority: AdminOrder["priority"] }) {
   if (priority === "normal") return null;
   return (
     <span className={`admin-orders-priority admin-orders-priority--${priority}`}>
@@ -138,7 +137,8 @@ function OrderFilterBar({
   searchValue,
   onSearchChange,
   searchPending,
-  showExtended
+  showExtended,
+  staffOptions
 }: {
   filters: OrderFilters;
   onChange: (next: OrderFilters) => void;
@@ -146,6 +146,7 @@ function OrderFilterBar({
   onSearchChange: (value: string) => void;
   searchPending?: boolean;
   showExtended: boolean;
+  staffOptions: Array<{ value: string; label: string }>;
 }) {
   const set = <K extends keyof OrderFilters>(key: K, value: OrderFilters[K]) =>
     onChange({ ...filters, [key]: value });
@@ -208,7 +209,7 @@ function OrderFilterBar({
             <AdminBubbleDropdown
               label="Staff"
               value={filters.staff || "all"}
-              options={STAFF_OPTIONS}
+              options={staffOptions}
               onChange={(v) => set("staff", v === "all" ? "" : v)}
               className="admin-orders-filter-dropdown"
             />
@@ -262,11 +263,11 @@ function OrdersTable({
   onStatus,
   onPrint
 }: {
-  orders: MockOrder[];
+  orders: AdminOrder[];
   variant: "all" | "active" | "completed" | "problem" | "history";
-  onOpen: (order: MockOrder) => void;
-  onStatus: (order: MockOrder) => void;
-  onPrint: (order: MockOrder) => void;
+  onOpen: (order: AdminOrder) => void;
+  onStatus: (order: AdminOrder) => void;
+  onPrint: (order: AdminOrder) => void;
 }) {
   if (!orders.length) {
     return <p className="admin-orders-empty">No orders match this view.</p>;
@@ -384,17 +385,19 @@ function OrdersTable({
 
 type PendingOrderAction =
   | { type: "export" }
-  | { type: "status"; order: MockOrder }
-  | { type: "print"; order: MockOrder }
-  | { type: "drawer-status"; order: MockOrder }
-  | { type: "drawer-print"; order: MockOrder };
+  | { type: "status"; order: AdminOrder }
+  | { type: "print"; order: AdminOrder }
+  | { type: "drawer-status"; order: AdminOrder }
+  | { type: "drawer-print"; order: AdminOrder };
 
 type Props = {
   presetId: string;
   venueName?: string;
+  token?: string | null;
+  restaurantId?: string | null;
 };
 
-export function AdminOrdersManagementPage({ presetId, venueName = "" }: Props) {
+export function AdminOrdersManagementPage({ presetId, venueName = "", token = null, restaurantId = null }: Props) {
   const preset = resolveWorkspacePreset("orders", presetId) as WorkspacePreset & { id: OrderViewPreset };
   const viewPreset = (preset.id in PRESET_DESCRIPTIONS ? preset.id : "all-orders") as OrderViewPreset;
   const meta = WORKSPACE_META.orders;
@@ -404,18 +407,18 @@ export function AdminOrdersManagementPage({ presetId, venueName = "" }: Props) {
     ...DEFAULT_FILTERS,
     ...DEFAULT_FILTERS_BY_PRESET[viewPreset]
   }));
-  const [selectedOrder, setSelectedOrder] = useState<MockOrder | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<AdminOrder | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_ORDERS_PAGE_SIZE);
   const [kdsFullscreen, setKdsFullscreen] = useState(false);
   const [searchInput, setSearchInput] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
-  const [extraOrders, setExtraOrders] = useState<MockOrder[]>([]);
   const [pendingAction, setPendingAction] = useState<PendingOrderAction | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
+  const [staffOptions, setStaffOptions] = useState(DEFAULT_STAFF_OPTIONS);
 
-  const allOrders = useMemo(() => [...extraOrders, ...MOCK_ORDERS], [extraOrders]);
+  const apiEnabled = Boolean(token && restaurantId);
 
   useEffect(() => {
     const next = { ...DEFAULT_FILTERS, ...DEFAULT_FILTERS_BY_PRESET[viewPreset] };
@@ -427,6 +430,36 @@ export function AdminOrdersManagementPage({ presetId, venueName = "" }: Props) {
   const debouncedSearch = useDebouncedValue(searchInput, SEARCH_DEBOUNCE_MS);
   const searchPending = searchInput.trim() !== debouncedSearch.trim();
 
+  useEffect(() => {
+    if (!token || !restaurantId) {
+      setStaffOptions(DEFAULT_STAFF_OPTIONS);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const res = await fetchVenueStaff(token, restaurantId);
+      if (cancelled || !res.ok) return;
+      const members = (res.members ?? []).filter((m) => m.status === "ACTIVE" || m.status === "APPROVED");
+      setStaffOptions([
+        ...DEFAULT_STAFF_OPTIONS,
+        ...members.map((m) => ({ value: m.userId, label: m.fullName || m.email || m.userId }))
+      ]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, restaurantId]);
+
+  const api = useAdminOrders({
+    token,
+    restaurantId,
+    viewPreset,
+    filters,
+    debouncedSearch,
+    page,
+    pageSize
+  });
+
   const effectiveFilters = useMemo(
     () => ({ ...filters, search: debouncedSearch }),
     [filters, debouncedSearch]
@@ -436,12 +469,26 @@ export function AdminOrdersManagementPage({ presetId, venueName = "" }: Props) {
     setPage(1);
   }, [effectiveFilters, pageSize]);
 
-  const stats = useMemo(() => orderStats(allOrders), [allOrders]);
-  const filtered = useMemo(
-    () => ordersForPreset(viewPreset, allOrders, effectiveFilters),
-    [viewPreset, allOrders, effectiveFilters]
+  const stats = api.stats;
+  const filtered = api.orders;
+  const pagedOrders = filtered;
+  const listTotal = api.meta.total;
+
+  const kitchenTickets = useMemo(() => ordersToKitchenTickets(api.orders), [api.orders]);
+
+  const handleKitchenStatusChange = useCallback(
+    async (ticket: AdminOrder, nextStatus: string, label: string) => {
+      if (!token || !apiEnabled) return;
+      const res = await patchOrderStatusApi(token, ticket.id, nextStatus);
+      if (!res.ok) {
+        pushToast(res.error ?? "Status update failed", "error");
+        return;
+      }
+      pushToast(label, "success");
+      api.refresh();
+    },
+    [token, apiEnabled, api, pushToast]
   );
-  const pagedOrders = useMemo(() => paginateSlice(filtered, page, pageSize), [filtered, page, pageSize]);
 
   const resultsAnimationKey = useMemo(
     () =>
@@ -454,8 +501,13 @@ export function AdminOrdersManagementPage({ presetId, venueName = "" }: Props) {
     [viewPreset, effectiveFilters, page, pageSize]
   );
 
-  const openOrder = (order: MockOrder) => {
-    setSelectedOrder(order);
+  const openOrder = async (order: AdminOrder) => {
+    if (apiEnabled && token) {
+      const detail = await api.loadOrderDetail(order.id);
+      setSelectedOrder(detail ?? (order as AdminOrderVm));
+    } else {
+      setSelectedOrder(order);
+    }
     setDrawerOpen(true);
   };
 
@@ -473,8 +525,10 @@ export function AdminOrdersManagementPage({ presetId, venueName = "" }: Props) {
   const showExtendedFilters = viewPreset === "order-history" || viewPreset === "all-orders";
 
   const kdsKanbanProps = {
+    tickets: kitchenTickets,
+    loading: api.meta.loading,
     onOpen: openOrder,
-    onAction: (label: string) => pushToast(label, "success")
+    onStatusChange: handleKitchenStatusChange
   };
 
   const handleKitchenMenuAction = (action: KitchenMenuAction) => {
@@ -482,28 +536,53 @@ export function AdminOrdersManagementPage({ presetId, venueName = "" }: Props) {
       setKdsFullscreen(true);
       return;
     }
-    const labels: Record<Exclude<KitchenMenuAction, "fullscreen">, string> = {
-      refresh: "Kitchen tickets refreshed.",
-      "sound-alerts": "Sound alerts toggled.",
-      "show-completed": "Completed tickets view toggled.",
-      "station-settings": "Station routing opens when connected to the API.",
-      "export-summary": "Export will connect to the API."
-    };
-    pushToast(labels[action], "success");
+    if (action === "refresh") {
+      api.refresh();
+      pushToast("Kitchen queue refreshed.", "success");
+      return;
+    }
+    pushToast("This action is not available yet.", "success");
   };
 
   const runPendingAction = async () => {
     if (!pendingAction) return;
+    if (!apiEnabled || !token) {
+      pushToast("Sign in and select a venue to manage orders.", "error");
+      setPendingAction(null);
+      return;
+    }
     setActionBusy(true);
-    await new Promise((r) => window.setTimeout(r, 420));
+
+    if (pendingAction.type === "status" || pendingAction.type === "drawer-status") {
+      const raw = pendingAction.order.apiStatus ?? pendingAction.order.status;
+      const next =
+        raw === "CREATED" || raw === "PENDING_PAYMENT" || raw === "PAID"
+          ? "ACCEPTED"
+          : raw === "ACCEPTED"
+            ? "PREPARING"
+            : raw === "PREPARING"
+              ? "READY"
+              : raw === "READY"
+                ? "COMPLETED"
+                : pendingAction.order.status;
+      const res = await patchOrderStatusApi(token, pendingAction.order.id, next);
+      setActionBusy(false);
+      if (!res.ok) {
+        pushToast(res.error ?? "Status update failed", "error");
+      } else {
+        pushToast(`${pendingAction.order.displayNumber} → ${next}`, "success");
+        api.refresh();
+      }
+      setPendingAction(null);
+      return;
+    }
+
     setActionBusy(false);
 
     if (pendingAction.type === "export") {
-      pushToast("Export will connect to the API.", "success");
-    } else if (pendingAction.type === "status" || pendingAction.type === "drawer-status") {
-      pushToast(`Status update for ${pendingAction.order.displayNumber} ships with the API.`, "success");
+      pushToast("Export is not available yet.", "success");
     } else if (pendingAction.type === "print" || pendingAction.type === "drawer-print") {
-      pushToast(`Print job queued for ${pendingAction.order.displayNumber}.`, "success");
+      pushToast(`Print is not available yet for ${pendingAction.order.displayNumber}.`, "success");
     }
 
     setPendingAction(null);
@@ -551,6 +630,21 @@ export function AdminOrdersManagementPage({ presetId, venueName = "" }: Props) {
 
   const pendingCopy = pendingAction ? actionConfirmCopy(pendingAction) : null;
 
+  if (!apiEnabled) {
+    return (
+      <AdminPanel id="ws-orders" className="admin-top-page admin-panel--edge admin-orders-page">
+        <AdminSectionHeader
+          eyebrowText={meta.eyebrow}
+          title={preset.label}
+          description={PRESET_DESCRIPTIONS[viewPreset]}
+        />
+        <div className={`${subPanelCls} mt-8 p-6`}>
+          <AdminEmptyState>Sign in and select a venue to view and manage orders.</AdminEmptyState>
+        </div>
+      </AdminPanel>
+    );
+  }
+
   return (
     <>
       <AdminPanel id="ws-orders" className="admin-top-page admin-panel--edge admin-orders-page">
@@ -592,6 +686,7 @@ export function AdminOrdersManagementPage({ presetId, venueName = "" }: Props) {
               onSearchChange={setSearchInput}
               searchPending={searchPending}
               showExtended={showExtendedFilters}
+              staffOptions={staffOptions}
             />
           </div>
         ) : null}
@@ -632,7 +727,7 @@ export function AdminOrdersManagementPage({ presetId, venueName = "" }: Props) {
                     <OrdersPagination
                       page={page}
                       pageSize={pageSize}
-                      total={filtered.length}
+                      total={listTotal}
                       onPageChange={setPage}
                       onPageSizeChange={setPageSize}
                     />
@@ -645,7 +740,9 @@ export function AdminOrdersManagementPage({ presetId, venueName = "" }: Props) {
 
         {viewPreset !== "kitchen-view" ? (
           <p className="mt-4 text-xs admin-orders-text-subtle">
-            {filtered.length} order{filtered.length === 1 ? "" : "s"} in this view · mock data for UI preview
+            {listTotal} order{listTotal === 1 ? "" : "s"} in this view
+            {api.meta.loading ? " · loading…" : ""}
+            {api.meta.error ? ` · ${api.meta.error}` : ""}
           </p>
         ) : null}
       </AdminPanel>
@@ -662,6 +759,16 @@ export function AdminOrdersManagementPage({ presetId, venueName = "" }: Props) {
         order={selectedOrder}
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
+        token={token}
+        restaurantId={restaurantId}
+        onOrderRefresh={async () => {
+          api.refresh();
+          if (selectedOrder && token) {
+            const detail = await api.loadOrderDetail(selectedOrder.id);
+            if (detail) setSelectedOrder(detail);
+          }
+        }}
+        onToast={(msg, tone) => pushToast(msg, tone ?? "success")}
         onUpdateStatus={
           selectedOrder
             ? () => setPendingAction({ type: "drawer-status", order: selectedOrder })
@@ -675,10 +782,13 @@ export function AdminOrdersManagementPage({ presetId, venueName = "" }: Props) {
       <CreateOrderModal
         open={createOpen}
         venueName={venueName}
+        token={token}
+        restaurantId={restaurantId}
+        staffOptions={staffOptions.filter((s) => s.value !== "all")}
         onClose={() => setCreateOpen(false)}
-        onCreated={(order) => {
-          setExtraOrders((prev) => [order, ...prev]);
-          pushToast(`${order.displayNumber} created for ${order.customerName}.`, "success");
+        onCreated={() => {
+          api.refresh();
+          pushToast("Order created.", "success");
         }}
       />
 

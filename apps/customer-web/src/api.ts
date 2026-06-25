@@ -331,7 +331,7 @@ export async function listRestaurantOrders(token: string, restaurantId: string) 
   );
 }
 
-export async function patchOrderStatus(token: string, orderId: string, status: OrderRow["status"]) {
+export async function patchOrderStatus(token: string, orderId: string, status: string) {
   return apiFetch<{ ok: boolean; error?: string }>(`/orders/${encodeURIComponent(orderId)}/status`, {
     method: "PATCH",
     headers: authHeaders(token),

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { AdminPanel, AdminSectionHeader, subPanelCls } from "./AdminUi";
+import { AdminPanel, AdminEmptyState, AdminSectionHeader, subPanelCls } from "./AdminUi";
 import { AdminOrdersManagementPage } from "./orders/AdminOrdersManagementPage";
 import { AdminWorkspaceInnerTransition } from "./AdminWorkspaceInnerTransition";
 import {
@@ -129,6 +129,8 @@ type WorkspaceBodyProps = {
   activePresetId: string;
   onSelectTab: (tab: string) => void;
   venueName?: string;
+  token?: string | null;
+  restaurantId?: string | null;
 };
 
 function LiveOpsBody({ workspaceId, activePresetId, onSelectTab }: WorkspaceBodyProps) {
@@ -137,25 +139,28 @@ function LiveOpsBody({ workspaceId, activePresetId, onSelectTab }: WorkspaceBody
     <WorkspaceShell workspaceId={workspaceId} activePresetId={activePresetId} onSelectTab={onSelectTab}>
       <PlaceholderGrid
         tiles={[
-          { label: "Live orders", hint: preset.tab === "orders" ? "Active filter on" : "Overview mode" },
-          { label: "Tables active", hint: preset.tab === "tables" ? "Floor focus" : "—" },
-          { label: "Reservations", hint: preset.tab === "reservations" ? "Tonight" : "—" },
-          { label: "Alerts", hint: preset.tab === "alerts" ? "Panel open" : "—" }
+          { label: "Live orders", value: "—", hint: preset.tab === "orders" ? "Active filter on" : "Overview mode" },
+          { label: "Tables active", value: "—", hint: "—" },
+          { label: "Reservations", value: "—", hint: "—" },
+          { label: "Alerts", value: "—", hint: "—" }
         ]}
       />
       <PanelBlock title={`${preset.label} view`}>
-        <p className="text-sm leading-relaxed text-slate-600">
-          LiveOps perspective <strong>{preset.label}</strong> — tab {preset.tab}
-          {preset.filter ? `, filter ${preset.filter}` : ""}
-          {preset.layout ? `, layout ${preset.layout}` : ""}.
-        </p>
+        <AdminEmptyState>No live operations data yet for this view.</AdminEmptyState>
       </PanelBlock>
     </WorkspaceShell>
   );
 }
 
-function OrdersBody({ activePresetId, venueName }: WorkspaceBodyProps) {
-  return <AdminOrdersManagementPage presetId={activePresetId} venueName={venueName} />;
+function OrdersBody({ activePresetId, venueName, token, restaurantId }: WorkspaceBodyProps) {
+  return (
+    <AdminOrdersManagementPage
+      presetId={activePresetId}
+      venueName={venueName}
+      token={token}
+      restaurantId={restaurantId}
+    />
+  );
 }
 
 function VenueBody({ workspaceId, activePresetId, onSelectTab }: WorkspaceBodyProps) {
@@ -171,9 +176,7 @@ function VenueBody({ workspaceId, activePresetId, onSelectTab }: WorkspaceBodyPr
         ]}
       />
       <PanelBlock title={`${preset.label} view`}>
-        <p className="text-sm text-slate-600">
-          Venue module <strong>{preset.label}</strong> — shared floor and reservations engine.
-        </p>
+        <AdminEmptyState>No venue data yet for this view.</AdminEmptyState>
       </PanelBlock>
     </WorkspaceShell>
   );
@@ -184,14 +187,7 @@ function DevicesBody({ workspaceId, activePresetId, onSelectTab }: WorkspaceBody
   return (
     <WorkspaceShell workspaceId={workspaceId} activePresetId={activePresetId} onSelectTab={onSelectTab}>
       <PanelBlock title={`${preset.label} monitor`}>
-        <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {["KDS Main", "POS Front", "Bar printer", "Guest display", "Network AP"].map((d) => (
-            <li key={d} className="admin-venue-device-row rounded-xl border px-3 py-3 text-sm">
-              <span className="font-semibold">{d}</span>
-              <span className="mt-1 block text-xs text-emerald-600">Online</span>
-            </li>
-          ))}
-        </ul>
+        <AdminEmptyState>No devices registered for this venue yet.</AdminEmptyState>
       </PanelBlock>
     </WorkspaceShell>
   );
@@ -202,14 +198,7 @@ function CommsBody({ workspaceId, activePresetId, onSelectTab }: WorkspaceBodyPr
   return (
     <WorkspaceShell workspaceId={workspaceId} activePresetId={activePresetId} onSelectTab={onSelectTab}>
       <PanelBlock title={`${preset.label} inbox`}>
-        <ul className="space-y-2">
-          {["Thread preview A", "Thread preview B", "Thread preview C"].map((t) => (
-            <li key={t} className="admin-notification-row rounded-xl border p-3 text-sm">
-              <span className="font-semibold">{t}</span>
-              <span className="mt-1 block text-xs text-slate-500">Scope: {preset.filter ?? "all"}</span>
-            </li>
-          ))}
-        </ul>
+        <AdminEmptyState>No conversations yet.</AdminEmptyState>
       </PanelBlock>
     </WorkspaceShell>
   );
@@ -220,9 +209,7 @@ function AutomationsBody({ workspaceId, activePresetId, onSelectTab }: Workspace
   return (
     <WorkspaceShell workspaceId={workspaceId} activePresetId={activePresetId} onSelectTab={onSelectTab}>
       <PanelBlock title={preset.label}>
-        <p className="text-sm text-slate-600">
-          Rule family <strong>{preset.filter}</strong> in the shared automations engine.
-        </p>
+        <AdminEmptyState>No automation rules configured yet.</AdminEmptyState>
       </PanelBlock>
     </WorkspaceShell>
   );
@@ -248,14 +235,14 @@ function BusinessBody({ workspaceId, activePresetId, onSelectTab }: WorkspaceBod
     <WorkspaceShell workspaceId={workspaceId} activePresetId={activePresetId} onSelectTab={onSelectTab}>
       <PlaceholderGrid
         tiles={[
-          { label: "Plan", value: "Growth" },
+          { label: "Plan", value: "—" },
           { label: "Invoices", value: "—" },
           { label: "Entities", value: "—" },
           { label: "Exports", value: "—" }
         ]}
       />
       <PanelBlock title={preset.label}>
-        <p className="text-sm text-slate-600">Business view: {preset.label}</p>
+        <AdminEmptyState>No business data yet for this view.</AdminEmptyState>
       </PanelBlock>
     </WorkspaceShell>
   );
@@ -274,9 +261,7 @@ function AnalyticsBody({ workspaceId, activePresetId, onSelectTab }: WorkspaceBo
         ]}
       />
       <PanelBlock title={preset.label}>
-        <div className="admin-ws-chart-placeholder flex h-48 items-center justify-center rounded-xl border text-sm text-slate-500">
-          {preset.label} charts
-        </div>
+        <AdminEmptyState>No analytics data yet for this view.</AdminEmptyState>
       </PanelBlock>
     </WorkspaceShell>
   );
@@ -286,7 +271,9 @@ function WorkspaceBody({
   workspaceId,
   activePresetId,
   onSelectTab,
-  venueName
+  venueName,
+  token,
+  restaurantId
 }: WorkspaceBodyProps) {
   switch (workspaceId) {
     case "live-ops":
@@ -298,6 +285,8 @@ function WorkspaceBody({
           activePresetId={activePresetId}
           onSelectTab={onSelectTab}
           venueName={venueName}
+          token={token}
+          restaurantId={restaurantId}
         />
       );
     case "venue":
@@ -323,9 +312,17 @@ type Props = {
   workspaceId: WorkspaceId;
   presetId: string;
   venueName?: string;
+  token?: string | null;
+  restaurantId?: string | null;
 };
 
-export function AdminWorkspaceView({ workspaceId, presetId: routePresetId, venueName = "" }: Props) {
+export function AdminWorkspaceView({
+  workspaceId,
+  presetId: routePresetId,
+  venueName = "",
+  token = null,
+  restaurantId = null
+}: Props) {
   const [activePresetId, setActivePresetId] = useState(routePresetId);
   const lastByTabRef = useRef<Record<string, string>>({});
 
@@ -361,6 +358,8 @@ export function AdminWorkspaceView({ workspaceId, presetId: routePresetId, venue
       activePresetId={activePresetId}
       onSelectTab={onSelectTab}
       venueName={venueName}
+      token={token}
+      restaurantId={restaurantId}
     />
   );
 }

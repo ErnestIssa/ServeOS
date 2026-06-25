@@ -85,8 +85,8 @@ const MEMBERSHIP_ROLE_LABELS: Record<string, string> = {
 
 export function AdminDashboardPage({ onAfterLogout }: Props) {
   const [appReady, setAppReady] = useState(false);
-  const [email, setEmail] = useState("owner@example.com");
-  const [password, setPassword] = useState("password123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [token, setToken] = useState<string | null>(null);
   const [restaurants, setRestaurants] = useState<
     Array<{ id: string; name: string; role: string; status?: string; companyId?: string | null }>
@@ -818,6 +818,8 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
                       workspaceId={adminRoute.workspaceId}
                       presetId={adminRoute.presetId}
                       venueName={selectedVenueName}
+                      token={token}
+                      restaurantId={selectedRestaurantId}
                     />
                   )}
                 </AdminPageTransition>

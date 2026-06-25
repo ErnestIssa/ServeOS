@@ -14,7 +14,7 @@ export type MeStackRoute =
   | { name: "upcoming_reservations" }
   | { name: "reservation_details"; reservation: CustomerReservationApi };
 
-/** Hamburger menu — system / app control space. */
+/** App control centre routes (opened from profile → More). */
 export type AppStackRoute =
   | { name: "home" }
   | { name: "settings" }

@@ -11,6 +11,10 @@ import {
   type RestaurantMenuPrefs
 } from "../lib/customerMenuPreferences.js";
 import {
+  isCustomerBrowsableRestaurant,
+  listCustomerBrowsableRestaurants
+} from "../lib/customerRestaurantDirectory.js";
+import {
   DEFAULT_CUSTOMER_APP_SETTINGS,
   mergeAppSettingsIntoProfile,
   mergeAvatarIntoProfile,
@@ -46,10 +50,7 @@ export function registerCustomerRoutes(app: FastifyInstance, prisma: PrismaClien
       return reply.status(403).send({ ok: false, error: "customer_only" });
     }
 
-    const restaurants = await prisma.restaurant.findMany({
-      select: { id: true, name: true, openingHours: true },
-      orderBy: { name: "asc" }
-    });
+    const restaurants = await listCustomerBrowsableRestaurants(prisma);
     return { ok: true, restaurants };
   });
 
@@ -83,6 +84,11 @@ export function registerCustomerRoutes(app: FastifyInstance, prisma: PrismaClien
     }
 
     const { restaurantId } = parsed.data;
+    const browsable = await isCustomerBrowsableRestaurant(prisma, restaurantId);
+    if (!browsable) {
+      return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
+    }
+
     const r = await prisma.restaurant.findUnique({
       where: { id: restaurantId },
       select: { id: true, name: true }

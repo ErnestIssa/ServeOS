@@ -110,15 +110,14 @@ export function VenueChangeRestartConfirmOverlay(props: VenueChangeRestartConfir
 
       <View style={styles.centerWrap} pointerEvents="box-none">
         <Animated.View style={[styles.card, cardStyle]} accessibilityRole="alert">
-          <Text style={styles.badge}>Restart the app</Text>
-          <Text style={styles.title}>Hi {first}, one quick step</Text>
+          <Text style={styles.badge}>Switch venue</Text>
+          <Text style={styles.title}>Hi {first}, confirm your venue</Text>
           <Text style={styles.body}>
             You are about to leave{" "}
             <Text style={styles.emphasis}>{currentVenueName}</Text>
-            {" "}and start ordering from{" "}
+            {" "}and order from{" "}
             <Text style={styles.emphasis}>{nextVenueName}</Text>
-            . Menus and your basket stay with each restaurant, so we will restart the app after you confirm so everything matches
-            your new choice.
+            . Your menu, cart, and orders will update to match the venue you choose.
           </Text>
           <Text style={styles.subtle}>If you are not ready yet, tap Cancel and nothing will change.</Text>
 
@@ -138,7 +137,7 @@ export function VenueChangeRestartConfirmOverlay(props: VenueChangeRestartConfir
               {loading ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.confirmText}>Confirm and restart</Text>
+                <Text style={styles.confirmText}>Confirm switch</Text>
               )}
             </Pressable>
           </View>

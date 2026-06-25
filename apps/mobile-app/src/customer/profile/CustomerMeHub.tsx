@@ -23,6 +23,8 @@ import {
   SectionLabel,
   SectionRow
 } from "./ProfileUi";
+import { MeHubMoreSection } from "./MeHubMoreSection";
+import type { AppNavHighlightKey } from "./profileNavHighlight";
 
 type Props = {
   user: AuthUser | null;
@@ -40,6 +42,11 @@ type Props = {
   onOpenSupport: () => void;
   onSignOut: () => void;
   onChooseExperience?: () => void;
+  onNavigateHelp?: () => void;
+  onNavigateSafety?: () => void;
+  onNavigateAppSettings?: () => void;
+  onNavigateAppSection?: (title: string, subtitle: string | undefined, key: AppNavHighlightKey) => void;
+  onNavigateAppScreen?: (screenKey: string, title: string, subtitle?: string) => void;
   onAvatarSaved?: (uri: string) => void;
   scrollRefExternal?: React.RefObject<import("react-native").ScrollView | null>;
   scrollEnabled?: boolean;
@@ -245,6 +252,24 @@ export function CustomerMeHub(props: Props) {
               )}
             </ProfileCard>
           </FadeSection>
+        ) : null}
+
+        {props.onNavigateHelp &&
+        props.onNavigateSafety &&
+        props.onNavigateAppSettings &&
+        props.onNavigateAppSection &&
+        props.onNavigateAppScreen ? (
+          <MeHubMoreSection
+            user={props.user}
+            authToken={props.authToken}
+            mobileExperience={props.mobileExperience}
+            onNavigateHelp={props.onNavigateHelp}
+            onNavigateSafety={props.onNavigateSafety}
+            onNavigateAppSettings={props.onNavigateAppSettings}
+            onNavigateSection={props.onNavigateAppSection}
+            onNavigateScreen={props.onNavigateAppScreen}
+            onChooseVenue={() => props.onChooseExperience?.()}
+          />
         ) : null}
       </ProfileScreenContainer>
 

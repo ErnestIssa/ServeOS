@@ -289,6 +289,8 @@ model Restaurant {
   orderEnginePolicy       Json?
   /// Per-venue order identity rules (display number reset, tracking code format).
   orderIdentityPolicy     Json?
+  /// Per-venue order source rule overrides.
+  orderSourcePolicy       Json?
 
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -535,6 +537,7 @@ enum OrderSource {
   WALK_IN
   PHONE_ORDER
   RESERVATION
+  RESERVATION_ORDER
   DELIVERY_PARTNER
 }
 
@@ -671,6 +674,8 @@ model Order {
   receiptSearchHash String?
   /// Global federation key for cross-network order references.
   federationId      String?  @unique
+  /// Immutable source placement snapshot (attribution, validation context, policy version).
+  sourceMetadata    Json?
   source         OrderSource @default(QR_ORDER)
   status         OrderStatus @default(CREATED)
   paymentStatus  OrderPaymentStatus @default(UNPAID)

@@ -15,7 +15,7 @@ export function hashIdempotencyPayload(value: unknown): string {
 export async function withOrderIdempotency<T extends Record<string, unknown>>(
   prisma: PrismaClient,
   params: {
-    scope: "place_order" | "status_transition" | "payment_webhook";
+    scope: "place_order" | "status_transition" | "payment_webhook" | "order_edit";
     key: string;
     restaurantId?: string;
     requestHash?: string;

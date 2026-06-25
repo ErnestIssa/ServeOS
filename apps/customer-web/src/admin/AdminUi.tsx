@@ -119,7 +119,7 @@ export function AdminControlRoomPanel() {
       <AdminSectionHeader
         eyebrowText="Control room"
         title="Live overview"
-        description="Mission control for your venue — live orders, floor status, reservations, alerts, and staff on shift. Full widgets ship next; this is your default landing zone."
+        description="Mission control for your venue — live orders, floor status, reservations, alerts, and staff on shift."
       />
       <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[

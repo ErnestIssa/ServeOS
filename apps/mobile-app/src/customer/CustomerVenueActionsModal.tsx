@@ -15,13 +15,15 @@ type Props = {
   userDisplayName: string;
   active: { id: string; name: string; openingHours?: string | null };
   restaurants: CustomerRestaurantRow[];
+  directoryLoading?: boolean;
   token: string;
   onVenueHydrated: (restaurantId: string) => Promise<void>;
   changeDisabled?: boolean;
+  onSwitchError?: (message: string) => void;
 };
 
 export function CustomerVenueActionsModal(props: Props) {
-  const { visible, onDismiss, userDisplayName, active, restaurants, token, onVenueHydrated, changeDisabled } = props;
+  const { visible, onDismiss, userDisplayName, active, restaurants, directoryLoading, token, onVenueHydrated, changeDisabled, onSwitchError } = props;
   const progress = useSharedValue(0);
   const [mounted, setMounted] = React.useState(visible);
   const [venueConfirmOverlay, setVenueConfirmOverlay] = React.useState<React.ReactNode>(null);
@@ -92,9 +94,11 @@ export function CustomerVenueActionsModal(props: Props) {
                 userDisplayName={userDisplayName}
                 active={active}
                 restaurants={restaurants}
+                directoryLoading={directoryLoading}
                 token={token}
                 onVenueHydrated={handleVenueHydrated}
                 changeDisabled={changeDisabled}
+                onSwitchError={onSwitchError}
                 onConfirmOverlayChange={setVenueConfirmOverlay}
               />
               <Pressable onPress={requestDismiss} style={({ pressed }) => [styles.closeBtn, pressed && styles.pressed]}>

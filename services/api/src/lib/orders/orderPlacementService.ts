@@ -1,5 +1,4 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
-import type { OrderSource } from "@prisma/client";
 import type { EventEmitter } from "node:events";
 import type { FastifyBaseLogger } from "fastify";
 import {
@@ -24,12 +23,15 @@ import { generateInternalOrderId } from "../orderIdentity/orderInternalId.js";
 import { buildExtendedIdentityFields } from "../orderIdentity/orderExtendedIdentity.js";
 import { logIdentityAssignment } from "../orderIdentity/orderIdentityAudit.js";
 import { captureOrderOwnership } from "../orderOwnership/orderOwnershipCapture.js";
-
-function resolveOrderSource(input: PlaceOrderInput): OrderSource {
-  if (input.source) return input.source;
-  if (input.createdByContext === "STAFF") return "STAFF_CREATED";
-  return "QR_ORDER";
-}
+import {
+  buildPlacementSourceContext,
+  validateAndResolveSourceContract,
+  derivePlacementDefaultsFromSource,
+  buildOrderSourceMetadata,
+  recordSourcePlacementAudit,
+  resolveOwnershipHintsFromSource
+} from "../orderSource/index.js";
+import { registerPartnerOrderIdentity } from "../orderIdentity/orderPartnerRegistry.js";
 
 async function createOrderRecord(
   prisma: PrismaClient,
@@ -45,9 +47,18 @@ async function createOrderRecord(
   if (!restaurant) throw Object.assign(new Error("restaurant_not_found"), { statusCode: 404 });
 
   const { pricedLines, totals } = await buildPricedOrderSnapshot(prisma, input.restaurantId, input.lines);
-  const initialStatus = toPrismaOrderStatus(input.initialStatus ?? "CREATED");
-  const source = resolveOrderSource(input);
-  const paymentStatus = input.paymentStatus ?? "UNPAID";
+
+  const sourceCtx = buildPlacementSourceContext(input, { internalTotalCents: totals.totalCents });
+  const sourceContract = await validateAndResolveSourceContract(prisma, sourceCtx);
+  const ownershipHints = resolveOwnershipHintsFromSource(sourceContract, sourceCtx);
+
+  const sourceDefaults = derivePlacementDefaultsFromSource(sourceContract);
+  const initialStatus = input.initialStatus
+    ? toPrismaOrderStatus(input.initialStatus)
+    : sourceDefaults.initialStatus;
+  const paymentStatus = input.paymentStatus ?? sourceDefaults.paymentStatus;
+  const source = sourceCtx.prismaSource;
+  const sourceMetadata = buildOrderSourceMetadata(sourceContract, sourceCtx);
 
   const created = await prisma.$transaction(async (tx) => {
     const identityPolicy = await loadRestaurantIdentityPolicy(tx as unknown as PrismaClient, input.restaurantId);
@@ -67,7 +78,7 @@ async function createOrderRecord(
         restaurantId: input.restaurantId,
         customerUserId: input.customerUserId ?? null,
         createdByUserId: input.createdByUserId ?? input.customerUserId ?? null,
-        createdByContext: input.createdByContext ?? (input.customerUserId ? "CUSTOMER" : "STAFF"),
+        createdByContext: input.createdByContext ?? ownershipHints.createdByContext,
         displaySeq: identity.displaySeq,
         displayPeriodKey: identity.displayPeriodKey,
         sourceSessionId: identity.sourceSessionId,
@@ -75,6 +86,7 @@ async function createOrderRecord(
         deviceId: input.deviceId?.trim() || null,
         reservationId: input.reservationId?.trim() || null,
         source,
+        sourceMetadata,
         status: initialStatus,
         paymentStatus,
         subtotalCents: totals.subtotalCents,
@@ -145,7 +157,8 @@ async function createOrderRecord(
       restaurantId: enriched.restaurantId,
       customerUserId: enriched.customerUserId,
       createdByUserId: enriched.createdByUserId,
-      createdByContext: enriched.createdByContext,
+      createdByContext:
+        input.createdByContext ?? ownershipHints.createdByContext,
       assignedStaffUserId: enriched.assignedStaffUserId,
       tableLabel: enriched.tableLabel,
       reservationId: enriched.reservationId,
@@ -155,6 +168,15 @@ async function createOrderRecord(
       customerEmail: enriched.customerEmail,
       customerPhone: enriched.customerPhone,
       customerName: enriched.customerName
+    });
+
+    await recordSourcePlacementAudit(tx, {
+      orderId: enriched.id,
+      restaurantId: enriched.restaurantId,
+      actorUserId: input.createdByUserId ?? input.customerUserId ?? null,
+      actorSource: input.createdByContext === "STAFF" ? "STAFF" : input.customerUserId ? "CUSTOMER" : "SYSTEM",
+      contract: sourceContract,
+      ctx: sourceCtx
     });
 
     await appendOrderStatusHistory(tx, {
@@ -179,7 +201,7 @@ async function createOrderRecord(
         lineCount: enriched.lines.length,
         pricingSnapshot: describePricingSnapshot(null)
       },
-      metadata: { source, lineSnapshots: pricedLines }
+      metadata: { source, lineSnapshots: pricedLines, sourceChannel: sourceContract.analytics.channel }
     });
 
     const envelope = await enqueueOrderOutboxEvent(tx, {
@@ -197,6 +219,20 @@ async function createOrderRecord(
 
     return enriched;
   });
+
+  if (
+    sourceCtx.canonicalSource === "DELIVERY_PARTNER" &&
+    sourceCtx.partnerId &&
+    sourceCtx.externalPartnerOrderId
+  ) {
+    await registerPartnerOrderIdentity(prisma, {
+      orderId: created.id,
+      restaurantId: created.restaurantId,
+      partnerId: sourceCtx.partnerId,
+      externalOrderId: sourceCtx.externalPartnerOrderId,
+      metadata: { source: "DELIVERY_PARTNER" }
+    });
+  }
 
   if (buses) {
     await flushOrderOutboxForOrder(prisma, created.id, buses, log);

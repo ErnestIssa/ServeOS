@@ -120,7 +120,12 @@ export async function authLogout(token: string): Promise<{ ok: boolean; error?: 
   });
 }
 
-export type CustomerRestaurantRow = { id: string; name: string; openingHours?: string | null };
+export type CustomerRestaurantRow = {
+  id: string;
+  name: string;
+  openingHours?: string | null;
+  hasMenu?: boolean;
+};
 
 export type CustomerDirectoryResponse =
   | { ok: true; restaurants: CustomerRestaurantRow[] }

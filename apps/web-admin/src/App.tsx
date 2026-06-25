@@ -46,8 +46,8 @@ function formatMoney(cents: number) {
 
 export function App() {
   const [appReady, setAppReady] = useState(false);
-  const [email, setEmail] = useState("owner@example.com");
-  const [password, setPassword] = useState("password123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [token, setToken] = useState<string | null>(null);
   const [restaurants, setRestaurants] = useState<Array<{ id: string; name: string; role: string; companyId?: string | null }>>([]);
   const [restaurantName, setRestaurantName] = useState("My Restaurant");

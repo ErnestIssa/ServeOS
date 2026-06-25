@@ -42,12 +42,24 @@ import { ChatTypingDots } from "./chat/ChatTypingDots";
 import { OclTimelineStrip } from "./chat/OclTimelineStrip";
 import { isIncomingMessage, isMessageUnread } from "./chat/chatUnreadHelpers";
 import { joinChatRoom, sendChatRead, sendChatTyping, subscribeChatRelay } from "./chat/customerChatSocket";
+import { ChatVenueTypeRotator } from "./chat/ChatVenueTypeRotator";
 import { ScreenErrorState } from "../errors";
 
 const TYPING_EMIT_MS = 400;
 const TYPING_IDLE_MS = 2800;
 const TYPING_CLEAR_MS = 6500;
 const NEW_LABEL_DISMISS_MS = 10_000;
+
+const NO_VENUE_HUB: CustomerChatHubResponse = {
+  ok: true,
+  needsVenue: true,
+  scene: "new"
+};
+
+function isVenueUnavailableError(error: unknown): boolean {
+  const raw = typeof error === "string" ? error : "";
+  return raw === "restaurant_not_found" || raw === "venue_not_selected";
+}
 
 type Props = {
   token: string;
@@ -64,7 +76,6 @@ type Props = {
   onPopularItems: () => void;
   onOpenCart: () => void;
   onPlaceOrder: () => void;
-  onChooseVenue: () => void;
   onReorder: () => void;
 };
 
@@ -104,13 +115,12 @@ export function CustomerChatScreen(props: Props) {
     onPopularItems,
     onOpenCart,
     onPlaceOrder,
-    onChooseVenue,
     onReorder
   } = props;
 
   const [hub, setHub] = React.useState<CustomerChatHubResponse | null>(null);
   const [feed, setFeed] = React.useState<ThreadFeedItem[]>([]);
-  const [loading, setLoading] = React.useState(true);
+  const [loading, setLoading] = React.useState(false);
   const [revalidating, setRevalidating] = React.useState(false);
   const [loadErr, setLoadErr] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState("");
@@ -130,6 +140,9 @@ export function CustomerChatScreen(props: Props) {
   const newDismissTimersRef = React.useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const [newDismissTick, setNewDismissTick] = React.useState(0);
   const insets = useSafeAreaInsets();
+  const loadGenRef = React.useRef(0);
+
+  const hasVenueSelected = Boolean(restaurantId.trim());
 
   const feedMessagesOnly = React.useCallback((items: ThreadFeedItem[]) => {
     return items.filter((x) => x.kind === "message");
@@ -167,20 +180,56 @@ export function CustomerChatScreen(props: Props) {
     [syncUnreadBadge]
   );
 
+  const resetNoVenueState = React.useCallback(() => {
+    loadGenRef.current += 1;
+    setLoading(false);
+    setRevalidating(false);
+    setLoadErr(null);
+    setHub(null);
+    setFeed([]);
+    roomIdRef.current = null;
+    syncUnreadBadge(0);
+  }, [syncUnreadBadge]);
+
   const loadHub = React.useCallback(
     async (opts?: { force?: boolean }) => {
-      const force = opts?.force === true;
       const rid = restaurantId.trim();
+      if (!rid) {
+        resetNoVenueState();
+        return;
+      }
+
+      const gen = ++loadGenRef.current;
+      const force = opts?.force === true;
       setLoadErr(null);
 
       const cached = !force ? await readChatSnapshot(userId, rid) : null;
+      if (gen !== loadGenRef.current) return;
+
       if (cached?.hub.ok) {
+        if (cached.hub.needsVenue) {
+          resetNoVenueState();
+          setHub(NO_VENUE_HUB);
+          return;
+        }
         applyHubResponse(cached.hub, cached.feed, false);
         setLoading(false);
         setRevalidating(true);
         refreshChatHubSilent(token, rid, userId, (hub) => {
+          if (gen !== loadGenRef.current) return;
           setRevalidating(false);
-          if (!hub.ok) return;
+          if (!hub.ok) {
+            if (isVenueUnavailableError(hub.error)) {
+              resetNoVenueState();
+              setHub(NO_VENUE_HUB);
+            }
+            return;
+          }
+          if (hub.needsVenue) {
+            resetNoVenueState();
+            setHub(NO_VENUE_HUB);
+            return;
+          }
           const serverFeed = feedMessagesOnly(hub.threadFeed ?? []);
           setFeed((prev) => {
             const merged = mergeThreadFeed(prev, serverFeed);
@@ -201,10 +250,16 @@ export function CustomerChatScreen(props: Props) {
       }
 
       setLoading(true);
-      const res = await fetchCustomerChatHub(token, rid || undefined);
+      const res = await fetchCustomerChatHub(token, rid);
+      if (gen !== loadGenRef.current) return;
       setLoading(false);
 
       if (!res.ok) {
+        if (isVenueUnavailableError(res.error)) {
+          resetNoVenueState();
+          setHub(NO_VENUE_HUB);
+          return;
+        }
         const raw = typeof res.error === "string" ? res.error : "";
         const friendly =
           /ChatRoom|does not exist|migration/i.test(raw)
@@ -216,11 +271,17 @@ export function CustomerChatScreen(props: Props) {
         return;
       }
 
+      if (res.needsVenue) {
+        resetNoVenueState();
+        setHub(NO_VENUE_HUB);
+        return;
+      }
+
       const serverFeed = feedMessagesOnly(res.threadFeed ?? []);
       applyHubResponse(res, serverFeed, true);
       void writeChatSnapshot(userId, rid, res, serverFeed);
     },
-    [token, restaurantId, userId, feedMessagesOnly, applyHubResponse]
+    [token, restaurantId, userId, feedMessagesOnly, applyHubResponse, resetNoVenueState, syncUnreadBadge]
   );
 
   const tryMarkThreadRead = React.useCallback(() => {
@@ -269,8 +330,12 @@ export function CustomerChatScreen(props: Props) {
   const viewabilityConfig = React.useRef({ itemVisiblePercentThreshold: 55 }).current;
 
   React.useEffect(() => {
+    if (!hasVenueSelected) {
+      resetNoVenueState();
+      return;
+    }
     void loadHub();
-  }, [loadHub]);
+  }, [loadHub, hasVenueSelected, resetNoVenueState]);
 
   React.useEffect(() => {
     if (!hub?.ok) return;
@@ -522,7 +587,7 @@ export function CustomerChatScreen(props: Props) {
     }, 60);
   }
 
-  const needsVenue = hub?.needsVenue === true;
+  const needsVenue = !hasVenueSelected || hub?.needsVenue === true;
 
   const oclTimeline =
     hub?.scene === "active_order" && (hub.timeline?.length ?? 0) > 0 ? (
@@ -567,7 +632,7 @@ export function CustomerChatScreen(props: Props) {
         onAddItems={() => runQuickAction("view_menu")}
       />
 
-      {loading && !hub?.ok ? (
+      {loading && !hub?.ok && !needsVenue ? (
         <Pressable style={styles.loadingRow} onPress={dismissKeyboard}>
           <ActivityIndicator color={R.accentPurple} />
           <Text style={styles.loadingText}>Loading thread…</Text>
@@ -579,7 +644,7 @@ export function CustomerChatScreen(props: Props) {
         </View>
       ) : null}
 
-      {loadErr && !loading ? (
+      {loadErr && !loading && hasVenueSelected && !needsVenue ? (
         <ScreenErrorState
           style={{ flex: 1, marginTop: listTopInset }}
           title="Could not connect"
@@ -588,7 +653,16 @@ export function CustomerChatScreen(props: Props) {
         />
       ) : null}
 
-      {!loading && hub?.ok && !loadErr ? (
+      {needsVenue && !loadErr ? (
+        <View style={[styles.noVenueColumn, { paddingTop: listTopInset, paddingBottom: scrollBottom }]}>
+          <View style={styles.noVenueCenter}>
+            <ChatVenueTypeRotator />
+            <Text style={styles.noVenueSub}>Choose a venue to proceed</Text>
+          </View>
+        </View>
+      ) : null}
+
+      {!needsVenue && !loading && hub?.ok && !loadErr ? (
         <View style={styles.threadColumn}>
           <Animated.FlatList
             ref={listRef as React.RefObject<FlatList<ThreadFeedItem>>}
@@ -633,32 +707,23 @@ export function CustomerChatScreen(props: Props) {
             ListEmptyComponent={
               <Pressable style={styles.emptyHint} onPress={dismissKeyboard}>
                 <Text style={styles.emptyText}>
-                  {needsVenue
-                    ? "Choose a venue in Orders to start messaging."
-                    : "No messages yet — ask about your order, ingredients, or pickup."}
+                  No messages yet — ask about your order, ingredients, or pickup.
                 </Text>
-                {needsVenue ? (
-                  <Pressable style={({ pressed }) => [styles.retryBtn, pressed && styles.pressed]} onPress={onChooseVenue}>
-                    <Text style={styles.retryText}>Choose venue</Text>
-                  </Pressable>
-                ) : null}
               </Pressable>
             }
           />
 
-          {!needsVenue ? (
-            <View style={[styles.composerDock, { paddingBottom: composerBottomPad }]}>
-              <ChatComposerBar
-                value={draft}
-                onChange={onDraftChange}
-                onSend={() => void sendMessage()}
-                onPickImages={pickAndSendImages}
-                sending={sending}
-                pickingImage={pickingImage}
-                inputRef={inputRef}
-              />
-            </View>
-          ) : null}
+          <View style={[styles.composerDock, { paddingBottom: composerBottomPad }]}>
+            <ChatComposerBar
+              value={draft}
+              onChange={onDraftChange}
+              onSend={() => void sendMessage()}
+              onPickImages={pickAndSendImages}
+              sending={sending}
+              pickingImage={pickingImage}
+              inputRef={inputRef}
+            />
+          </View>
         </View>
       ) : null}
     </KeyboardAvoidingView>
@@ -678,15 +743,22 @@ const styles = StyleSheet.create({
   loadingRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 24 },
   syncDotRow: { position: "absolute", right: 16, zIndex: 14 },
   loadingText: { fontSize: R.type.label, color: R.textSecondary, fontWeight: "600" },
-  retryBtn: {
-    marginTop: 12,
-    alignSelf: "center",
-    backgroundColor: R.accentPurple,
-    borderRadius: R.radius.pill,
-    paddingHorizontal: 18,
-    paddingVertical: 12
+  noVenueColumn: { flex: 1, minHeight: 0 },
+  noVenueCenter: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 14,
+    paddingHorizontal: 24
   },
-  retryText: { color: "#fff", fontWeight: "800", fontSize: 14 },
+  noVenueSub: {
+    marginTop: 6,
+    textAlign: "center",
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: "600",
+    color: R.textMuted
+  },
   footerPad: { paddingHorizontal: 8, paddingTop: 8 },
   typingRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8, paddingLeft: 8 },
   typingLabel: { fontSize: 13, fontWeight: "700", color: R.accentPurple },

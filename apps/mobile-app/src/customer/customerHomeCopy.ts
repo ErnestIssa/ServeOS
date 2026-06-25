@@ -35,7 +35,30 @@ type HeaderArgs = {
   firstName: string;
   restaurantName?: string | null;
   cartCount: number;
+  hasVenue: boolean;
+  /** Lowercase phrase from `mobileExperience.activeExperience` — e.g. "customer", "manager". */
+  userRoleExperience?: string;
 };
+
+/** User-facing experience noun from backend manifest (SSOT for role/experience label). */
+export function formatUserRoleExperience(
+  activeExperience?: { mode?: string; label?: string; roleLabel?: string } | null
+): string {
+  if (!activeExperience) return "ServeOS";
+  if (activeExperience.mode === "CUSTOMER") return "customer";
+  const role = activeExperience.roleLabel?.trim();
+  if (role) return role.toLowerCase();
+  const label = activeExperience.label?.trim();
+  if (label && label.toLowerCase() !== "workspace") return label.toLowerCase();
+  return "ServeOS";
+}
+
+const NO_VENUE_SUBS: readonly string[] = [
+  "{{name}}, choose a venue to browse the menu and get more from your {{experience}} experience.",
+  "Pick a bar, restaurant, or venue — your {{experience}} experience comes alive once you're connected.",
+  "Set your venue to see what's on offer and order in a few taps, {{name}}.",
+  "{{name}}, your menu and orders start with one venue — take a moment to choose yours."
+];
 
 const GREETINGS: Record<TimeBucket, readonly string[]> = {
   morning: [
@@ -99,6 +122,14 @@ export function buildCustomerHomeHeader(args: HeaderArgs): { greeting: string; s
 
   const greetOpts = GREETINGS[bucket];
   const greeting = greetOpts[pickIndex(`greet|${seedBase}`, greetOpts.length)].replace(/\{\{name\}\}/g, args.firstName);
+
+  if (!args.hasVenue) {
+    const experience = args.userRoleExperience?.trim() || "ServeOS";
+    const subRaw = NO_VENUE_SUBS[pickIndex(`novenue|${seedBase}`, NO_VENUE_SUBS.length)]
+      .replace(/\{\{name\}\}/g, args.firstName)
+      .replace(/\{\{experience\}\}/g, experience);
+    return { greeting, sub: subRaw };
+  }
 
   let sub: string;
   if (args.restaurantName?.trim()) {

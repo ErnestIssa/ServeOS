@@ -2,23 +2,21 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AdminBubbleDropdown } from "../AdminBubbleDropdown";
 import { AdminBtnSecondary, AdminInput, AdminLabel } from "../AdminUi";
 import { ProfileModalFooter, ProfileModalNote, ProfileModalShell } from "../profile/ProfileModalShell";
+import { getMenuAdmin } from "../../api";
+import { placeStaffOrder } from "./ordersApi";
 import {
-  MOCK_STAFF_OPTIONS,
   ORDER_SOURCE_LABELS,
   ORDER_STATUS_LABELS,
-  type MockOrder,
-  type OrderLineItem,
   type OrderPriority,
   type OrderSource,
   type OrderStatus,
   type PaymentStatus
-} from "./ordersMockData";
+} from "./ordersTypes";
 
 export type CreateOrderLineDraft = {
   id: string;
-  name: string;
+  menuItemId: string;
   qty: string;
-  unitPrice: string;
   modifiers: string;
 };
 
@@ -39,9 +37,8 @@ export type CreateOrderForm = {
 
 const EMPTY_LINE: CreateOrderLineDraft = {
   id: "line-1",
-  name: "",
+  menuItemId: "",
   qty: "1",
-  unitPrice: "",
   modifiers: ""
 };
 
@@ -91,14 +88,6 @@ const STATUS_OPTIONS = [
   { value: "DRAFT", label: "Draft (save for later)" }
 ];
 
-const STAFF_OPTIONS = [
-  { value: "", label: "Unassigned" },
-  ...MOCK_STAFF_OPTIONS.filter((s) => s !== "All staff").map((s) => ({
-    value: s,
-    label: s
-  }))
-];
-
 function newLineId() {
   return `line-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -107,62 +96,19 @@ export function isCreateOrderDirty(form: CreateOrderForm): boolean {
   if (form.customerName.trim() || form.customerPhone.trim() || form.customerEmail.trim()) return true;
   if (form.tableNumber.trim() || form.notes.trim()) return true;
   if (form.source !== "STAFF_CREATED" || form.initialStatus !== "CREATED") return true;
-  return form.items.some((i) => i.name.trim() || i.unitPrice.trim() || i.modifiers.trim());
+  return form.items.some((i) => i.menuItemId.trim() || i.modifiers.trim());
 }
 
 export function validateCreateOrderForm(form: CreateOrderForm): Partial<Record<string, string>> {
   const errors: Partial<Record<string, string>> = {};
   if (!form.customerName.trim()) errors.customerName = "Customer name is required.";
-  const validItems = form.items.filter((i) => i.name.trim());
+  const validItems = form.items.filter((i) => i.menuItemId.trim());
   if (!validItems.length) errors.items = "Add at least one menu item.";
   for (const item of validItems) {
     const qty = Number(item.qty);
-    const price = Number(item.unitPrice);
     if (!Number.isFinite(qty) || qty < 1) errors.items = "Each item needs a quantity of at least 1.";
-    if (!Number.isFinite(price) || price < 0) errors.items = "Each item needs a valid price.";
   }
   return errors;
-}
-
-export function buildMockOrderFromForm(form: CreateOrderForm, seq: number): MockOrder {
-  const items: OrderLineItem[] = form.items
-    .filter((i) => i.name.trim())
-    .map((i, idx) => ({
-      id: `new-li-${idx}`,
-      name: i.name.trim(),
-      qty: Math.max(1, Number(i.qty) || 1),
-      unitPrice: Math.max(0, Number(i.unitPrice) || 0),
-      modifiers: i.modifiers.trim() ? i.modifiers.split(",").map((m) => m.trim()) : undefined
-    }));
-  const itemCount = items.reduce((s, i) => s + i.qty, 0);
-  const total = items.reduce((s, i) => s + i.unitPrice * i.qty, 0);
-  const now = new Date().toISOString();
-  const kitchenStatus =
-    form.initialStatus === "ACCEPTED" ? "ACCEPTED" : form.initialStatus === "DRAFT" ? "NEW" : "NEW";
-
-  return {
-    id: `ord-new-${Date.now()}`,
-    displayNumber: `#${seq}`,
-    status: form.initialStatus,
-    customerName: form.customerName.trim(),
-    customerPhone: form.customerPhone.trim() || undefined,
-    customerEmail: form.customerEmail.trim() || undefined,
-    source: form.source,
-    items,
-    itemCount,
-    itemsSummary: items.map((i) => (i.qty > 1 ? `${i.qty}× ${i.name}` : i.name)).join(", "),
-    total,
-    createdAt: now,
-    assignedStaff: form.assignedStaff || undefined,
-    tableNumber: form.tableNumber.trim() || undefined,
-    paymentStatus: form.paymentStatus,
-    paymentMethod: form.paymentMethod,
-    waitingMinutes: 0,
-    kitchenStatus,
-    priority: form.priority,
-    notes: form.notes.trim() || undefined,
-    timeline: [{ at: now, label: ORDER_STATUS_LABELS[form.initialStatus], actor: "Staff" }]
-  };
 }
 
 export function CreateOrderDiscardModal({
@@ -227,7 +173,7 @@ export function CreateOrderConfirmModal({
       open={open}
       onClose={busy ? () => undefined : onCancel}
       title="Create this order?"
-      description={`A new order for ${customerName} will be added to the board.`}
+      description={`A new order for ${customerName} will be placed.`}
       titleId="order-create-confirm-title"
       stackLevel="overlay"
       maxWidthClass="max-w-md"
@@ -300,16 +246,24 @@ export function OrderActionConfirmModal({
   );
 }
 
+type MenuItemOption = { value: string; label: string; priceCents: number };
+
 export function CreateOrderModal({
   open,
   venueName,
+  token,
+  restaurantId,
+  staffOptions,
   onClose,
   onCreated
 }: {
   open: boolean;
   venueName: string;
+  token?: string | null;
+  restaurantId?: string | null;
+  staffOptions: Array<{ value: string; label: string }>;
   onClose: () => void;
-  onCreated: (order: MockOrder) => void;
+  onCreated: () => void;
 }) {
   const [form, setForm] = useState<CreateOrderForm>(EMPTY_CREATE_ORDER_FORM);
   const [touched, setTouched] = useState<Partial<Record<string, boolean>>>({});
@@ -318,19 +272,28 @@ export function CreateOrderModal({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [shakeSubmit, setShakeSubmit] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [menuItems, setMenuItems] = useState<MenuItemOption[]>([]);
+  const [menuLoading, setMenuLoading] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const errors = useMemo(() => validateCreateOrderForm(form), [form]);
   const hasErrors = Object.keys(errors).length > 0;
   const dirty = isCreateOrderDirty(form);
 
+  const menuItemMap = useMemo(
+    () => Object.fromEntries(menuItems.map((m) => [m.value, m])),
+    [menuItems]
+  );
+
   const totalPreview = useMemo(() => {
     return form.items.reduce((sum, i) => {
-      if (!i.name.trim()) return sum;
+      if (!i.menuItemId.trim()) return sum;
+      const item = menuItemMap[i.menuItemId];
+      if (!item) return sum;
       const qty = Math.max(1, Number(i.qty) || 1);
-      const price = Math.max(0, Number(i.unitPrice) || 0);
-      return sum + qty * price;
+      return sum + (item.priceCents / 100) * qty;
     }, 0);
-  }, [form.items]);
+  }, [form.items, menuItemMap]);
 
   useEffect(() => {
     if (!open) {
@@ -341,8 +304,38 @@ export function CreateOrderModal({
       setConfirmOpen(false);
       setShakeSubmit(false);
       setBusy(false);
+      setSubmitError(null);
+      return;
     }
-  }, [open]);
+    if (!token || !restaurantId) return;
+    let cancelled = false;
+    setMenuLoading(true);
+    void (async () => {
+      const menu = await getMenuAdmin(token, restaurantId);
+      if (cancelled) return;
+      setMenuLoading(false);
+      if (!menu.ok) {
+        setMenuItems([]);
+        return;
+      }
+      const options: MenuItemOption[] = [];
+      for (const cat of menu.categories ?? []) {
+        for (const item of cat.items ?? []) {
+          if (item.isActive) {
+            options.push({
+              value: item.id,
+              label: item.name,
+              priceCents: item.priceCents
+            });
+          }
+        }
+      }
+      setMenuItems(options);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, token, restaurantId]);
 
   const patch = <K extends keyof CreateOrderForm>(key: K, value: CreateOrderForm[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -358,7 +351,7 @@ export function CreateOrderModal({
   const addLine = () => {
     setForm((prev) => ({
       ...prev,
-      items: [...prev.items, { id: newLineId(), name: "", qty: "1", unitPrice: "", modifiers: "" }]
+      items: [...prev.items, { id: newLineId(), menuItemId: "", qty: "1", modifiers: "" }]
     }));
   };
 
@@ -386,18 +379,17 @@ export function CreateOrderModal({
     onClose();
   };
 
-  const fieldClass = (key: string, lineId?: string) => {
+  const fieldClass = (key: string) => {
     const showError =
       key === "items"
         ? (submitAttempted || touched.items) && errors.items
         : (touched[key as keyof CreateOrderForm] || submitAttempted) && errors[key as keyof typeof errors];
     const showOk =
       key === "items"
-        ? !errors.items && form.items.some((i) => i.name.trim())
+        ? !errors.items && form.items.some((i) => i.menuItemId.trim())
         : (touched[key as keyof CreateOrderForm] || submitAttempted) &&
           !errors[key as keyof typeof errors] &&
           String(form[key as keyof CreateOrderForm] ?? "").trim();
-    if (lineId && !showError) return "";
     return [showError ? "admin-staff-field--error" : "", showOk ? "admin-staff-field--ok" : ""].filter(Boolean).join(" ");
   };
 
@@ -412,26 +404,61 @@ export function CreateOrderModal({
   };
 
   const confirmCreate = async () => {
+    if (!token || !restaurantId) {
+      setSubmitError("Sign in and select a venue first.");
+      return;
+    }
     setBusy(true);
-    await new Promise((r) => window.setTimeout(r, 480));
-    const order = buildMockOrderFromForm(form, 1100 + Math.floor(Math.random() * 900));
+    setSubmitError(null);
+    const noteParts = [
+      form.notes.trim(),
+      form.customerName.trim() ? `Customer: ${form.customerName.trim()}` : "",
+      form.customerPhone.trim() ? `Phone: ${form.customerPhone.trim()}` : "",
+      form.customerEmail.trim() ? `Email: ${form.customerEmail.trim()}` : "",
+      form.tableNumber.trim() ? `Table: ${form.tableNumber.trim()}` : "",
+      form.assignedStaff ? `Staff: ${form.assignedStaff}` : "",
+      `Priority: ${form.priority}`
+    ].filter(Boolean);
+
+    const res = await placeStaffOrder(token, {
+      restaurantId,
+      source: form.source,
+      note: noteParts.join("\n"),
+      lines: form.items
+        .filter((i) => i.menuItemId.trim())
+        .map((i) => ({
+          menuItemId: i.menuItemId,
+          quantity: Math.max(1, Number(i.qty) || 1)
+        }))
+    });
     setBusy(false);
+    if (!res.ok) {
+      setSubmitError(res.error ?? "Could not create order.");
+      return;
+    }
     setConfirmOpen(false);
-    onCreated(order);
+    onCreated();
     finishClose();
   };
 
   const submitTone =
     submitAttempted && hasErrors
       ? "admin-staff-invite-submit--error"
-      : !hasErrors && form.customerName.trim() && form.items.some((i) => i.name.trim())
+      : !hasErrors && form.customerName.trim() && form.items.some((i) => i.menuItemId.trim())
         ? "admin-staff-invite-submit--ready"
         : "";
 
   const itemSummary = form.items
-    .filter((i) => i.name.trim())
-    .map((i) => i.name.trim())
+    .filter((i) => i.menuItemId.trim())
+    .map((i) => menuItemMap[i.menuItemId]?.label ?? "Item")
     .join(", ");
+
+  const menuItemDropdownOptions = menuItems.map((m) => ({
+    value: m.value,
+    label: `${m.label} (${(m.priceCents / 100).toLocaleString("sv-SE")} kr)`
+  }));
+
+  const staffDropdownOptions = [{ value: "", label: "Unassigned" }, ...staffOptions];
 
   return (
     <>
@@ -439,7 +466,7 @@ export function CreateOrderModal({
         open={open}
         onClose={attemptClose}
         title="Create order"
-        description="Enter customer, items, and payment details. The order appears on the board once you confirm."
+        description="Select menu items and customer details. The order is placed when you confirm."
         titleId="create-order-title"
         maxWidthClass="max-w-none"
         maxHeightClass="admin-staff-invite-modal-max-h"
@@ -530,7 +557,7 @@ export function CreateOrderModal({
               label="Assigned staff"
               dropInline
               value={form.assignedStaff}
-              options={STAFF_OPTIONS}
+              options={staffDropdownOptions}
               onChange={(v) => patch("assignedStaff", v)}
             />
 
@@ -563,55 +590,38 @@ export function CreateOrderModal({
         <div className="admin-orders-create-items mt-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="admin-staff-field-label">
-              Items <span className="admin-staff-field-required">*</span>
+              Menu items <span className="admin-staff-field-required">*</span>
             </p>
-            <AdminBtnSecondary onClick={addLine}>Add item</AdminBtnSecondary>
+            <AdminBtnSecondary onClick={addLine} disabled={menuLoading || menuItems.length === 0}>
+              Add item
+            </AdminBtnSecondary>
           </div>
+          {menuLoading ? <p className="mt-3 text-sm text-slate-500">Loading menu…</p> : null}
+          {!menuLoading && menuItems.length === 0 ? (
+            <p className="mt-3 text-sm text-slate-500">No menu items available. Add items in Menu builder first.</p>
+          ) : null}
           <ul className="admin-orders-create-items-list mt-3 space-y-3">
             {form.items.map((line, index) => (
               <li key={line.id} className="admin-orders-create-item-row">
                 <div className="grid gap-3 sm:grid-cols-2">
+                  <AdminBubbleDropdown
+                    label={`Item ${index + 1}`}
+                    required
+                    dropInline
+                    value={line.menuItemId}
+                    options={[{ value: "", label: "Select item" }, ...menuItemDropdownOptions]}
+                    onChange={(v) => patchLine(line.id, "menuItemId", v)}
+                  />
                   <AdminLabel>
-                    <span className="admin-staff-field-label">Item {index + 1}</span>
+                    <span className="admin-staff-field-label">Qty</span>
                     <AdminInput
                       className="admin-staff-premium-input"
-                      placeholder="Menu item name"
-                      value={line.name}
-                      onChange={(e) => patchLine(line.id, "name", e.target.value)}
-                      onBlur={() => setTouched((p) => ({ ...p, items: true }))}
+                      inputMode="numeric"
+                      value={line.qty}
+                      onChange={(e) => patchLine(line.id, "qty", e.target.value)}
                     />
                   </AdminLabel>
-                  <div className="grid grid-cols-2 gap-2">
-                    <AdminLabel>
-                      <span className="admin-staff-field-label">Qty</span>
-                      <AdminInput
-                        className="admin-staff-premium-input"
-                        inputMode="numeric"
-                        value={line.qty}
-                        onChange={(e) => patchLine(line.id, "qty", e.target.value)}
-                      />
-                    </AdminLabel>
-                    <AdminLabel>
-                      <span className="admin-staff-field-label">Price</span>
-                      <AdminInput
-                        className="admin-staff-premium-input"
-                        inputMode="decimal"
-                        placeholder="kr"
-                        value={line.unitPrice}
-                        onChange={(e) => patchLine(line.id, "unitPrice", e.target.value)}
-                      />
-                    </AdminLabel>
-                  </div>
                 </div>
-                <AdminLabel className="mt-2">
-                  <span className="admin-staff-field-label">Modifiers (optional)</span>
-                  <AdminInput
-                    className="admin-staff-premium-input"
-                    placeholder="Comma-separated, e.g. No onions, Extra cheese"
-                    value={line.modifiers}
-                    onChange={(e) => patchLine(line.id, "modifiers", e.target.value)}
-                  />
-                </AdminLabel>
                 {form.items.length > 1 ? (
                   <button type="button" className="admin-orders-create-remove-line" onClick={() => removeLine(line.id)}>
                     Remove item
@@ -641,6 +651,12 @@ export function CreateOrderModal({
           Order total preview: {totalPreview.toLocaleString("sv-SE")} kr
         </p>
 
+        {submitError ? (
+          <p className="admin-staff-invite-form-alert mt-3" role="alert">
+            {submitError}
+          </p>
+        ) : null}
+
         {submitAttempted && hasErrors ? (
           <p className="admin-staff-invite-form-alert" role="alert">
             Complete the required fields before creating the order.
@@ -653,7 +669,7 @@ export function CreateOrderModal({
           </button>
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || menuItems.length === 0}
             onClick={handleCreate}
             className={`admin-staff-invite-submit ${submitTone} ${shakeSubmit ? "admin-staff-invite-submit--shake" : ""}`}
           >

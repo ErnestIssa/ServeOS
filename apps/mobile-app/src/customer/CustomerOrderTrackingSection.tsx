@@ -23,6 +23,8 @@ import { menuImageSourceForKey } from "../menu/menuCardAssets";
 import { OrderLiveStatusView } from "./OrderLiveStatusView";
 import { OclTimelineStrip } from "./chat/OclTimelineStrip";
 import { fetchCustomerOrderOcl, type CustomerOclTimelineRow } from "./customerOclApi";
+import { CustomerOrderEditSheet } from "./CustomerOrderEditSheet";
+import { customerCanEditOrder } from "../orderEngineApi";
 import { API_URL, apiHttpToWsBase } from "../api";
 
 const SHEET_OPEN_MS = 520;
@@ -39,6 +41,9 @@ export type CustomerMineOrder = {
   id: string;
   restaurant?: { id: string; name: string } | null;
   status: string;
+  paymentStatus?: string;
+  version?: number;
+  source?: string;
   totalCents: number;
   createdAt?: string;
   updatedAt?: string;
@@ -46,7 +51,16 @@ export type CustomerMineOrder = {
   lines?: CustomerMineOrderLine[];
 };
 
-const ACTIVE_STATUSES = new Set(["PENDING", "CONFIRMED", "PREPARING", "READY"]);
+const ACTIVE_STATUSES = new Set([
+  "PENDING",
+  "CONFIRMED",
+  "CREATED",
+  "PENDING_PAYMENT",
+  "PAID",
+  "ACCEPTED",
+  "PREPARING",
+  "READY"
+]);
 
 export function isActiveOrderStatus(status: string): boolean {
   return ACTIVE_STATUSES.has(status);
@@ -101,6 +115,7 @@ type Props = {
   money: (cents: number) => string;
   onBrowseMenu: () => void;
   onNeedHelp: () => void;
+  onOrdersRefresh?: () => void;
 };
 
 function OrderDetailsSheet(props: {
@@ -218,10 +233,11 @@ function mapOclTimeline(
 }
 
 export function CustomerOrderTrackingSection(props: Props) {
-  const { orders, activeVenueId, token, money, onBrowseMenu, onNeedHelp } = props;
+  const { orders, activeVenueId, token, money, onBrowseMenu, onNeedHelp, onOrdersRefresh } = props;
   const { width: winW, height: winH } = useWindowDimensions();
   const order = React.useMemo(() => pickActiveOrder(orders, activeVenueId), [orders, activeVenueId]);
   const [detailsOpen, setDetailsOpen] = React.useState(false);
+  const [editOpen, setEditOpen] = React.useState(false);
   const [timelineRows, setTimelineRows] = React.useState<CustomerOclTimelineRow[]>([]);
 
   const heroStripHeight = React.useMemo(
@@ -324,11 +340,31 @@ export function CustomerOrderTrackingSection(props: Props) {
         <Text style={styles.expandChevron}>▼</Text>
       </Pressable>
 
+      {customerCanEditOrder(order) ? (
+        <Pressable
+          style={({ pressed }) => [styles.editCta, pressed && styles.pressed]}
+          onPress={() => {
+            void Haptics.selectionAsync();
+            setEditOpen(true);
+          }}
+        >
+          <Text style={styles.editCtaText}>Edit order before payment</Text>
+        </Pressable>
+      ) : null}
+
       <Pressable style={({ pressed }) => [styles.secondaryCta, pressed && styles.pressed]} onPress={contextualPrimary}>
         <Text style={styles.secondaryCtaText}>{ctaLabel}</Text>
       </Pressable>
 
       <OrderDetailsSheet visible={detailsOpen} onClose={() => setDetailsOpen(false)} order={order} money={money} />
+      <CustomerOrderEditSheet
+        visible={editOpen}
+        order={order}
+        token={token}
+        money={money}
+        onClose={() => setEditOpen(false)}
+        onUpdated={() => onOrdersRefresh?.()}
+      />
     </View>
   );
 }
@@ -363,6 +399,16 @@ const styles = StyleSheet.create({
   },
   expandLabel: { fontSize: 16, fontWeight: "700", color: R.accentBlue },
   expandChevron: { marginLeft: 6, fontSize: 14, color: R.accentBlue, fontWeight: "800" },
+  editCta: {
+    marginTop: 8,
+    alignSelf: "stretch",
+    paddingVertical: 12,
+    borderRadius: R.radius.tile,
+    borderWidth: 1,
+    borderColor: R.accentBlue,
+    alignItems: "center"
+  },
+  editCtaText: { fontSize: 15, fontWeight: "700", color: R.accentBlue },
   secondaryCta: {
     marginTop: 14,
     alignSelf: "stretch",

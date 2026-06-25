@@ -27,6 +27,7 @@ import {
   type OrderOclThread
 } from "../../mobile/workspaceApi";
 import { subscribeOclEntity } from "../workspaceOclSocket";
+import { applyOrderEdit, fetchOrderDetail, recordSourceInterpretation } from "../../orderEngineApi";
 
 export type OclWorkspaceTarget = { entityType: OperationalEntityType; entityId: string } | null;
 
@@ -46,6 +47,7 @@ export function OrderWorkspaceScreen(props: Props) {
   const [busy, setBusy] = React.useState(false);
   const [draft, setDraft] = React.useState("");
   const [err, setErr] = React.useState<string | null>(null);
+  const [orderVersion, setOrderVersion] = React.useState(0);
 
   const target = props.target;
 
@@ -65,6 +67,41 @@ export function OrderWorkspaceScreen(props: Props) {
     }
     setThread(res.thread);
   }, [target, props.authToken]);
+
+  React.useEffect(() => {
+    if (!props.visible || target?.entityType !== "order") return;
+    void fetchOrderDetail(props.authToken, target.entityId).then((res) => {
+      if (res.ok && res.order) setOrderVersion(res.order.version);
+    });
+  }, [props.visible, target, props.authToken]);
+
+  const runStaffEdit = async (operation: "ADD_ALLERGY_NOTE" | "STAFF_CORRECTION", payload: Record<string, unknown>, reason: string) => {
+    if (!target || target.entityType !== "order" || busy) return;
+    setBusy(true);
+    const res = await applyOrderEdit(props.authToken, target.entityId, {
+      expectedVersion: orderVersion,
+      operation,
+      payload,
+      reason
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setErr(res.error ?? "Edit failed");
+      return;
+    }
+    if (res.version != null) setOrderVersion(res.version);
+    void load();
+    props.onChanged?.();
+  };
+
+  const runStaffInterpretation = async () => {
+    if (!target || target.entityType !== "order" || busy) return;
+    setBusy(true);
+    const res = await recordSourceInterpretation(props.authToken, target.entityId, "STAFF_ASSISTED", "Staff workspace");
+    setBusy(false);
+    if (!res.ok) setErr(res.error ?? "Interpretation failed");
+    else props.onChanged?.();
+  };
 
   React.useEffect(() => {
     if (!props.visible || !target) {
@@ -287,6 +324,37 @@ export function OrderWorkspaceScreen(props: Props) {
                 }
               />
             </View>
+
+            {target?.entityType === "order" && thread ? (
+              <View style={[styles.section, { paddingTop: 0 }]}>
+                <Text style={styles.sectionLabel}>Order engine</Text>
+                <View style={styles.actions}>
+                  <Pressable
+                    style={[styles.actionBtn, styles.actionSecondary]}
+                    disabled={busy}
+                    onPress={() => void runStaffEdit("ADD_ALLERGY_NOTE", { allergyNote: "Kitchen alert" }, "Staff allergy tag")}
+                  >
+                    <Text style={{ color: t.text, fontWeight: "700", fontSize: 13 }}>Allergy tag</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.actionBtn, styles.actionSecondary]}
+                    disabled={busy}
+                    onPress={() =>
+                      void runStaffEdit("STAFF_CORRECTION", { correctionNote: "Staff workspace correction" }, "Staff correction")
+                    }
+                  >
+                    <Text style={{ color: t.text, fontWeight: "700", fontSize: 13 }}>Log correction</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.actionBtn, styles.actionSecondary]}
+                    disabled={busy}
+                    onPress={() => void runStaffInterpretation()}
+                  >
+                    <Text style={{ color: t.text, fontWeight: "700", fontSize: 13 }}>Staff assisted</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
 
             {thread.canUpdateStatus && thread.actions.length > 0 ? (
               <View style={styles.actions}>

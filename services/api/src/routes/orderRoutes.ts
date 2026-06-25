@@ -39,6 +39,15 @@ import {
   HISTORICAL_IDENTITY_GUARANTEE
 } from "../lib/orderIdentity/index.js";
 import { getOrderOwnership } from "../lib/orderOwnership/index.js";
+import {
+  listAllSourceContracts,
+  loadRestaurantSourcePolicy,
+  getSourceContract,
+  PHASE_1_ORDER_SOURCES,
+  persistSourceInterpretation,
+  SOURCE_POLICY_VERSIONING_RULES
+} from "../lib/orderSource/index.js";
+import { applyOrderEditOperation } from "../lib/orderEdit/index.js";
 import { ORDER_STATUS_VALUES } from "../lib/orders/orderStatusValues.js";
 import { autoTerminateStaleActiveOrdersForCustomer } from "../lib/autoTerminateStaleActiveOrders.js";
 import { isVenueMembershipRole } from "../lib/membershipAccess.js";
@@ -243,7 +252,21 @@ export async function registerOrderRoutes(
       sourceSessionId: z.string().max(200).optional(),
       sourceSessionType: z.string().max(50).optional(),
       deviceId: z.string().max(200).optional(),
-      reservationId: z.string().max(200).optional()
+      reservationId: z.string().max(200).optional(),
+      source: z
+        .enum([
+          "QR_ORDER",
+          "WALK_IN",
+          "STAFF_CREATED",
+          "PHONE_ORDER",
+          "RESERVATION",
+          "RESERVATION_ORDER",
+          "DELIVERY_PARTNER"
+        ])
+        .optional(),
+      partnerId: z.string().max(100).optional(),
+      externalPartnerOrderId: z.string().max(200).optional(),
+      createdByContext: z.enum(["CUSTOMER", "STAFF"]).optional()
     })
     .refine(
       (b) => (b.fromCart ? true : !!(b.lines && b.lines.length > 0)),
@@ -305,12 +328,14 @@ export async function registerOrderRoutes(
         lines: lineInputs,
         customerUserId: customer?.sub ?? null,
         createdByUserId: customer?.sub ?? null,
-        createdByContext: "CUSTOMER",
-        source: "QR_ORDER",
+        createdByContext: body.createdByContext ?? "CUSTOMER",
+        source: body.source as never,
         sourceSessionId: body.sourceSessionId,
         sourceSessionType: body.sourceSessionType,
         deviceId: body.deviceId,
         reservationId: body.reservationId,
+        partnerId: body.partnerId,
+        externalPartnerOrderId: body.externalPartnerOrderId,
         idempotencyKey: readIdempotencyKey(req)
       },
       { domainEventBus, orderBus },
@@ -505,6 +530,114 @@ export async function registerOrderRoutes(
     return { ok: true, policy: merged };
   });
 
+  app.get("/orders/restaurant/:restaurantId/source-policy", async (req) => {
+    const { restaurantId } = req.params as { restaurantId: string };
+    await requireStaff(req, restaurantId);
+    const tenant = await loadRestaurantSourcePolicy(prisma, restaurantId);
+    const contracts = listAllSourceContracts(tenant);
+    return { ok: true, phase1Sources: PHASE_1_ORDER_SOURCES, contracts };
+  });
+
+  app.get("/orders/restaurant/:restaurantId/source-policy/:source", async (req) => {
+    const { restaurantId, source } = req.params as { restaurantId: string; source: string };
+    await requireStaff(req, restaurantId);
+    const tenant = await loadRestaurantSourcePolicy(prisma, restaurantId);
+    const canonical = source as (typeof PHASE_1_ORDER_SOURCES)[number];
+    if (!PHASE_1_ORDER_SOURCES.includes(canonical)) {
+      throw Object.assign(new Error("invalid_order_source"), { statusCode: 400 });
+    }
+    const base = getSourceContract(canonical);
+    const effective = listAllSourceContracts(tenant).find((c) => c.source === canonical)!;
+    return { ok: true, base, effective };
+  });
+
+  const sourceInterpretationSchema = z.object({
+    interpretation: z.enum([
+      "STAFF_ASSISTED",
+      "CONVERTED_TO_RESERVATION",
+      "PARTNER_REASSIGNED_INTERNAL",
+      "SOURCE_CORRECTION_LOGGED",
+      "HYBRID_STAFF_LINE_ADDITION"
+    ]),
+    note: z.string().max(500).optional()
+  });
+
+  app.post("/orders/:orderId/source-interpretation", async (req) => {
+    const { orderId } = req.params as { orderId: string };
+    const body = sourceInterpretationSchema.parse(req.body);
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      select: { restaurantId: true }
+    });
+    if (!order) throw Object.assign(new Error("order_not_found"), { statusCode: 404 });
+    const user = await requireStaff(req, order.restaurantId);
+    const result = await persistSourceInterpretation(prisma, {
+      orderId,
+      restaurantId: order.restaurantId,
+      interpretation: body.interpretation,
+      actorUserId: user.sub,
+      actorIsStaff: true,
+      note: body.note
+    });
+    return { ok: true, ...result, policies: SOURCE_POLICY_VERSIONING_RULES };
+  });
+
+  const orderEditSchema = z.object({
+    expectedVersion: z.number().int().nonnegative(),
+    operation: z.enum([
+      "ADD_ITEM",
+      "REMOVE_ITEM",
+      "UPDATE_QUANTITY",
+      "MODIFY_MODIFIERS",
+      "UPDATE_NOTE",
+      "ADD_ALLERGY_NOTE",
+      "STAFF_CORRECTION",
+      "PRICE_OVERRIDE"
+    ]),
+    payload: z.record(z.unknown()),
+    reason: z.string().max(500).optional(),
+    requestSource: z.enum(["UI", "STAFF_POS", "SYSTEM"]).optional(),
+    idempotencyKey: z.string().max(128).optional()
+  });
+
+  app.post("/orders/:orderId/edit", async (req) => {
+    const { orderId } = req.params as { orderId: string };
+    const body = orderEditSchema.parse(req.body);
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      select: { restaurantId: true, customerUserId: true }
+    });
+    if (!order) throw Object.assign(new Error("order_not_found"), { statusCode: 404 });
+
+    const user = requireUser(req);
+    const isCustomer = order.customerUserId === user.sub;
+    if (!isCustomer) {
+      await requireStaff(req, order.restaurantId);
+    }
+
+    const result = await applyOrderEditOperation(
+      prisma,
+      {
+        orderId,
+        expectedVersion: body.expectedVersion,
+        operation: body.operation,
+        payload: body.payload as never,
+        actor: {
+          userId: user.sub,
+          source: isCustomer ? "CUSTOMER" : "STAFF",
+          isCustomer
+        },
+        reason: body.reason,
+        requestSource: body.requestSource,
+        idempotencyKey: body.idempotencyKey
+      },
+      { domainEventBus, orderBus }
+    );
+
+    await publishOrderEvent(orderId);
+    return { ok: true, ...result };
+  });
+
   app.get("/orders/restaurant/:restaurantId/identity-policy", async (req) => {
     const { restaurantId } = req.params as { restaurantId: string };
     await requireStaff(req, restaurantId);
@@ -678,11 +811,15 @@ export async function registerOrderRoutes(
         id: o.id,
         restaurant: o.restaurant,
         status: o.status,
+        source: o.source,
+        paymentStatus: o.paymentStatus,
+        version: o.version,
         totalCents: o.totalCents,
         createdAt: o.createdAt,
         updatedAt: o.updatedAt,
         note: o.note ?? null,
         lines: o.lines.map((l: (typeof o.lines)[number]) => ({
+          id: l.id,
           menuItemId: l.menuItemId,
           name: l.nameSnapshot,
           quantity: l.quantity,

@@ -15,7 +15,7 @@ import type { MobileExperienceManifest } from "../../mobile/mobileExperienceType
 import type { MeStackRoute } from "./profileHubRoutes";
 import { meStackOverlayTitle } from "./profileHubRoutes";
 import type { CustomerReservationApi } from "../reservations/reservationApi";
-import { ProfileNavHighlightProvider, useProfileNavHighlight, type MeNavHighlightKey } from "./profileNavHighlight";
+import { ProfileNavHighlightProvider, useProfileNavHighlight, type MeNavHighlightKey, type AppNavHighlightKey } from "./profileNavHighlight";
 import { SafetyScreen } from "./SafetyScreen";
 import { SettingsDetailScreen, SettingsHomeScreen } from "./SettingsScreens";
 import {
@@ -222,6 +222,25 @@ function CustomerMeStackInner(props: Props) {
     });
   }, [isReservationOverlay, pop, restoreHubScroll, route.name, runClose]);
 
+  const pushAppSection = React.useCallback(
+    (sectionTitle: string, subtitle: string | undefined, key: AppNavHighlightKey) => {
+      if (key === "app:chip:settings") {
+        navigate(key, () => push({ name: "settings" }));
+        return;
+      }
+      if (key === "app:chip:help") {
+        navigate(key, () => push({ name: "help" }));
+        return;
+      }
+      if (key === "app:chip:safety") {
+        navigate(key, () => push({ name: "safety" }));
+        return;
+      }
+      navigate(key, () => push({ name: "section", title: sectionTitle, subtitle }));
+    },
+    [navigate, push]
+  );
+
   const pushMeSection = React.useCallback(
     (sectionTitle: string, subtitle: string | undefined, key: MeNavHighlightKey) => {
       if (key === "app:chip:settings") {
@@ -265,6 +284,13 @@ function CustomerMeStackInner(props: Props) {
       onOpenOrders={props.onOpenOrders}
       onOpenSupport={props.onOpenSupport}
       onChooseExperience={props.onChooseExperience}
+      onNavigateHelp={() => navigate("app:chip:help", () => push({ name: "help" }))}
+      onNavigateSafety={() => navigate("app:chip:safety", () => push({ name: "safety" }))}
+      onNavigateAppSettings={() => navigate("app:chip:settings", () => push({ name: "settings" }))}
+      onNavigateAppSection={pushAppSection}
+      onNavigateAppScreen={(screenKey, title, subtitle) =>
+        navigate(screenKey as `app:${string}`, () => push({ name: "workspace", screenKey, title, subtitle }))
+      }
       onSignOut={props.onSignOut}
       onAvatarSaved={props.onAvatarSaved}
       onScrollCapture={captureHubScroll}

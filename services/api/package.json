@@ -11,7 +11,7 @@
     "start": "node dist/index.cjs",
     "start:backend": "node dist/index.cjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:orders": "tsx --test src/lib/orders/orderStatusMachine.test.ts src/lib/orders/orderProductionGuarantees.test.ts src/lib/orders/orderOperationalIntelligence.test.ts src/lib/orderIdentity/orderIdentity.test.ts src/lib/orderIdentity/orderIdentityExtended.test.ts src/lib/orderOwnership/orderOwnership.test.ts"
+    "test:orders": "tsx --test src/lib/orders/orderStatusMachine.test.ts src/lib/orders/orderProductionGuarantees.test.ts src/lib/orders/orderOperationalIntelligence.test.ts src/lib/orderIdentity/orderIdentity.test.ts src/lib/orderIdentity/orderIdentityExtended.test.ts src/lib/orderOwnership/orderOwnership.test.ts src/lib/orderSource/orderSource.test.ts src/lib/orderSource/orderSourceEdgeCases.test.ts src/lib/orderEdit/orderEdit.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.888.0",

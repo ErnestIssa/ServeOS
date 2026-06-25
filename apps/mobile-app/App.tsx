@@ -7,7 +7,6 @@ import { ServeOSBrandScreenNative } from "@serveos/core-loading-native";
 import React from "react";
 import {
   Animated,
-  DevSettings,
   Dimensions,
   Keyboard,
   Platform,
@@ -23,13 +22,14 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { Easing, runOnJS, useAnimatedReaction, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
 import { ScrollMeshBackground } from "./src/ambient/ScrollMeshBackground";
 import { useAppTheme } from "./src/theme/AppThemeContext";
-import { apiFetch, apiHttpToWsBase, authMe, authLogout, API_URL, type AuthUser } from "./src/api";
+import { apiFetch, apiHttpToWsBase, authMe, authLogout, API_URL, type AuthUser, type CustomerRestaurantRow } from "./src/api";
 import { loadClientConfig } from "./src/bootstrap/clientConfig";
 import { syncDevicePushTokenWithBackend } from "./src/notifications/devicePushRegistration";
 import {
   loadMyOrdersCached,
   prefetchCustomerSession,
   refreshMyOrdersSilent,
+  invalidateRestaurantDirectory,
   TTL
 } from "./src/data/customerDataCache";
 import { authScope, myOrdersKey } from "./src/data/cache/cacheKeys";
@@ -47,6 +47,8 @@ import {
   subscribeChatRelay
 } from "./src/customer/chat/customerChatSocket";
 import { CustomerOrdersVenueScreen } from "./src/customer/CustomerOrdersVenueScreen";
+import { formatApiError, isStalePreferredVenue, menuHasBrowsableItems } from "./src/customer/venueContentHelpers";
+import { VenueEmptyCard } from "./src/components/VenueEmptyCard";
 import { CustomerReservationFlow } from "./src/customer/reservations/CustomerReservationFlow";
 import { fetchCustomerAppContext } from "./src/customer/customerAppApi";
 import {
@@ -97,12 +99,7 @@ import { appendNavSearchRecent } from "./src/customer/navSearchRecentStorage";
 import { NutritionInfoModal } from "./src/customer/NutritionInfoModal";
 import { ActionModal } from "./src/components/ActionModal";
 import { SwapColorFullscreenLoader } from "./src/components/SwapColorLoader";
-import { buildCustomerHomeHeader, customerDisplayName } from "./src/customer/customerHomeCopy";
-import {
-  getServeosDemoPublicMenu,
-  isServeosDemoMenuEnabled,
-  SERVEOS_DEMO_RESTAURANT_ID
-} from "./src/customer/demoPeakModeMenu";
+import { buildCustomerHomeHeader, customerDisplayName, formatUserRoleExperience } from "./src/customer/customerHomeCopy";
 import { CustomerMenuBrowsing, recordOrderedItemsForRestaurant } from "./src/menu/CustomerMenuBrowsing";
 import { bumpBrowseEngagement } from "./src/menu/menuPreferencesStorage";
 import { buildFilteredMenuPool, flattenMenu, type MenuCategoryLite } from "./src/menu/menuBrowseUtils";
@@ -119,7 +116,6 @@ import {
 import { computeNavSheetSnapDims, SHEET_SPRING_CONFIG } from "./src/shell/NavExpandSheet";
 import { CustomerMeStack } from "./src/customer/profile/CustomerMeStack";
 import { loadProfileAvatarUri } from "./src/customer/profile/profileAvatarStorage";
-import { CustomerNavMenuPage } from "./src/shell/CustomerNavMenuPage";
 import { ExperienceSwitcherPanel } from "./src/shell/ExperienceSwitcherPanel";
 import { FloatingTopBar, FLOATING_TOP_BAR_HEIGHT } from "./src/shell/FloatingTopBar";
 import { createAppStyles } from "./src/theme/createAppStyles";
@@ -131,6 +127,12 @@ const CUSTOMER_VENUE_KEY = "serveos.customer.preferredRestaurantId";
 
 /** Customer search opens the nav sheet with this timing — slower than drag/snapped springs. */
 const SEARCH_SHEET_OPEN_MS = 920;
+
+const experienceVenueConfirmOverlayHost = {
+  ...StyleSheet.absoluteFillObject,
+  zIndex: 99999,
+  elevation: 100
+} as const;
 
 /** iOS: swipe keyboard down; Android: drag scroll to dismiss. */
 const SCROLL_KEYBOARD_DISMISS_MODE = Platform.OS === "ios" ? ("interactive" as const) : ("on-drag" as const);
@@ -184,10 +186,9 @@ export default function App() {
     });
   }, [status, showErrorModal]);
   const [customerSearchQuery, setCustomerSearchQuery] = React.useState("");
-  /** Full-screen page from customer top-bar menu (hamburger); back restores prior tab/screen. */
-  const [customerNavMenuOpen, setCustomerNavMenuOpen] = React.useState(false);
   const [experienceSwitcher, setExperienceSwitcher] = React.useState<ExperienceSwitcherPayload | null>(null);
   const [experienceSwitchBusy, setExperienceSwitchBusy] = React.useState(false);
+  const [venueDirectoryRefreshKey, setVenueDirectoryRefreshKey] = React.useState(0);
   const [menuRid, setMenuRid] = React.useState("");
   const [menuPreview, setMenuPreview] = React.useState<any>(null);
   const [localCart, setLocalCart] = React.useState<Array<{ menuItemId: string; quantity: number; modifierOptionIds: string[] }>>(
@@ -373,7 +374,6 @@ export default function App() {
     setRestaurants([]);
     setMyOrders([]);
     setMeAvatarUri(null);
-    setCustomerNavMenuOpen(false);
     setNavSheetExperienceMode(false);
     setExperienceSwitcher(null);
   }, [token, sessionUser?.id]);
@@ -421,6 +421,13 @@ export default function App() {
   /** True from search-bar open until sheet fully closes or cart sheet takes over — drives full-only sheet snap + early mount. */
   const [navSheetSearchMode, setNavSheetSearchMode] = React.useState(false);
   const [navSheetExperienceMode, setNavSheetExperienceMode] = React.useState(false);
+  const [experienceVenueConfirmOverlay, setExperienceVenueConfirmOverlay] = React.useState<React.ReactNode>(null);
+
+  React.useEffect(() => {
+    if (!navSheetExperienceMode) {
+      setExperienceVenueConfirmOverlay(null);
+    }
+  }, [navSheetExperienceMode]);
 
   const skipCartNotePersistRef = React.useRef(true);
   const cartNoteSaveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -667,10 +674,11 @@ export default function App() {
 
   const openExperienceSwitcher = React.useCallback(() => {
     Keyboard.dismiss();
-    setCustomerNavMenuOpen(false);
+    setExperienceVenueConfirmOverlay(null);
     setHomeNavSheetCartEligible(false);
     setNavSheetSearchMode(false);
     setNavSheetExperienceMode(true);
+    setVenueDirectoryRefreshKey((n) => n + 1);
     void refreshExperienceSwitcher();
     const { snapHigh } = computeNavSheetSnapDims(Dimensions.get("window").height, insets);
     armNavSheetSnapImpact(snapHigh);
@@ -886,8 +894,18 @@ export default function App() {
   }
 
   React.useEffect(() => {
-    if (!token || !isCustomerSession || isServeosDemoMenuEnabled()) return;
+    if (!token || !isCustomerSession) return;
     let cancelled = false;
+
+    async function clearStaleVenue() {
+      await AsyncStorage.removeItem(CUSTOMER_VENUE_KEY);
+      if (!cancelled) {
+        setMenuRid("");
+        setMenuPreview(null);
+        setLocalCart([]);
+      }
+    }
+
     void (async () => {
       const serverPref =
         typeof sessionUser?.preferredRestaurantId === "string"
@@ -896,30 +914,39 @@ export default function App() {
       const local = ((await AsyncStorage.getItem(CUSTOMER_VENUE_KEY)) ?? "").trim();
       const rid = serverPref || local;
       if (!rid || cancelled) return;
+
+      const directoryRes = await apiFetch<{ ok: boolean; restaurants?: CustomerRestaurantRow[] }>(
+        "/customer/restaurant-directory",
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (cancelled) return;
+
+      const directory = directoryRes.ok ? (directoryRes.restaurants ?? []) : [];
+      if (directory.length > 0 && isStalePreferredVenue(rid, directory)) {
+        await clearStaleVenue();
+        return;
+      }
+
       if (serverPref && serverPref !== local) {
         await AsyncStorage.setItem(CUSTOMER_VENUE_KEY, serverPref);
       }
       setMenuRid(rid);
       const res = await fetchPublicMenuForRestaurant(rid);
       if (cancelled) return;
-      if (res.ok) {
-        setMenuPreview(res);
-        setLocalCart([]);
-        void refreshCustomerCart(rid);
+      if (!res.ok) {
+        await clearStaleVenue();
+        setStatus("");
+        return;
       }
+      setMenuPreview(res);
+      setLocalCart([]);
+      setStatus("");
+      void refreshCustomerCart(rid);
     })();
     return () => {
       cancelled = true;
     };
   }, [token, isCustomerSession, sessionUser?.preferredRestaurantId, refreshCustomerCart]);
-
-  React.useEffect(() => {
-    if (!token || !isCustomerSession || !isServeosDemoMenuEnabled()) return;
-    setMenuRid(SERVEOS_DEMO_RESTAURANT_ID);
-    setMenuPreview(getServeosDemoPublicMenu());
-    setLocalCart([]);
-    void refreshCustomerCart(SERVEOS_DEMO_RESTAURANT_ID);
-  }, [token, isCustomerSession, refreshCustomerCart]);
 
   async function loadPublicMenu() {
     if (!menuRid.trim()) return setStatus("Enter restaurant ID");
@@ -956,16 +983,25 @@ export default function App() {
         setStatus("");
       } else {
         setMenuPreview(null);
-        setStatus(res.error ?? "menu_failed");
+        setStatus(formatApiError(res.error));
+        throw new Error(res.error ?? "menu_failed");
       }
       await refreshCustomerCart(rid);
+      await invalidateRestaurantDirectory(sessionUser?.id);
       const me = await authMe(token);
       if (me.ok && me.user) setSessionUser(me.user);
-      if (__DEV__ && Platform.OS !== "web") {
-        DevSettings.reload();
-      }
     },
-    [token, refreshCustomerCart]
+    [token, refreshCustomerCart, sessionUser?.id]
+  );
+
+  const onExperienceVenueHydrated = React.useCallback(
+    async (restaurantId: string) => {
+      setExperienceVenueConfirmOverlay(null);
+      await applyCustomerVenueChange(restaurantId);
+      setNavSheetExperienceMode(false);
+      closeNavSheetFully();
+    },
+    [applyCustomerVenueChange, closeNavSheetFully]
   );
 
   async function addFirstMenuItemToCart() {
@@ -1480,6 +1516,8 @@ export default function App() {
     return formatMoneyCents(cents);
   }
 
+  const customerHasVenue = Boolean(activeRestaurantId().trim());
+
   const customerHomeHeader = React.useMemo(() => {
     const firstName = customerDisplayName(sessionUser?.signupProfile, sessionUser?.email ?? undefined);
     const venueName =
@@ -1487,7 +1525,9 @@ export default function App() {
     return buildCustomerHomeHeader({
       firstName,
       restaurantName: venueName,
-      cartCount: isCustomerSession ? customerCart.totalQuantity : localCart.reduce((s, l) => s + l.quantity, 0)
+      cartCount: isCustomerSession ? customerCart.totalQuantity : localCart.reduce((s, l) => s + l.quantity, 0),
+      hasVenue: customerHasVenue,
+      userRoleExperience: formatUserRoleExperience(mobileExperience?.activeExperience)
     });
   }, [
     sessionUser?.signupProfile,
@@ -1495,7 +1535,9 @@ export default function App() {
     menuPreview,
     isCustomerSession,
     customerCart.totalQuantity,
-    localCart
+    localCart,
+    customerHasVenue,
+    mobileExperience?.activeExperience
   ]);
 
   const customerScrollToMenu = React.useCallback(
@@ -1526,8 +1568,7 @@ export default function App() {
 
   const customerHomeHasMenuBody = React.useMemo(() => {
     if (!isCustomerSession) return false;
-    if (!menuPreview?.ok || !menuPreview.categories?.length) return false;
-    return buildFilteredMenuPool(menuPreview.categories as MenuCategoryLite[], "").length > 0;
+    return menuHasBrowsableItems(menuPreview);
   }, [isCustomerSession, menuPreview]);
 
   function greeting() {
@@ -1664,6 +1705,7 @@ export default function App() {
         busy={experienceSwitchBusy}
         userId={sessionUser?.id}
         userDisplayName={customerDisplayName(sessionUser?.signupProfile, sessionUser?.email ?? undefined)}
+        userEmail={sessionUser?.email}
         activeVenueId={activeRestaurantId()}
         activeVenueName={
           menuPreview?.ok &&
@@ -1672,12 +1714,11 @@ export default function App() {
             ? String(menuPreview.restaurant.name ?? "")
             : ""
         }
-        venueSwitchLocked={isServeosDemoMenuEnabled()}
-        onVenueHydrated={async (restaurantId) => {
-          await applyCustomerVenueChange(restaurantId);
-          setNavSheetExperienceMode(false);
-          closeNavSheetFully();
-        }}
+        venueSwitchLocked={false}
+        directoryRefreshKey={venueDirectoryRefreshKey}
+        onVenueHydrated={onExperienceVenueHydrated}
+        onVenueSwitchError={(message) => setStatus(message)}
+        onVenueConfirmOverlayChange={setExperienceVenueConfirmOverlay}
         onSelectCustomer={() => void applyActiveExperience({ mode: "CUSTOMER" })}
         onSelectWorkspace={(restaurantId) =>
           void applyActiveExperience({ mode: "WORKSPACE", restaurantId })
@@ -1726,14 +1767,7 @@ export default function App() {
             searchSheetFullyExpanded={sheetOpenStage === 2}
             onSearchExpandSheet={expandCustomerNavSheetFullFromSearch}
       onSearchSubmit={() => void appendNavSearchRecent(customerSearchQuery.trim())}
-      experienceModeLabel={mobileExperience?.activeExperience?.label ?? "Customer"}
-      onExperienceModePress={openExperienceSwitcher}
       onExperienceSwitcher={openExperienceSwitcher}
-            onMenu={() => {
-              Keyboard.dismiss();
-              if (sheetBackdropActive) closeSheetFromBackdrop();
-              setCustomerNavMenuOpen(true);
-            }}
           />
           ) : null
         ) : token && mobileExperience ? (
@@ -1748,10 +1782,6 @@ export default function App() {
               onLeftPress={openExperienceSwitcher}
               onSearch={() => setStatus("search")}
               onExperienceSwitcher={openExperienceSwitcher}
-              onMenu={() => {
-                Keyboard.dismiss();
-                setCustomerNavMenuOpen(true);
-              }}
             />
           ) : null
         ) : (
@@ -1765,7 +1795,6 @@ export default function App() {
             onLeftPress={openExperienceSwitcher}
             onSearch={() => setStatus("search")}
             onExperienceSwitcher={openExperienceSwitcher}
-            onMenu={() => setStatus("menu")}
           />
         )}
         {tab === "home" && (
@@ -1789,24 +1818,40 @@ export default function App() {
                   <Text style={styles.customerHeroGreeting}>{customerHomeHeader.greeting}</Text>
                   <Text style={styles.customerHeroSub}>{customerHomeHeader.sub}</Text>
                   <View style={styles.customerCtaColumn}>
-                    <Pressable style={({ pressed }) => [styles.pillPrimary, styles.customerPrimaryCta, pressed && styles.pressed]} onPress={customerStartOrdering}>
-                      <Text style={styles.pillPrimaryText}>{menuPreview?.ok && menuPreview.restaurant ? "Start ordering" : "Choose venue"}</Text>
-                    </Pressable>
-                    <Pressable
-                      style={({ pressed }) => [pressed && styles.pressed, { alignSelf: "center" }]}
-                      onPress={customerPopularPicks}
-                    >
-                      <Text style={styles.customerSecondaryCta}>
-                        {menuPreview?.ok && menuPreview.restaurant ? "Popular picks" : "Choose venue in Orders"}
-                      </Text>
-                    </Pressable>
+                    {customerHasVenue ? (
+                      <>
+                        <Pressable
+                          style={({ pressed }) => [styles.pillPrimary, styles.customerPrimaryCta, pressed && styles.pressed]}
+                          onPress={customerStartOrdering}
+                        >
+                          <Text style={styles.pillPrimaryText}>
+                            {menuPreview?.ok && menuPreview.restaurant ? "Start ordering" : "Choose a venue"}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          style={({ pressed }) => [pressed && styles.pressed, { alignSelf: "center" }]}
+                          onPress={customerPopularPicks}
+                        >
+                          <Text style={styles.customerSecondaryCta}>
+                            {menuPreview?.ok && menuPreview.restaurant ? "Popular picks" : "Browse menu"}
+                          </Text>
+                        </Pressable>
+                      </>
+                    ) : (
+                      <Pressable
+                        style={({ pressed }) => [styles.pillPrimary, styles.customerPrimaryCta, pressed && styles.pressed]}
+                        onPress={openExperienceSwitcher}
+                      >
+                        <Text style={styles.pillPrimaryText}>Choose a venue</Text>
+                      </Pressable>
+                    )}
                   </View>
 
                   {customerHomeHasMenuBody ? (
                     <Text style={[styles.sectionLabel, styles.mtSm]}>Menu</Text>
                   ) : null}
                 </View>
-                {menuPreview?.ok && menuPreview.restaurant ? (
+                {menuPreview?.ok && menuPreview.restaurant && menuHasBrowsableItems(menuPreview) ? (
                   <View onLayout={(e) => setCustomerMenuTopY(e.nativeEvent.layout.y)}>
                     <CustomerMenuBrowsing
                       key={`menu-${String(menuPreview.restaurant.id)}`}
@@ -1827,17 +1872,27 @@ export default function App() {
                       onAddItem={(it) => void addMenuLineFromBrowse(it.id)}
                     />
                   </View>
-                ) : (
+                ) : customerHasVenue ? (
                   <View style={styles.customerHomeCopyInset}>
-                    <View style={[styles.cardShell, styles.surfaceCard]}>
-                      <Text style={styles.cardBodyMuted}>
-                        Open the Orders tab to pick your restaurant — it is saved to your account — and we’ll load dishes here.
-                      </Text>
-                    </View>
+                    {menuPreview?.ok && menuPreview.restaurant ? (
+                      <VenueEmptyCard
+                        title={`${menuPreview.restaurant.name ?? "This venue"} has no menu yet`}
+                        message="There are no dishes published for this venue right now. Try another venue or check back later."
+                        actionLabel="Switch venue"
+                        onAction={openExperienceSwitcher}
+                      />
+                    ) : (
+                      <VenueEmptyCard
+                        title="Could not load this venue"
+                        message="This venue may no longer be available. Choose another venue to continue."
+                        actionLabel="Choose a venue"
+                        onAction={openExperienceSwitcher}
+                      />
+                    )}
                   </View>
-                )}
+                ) : null}
 
-                {status ? (
+                {status && customerHasVenue ? (
                   <View style={styles.customerHomeCopyInset}>
                     <Text style={styles.banner}>{status}</Text>
                   </View>
@@ -1903,7 +1958,7 @@ export default function App() {
             onScroll={onScroll}
             scrollTopPad={scrollTopPad}
             scrollBottom={scrollBottom}
-            onChooseVenue={() => setTab("orders")}
+            onChooseVenue={openExperienceSwitcher}
             onOpenChat={() => setTab("messages")}
             onExitToHome={() => setTab("home")}
             onResetScroll={resetBookingsScroll}
@@ -1935,8 +1990,10 @@ export default function App() {
                   ? String(menuPreview.restaurant.name ?? "")
                   : ""
               }
-              venueSwitchLocked={isServeosDemoMenuEnabled()}
+              venueSwitchLocked={false}
               onVenueHydrated={applyCustomerVenueChange}
+              onVenueSwitchError={(message) => setStatus(message)}
+              onChooseVenue={openExperienceSwitcher}
               customerOrders={myOrders as CustomerMineOrder[]}
               money={money}
               onBrowseMenu={() => {
@@ -1944,6 +2001,7 @@ export default function App() {
                 setTimeout(() => customerScrollToMenu(0), 400);
               }}
               onNeedHelp={() => setTab("messages")}
+              onOrdersRefresh={() => void fetchMyOrders({ force: true })}
               cartItemCount={customerCart.totalQuantity}
               menuPrefsVersion={menuPrefsSeq}
               ordersEmptySessionVisits={ordersEmptySessionVisitCount}
@@ -1966,6 +2024,7 @@ export default function App() {
           >
             <CustomerOrdersVenueScreen
                 token={token}
+                userId={sessionUser?.id}
                 userDisplayName={customerDisplayName(sessionUser?.signupProfile, sessionUser?.email ?? undefined)}
                 activeId={activeRestaurantId()}
                 activeName={
@@ -1975,8 +2034,10 @@ export default function App() {
                     ? String(menuPreview.restaurant.name ?? "")
                     : ""
                 }
-                venueSwitchLocked={isServeosDemoMenuEnabled()}
+                venueSwitchLocked={false}
                 onVenueHydrated={applyCustomerVenueChange}
+                onVenueSwitchError={(message) => setStatus(message)}
+                onChooseVenue={openExperienceSwitcher}
                 customerOrders={myOrders as CustomerMineOrder[]}
                 money={money}
                 onBrowseMenu={() => {
@@ -1984,6 +2045,7 @@ export default function App() {
                   setTimeout(() => customerScrollToMenu(0), 400);
                 }}
                 onNeedHelp={() => setTab("messages")}
+                onOrdersRefresh={() => void fetchMyOrders({ force: true })}
                 cartItemCount={customerCart.totalQuantity}
                 menuPrefsVersion={menuPrefsSeq}
                 ordersEmptySessionVisits={ordersEmptySessionVisitCount}
@@ -2024,7 +2086,6 @@ export default function App() {
               setTab("home");
               setTimeout(() => openCartSheetHalf(), 400);
             }}
-            onChooseVenue={() => setTab("orders")}
             onReorder={() => {
               setTab("home");
               setTimeout(() => customerScrollToMenu(0), 400);
@@ -2186,31 +2247,19 @@ export default function App() {
 
       <NutritionInfoModal visible={nutritionOpen} onDismiss={() => setNutritionOpen(false)} />
 
-      {token && mobileExperience ? (
-        <CustomerNavMenuPage
-          visible={customerNavMenuOpen}
-          ambientTab={navKeyToAmbientTab(tab)}
-          topInset={insets.top}
-          bottomInset={contentBottomInset(insets.bottom)}
-          user={sessionUser}
-          authToken={token}
-          mobileExperience={mobileExperience}
-          workspaceRestaurantId={workspaceRestaurantId}
-          onBack={() => setCustomerNavMenuOpen(false)}
-          onChooseVenue={() => {
-            setCustomerNavMenuOpen(false);
-            if (isCustomerSession) setTab("orders");
-            else if (workspaceContext && workspaceContext.memberships.length > 1) setTab("home");
-            else setTab("orders");
-          }}
-        />
+      {experienceVenueConfirmOverlay ? (
+        <View
+          style={experienceVenueConfirmOverlayHost}
+          pointerEvents="box-none"
+        >
+          {experienceVenueConfirmOverlay}
+        </View>
       ) : null}
 
       <FloatingGlassTabBar
         tab={tab}
         onChange={(next) => {
           Keyboard.dismiss();
-          setCustomerNavMenuOpen(false);
           setTab(next);
         }}
         insets={insets}
