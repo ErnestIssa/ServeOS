@@ -7,6 +7,7 @@ import {
   AdminInput,
   AdminLabel,
   AdminPanel,
+  AdminRefreshButton,
   AdminSectionHeader,
   subPanelCls
 } from "./AdminUi";
@@ -1313,11 +1314,19 @@ function RoleTemplatesModal({ open, onClose }: { open: boolean; onClose: () => v
 export function AdminStaffManagementPage({
   token,
   restaurantId,
-  venueName
+  venueName,
+  sectionEyebrow = "Workforce",
+  sectionTitle = "Staff Management",
+  sectionDescription,
+  panelClassName = "admin-staff-page"
 }: {
   token: string | null;
   restaurantId: string;
   venueName: string;
+  sectionEyebrow?: string;
+  sectionTitle?: string;
+  sectionDescription?: string;
+  panelClassName?: string;
 }) {
   const { pushToast } = useAdminToast();
   const {
@@ -1330,6 +1339,7 @@ export function AdminStaffManagementPage({
     inviteHistory,
     recentlyRemoved,
     stats,
+    reload,
     loadMemberDetail,
     sendInvite,
     cancelInvite,
@@ -1513,12 +1523,14 @@ export function AdminStaffManagementPage({
 
   return (
     <>
-      <AdminPanel id={ADMIN_TOP_HASHES.addStaff.slice(1)} className="admin-top-page admin-panel--edge admin-staff-page">
+      <AdminPanel id={ADMIN_TOP_HASHES.addStaff.slice(1)} className={`admin-top-page admin-panel--edge ${panelClassName}`}>
         <AdminSectionHeader
-          eyebrowText="Workforce"
-          title="Staff Management"
+          eyebrowText={sectionEyebrow}
+          title={sectionTitle}
+          description={sectionDescription}
           action={
             <div className="flex flex-wrap gap-2">
+              <AdminRefreshButton onRefresh={() => reload()} refreshing={refreshing} label="Refresh staff" />
               <AdminBtnSecondary onClick={() => setTemplatesOpen(true)}>Role templates</AdminBtnSecondary>
               <AdminBtnPrimary onClick={() => setInviteOpen(true)}>Invite staff</AdminBtnPrimary>
             </div>

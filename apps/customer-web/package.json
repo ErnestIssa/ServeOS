@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@serveos/agents": "0.0.0",
     "@serveos/core-ambient": "0.0.0",
     "@serveos/core-shared": "0.0.0",
     "@serveos/core-loading": "0.0.0",

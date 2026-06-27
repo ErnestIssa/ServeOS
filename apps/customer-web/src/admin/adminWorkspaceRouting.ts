@@ -1,4 +1,4 @@
-import { isAdminFullPageHash } from "./adminTopHashes";
+import { ADMIN_BILLING_HASHES, ADMIN_HELP_HASHES, ADMIN_NOTIFICATION_HASHES, ADMIN_TOP_HASHES, isAdminFullPageHash } from "./adminTopHashes";
 
 export type WorkspaceId =
   | "live-ops"
@@ -32,16 +32,37 @@ export function buildNavHref(workspaceId: WorkspaceId, presetId: string): string
 
 export function parseAdminRoute(hash: string): AdminRoute {
   const normalized = (hash || DEFAULT_ADMIN_HASH).split("?")[0]!;
+  if (normalized === ADMIN_TOP_HASHES.notifications) {
+    return { kind: "full-page", hash: ADMIN_NOTIFICATION_HASHES.customerAlerts };
+  }
+  if (normalized === ADMIN_TOP_HASHES.billing) {
+    return { kind: "full-page", hash: ADMIN_BILLING_HASHES.subscription };
+  }
+  if (normalized === ADMIN_TOP_HASHES.platformHelp) {
+    return { kind: "full-page", hash: ADMIN_HELP_HASHES.tipsInfo };
+  }
   if (isAdminFullPageHash(normalized)) {
     return { kind: "full-page", hash: normalized };
   }
   const match = normalized.match(/^#ws-([a-z-]+)\/([^/]+)$/);
   if (match) {
-    return {
-      kind: "workspace",
-      workspaceId: match[1] as WorkspaceId,
-      presetId: match[2]!
-    };
+    const workspaceId = match[1] as WorkspaceId;
+    const presetId = match[2]!;
+    if (
+      workspaceId === "config" &&
+      (presetId === "restaurant" ||
+        presetId === "restaurant-profile" ||
+        presetId === "locations")
+    ) {
+      return { kind: "full-page", hash: "#venue-control-centre" };
+    }
+    if (
+      workspaceId === "config" &&
+      (presetId === "staff" || presetId === "staff-list" || presetId === "roles")
+    ) {
+      return { kind: "full-page", hash: "#top-add-staff" };
+    }
+    return { kind: "workspace", workspaceId, presetId };
   }
   return legacyHashToRoute(normalized);
 }
@@ -50,7 +71,7 @@ function legacyHashToRoute(hash: string): AdminRoute {
   const legacy: Record<string, AdminRoute> = {
     "#control-room": { kind: "workspace", workspaceId: "live-ops", presetId: "live-overview" },
     "#orders": { kind: "workspace", workspaceId: "orders", presetId: "all-orders" },
-    "#menu-admin": { kind: "workspace", workspaceId: "config", presetId: "menu-builder" },
+    "#menu-admin": { kind: "workspace", workspaceId: "config", presetId: "menu" },
     "#top-billing": { kind: "full-page", hash: "#top-billing" },
     "#venue-control-centre": { kind: "full-page", hash: "#venue-control-centre" }
   };
@@ -142,8 +163,8 @@ export const WORKSPACE_META: Record<
   },
   config: {
     eyebrow: "Configuration",
-    title: "Config workspace",
-    description: "Restaurant builder — sections are tabs inside one admin configuration system.",
+    title: "Configuration",
+    description: "Menu and payments for your active venue.",
     icon: "/icons/configuration-svgrepo-com.svg"
   },
   business: {
@@ -196,6 +217,7 @@ export const WORKSPACE_PRESETS: Record<WorkspaceId, WorkspacePreset[]> = {
     { id: "pos-checkout", label: "POS / checkout devices", tab: "monitors", filter: "pos" },
     { id: "customer-displays", label: "Customer display screens", tab: "monitors", filter: "customer-display" },
     { id: "printer-status", label: "Printer status", tab: "monitors", filter: "printers" },
+    { id: "hardware", label: "Hardware", tab: "hardware", filter: "hardware", description: "Registers, scanners, and venue hardware" },
     { id: "network-health", label: "Network health per venue", tab: "network", layout: "venue-matrix" }
   ],
   comms: [
@@ -212,15 +234,18 @@ export const WORKSPACE_PRESETS: Record<WorkspaceId, WorkspacePreset[]> = {
     { id: "table-assign", label: "Auto-assign tables for reservations", tab: "rules", filter: "table-assign" }
   ],
   config: [
-    { id: "restaurant-profile", label: "Restaurant profile", tab: "profile" },
-    { id: "locations", label: "Locations", tab: "locations" },
-    { id: "menu-builder", label: "Menu builder", tab: "menu", layout: "builder" },
-    { id: "categories", label: "Categories", tab: "menu", filter: "categories" },
-    { id: "items", label: "Items", tab: "menu", filter: "items" },
-    { id: "modifiers", label: "Modifiers", tab: "menu", filter: "modifiers" },
-    { id: "staff-list", label: "Staff list", tab: "staff" },
-    { id: "roles", label: "Roles & permissions", tab: "roles" },
-    { id: "payment-methods", label: "Payment methods", tab: "payments" }
+    {
+      id: "menu",
+      label: "Menu",
+      tab: "menu",
+      description: "Menus, categories, items, and modifiers"
+    },
+    {
+      id: "payments",
+      label: "Payments",
+      tab: "payments",
+      description: "Providers, methods, payouts, and payment rules"
+    }
   ],
   business: [
     { id: "subscription-billing", label: "Subscription & billing", tab: "billing" },
@@ -234,7 +259,14 @@ export const WORKSPACE_PRESETS: Record<WorkspaceId, WorkspacePreset[]> = {
     { id: "order-speed", label: "Order speed", tab: "operations", filter: "speed" },
     { id: "peak-times", label: "Peak times", tab: "operations", filter: "peaks" },
     { id: "best-sellers", label: "Best selling items", tab: "menu", filter: "top-items" },
-    { id: "staff-performance", label: "Staff performance", tab: "staff", filter: "performance" }
+    { id: "staff-performance", label: "Staff performance", tab: "staff", filter: "performance" },
+    {
+      id: "customer-experience",
+      label: "Customer Experience",
+      tab: "experience",
+      filter: "customer",
+      description: "Guest satisfaction, feedback, and experience metrics"
+    }
   ]
 };
 

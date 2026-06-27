@@ -198,7 +198,7 @@ export function AdminRestaurantSelector({
           <div className="admin-top-bubble admin-top-bubble--arrow-center admin-venue-bubble" role="menu" aria-label="Restaurant locations">
             <div className="admin-bubble-header">
               <p className="admin-bubble-title">Your venues</p>
-              <p className="admin-bubble-desc">Switch location or open the venue control centre.</p>
+              <p className="admin-bubble-desc">Switch location or open the venue profile.</p>
             </div>
             <div className="admin-bubble-body admin-bubble-body--menu">
               {restaurants.length === 0 ? (
@@ -226,7 +226,7 @@ export function AdminRestaurantSelector({
                     >
                       <span className="admin-venue-menu-name truncate">{r.name}</span>
                       <span className={`admin-venue-status admin-venue-status--${venueStatus.tone}`}>
-                        {isSelected ? "Control centre" : venueStatus.label}
+                        {isSelected ? "Venue profile" : venueStatus.label}
                       </span>
                     </button>
                   );
@@ -239,7 +239,7 @@ export function AdminRestaurantSelector({
                 onClick={() => goVenueControlCentre(() => setOpen(false))}
               >
                 <span className="admin-bubble-add-mark">+</span>
-                <span className="admin-bubble-add-mark">Open venue control centre</span>
+                <span className="admin-bubble-add-mark">Open venue profile</span>
               </button>
             </div>
           </div>

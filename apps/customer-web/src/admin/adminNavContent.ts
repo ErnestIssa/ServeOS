@@ -5,6 +5,7 @@ import {
   WORKSPACE_PRESETS,
   type WorkspaceId
 } from "./adminWorkspaceRouting";
+import { ADMIN_HELP_HASHES, ADMIN_TOP_HASHES, ADMIN_VENUE_CONTROL_HASH } from "./adminTopHashes";
 
 export type AdminNavItem = {
   id: string;
@@ -63,12 +64,17 @@ export {
   type AdminTopHash
 } from "./adminTopHashes";
 
+export { ADMIN_NOTIFICATION_CATEGORIES, isNotificationsNavActive } from "./notifications/notificationRouting";
+
+export { ADMIN_HELP_CATEGORIES, isHelpNavActive } from "./help/helpRouting";
+
+export { ADMIN_BILLING_CATEGORIES, isBillingNavActive } from "./billing/billingRouting";
+
 export { DEFAULT_ADMIN_HASH } from "./adminWorkspaceRouting";
 
-export const ADMIN_QUICK_ACTIONS = [
-  { id: "create-order", label: "Create order", href: buildNavHref("orders", "active-orders") },
-  { id: "add-reservation", label: "Add reservation", href: buildNavHref("venue", "reservations") },
-  { id: "add-staff", label: "Staff management", href: "#top-add-staff" }
+export const ADMIN_QUICK_LINKS = [
+  { id: "documentation", label: "Documentation", href: ADMIN_HELP_HASHES.tipsInfo },
+  { id: "advanced", label: "Advanced", href: ADMIN_VENUE_CONTROL_HASH }
 ] as const;
 
 export const ADMIN_THEME_ICONS = {
@@ -107,8 +113,7 @@ export const ADMIN_TOP_TOOL_HINTS = {
   },
   quickActions: {
     title: "Quick actions",
-    description: "Create records without leaving your workspace.",
-    kicker: "Create"
+    description: "Quick access to workspace tools and utilities."
   },
   profile: {
     title: "Your account"
@@ -174,6 +179,7 @@ export function readOwnerContactName(signupProfile: unknown): string {
 }
 
 const SIDEBAR_PIN_KEY = "serveos.admin.sidebarPinned";
+const SIDE_NAV_SCROLL_KEY = "serveos.admin.sideNavScroll";
 const THEME_KEY = "serveos.admin.theme";
 
 export type AdminTheme = "light" | "dark";
@@ -194,6 +200,25 @@ export function readSidebarPinned(): boolean {
 export function writeSidebarPinned(pinned: boolean) {
   try {
     localStorage.setItem(SIDEBAR_PIN_KEY, pinned ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
+
+export function readSideNavScroll(): number {
+  try {
+    const raw = sessionStorage.getItem(SIDE_NAV_SCROLL_KEY);
+    if (raw == null) return 0;
+    const value = Number(raw);
+    return Number.isFinite(value) && value >= 0 ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function writeSideNavScroll(scrollTop: number) {
+  try {
+    sessionStorage.setItem(SIDE_NAV_SCROLL_KEY, String(Math.max(0, Math.round(scrollTop))));
   } catch {
     /* ignore */
   }

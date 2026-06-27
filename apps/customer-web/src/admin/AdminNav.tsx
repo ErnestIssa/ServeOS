@@ -1,17 +1,26 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ServeOsWordmark } from "../signup/SignupShell";
 import {
+  ADMIN_BILLING_CATEGORIES,
+  ADMIN_HELP_CATEGORIES,
   ADMIN_NAV_GROUPS,
-  ADMIN_QUICK_ACTIONS,
+  ADMIN_NOTIFICATION_CATEGORIES,
+  ADMIN_QUICK_LINKS,
   ADMIN_THEME_ICONS,
   ADMIN_TOP_HASHES,
   ADMIN_TOP_ICONS,
   ADMIN_TOP_TOOL_HINTS,
+  ADMIN_VENUE_CONTROL_HASH,
+  isBillingNavActive,
+  isHelpNavActive,
+  isNotificationsNavActive,
   readAdminTheme,
   readUserDisplayName,
   readSidebarPinned,
+  readSideNavScroll,
   writeAdminTheme,
   writeSidebarPinned,
+  writeSideNavScroll,
   type AdminNavGroup,
   type AdminTheme
 } from "./adminNavContent";
@@ -20,8 +29,6 @@ import { AdminGlobalSearchModal } from "./AdminGlobalSearchModal";
 import { AdminRestaurantSelector, AdminTypingSearch } from "./adminTopChrome";
 import { useAdminHash } from "./useAdminHash";
 import { useAdminPopoverMount } from "./useAdminPopoverMount";
-import { ADMIN_WORKSPACE_FAB, fabToneClasses } from "../marketing/fabTone";
-import { useAdminWorkspaceFabTone } from "../marketing/useAdminWorkspaceFabTone";
 
 export function useAdminTheme() {
   const [theme, setTheme] = useState<AdminTheme>(readAdminTheme);
@@ -33,28 +40,6 @@ export function useAdminTheme() {
     });
   }
   return { theme, toggleTheme };
-}
-
-export function AdminThemeFab({ theme, onToggle }: { theme: AdminTheme; onToggle: () => void }) {
-  const isDark = theme === "dark";
-  const fabTone = useAdminWorkspaceFabTone(true);
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
-      data-admin-theme-fab-tone={fabTone}
-      className={`admin-theme-fab fixed z-[90] flex h-14 w-14 items-center justify-center rounded-full border backdrop-blur-md transition-all duration-300 hover:scale-110 ${ADMIN_WORKSPACE_FAB.theme} ${fabToneClasses(fabTone)}`}
-    >
-      <img
-        src={isDark ? ADMIN_THEME_ICONS.dark : ADMIN_THEME_ICONS.light}
-        alt=""
-        className={`object-contain ${isDark ? "h-7 w-7" : "h-6 w-6"} ${
-          fabTone === "dark" ? "brightness-0 invert" : "brightness-0 contrast-125"
-        }`}
-      />
-    </button>
-  );
 }
 
 /** Exactly one sidebar item is active — matched by preset id, not duplicate hrefs. */
@@ -74,18 +59,28 @@ function NavGroupIcon({ src }: { src: string }) {
   return <img src={src} alt="" className="admin-side-group-icon-img" draggable={false} />;
 }
 
+/** Nav list height settles after expand/collapse CSS transitions. */
+const SIDE_NAV_LAYOUT_MS = 680;
+
+function clampNavScrollTop(scrollEl: HTMLElement, top: number) {
+  const max = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
+  return Math.min(max, Math.max(0, top));
+}
+
 function NavGroupBlock({
   group,
   groupIndex,
   hash,
   expanded,
-  onNavigate
+  onNavigate,
+  onItemClick
 }: {
   group: AdminNavGroup;
   groupIndex: number;
   hash: string;
   expanded: boolean;
   onNavigate?: () => void;
+  onItemClick?: () => void;
 }) {
   const groupActive = isGroupActive(group, hash, expanded);
 
@@ -95,7 +90,7 @@ function NavGroupBlock({
       style={{ "--nav-group-index": groupIndex } as CSSProperties}
     >
       <div
-        title={group.label}
+        aria-label={group.label}
         className={`admin-side-group-head ${groupActive ? "admin-side-group-head--active" : ""}`}
       >
         <span className="admin-side-group-icon" aria-hidden>
@@ -118,7 +113,10 @@ function NavGroupBlock({
             >
               <a
                 href={item.href}
-                onClick={onNavigate}
+                onClick={() => {
+                  onItemClick?.();
+                  onNavigate?.();
+                }}
                 aria-current={active && expanded ? "page" : undefined}
                 className={`admin-side-link flex items-center gap-2 rounded-lg py-1.5 pl-3 pr-2 text-[13px] transition ${
                   active ? "admin-side-link--active" : ""
@@ -153,11 +151,42 @@ function AdminSideNav({
   const hash = useAdminHash();
   const navRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const savedScrollTop = useRef(0);
+  const savedScrollTop = useRef(readSideNavScroll());
+  const scrollPersistTimer = useRef<number | null>(null);
+  const restoreTimer = useRef<number | null>(null);
+  const restoreRaf = useRef<number | null>(null);
+  const expandedRef = useRef(false);
 
   const expanded = pinned || hovered || variant === "mobile";
   const isMobile = variant === "mobile";
   const lockPageScroll = isMobile ? mobileOpen : hovered;
+
+  expandedRef.current = expanded;
+
+  const persistNavScroll = useCallback(() => {
+    const scrollEl = scrollRef.current;
+    if (!scrollEl || !expandedRef.current) return;
+    const next = clampNavScrollTop(scrollEl, scrollEl.scrollTop);
+    savedScrollTop.current = next;
+    writeSideNavScroll(next);
+  }, []);
+
+  const applySavedNavScroll = useCallback(() => {
+    const scrollEl = scrollRef.current;
+    if (!scrollEl) return;
+    scrollEl.scrollTop = savedScrollTop.current;
+  }, []);
+
+  const scheduleNavScrollRestore = useCallback(() => {
+    if (restoreTimer.current) window.clearTimeout(restoreTimer.current);
+    if (restoreRaf.current) window.cancelAnimationFrame(restoreRaf.current);
+
+    applySavedNavScroll();
+    restoreRaf.current = window.requestAnimationFrame(() => {
+      applySavedNavScroll();
+      restoreTimer.current = window.setTimeout(applySavedNavScroll, SIDE_NAV_LAYOUT_MS);
+    });
+  }, [applySavedNavScroll]);
 
   useEffect(() => {
     if (isMobile) {
@@ -202,48 +231,70 @@ function AdminSideNav({
   }, [lockPageScroll, expanded]);
 
   useEffect(() => {
+    if (!expanded) return;
+    scheduleNavScrollRestore();
+  }, [expanded, scheduleNavScrollRestore]);
+
+  useEffect(() => {
+    if (!isMobile || !mobileOpen) return;
+    scheduleNavScrollRestore();
+  }, [isMobile, mobileOpen, scheduleNavScrollRestore]);
+
+  useEffect(() => {
+    if (!expanded) return;
     const scrollEl = scrollRef.current;
-    if (!scrollEl) return;
+    const content = scrollEl?.querySelector<HTMLElement>(".admin-side-groups");
+    if (!scrollEl || !content) return;
 
-    const active =
-      scrollEl.querySelector<HTMLElement>('.admin-side-link[aria-current="page"]') ??
-      scrollEl.querySelector<HTMLElement>(".admin-side-link--active");
-    if (!active) return;
+    const onResize = () => applySavedNavScroll();
+    const ro = new ResizeObserver(onResize);
+    ro.observe(content);
 
-    const pad = 14;
-    const scrollRect = scrollEl.getBoundingClientRect();
-    const activeRect = active.getBoundingClientRect();
+    return () => ro.disconnect();
+  }, [expanded, applySavedNavScroll]);
 
-    if (activeRect.top < scrollRect.top + pad) {
-      scrollEl.scrollTop -= scrollRect.top + pad - activeRect.top;
-    } else if (activeRect.bottom > scrollRect.bottom - pad) {
-      scrollEl.scrollTop += activeRect.bottom - (scrollRect.bottom - pad);
-    }
-    savedScrollTop.current = scrollEl.scrollTop;
-  }, [hash]);
-
-  function restoreNavScroll() {
+  useEffect(() => {
     const scrollEl = scrollRef.current;
-    if (scrollEl) scrollEl.scrollTop = savedScrollTop.current;
-  }
+    if (!scrollEl || !expanded) return;
+
+    const onScroll = () => {
+      if (scrollPersistTimer.current) window.clearTimeout(scrollPersistTimer.current);
+      scrollPersistTimer.current = window.setTimeout(() => persistNavScroll(), 50);
+    };
+
+    scrollEl.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      scrollEl.removeEventListener("scroll", onScroll);
+      if (scrollPersistTimer.current) window.clearTimeout(scrollPersistTimer.current);
+    };
+  }, [expanded, persistNavScroll]);
+
+  useEffect(
+    () => () => {
+      if (restoreTimer.current) window.clearTimeout(restoreTimer.current);
+      if (restoreRaf.current) window.cancelAnimationFrame(restoreRaf.current);
+      if (scrollPersistTimer.current) window.clearTimeout(scrollPersistTimer.current);
+    },
+    []
+  );
 
   function handleNavMouseEnter() {
     if (isMobile) return;
     setHovered(true);
-    window.requestAnimationFrame(() => {
-      restoreNavScroll();
-      window.setTimeout(restoreNavScroll, 420);
-    });
   }
 
   function handleNavMouseLeave() {
     if (isMobile) return;
-    const scrollEl = scrollRef.current;
-    if (scrollEl) savedScrollTop.current = scrollEl.scrollTop;
+    persistNavScroll();
     setHovered(false);
   }
 
+  function handleNavItemClick() {
+    persistNavScroll();
+  }
+
   function togglePin() {
+    persistNavScroll();
     const next = !pinned;
     onPinnedChange(next);
     writeSidebarPinned(next);
@@ -277,6 +328,7 @@ function AdminSideNav({
               hash={hash}
               expanded={expanded}
               onNavigate={isMobile ? onMobileClose : undefined}
+              onItemClick={handleNavItemClick}
             />
           ))}
         </div>
@@ -286,7 +338,7 @@ function AdminSideNav({
         <button
           type="button"
           onClick={togglePin}
-          title={pinned ? "Unpin sidebar" : "Pin sidebar open"}
+          aria-label={pinned ? "Unpin sidebar" : "Pin sidebar open"}
           className={`admin-side-pin-btn flex w-full items-center rounded-lg py-2 text-left text-xs font-semibold transition ${
             pinned ? "admin-side-pin-btn--active" : ""
           }`}
@@ -434,6 +486,36 @@ function AdminTopToolIcon({ src, className = "" }: { src: string; className?: st
       }
       aria-hidden
     />
+  );
+}
+
+function AdminBubbleThemeRow({ theme, onToggle }: { theme: AdminTheme; onToggle: () => void }) {
+  const isDark = theme === "dark";
+  return (
+    <div className="admin-bubble-theme-row">
+      <div className="admin-bubble-theme-row-copy">
+        <span className="admin-bubble-item-title">{isDark ? "Light" : "Dark"}</span>
+        <span className="admin-bubble-item-desc">{isDark ? "Switch to light appearance" : "Switch to dark appearance"}</span>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={isDark}
+        aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+        className={`admin-bubble-theme-toggle${isDark ? " admin-bubble-theme-toggle--dark" : ""}`}
+        onClick={onToggle}
+      >
+        <span className="admin-bubble-theme-toggle-track" aria-hidden>
+          <span className="admin-bubble-theme-toggle-icon admin-bubble-theme-toggle-icon--light">
+            <img src={ADMIN_THEME_ICONS.light} alt="" draggable={false} />
+          </span>
+          <span className="admin-bubble-theme-toggle-icon admin-bubble-theme-toggle-icon--dark">
+            <img src={ADMIN_THEME_ICONS.dark} alt="" draggable={false} />
+          </span>
+          <span className="admin-bubble-theme-toggle-thumb" />
+        </span>
+      </button>
+    </div>
   );
 }
 
@@ -591,9 +673,9 @@ function ProfileMenuPanel({
       </div>
       <div className="admin-bubble-body admin-bubble-body--menu">
         <AdminBubbleMenuItem
-          href={buildNavHref("config", "restaurant-profile")}
-          title="Restaurant settings"
-          description="Venue configuration"
+          href={ADMIN_VENUE_CONTROL_HASH}
+          title="Venue profile"
+          description="Identity and locations"
           onClick={onNavigate}
         />
         <div className="admin-bubble-divider" />
@@ -611,6 +693,8 @@ function AdminTopNav({
   ownerEmail,
   userDisplayName,
   canManageBilling = false,
+  theme,
+  onToggleTheme,
   onLogoPress,
   onSignOut,
   onOpenMobileNav,
@@ -624,6 +708,8 @@ function AdminTopNav({
   ownerEmail?: string | null;
   userDisplayName?: string;
   canManageBilling?: boolean;
+  theme: AdminTheme;
+  onToggleTheme: () => void;
   onLogoPress: () => void;
   onSignOut: () => void;
   onOpenMobileNav?: () => void;
@@ -631,6 +717,9 @@ function AdminTopNav({
   venueSwitching?: boolean;
 }) {
   const quickMenu = useHoverMenu();
+  const notificationsMenu = useHoverMenu();
+  const billingMenu = useHoverMenu();
+  const helpMenu = useHoverMenu();
   const profileMenu = useHoverMenu();
 
   const hash = useAdminHash();
@@ -692,13 +781,40 @@ function AdminTopNav({
 
         <div className="admin-top-actions ml-auto flex shrink-0 items-center gap-1 sm:gap-1.5">
           <div className="admin-top-tools hidden items-center gap-0.5 rounded-xl border px-1 py-0.5 sm:flex">
-            <AdminToolBubbleButton
-              label="Platform help"
-              src={ADMIN_TOP_ICONS.help}
-              href={ADMIN_TOP_HASHES.platformHelp}
-              hint={ADMIN_TOP_TOOL_HINTS.help}
-              active={hash === ADMIN_TOP_HASHES.platformHelp}
-            />
+            <AdminHoverBubble
+              open={helpMenu.open}
+              onOpenNow={helpMenu.openNow}
+              onCloseSoon={helpMenu.closeSoon}
+              arrow="center"
+              panel={
+                <>
+                  <AdminBubbleHeader title={ADMIN_TOP_TOOL_HINTS.help.title} />
+                  <div className="admin-bubble-body admin-bubble-body--menu">
+                    {ADMIN_HELP_CATEGORIES.map((section) => (
+                      <AdminBubbleMenuItem
+                        key={section.id}
+                        href={section.href}
+                        title={section.label}
+                        onClick={() => helpMenu.setOpen(false)}
+                      />
+                    ))}
+                  </div>
+                </>
+              }
+            >
+              <button
+                type="button"
+                aria-expanded={helpMenu.open}
+                aria-haspopup="menu"
+                aria-label="Platform help"
+                aria-current={isHelpNavActive(hash) ? "page" : undefined}
+                className={`admin-top-tool-btn relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition ${
+                  isHelpNavActive(hash) ? "admin-top-tool-btn--active" : ""
+                }`}
+              >
+                <AdminTopToolIcon src={ADMIN_TOP_ICONS.help} />
+              </button>
+            </AdminHoverBubble>
             <AdminToolBubbleButton
               label="Staff management"
               src={ADMIN_TOP_ICONS.addUser}
@@ -706,22 +822,76 @@ function AdminTopNav({
               hint={ADMIN_TOP_TOOL_HINTS.addUser}
               active={hash === ADMIN_TOP_HASHES.addStaff}
             />
-            <AdminToolBubbleButton
-              label="Notifications"
-              src={ADMIN_TOP_ICONS.notifications}
-              href={ADMIN_TOP_HASHES.notifications}
-              hint={ADMIN_TOP_TOOL_HINTS.notifications}
-              badge
-              active={hash === ADMIN_TOP_HASHES.notifications}
-            />
+            <AdminHoverBubble
+              open={notificationsMenu.open}
+              onOpenNow={notificationsMenu.openNow}
+              onCloseSoon={notificationsMenu.closeSoon}
+              arrow="center"
+              panel={
+                <>
+                  <AdminBubbleHeader title={ADMIN_TOP_TOOL_HINTS.notifications.title} />
+                  <div className="admin-bubble-body admin-bubble-body--menu">
+                    {ADMIN_NOTIFICATION_CATEGORIES.map((channel) => (
+                      <AdminBubbleMenuItem
+                        key={channel.id}
+                        href={channel.href}
+                        title={channel.label}
+                        onClick={() => notificationsMenu.setOpen(false)}
+                      />
+                    ))}
+                  </div>
+                </>
+              }
+            >
+              <button
+                type="button"
+                aria-expanded={notificationsMenu.open}
+                aria-haspopup="menu"
+                aria-label="Notifications"
+                aria-current={isNotificationsNavActive(hash) ? "page" : undefined}
+                className={`admin-top-tool-btn relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition ${
+                  isNotificationsNavActive(hash) ? "admin-top-tool-btn--active" : ""
+                }`}
+              >
+                <AdminTopToolIcon src={ADMIN_TOP_ICONS.notifications} />
+                <span className="admin-top-tool-badge" />
+              </button>
+            </AdminHoverBubble>
             {canManageBilling ? (
-              <AdminToolBubbleButton
-                label="Billing"
-                src={ADMIN_TOP_ICONS.billing}
-                href={ADMIN_TOP_HASHES.billing}
-                hint={ADMIN_TOP_TOOL_HINTS.billing}
-                active={hash === ADMIN_TOP_HASHES.billing}
-              />
+              <AdminHoverBubble
+                open={billingMenu.open}
+                onOpenNow={billingMenu.openNow}
+                onCloseSoon={billingMenu.closeSoon}
+                arrow="center"
+                panel={
+                  <>
+                    <AdminBubbleHeader title={ADMIN_TOP_TOOL_HINTS.billing.title} />
+                    <div className="admin-bubble-body admin-bubble-body--menu">
+                      {ADMIN_BILLING_CATEGORIES.map((section) => (
+                        <AdminBubbleMenuItem
+                          key={section.id}
+                          href={section.href}
+                          title={section.label}
+                          onClick={() => billingMenu.setOpen(false)}
+                        />
+                      ))}
+                    </div>
+                  </>
+                }
+              >
+                <button
+                  type="button"
+                  aria-expanded={billingMenu.open}
+                  aria-haspopup="menu"
+                  aria-label="Billing"
+                  aria-current={isBillingNavActive(hash) ? "page" : undefined}
+                  className={`admin-top-tool-btn relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition ${
+                    isBillingNavActive(hash) ? "admin-top-tool-btn--active" : ""
+                  }`}
+                >
+                  <AdminTopToolIcon src={ADMIN_TOP_ICONS.billing} />
+                </button>
+              </AdminHoverBubble>
             ) : null}
             <AdminHoverBubble
               open={quickMenu.open}
@@ -735,8 +905,8 @@ function AdminTopNav({
                     description={ADMIN_TOP_TOOL_HINTS.quickActions.description}
                   />
                   <div className="admin-bubble-body admin-bubble-body--menu">
-                    <AdminBubbleKicker>{ADMIN_TOP_TOOL_HINTS.quickActions.kicker}</AdminBubbleKicker>
-                    {ADMIN_QUICK_ACTIONS.map((action) => (
+                    <AdminBubbleThemeRow theme={theme} onToggle={onToggleTheme} />
+                    {ADMIN_QUICK_LINKS.map((action) => (
                       <AdminBubbleMenuItem
                         key={action.id}
                         href={action.href}
@@ -825,6 +995,8 @@ export function AdminWorkspaceShell({
   ownerEmail,
   userDisplayName,
   canManageBilling = false,
+  theme,
+  onToggleTheme,
   onLogoPress,
   onSignOut,
   venueSwitching
@@ -837,6 +1009,8 @@ export function AdminWorkspaceShell({
   ownerEmail?: string | null;
   userDisplayName?: string;
   canManageBilling?: boolean;
+  theme: AdminTheme;
+  onToggleTheme: () => void;
   onLogoPress: () => void;
   onSignOut: () => void;
   venueSwitching?: boolean;
@@ -865,6 +1039,8 @@ export function AdminWorkspaceShell({
         ownerEmail={ownerEmail}
         userDisplayName={shellDisplayName}
         canManageBilling={canManageBilling}
+        theme={theme}
+        onToggleTheme={onToggleTheme}
         onLogoPress={onLogoPress}
         onSignOut={onSignOut}
         onOpenMobileNav={() => setMobileNavOpen(true)}

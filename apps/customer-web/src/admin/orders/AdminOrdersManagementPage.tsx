@@ -7,6 +7,7 @@ import {
   AdminEmptyState,
   AdminInput,
   AdminPanel,
+  AdminRefreshButton,
   AdminSectionHeader,
   subPanelCls
 } from "../AdminUi";
@@ -681,6 +682,7 @@ export function AdminOrdersManagementPage({ presetId, venueName = "", token = nu
               </div>
             ) : (
               <div className="flex flex-wrap gap-2">
+                <AdminRefreshButton onRefresh={() => api.refresh()} refreshing={api.meta.refreshing} label="Refresh orders" />
                 <AdminBtnSecondary onClick={() => setPendingAction({ type: "export" })}>Export</AdminBtnSecondary>
                 <AdminBtnPrimary onClick={() => setCreateOpen(true)}>Create order</AdminBtnPrimary>
               </div>

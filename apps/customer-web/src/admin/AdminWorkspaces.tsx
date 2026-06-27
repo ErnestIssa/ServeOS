@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { AdminPanel, AdminEmptyState, AdminSectionHeader, subPanelCls } from "./AdminUi";
+import { AdminConfigurationPage } from "./config/AdminConfigurationPage";
 import { AdminOrdersManagementPage } from "./orders/AdminOrdersManagementPage";
 import { AdminWorkspaceInnerTransition } from "./AdminWorkspaceInnerTransition";
 import {
@@ -215,17 +216,14 @@ function AutomationsBody({ workspaceId, activePresetId, onSelectTab }: Workspace
   );
 }
 
-function ConfigBody({ workspaceId, activePresetId, onSelectTab }: WorkspaceBodyProps) {
-  const preset = resolveWorkspacePreset(workspaceId, activePresetId);
+function ConfigBody({ activePresetId, venueName, token, restaurantId }: WorkspaceBodyProps) {
   return (
-    <WorkspaceShell workspaceId={workspaceId} activePresetId={activePresetId} onSelectTab={onSelectTab}>
-      <PanelBlock title={preset.label}>
-        <p className="text-sm text-slate-600">
-          Configuration section <strong>{preset.label}</strong>
-          {preset.filter ? ` — focus: ${preset.filter}` : ""}.
-        </p>
-      </PanelBlock>
-    </WorkspaceShell>
+    <AdminConfigurationPage
+      presetId={activePresetId}
+      venueName={venueName}
+      token={token}
+      restaurantId={restaurantId}
+    />
   );
 }
 
@@ -298,7 +296,16 @@ function WorkspaceBody({
     case "automations":
       return <AutomationsBody workspaceId={workspaceId} activePresetId={activePresetId} onSelectTab={onSelectTab} />;
     case "config":
-      return <ConfigBody workspaceId={workspaceId} activePresetId={activePresetId} onSelectTab={onSelectTab} />;
+      return (
+        <ConfigBody
+          workspaceId={workspaceId}
+          activePresetId={activePresetId}
+          onSelectTab={onSelectTab}
+          venueName={venueName}
+          token={token}
+          restaurantId={restaurantId}
+        />
+      );
     case "business":
       return <BusinessBody workspaceId={workspaceId} activePresetId={activePresetId} onSelectTab={onSelectTab} />;
     case "analytics":

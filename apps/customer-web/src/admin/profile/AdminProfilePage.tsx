@@ -417,8 +417,8 @@ export function AdminProfilePage({ token, displayName, email, onSignOut, onEmail
                 </li>
               ))}
             </ul>
-            <a href="#ws-config/locations" className="admin-page-text-link mt-4 inline-block text-sm font-semibold">
-              Manage locations →
+            <a href="#venue-control-centre" className="admin-page-text-link mt-4 inline-block text-sm font-semibold">
+              Open venue profile →
             </a>
           </div>
 

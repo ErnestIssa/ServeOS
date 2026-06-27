@@ -24,7 +24,7 @@ import {
   AdminSkeletonTable,
   AdminStaleContent
 } from "./AdminSkeleton";
-import { AdminThemeFab, AdminWorkspaceShell, useAdminTheme } from "./AdminNav";
+import { AdminWorkspaceShell, useAdminTheme } from "./AdminNav";
 import { MobileFloatingDock } from "../MobileFloatingDock";
 import { formatMoneyCents } from "@serveos/core-shared/currency";
 import {
@@ -69,7 +69,8 @@ import { AdminToastProvider } from "./AdminToast";
 import { OwnerWorkspaceBanner } from "./OwnerWorkspaceBanner";
 import { WorkspaceLaunchModal } from "./WorkspaceLaunchModal";
 import { canManageBilling } from "./billingPermissions";
-import { ADMIN_TOP_HASHES } from "./adminTopHashes";
+import { ADMIN_BILLING_HASHES } from "./adminTopHashes";
+import { isBillingNavActive } from "./adminNavContent";
 import { WorkspaceAccessPendingPage } from "../enrollment/WorkspaceAccessPendingPage";
 
 function formatMoney(cents: number) {
@@ -265,7 +266,7 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
     if (!token || !ownerCanManageBilling || hasWorkspaceDeployment) {
       return;
     }
-    if (adminHash === ADMIN_TOP_HASHES.billing) {
+    if (isBillingNavActive(adminHash)) {
       setLaunchModalOpen(true);
     }
   }, [token, ownerCanManageBilling, hasWorkspaceDeployment, adminHash]);
@@ -440,6 +441,7 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
   });
   const adminRoute = parseAdminRoute(adminHash);
   const showFullPage = adminRoute.kind === "full-page";
+  const fullPageHash = showFullPage ? adminRoute.hash : adminHash;
   const selectedVenueName = restaurants.find((r) => r.id === selectedRestaurantId)?.name ?? "";
 
   const catalogAndOrders = (
@@ -800,6 +802,8 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
           ownerEmail={ownerUser?.email}
           userDisplayName={ownerDisplayName}
           canManageBilling={ownerCanManageBilling}
+          theme={theme}
+          onToggleTheme={toggleTheme}
           onLogoPress={requestSignOut}
           onSignOut={requestSignOut}
           venueSwitching={venueSwitching}
@@ -823,20 +827,25 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
                   onOpenDeployment={() => setLaunchModalOpen(true)}
                   onDismissTrial={() => void handleDismissTrialNotice()}
                   onViewBilling={() => {
-                    window.location.hash = ADMIN_TOP_HASHES.billing;
+                    window.location.hash = ADMIN_BILLING_HASHES.subscription;
                   }}
                 />
                 <AdminPageTransition
-                  pageKey={showFullPage ? adminFullPageKey(adminHash) : `ws-${adminRoute.workspaceId}`}
+                  pageKey={showFullPage ? adminFullPageKey(fullPageHash) : `ws-${adminRoute.workspaceId}`}
                 >
                   {showFullPage ? (
                     adminHash === ADMIN_VENUE_CONTROL_HASH ? (
-                      <AdminVenueControlCentrePage venueName={selectedVenueName} venueId={selectedRestaurantId} />
-                    ) : adminHash === ADMIN_TOP_HASHES.billing && !ownerCanManageBilling ? (
+                      <AdminVenueControlCentrePage
+                        venueName={selectedVenueName}
+                        venueId={selectedRestaurantId}
+                        token={token}
+                        onSelectVenue={(id) => void handleSelectRestaurant(id)}
+                      />
+                    ) : isBillingNavActive(adminHash) && !ownerCanManageBilling ? (
                       <AdminWorkspaceView workspaceId="live-ops" presetId="live-overview" />
                     ) : (
                       <AdminTopPageView
-                        hash={adminHash}
+                        hash={fullPageHash}
                         token={token}
                         displayName={ownerDisplayName}
                         email={ownerUser?.email}
@@ -983,8 +992,6 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
 
       {!token ? <MobileFloatingDock signedIn={false} /> : null}
       </div>
-
-      {token ? <AdminThemeFab theme={theme} onToggle={toggleTheme} /> : null}
     </div>
     </AdminToastProvider>
   );

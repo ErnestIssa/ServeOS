@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
+import { useState, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
 import { ServeOsWordmark } from "../signup/SignupShell";
 import { btnPrimary, btnSecondary, contentWrap, eyebrow, glassPanel, pageGutter, sectionTitle } from "../marketing/styles";
 
@@ -51,7 +51,7 @@ export function AdminHeader({
 
         {signedIn ? (
           <nav className="hidden items-center gap-1 md:flex" aria-label="Admin sections">
-            <a href="#ws-config/menu-builder" className={navLink}>
+            <a href="#ws-config/menu" className={navLink}>
               Menu
             </a>
             <a href="#ws-orders/all-orders" className={navLink}>
@@ -188,6 +188,84 @@ export function AdminBtnSecondary({
     <button type="button" className={`${btnSecondarySm} ${className}`} {...props}>
       {children}
     </button>
+  );
+}
+
+export function AdminCopyButton({
+  value,
+  label = "Copy",
+  className = ""
+}: {
+  value: string;
+  label?: string;
+  className?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard unavailable */
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => void handleCopy()}
+      className={`admin-copy-btn ${copied ? "admin-copy-btn--copied" : ""} ${className}`.trim()}
+      aria-label={copied ? "Copied" : `Copy ${label}`}
+    >
+      {copied ? "Copied" : label}
+    </button>
+  );
+}
+
+export function AdminCopyField({
+  label,
+  value,
+  mono = true
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  const display = value?.trim() || "—";
+  return (
+    <div className="admin-copy-field">
+      <p className="admin-copy-field-label">{label}</p>
+      <div className="admin-copy-field-row">
+        <span className={`admin-copy-field-value ${mono ? "admin-copy-field-value--mono" : ""}`}>{display}</span>
+        {value?.trim() ? <AdminCopyButton value={value} label="Copy" /> : null}
+      </div>
+    </div>
+  );
+}
+
+export function AdminRefreshButton({
+  onRefresh,
+  refreshing = false,
+  label = "Refresh",
+  disabled = false
+}: {
+  onRefresh: () => void | Promise<void>;
+  refreshing?: boolean;
+  label?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <AdminBtnSecondary
+      type="button"
+      onClick={() => void onRefresh()}
+      disabled={disabled || refreshing}
+      aria-busy={refreshing}
+    >
+      {refreshing ? "Refreshing…" : label}
+    </AdminBtnSecondary>
   );
 }
 

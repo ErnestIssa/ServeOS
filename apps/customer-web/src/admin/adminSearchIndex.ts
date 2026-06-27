@@ -1,5 +1,5 @@
-import { ADMIN_NAV_GROUPS } from "./adminNavContent";
-import { ADMIN_TOP_HASHES, ADMIN_VENUE_CONTROL_HASH } from "./adminTopHashes";
+import { ADMIN_NOTIFICATION_HASHES, ADMIN_TOP_HASHES, ADMIN_VENUE_CONTROL_HASH } from "./adminTopHashes";
+import { ADMIN_NAV_GROUPS, ADMIN_BILLING_CATEGORIES, ADMIN_HELP_CATEGORIES, ADMIN_NOTIFICATION_CATEGORIES } from "./adminNavContent";
 
 export type AdminSearchEntry = {
   id: string;
@@ -13,28 +13,44 @@ export type AdminSearchEntry = {
 const STATIC_ENTRIES: AdminSearchEntry[] = [
   {
     id: "venue-control",
-    title: "Venue control centre",
-    subtitle: "Mission control for the active location",
+    title: "Venue profile",
+    subtitle: "Identity, IDs, and workspace locations",
     category: "Venues",
     href: ADMIN_VENUE_CONTROL_HASH,
-    keywords: ["venue", "control", "location", "dashboard", "overview"]
+    keywords: ["venue", "profile", "location", "restaurant", "identity", "id"]
   },
   {
-    id: "top-billing",
-    title: "Billing & subscription",
-    subtitle: "Plans, invoices, and payment methods",
-    category: "Account",
-    href: ADMIN_TOP_HASHES.billing,
-    keywords: ["billing", "invoice", "payment", "subscription", "plan"]
+    id: "notify-customer-alerts",
+    title: "Customer Alerts",
+    subtitle: "Notifications",
+    category: "Alerts",
+    href: ADMIN_NOTIFICATION_HASHES.customerAlerts,
+    keywords: ["customer", "alerts", "guest", "notifications"]
   },
-  {
-    id: "top-notifications",
-    title: "Notifications",
-    subtitle: "Alerts and system messages",
-    category: "Account",
-    href: ADMIN_TOP_HASHES.notifications,
-    keywords: ["notifications", "alerts", "messages"]
-  },
+  ...ADMIN_BILLING_CATEGORIES.map((cat) => ({
+    id: cat.id,
+    title: cat.label,
+    subtitle: "ServeOS platform billing",
+    category: "Billing",
+    href: cat.href,
+    keywords: [cat.label, cat.layout, "billing", "subscription", "saas", "invoice"]
+  })),
+  ...ADMIN_NOTIFICATION_CATEGORIES.map((cat) => ({
+    id: cat.id,
+    title: cat.label,
+    subtitle: "Notifications",
+    category: "Alerts",
+    href: cat.href,
+    keywords: [cat.label, cat.layout, "notifications", "alerts"]
+  })),
+  ...ADMIN_HELP_CATEGORIES.map((cat) => ({
+    id: cat.id,
+    title: cat.label,
+    subtitle: "Platform help",
+    category: "Support",
+    href: cat.href,
+    keywords: [cat.label, cat.layout, "help", "support", "faq", "guide", "troubleshooting"]
+  })),
   {
     id: "top-add-staff",
     title: "Staff management",
@@ -42,14 +58,6 @@ const STATIC_ENTRIES: AdminSearchEntry[] = [
     category: "Team",
     href: ADMIN_TOP_HASHES.addStaff,
     keywords: ["staff", "invite", "team", "roles"]
-  },
-  {
-    id: "top-help",
-    title: "Platform help",
-    subtitle: "Guides, FAQs, and support",
-    category: "Support",
-    href: ADMIN_TOP_HASHES.platformHelp,
-    keywords: ["help", "support", "faq", "guides"]
   },
   {
     id: "top-profile",
@@ -88,13 +96,12 @@ const SUGGESTED_IDS = [
   "active-orders",
   "problem-orders",
   "reservations",
-  "menu-builder",
-  "top-notifications",
+  "menu",
+  "notify-customer-alerts",
   "top-add-staff",
-  "top-billing",
-  "tables",
-  "staff-list",
-  "top-help"
+  "bill-subscription",
+  "payments",
+  "tips-info",
 ] as const;
 
 function suggestedEntries(): AdminSearchEntry[] {

@@ -42,7 +42,8 @@ import { registerWorkspaceEnrollmentRoutes } from "./routes/workspaceEnrollmentR
 import { registerWorkspaceProvisioningRoutes } from "./routes/workspaceProvisioningRoutes.js";
 import { registerTrustRoutes } from "./routes/trustRoutes.js";
 import { startOrderOutboxProcessor } from "./lib/orders/orderOutboxProcessor.js";
-import { startOrderRecoveryProcessor } from "./lib/orders/orderRecoveryService.js";
+import { registerSupportAgentRoutes } from "./routes/supportAgentRoutes.js";
+import { isSupportAgentConfigured } from "./lib/supportAgent/supportAgentService.js";
 
 const port = Number(process.env.PORT ?? process.env.API_GATEWAY_PORT ?? 3000);
 /** Render / Docker: set `HOST=0.0.0.0` so the service accepts external connections. */
@@ -175,6 +176,7 @@ async function main() {
       objectStorage: { configured: isObjectStorageConfigured() },
       cloudflareCdn: { configured: isCloudflareCdnConfigured() },
       sms: { configured: isSmsProviderConfigured() },
+      supportAgent: { configured: isSupportAgentConfigured() },
       upstashRedis: redis.configured
         ? { configured: true, ok: redis.ok, ...(redis.error ? { error: redis.error } : {}) }
         : { configured: false, mode: "skipped" }
@@ -201,7 +203,8 @@ async function main() {
       "/trust/*",
       "/cart/*",
       "/notifications/*",
-      "/workspace-deployment/*"
+      "/workspace-deployment/*",
+      "/api/support-agent"
     ]
   }));
 
@@ -237,6 +240,7 @@ async function main() {
   registerNotificationRealtime(app, notificationBus);
   registerCartRoutes(app, prisma);
   registerBusinessRoutes(app);
+  registerSupportAgentRoutes(app);
   registerWorkspaceDeploymentRoutes(app, prisma);
 
   await app.listen({ port, host });
