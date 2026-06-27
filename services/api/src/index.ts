@@ -42,6 +42,7 @@ import { registerWorkspaceEnrollmentRoutes } from "./routes/workspaceEnrollmentR
 import { registerWorkspaceProvisioningRoutes } from "./routes/workspaceProvisioningRoutes.js";
 import { registerTrustRoutes } from "./routes/trustRoutes.js";
 import { startOrderOutboxProcessor } from "./lib/orders/orderOutboxProcessor.js";
+import { startOrderRecoveryProcessor } from "./lib/orders/orderRecoveryService.js";
 import { registerSupportAgentRoutes } from "./routes/supportAgentRoutes.js";
 import { isSupportAgentConfigured } from "./lib/supportAgent/supportAgentService.js";
 
