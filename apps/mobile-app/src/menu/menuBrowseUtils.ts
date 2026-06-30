@@ -1,4 +1,29 @@
 /** Flatten categories from public menu payload */
+export type MenuMediaLite = {
+  id: string;
+  kind: "image" | "video";
+  url: string | null;
+  sortOrder: number;
+  durationMs?: number | null;
+};
+
+export type MenuModifierOptionLite = {
+  id: string;
+  name: string;
+  priceDeltaCents: number;
+  sortOrder: number;
+  isActive: boolean;
+};
+
+export type MenuModifierGroupLite = {
+  id: string;
+  name: string;
+  minSelect: number;
+  maxSelect: number;
+  sortOrder: number;
+  options: MenuModifierOptionLite[];
+};
+
 export type MenuItemFlat = {
   id: string;
   name: string;
@@ -6,6 +31,10 @@ export type MenuItemFlat = {
   priceCents: number;
   categoryId: string;
   categoryName: string;
+  coverUrl?: string | null;
+  imageKey?: string | null;
+  media?: MenuMediaLite[];
+  modifierGroups?: MenuModifierGroupLite[];
 };
 
 export type MenuCategoryLite = {
@@ -17,6 +46,10 @@ export type MenuCategoryLite = {
     name: string;
     description?: string | null;
     priceCents: number;
+    coverUrl?: string | null;
+    imageKey?: string | null;
+    media?: MenuMediaLite[];
+    modifierGroups?: MenuModifierGroupLite[];
   }>;
 };
 
@@ -30,7 +63,11 @@ export function flattenMenu(categories: MenuCategoryLite[]): MenuItemFlat[] {
         description: item.description,
         priceCents: item.priceCents ?? 0,
         categoryId: cat.id,
-        categoryName: cat.name
+        categoryName: cat.name,
+        coverUrl: item.coverUrl,
+        imageKey: item.imageKey,
+        media: item.media,
+        modifierGroups: item.modifierGroups
       });
     }
   }

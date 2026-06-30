@@ -4,8 +4,10 @@ import type { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { fetchMenuTree } from "../lib/menu.js";
+import { buildPublishedPublicMenu } from "../lib/menu/publicMenuService.js";
+import { assertMenuEntityPermission } from "../lib/menu/menuPermissions.js";
+import { requireMenuVenueMembership } from "../lib/menu/menuMembership.js";
 import { isCustomerBrowsableRestaurant } from "../lib/customerRestaurantDirectory.js";
-import { isVenueMembershipRole } from "../lib/membershipAccess.js";
 
 export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaClient) {
   function requireUser(req: { headers: { authorization?: string } }) {
@@ -20,14 +22,8 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
   }
 
   async function requireStaff(req: { headers: { authorization?: string } }, restaurantId: string) {
-    const user = requireUser(req);
-    const m = await prisma.membership.findUnique({
-      where: { userId_restaurantId: { userId: user.sub, restaurantId } }
-    });
-    if (!m || !isVenueMembershipRole(m.role)) {
-      throw Object.assign(new Error("forbidden"), { statusCode: 403 });
-    }
-    return { user, membership: m };
+    const { userId, membership } = await requireMenuVenueMembership(prisma, req, restaurantId);
+    return { user: { sub: userId }, membership };
   }
 
   async function assertCategoryRestaurant(categoryId: string, restaurantId: string) {
@@ -165,15 +161,15 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
     const { restaurantId } = req.params as { restaurantId: string };
     const browsable = await isCustomerBrowsableRestaurant(prisma, restaurantId);
     if (!browsable) return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
-    const r = await prisma.restaurant.findUnique({ where: { id: restaurantId } });
-    if (!r) return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
-    const categories = await fetchMenuTree(prisma, restaurantId, { onlyActive: true });
-    return { ok: true, restaurant: { id: r.id, name: r.name }, categories };
+    const menu = await buildPublishedPublicMenu(prisma, restaurantId);
+    if (!menu) return reply.status(404).send({ ok: false, error: "menu_not_published" });
+    return { ok: true, ...menu };
   });
 
   app.get("/restaurants/:restaurantId/menu", async (req) => {
     const { restaurantId } = req.params as { restaurantId: string };
-    await requireStaff(req, restaurantId);
+    const { membership } = await requireStaff(req, restaurantId);
+    assertMenuEntityPermission("menu", "view", membership);
     const r = await prisma.restaurant.findUnique({ where: { id: restaurantId } });
     if (!r) throw Object.assign(new Error("restaurant_not_found"), { statusCode: 404 });
     const categories = await fetchMenuTree(prisma, restaurantId, { onlyActive: false });
@@ -188,7 +184,8 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
 
   app.post("/restaurants/:restaurantId/menu/categories", async (req) => {
     const { restaurantId } = req.params as { restaurantId: string };
-    await requireStaff(req, restaurantId);
+    const { membership } = await requireStaff(req, restaurantId);
+    assertMenuEntityPermission("category", "create", membership);
     const body = createCategorySchema.parse(req.body);
     const category = await prisma.menuCategory.create({
       data: {
@@ -209,7 +206,8 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
 
   app.patch("/restaurants/:restaurantId/menu/categories/:categoryId", async (req) => {
     const { restaurantId, categoryId } = req.params as { restaurantId: string; categoryId: string };
-    await requireStaff(req, restaurantId);
+    const { membership } = await requireStaff(req, restaurantId);
+    assertMenuEntityPermission("category", "edit", membership);
     await assertCategoryRestaurant(categoryId, restaurantId);
     const body = patchCategorySchema.parse(req.body);
     const category = await prisma.menuCategory.update({
@@ -221,7 +219,8 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
 
   app.delete("/restaurants/:restaurantId/menu/categories/:categoryId", async (req) => {
     const { restaurantId, categoryId } = req.params as { restaurantId: string; categoryId: string };
-    await requireStaff(req, restaurantId);
+    const { membership } = await requireStaff(req, restaurantId);
+    assertMenuEntityPermission("category", "delete", membership);
     await assertCategoryRestaurant(categoryId, restaurantId);
     await prisma.menuCategory.delete({ where: { id: categoryId } });
     return { ok: true };
@@ -238,7 +237,8 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
 
   app.post("/restaurants/:restaurantId/menu/items", async (req) => {
     const { restaurantId } = req.params as { restaurantId: string };
-    await requireStaff(req, restaurantId);
+    const { membership } = await requireStaff(req, restaurantId);
+    assertMenuEntityPermission("item", "create", membership);
     const body = createItemSchema.parse(req.body);
     await assertCategoryRestaurant(body.categoryId, restaurantId);
     const item = await prisma.menuItem.create({
@@ -265,7 +265,8 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
 
   app.patch("/restaurants/:restaurantId/menu/items/:itemId", async (req) => {
     const { restaurantId, itemId } = req.params as { restaurantId: string; itemId: string };
-    await requireStaff(req, restaurantId);
+    const { membership } = await requireStaff(req, restaurantId);
+    assertMenuEntityPermission("item", "edit", membership);
     await assertItemRestaurant(itemId, restaurantId);
     const body = patchItemSchema.parse(req.body);
     if (body.categoryId) await assertCategoryRestaurant(body.categoryId, restaurantId);
@@ -278,7 +279,8 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
 
   app.delete("/restaurants/:restaurantId/menu/items/:itemId", async (req) => {
     const { restaurantId, itemId } = req.params as { restaurantId: string; itemId: string };
-    await requireStaff(req, restaurantId);
+    const { membership } = await requireStaff(req, restaurantId);
+    assertMenuEntityPermission("item", "delete", membership);
     await assertItemRestaurant(itemId, restaurantId);
     await prisma.menuItem.delete({ where: { id: itemId } });
     return { ok: true };
@@ -293,7 +295,8 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
 
   app.post("/restaurants/:restaurantId/menu/items/:itemId/modifier-groups", async (req) => {
     const { restaurantId, itemId } = req.params as { restaurantId: string; itemId: string };
-    await requireStaff(req, restaurantId);
+    const { membership } = await requireStaff(req, restaurantId);
+    assertMenuEntityPermission("modifier_group", "create", membership);
     await assertItemRestaurant(itemId, restaurantId);
     const body = createGroupSchema.parse(req.body);
     const group = await prisma.modifierGroup.create({
@@ -317,7 +320,8 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
 
   app.patch("/restaurants/:restaurantId/menu/modifier-groups/:groupId", async (req) => {
     const { restaurantId, groupId } = req.params as { restaurantId: string; groupId: string };
-    await requireStaff(req, restaurantId);
+    const { membership } = await requireStaff(req, restaurantId);
+    assertMenuEntityPermission("modifier_group", "edit", membership);
     await assertGroupRestaurant(groupId, restaurantId);
     const body = patchGroupSchema.parse(req.body);
     const group = await prisma.modifierGroup.update({ where: { id: groupId }, data: body });
@@ -326,7 +330,8 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
 
   app.delete("/restaurants/:restaurantId/menu/modifier-groups/:groupId", async (req) => {
     const { restaurantId, groupId } = req.params as { restaurantId: string; groupId: string };
-    await requireStaff(req, restaurantId);
+    const { membership } = await requireStaff(req, restaurantId);
+    assertMenuEntityPermission("modifier_group", "delete", membership);
     await assertGroupRestaurant(groupId, restaurantId);
     await prisma.modifierGroup.delete({ where: { id: groupId } });
     return { ok: true };
@@ -341,7 +346,8 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
 
   app.post("/restaurants/:restaurantId/menu/modifier-groups/:groupId/options", async (req) => {
     const { restaurantId, groupId } = req.params as { restaurantId: string; groupId: string };
-    await requireStaff(req, restaurantId);
+    const { membership } = await requireStaff(req, restaurantId);
+    assertMenuEntityPermission("modifier_option", "create", membership);
     await assertGroupRestaurant(groupId, restaurantId);
     const body = createOptionSchema.parse(req.body);
     const option = await prisma.modifierOption.create({
@@ -365,7 +371,8 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
 
   app.patch("/restaurants/:restaurantId/menu/modifier-options/:optionId", async (req) => {
     const { restaurantId, optionId } = req.params as { restaurantId: string; optionId: string };
-    await requireStaff(req, restaurantId);
+    const { membership } = await requireStaff(req, restaurantId);
+    assertMenuEntityPermission("modifier_option", "edit", membership);
     await assertOptionRestaurant(optionId, restaurantId);
     const body = patchOptionSchema.parse(req.body);
     const option = await prisma.modifierOption.update({ where: { id: optionId }, data: body });
@@ -374,7 +381,8 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
 
   app.delete("/restaurants/:restaurantId/menu/modifier-options/:optionId", async (req) => {
     const { restaurantId, optionId } = req.params as { restaurantId: string; optionId: string };
-    await requireStaff(req, restaurantId);
+    const { membership } = await requireStaff(req, restaurantId);
+    assertMenuEntityPermission("modifier_option", "delete", membership);
     await assertOptionRestaurant(optionId, restaurantId);
     await prisma.modifierOption.delete({ where: { id: optionId } });
     return { ok: true };

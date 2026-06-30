@@ -19,7 +19,6 @@
     "@fastify/cors": "^10.0.2",
     "@fastify/websocket": "^11.2.0",
     "@prisma/client": "^6.16.1",
-    "@serveos/agents": "^0.0.0",
     "@serveos/core-env": "^0.0.0",
     "@serveos/core-shared": "^0.0.0",
     "@serveos/core-upstash": "^0.0.0",

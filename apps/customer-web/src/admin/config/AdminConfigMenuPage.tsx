@@ -10,7 +10,10 @@ import {
 import { AdminSkeletonStatGrid, AdminStaleContent } from "../AdminSkeleton";
 import { CONFIG_PRESET_DESCRIPTIONS, MENU_TAB_LABELS, MENU_TABS, type MenuSectionTab } from "./configRouting";
 import { AdminMenuTabContent } from "./menu/AdminMenuTabContent";
+import { AdminMenusTabPanel } from "./menu/AdminMenusTabPanel";
 import { useAdminMenu } from "./useAdminMenu";
+import { useAdminMenus } from "./useAdminMenus";
+import { useMenuCapabilities } from "./useMenuCapabilities";
 
 const TAB_TRANSITION = { duration: 0.34, ease: [0.22, 1, 0.36, 1] as const };
 
@@ -34,12 +37,15 @@ function StatTile({ label, value, hint }: { label: string; value: string; hint?:
 export function AdminConfigMenuPage({ token, restaurantId, venueName, initialTab = null }: Props) {
   const [tab, setTab] = useState<MenuSectionTab>(initialTab ?? "menus");
   const api = useAdminMenu(token, restaurantId);
+  const menusApi = useAdminMenus(token, restaurantId);
+  const menuCaps = useMenuCapabilities(token, restaurantId);
 
   useEffect(() => {
     if (initialTab) setTab(initialTab);
   }, [initialTab]);
 
-  const menuSurfaceCount = 5;
+  const menuSurfaceCount = menusApi.menus.filter((m) => m.status !== "ARCHIVED").length;
+  const publishedMenuCount = menusApi.menus.filter((m) => m.status === "PUBLISHED").length;
 
   if (!token || !restaurantId) {
     return (
@@ -70,7 +76,7 @@ export function AdminConfigMenuPage({ token, restaurantId, venueName, initialTab
           </div>
         ) : (
           <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <StatTile label="Menus" value={String(menuSurfaceCount)} hint={`${api.stats.menus} live`} />
+            <StatTile label="Menus" value={String(menuSurfaceCount || api.stats.menus)} hint={`${publishedMenuCount} published`} />
             <StatTile label="Categories" value={String(api.stats.categories)} hint={`${api.stats.activeCategories} active`} />
             <StatTile label="Items" value={String(api.stats.items)} hint={`${api.stats.activeItems} active`} />
             <StatTile label="Modifiers" value={String(api.stats.modifiers)} hint="Options across items" />
@@ -102,14 +108,28 @@ export function AdminConfigMenuPage({ token, restaurantId, venueName, initialTab
             transition={TAB_TRANSITION}
           >
             <div className={`${subPanelCls} admin-config-section admin-menu-tab-panel overflow-hidden p-4 sm:p-5`}>
-              <AdminMenuTabContent
-                tab={tab}
-                api={api}
-                token={token}
-                restaurantId={restaurantId}
-                venueName={venueName}
-                initialLoading={api.meta.initialLoading}
-              />
+              {tab === "menus" ? (
+                <AdminMenusTabPanel
+                  menusApi={menusApi}
+                  token={token}
+                  restaurantId={restaurantId}
+                  venueName={venueName}
+                  initialLoading={api.meta.initialLoading}
+                  canCreateMenu={menuCaps.can("menu", "create")}
+                  canPublishMenu={menuCaps.can("menu", "publish")}
+                />
+              ) : (
+                <AdminMenuTabContent
+                  tab={tab}
+                  api={api}
+                  token={token}
+                  restaurantId={restaurantId}
+                  venueName={venueName}
+                  initialLoading={api.meta.initialLoading}
+                  capabilities={menuCaps.capabilities}
+                  can={menuCaps.can}
+                />
+              )}
             </div>
           </motion.div>
         </AnimatePresence>

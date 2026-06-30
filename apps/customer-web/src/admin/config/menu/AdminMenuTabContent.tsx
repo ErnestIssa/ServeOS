@@ -4,7 +4,11 @@ import {
   createCategory,
   createMenuItem,
   createModifierGroup,
-  createModifierOption
+  createModifierOption,
+  exportMenuCsv,
+  importMenuCsv,
+  listRestaurantMenus,
+  scheduleRestaurantMenu
 } from "../../../api";
 import {
   AdminBtnPrimary,
@@ -17,6 +21,8 @@ import { AdminSkeletonTable } from "../../AdminSkeleton";
 import { useAdminToast } from "../../AdminToast";
 import type { MenuSectionTab } from "../configRouting";
 import type { useAdminMenu } from "../useAdminMenu";
+import type { MenuCapabilitiesPayload } from "../../../api";
+import { MenuItemMediaGallery } from "./MenuItemMediaGallery";
 import {
   MenuActionRow,
   MenuChip,
@@ -36,22 +42,31 @@ type Props = {
   restaurantId: string;
   venueName: string;
   initialLoading: boolean;
+  capabilities: MenuCapabilitiesPayload | null;
+  can: (entity: keyof MenuCapabilitiesPayload["entities"], action: string) => boolean;
 };
 
-const MENU_SURFACES = [
-  { id: "main", name: "Main Menu", example: true },
-  { id: "lunch", name: "Lunch Menu", example: true },
-  { id: "dinner", name: "Dinner Menu", example: true },
-  { id: "drinks", name: "Drinks", example: true },
-  { id: "seasonal", name: "Seasonal Menu", example: true }
+const AVAILABILITY_SLOTS = [
+  { key: "breakfast", label: "Breakfast", start: "07:00", end: "11:00" },
+  { key: "lunch", label: "Lunch", start: "11:00", end: "15:00" },
+  { key: "dinner", label: "Dinner", start: "17:00", end: "22:00" },
+  { key: "weekend", label: "Weekend", start: "10:00", end: "23:00" },
+  { key: "holiday", label: "Holiday", start: "10:00", end: "20:00" }
 ] as const;
 
-const AVAILABILITY_SLOTS = ["Breakfast", "Lunch", "Dinner", "Weekend", "Holiday"] as const;
-
-export function AdminMenuTabContent({ tab, api, token, restaurantId, venueName, initialLoading }: Props) {
+export function AdminMenuTabContent({
+  tab,
+  api,
+  token,
+  restaurantId,
+  venueName,
+  initialLoading,
+  capabilities,
+  can
+}: Props) {
   const { pushToast } = useAdminToast();
   const [busy, setBusy] = useState(false);
-  const [selectedMenuId, setSelectedMenuId] = useState("main");
+  const [importBusy, setImportBusy] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 
   const [newCategoryName, setNewCategoryName] = useState("");
@@ -87,27 +102,6 @@ export function AdminMenuTabContent({ tab, api, token, restaurantId, venueName, 
     if (!newModGroupId && modifierGroups[0]) setNewModGroupId(modifierGroups[0].id);
   }, [modifierGroups, newModGroupId]);
 
-  const menuSurfaces = useMemo(
-    () =>
-      MENU_SURFACES.map((m) => ({
-        ...m,
-        description:
-          m.id === "main"
-            ? `Default guest menu for ${venueName || "this venue"}`
-            : m.id === "lunch"
-              ? "Weekday lunch service — schedule when multi-menu is enabled"
-              : m.id === "dinner"
-                ? "Evening dining — share categories or build a dedicated set"
-                : m.id === "drinks"
-                  ? "Beverages, cocktails, and bar service"
-                  : "Rotating seasonal items and limited-time offers",
-        categories: m.id === "main" ? api.stats.categories : 0,
-        items: m.id === "main" ? api.stats.items : 0,
-        status: m.id === "main" ? ("live" as const) : ("draft" as const)
-      })),
-    [venueName, api.stats.categories, api.stats.items]
-  );
-
   const selectedItem = useMemo(
     () => api.flatItems.find((i) => i.id === selectedItemId) ?? null,
     [api.flatItems, selectedItemId]
@@ -125,75 +119,10 @@ export function AdminMenuTabContent({ tab, api, token, restaurantId, venueName, 
     api.refresh();
   };
 
-  const futureToast = (label: string) => pushToast(`${label} ships in a future release.`, "success");
-
   if (initialLoading) {
     const rows = tab === "items" ? 8 : tab === "categories" ? 6 : 4;
     const cols = tab === "items" ? 5 : 4;
     return <AdminSkeletonTable rows={rows} columns={cols} />;
-  }
-
-  if (tab === "menus") {
-    const active = menuSurfaces.find((m) => m.id === selectedMenuId) ?? menuSurfaces[0];
-    return (
-      <div className="admin-menu-tab-stack">
-        <MenuSection
-          title="Menus"
-          description="Everything guests can order from — main, lunch, dinner, drinks, and seasonal surfaces."
-          action={
-            <MenuActionRow>
-              <MenuToolbarButton primary disabled={busy} onClick={() => futureToast("Create menu")}>
-                Create
-              </MenuToolbarButton>
-              <MenuToolbarButton disabled={busy} onClick={() => futureToast("Duplicate menu")}>
-                Duplicate
-              </MenuToolbarButton>
-              <MenuToolbarButton disabled={busy} onClick={() => futureToast("Archive menu")}>
-                Archive
-              </MenuToolbarButton>
-              <MenuToolbarButton disabled={busy} onClick={() => futureToast("Schedule menu")}>
-                Schedule
-              </MenuToolbarButton>
-            </MenuActionRow>
-          }
-        >
-          <ul className="admin-config-table divide-y divide-[var(--admin-border)]">
-            {menuSurfaces.map((m) => (
-              <li key={m.id}>
-                <button
-                  type="button"
-                  className={`admin-config-row admin-menu-surface-row w-full px-4 py-4 text-left${selectedMenuId === m.id ? " admin-config-row--active" : ""}`}
-                  onClick={() => setSelectedMenuId(m.id)}
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="font-display text-lg font-bold admin-config-text">{m.name}</p>
-                      <p className="mt-1 text-sm admin-config-text-muted">{m.description}</p>
-                      <p className="admin-config-text-subtle mt-2 text-xs">
-                        {m.categories} categories · {m.items} items
-                      </p>
-                    </div>
-                    <MenuChip tone={m.status === "live" ? "success" : "muted"}>{m.status === "live" ? "Live" : "Draft"}</MenuChip>
-                  </div>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </MenuSection>
-
-        <MenuSection title={`${active.name} details`} description="Surface metadata and publishing controls for the selected menu.">
-          <div className="admin-menu-kv-grid">
-            <MenuReadonlyField label="Menu name" value={active.name} />
-            <MenuReadonlyField label="Status" value={active.status === "live" ? "Live" : "Draft"} />
-            <MenuReadonlyField label="Categories" value={String(active.categories)} />
-            <MenuReadonlyField label="Items" value={String(active.items)} />
-          </div>
-          <p className="admin-config-text-subtle mt-4 text-xs">
-            Examples: Main Menu, Lunch Menu, Dinner Menu, Drinks, Seasonal Menu. Multi-menu scheduling connects here when enabled.
-          </p>
-        </MenuSection>
-      </div>
-    );
   }
 
   if (tab === "categories") {
@@ -211,7 +140,7 @@ export function AdminMenuTabContent({ tab, api, token, restaurantId, venueName, 
               />
             </AdminLabel>
             <AdminBtnPrimary
-              disabled={busy || !newCategoryName.trim()}
+              disabled={busy || !newCategoryName.trim() || !can("category", "create")}
               onClick={() =>
                 void runCreate(
                   () => createCategory(token, restaurantId, { name: newCategoryName.trim() }),
@@ -287,7 +216,7 @@ export function AdminMenuTabContent({ tab, api, token, restaurantId, venueName, 
             <div className="flex items-end">
               <AdminBtnPrimary
                 className="w-full sm:w-auto"
-                disabled={busy || !newItemName.trim() || !newItemCategoryId}
+                disabled={busy || !newItemName.trim() || !newItemCategoryId || !can("item", "create")}
                 onClick={() => {
                   const dollars = Number(newItemPrice);
                   if (!Number.isFinite(dollars)) return pushToast("Invalid price", "error");
@@ -357,7 +286,16 @@ export function AdminMenuTabContent({ tab, api, token, restaurantId, venueName, 
               <MenuFieldGroup title="Basic">
                 <MenuReadonlyField label="Name" value={selectedItem.name} />
                 <MenuReadonlyField label="Description" value={selectedItem.description ?? "—"} />
-                <MenuReadonlyField label="Image" value="Not uploaded" />
+                <MenuReadonlyField
+                  label="Image"
+                  value={
+                    selectedItem && can("media", "view")
+                      ? "See photos & videos below"
+                      : can("media", "view")
+                        ? "Not uploaded"
+                        : "Hidden by role"
+                  }
+                />
                 <MenuReadonlyField label="Category" value={selectedItem.categoryName} />
               </MenuFieldGroup>
               <MenuFieldGroup title="Pricing">
@@ -385,6 +323,17 @@ export function AdminMenuTabContent({ tab, api, token, restaurantId, venueName, 
                 <MenuReadonlyField label="Max quantity" value="—" />
               </MenuFieldGroup>
             </div>
+            {can("media", "view") ? (
+              <MenuItemMediaGallery
+                token={token}
+                restaurantId={restaurantId}
+                menuItemId={selectedItem.id}
+                itemName={selectedItem.name}
+                canUpload={can("media", "upload")}
+                canRemove={can("media", "remove")}
+                limits={capabilities?.limits ?? null}
+              />
+            ) : null}
           </MenuSection>
         ) : null}
       </div>
@@ -413,7 +362,7 @@ export function AdminMenuTabContent({ tab, api, token, restaurantId, venueName, 
             </AdminLabel>
             <div className="flex items-end">
               <AdminBtnPrimary
-                disabled={busy || !newModItemId || !newModGroupName.trim()}
+                disabled={busy || !newModItemId || !newModGroupName.trim() || !can("modifier_group", "create")}
                 onClick={() =>
                   void runCreate(
                     () => createModifierGroup(token, restaurantId, newModItemId, { name: newModGroupName.trim() }),
@@ -485,7 +434,7 @@ export function AdminMenuTabContent({ tab, api, token, restaurantId, venueName, 
             </AdminLabel>
             <div className="flex items-end">
               <AdminBtnPrimary
-                disabled={busy || !newModGroupId || !newModOptionName.trim()}
+                disabled={busy || !newModGroupId || !newModOptionName.trim() || !can("modifier_option", "create")}
                 onClick={() => {
                   const d = Number(newModOptionDelta);
                   if (!Number.isFinite(d)) return pushToast("Invalid extra price", "error");
@@ -542,16 +491,46 @@ export function AdminMenuTabContent({ tab, api, token, restaurantId, venueName, 
   }
 
   if (tab === "availability") {
+    const saveSlot = async (slot: (typeof AVAILABILITY_SLOTS)[number], enabled: boolean) => {
+      setBusy(true);
+      const menusRes = await listRestaurantMenus(token, restaurantId);
+      const menuId = menusRes.menus?.[0]?.id;
+      if (!menuId) {
+        setBusy(false);
+        pushToast("Create a menu first.", "error");
+        return;
+      }
+      const res = await scheduleRestaurantMenu(token, restaurantId, menuId, {
+        scheduledPublishAt: null,
+        availabilityWindows: {
+          [slot.key]: { enabled, start: slot.start, end: slot.end, days: [1, 2, 3, 4, 5, 6, 0] }
+        }
+      });
+      setBusy(false);
+      if (!res.ok) {
+        pushToast(res.message ?? res.error ?? "Could not save availability", "error");
+        return;
+      }
+      pushToast(`${slot.label} window saved.`, "success");
+    };
+
     return (
       <MenuSection title="Availability" description="Schedule when menus and items are visible — breakfast, lunch, dinner, weekend, and holiday windows.">
         <div className="admin-menu-availability-grid">
           {AVAILABILITY_SLOTS.map((slot) => (
-            <div key={slot} className="admin-menu-availability-card">
-              <p className="font-display text-base font-bold admin-config-text">{slot}</p>
-              <p className="admin-config-text-subtle mt-1 text-xs">No schedule configured</p>
-              <MenuToolbarButton disabled={busy} onClick={() => futureToast(`${slot} schedule`)}>
-                Configure
-              </MenuToolbarButton>
+            <div key={slot.key} className="admin-menu-availability-card">
+              <p className="font-display text-base font-bold admin-config-text">{slot.label}</p>
+              <p className="admin-config-text-subtle mt-1 text-xs">
+                {slot.start} – {slot.end}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <MenuToolbarButton disabled={busy} onClick={() => void saveSlot(slot, true)}>
+                  Enable
+                </MenuToolbarButton>
+                <MenuToolbarButton disabled={busy} onClick={() => void saveSlot(slot, false)}>
+                  Disable
+                </MenuToolbarButton>
+              </div>
             </div>
           ))}
         </div>
@@ -560,65 +539,163 @@ export function AdminMenuTabContent({ tab, api, token, restaurantId, venueName, 
   }
 
   if (tab === "images") {
+    const firstItem = api.flatItems[0] ?? null;
     return (
-      <MenuSection title="Menu images" description="Upload, crop, optimize, and delete hero and category imagery.">
-        <MenuActionRow>
-          <MenuToolbarButton primary disabled={busy} onClick={() => futureToast("Upload")}>
-            Upload
-          </MenuToolbarButton>
-          <MenuToolbarButton disabled={busy} onClick={() => futureToast("Delete")}>
-            Delete
-          </MenuToolbarButton>
-          <MenuToolbarButton disabled={busy} onClick={() => futureToast("Crop")}>
-            Crop
-          </MenuToolbarButton>
-          <MenuToolbarButton disabled={busy} onClick={() => futureToast("Optimize")}>
-            Optimize
-          </MenuToolbarButton>
-        </MenuActionRow>
-        <div className="admin-menu-image-placeholder mt-4">
-          <p className="admin-config-text-subtle text-sm">No menu images uploaded yet.</p>
-        </div>
-      </MenuSection>
+      <div className="admin-menu-tab-stack">
+        <MenuSection
+          title="Menu images & videos"
+          description="Item photos and short videos are managed per product on the Items tab. Select an item there to upload up to 10 images or 3 videos."
+        >
+          {!can("media", "view") ? (
+            <p className="admin-config-text-subtle text-sm">Your role cannot view menu media.</p>
+          ) : firstItem ? (
+            <>
+              <p className="admin-config-text-subtle text-sm">
+                Quick manage for <strong className="admin-config-text">{firstItem.name}</strong> — select any item on the Items tab for others.
+              </p>
+              <MenuItemMediaGallery
+                token={token}
+                restaurantId={restaurantId}
+                menuItemId={firstItem.id}
+                itemName={firstItem.name}
+                canUpload={can("media", "upload")}
+                canRemove={can("media", "remove")}
+                limits={capabilities?.limits ?? null}
+              />
+            </>
+          ) : (
+            <div className="admin-menu-image-placeholder mt-4">
+              <p className="admin-config-text-subtle text-sm">Create an item first, then add images and videos from the Items tab.</p>
+            </div>
+          )}
+        </MenuSection>
+      </div>
     );
   }
 
   if (tab === "preview") {
+    const previewCategories = categories.slice(0, 3);
     return (
       <MenuSection title="Menu preview" description="See how guests will experience the menu before publishing.">
         <div className="admin-menu-preview-grid">
-          <MenuPreviewFrame label="Desktop preview" aspect="desktop" />
-          <MenuPreviewFrame label="Mobile preview" aspect="mobile" />
-          <MenuPreviewFrame label="QR preview" aspect="qr" />
+          <MenuPreviewFrame label="Desktop preview" aspect="desktop">
+            <div className="p-4 text-left text-sm">
+              <p className="font-display text-lg font-bold">{venueName}</p>
+              {previewCategories.map((c) => (
+                <div key={c.id} className="mt-4">
+                  <p className="font-semibold">{c.name}</p>
+                  <ul className="mt-2 space-y-1 text-white/70">
+                    {c.items.slice(0, 4).map((i) => (
+                      <li key={i.id} className="flex justify-between gap-2">
+                        <span>{i.name}</span>
+                        <span>{formatMoneyCents(i.priceCents)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </MenuPreviewFrame>
+          <MenuPreviewFrame label="Mobile preview" aspect="mobile">
+            <div className="p-3 text-left text-xs">
+              {previewCategories[0] ? (
+                <>
+                  <p className="font-bold">{previewCategories[0].name}</p>
+                  {previewCategories[0].items.slice(0, 3).map((i) => (
+                    <p key={i.id} className="mt-2 text-white/70">
+                      {i.name} · {formatMoneyCents(i.priceCents)}
+                    </p>
+                  ))}
+                </>
+              ) : (
+                <p className="text-white/60">Add categories to preview.</p>
+              )}
+            </div>
+          </MenuPreviewFrame>
+          <MenuPreviewFrame label="QR preview" aspect="qr">
+            <p className="p-4 text-center text-xs text-white/70">Use QR codes on the Menus tab to generate a scannable guest link.</p>
+          </MenuPreviewFrame>
         </div>
       </MenuSection>
     );
   }
 
   if (tab === "import-export") {
+    const downloadCsv = async (filename: string) => {
+      setImportBusy(true);
+      const res = await exportMenuCsv(token, restaurantId);
+      setImportBusy(false);
+      if (!res.ok || !res.csv) {
+        pushToast("Export failed", "error");
+        return;
+      }
+      const blob = new Blob([res.csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      pushToast("Menu exported.", "success");
+    };
+
+    const importFromFile = async (file: File) => {
+      setImportBusy(true);
+      const csv = await file.text();
+      const res = await importMenuCsv(token, restaurantId, csv);
+      setImportBusy(false);
+      if (!res.ok) {
+        pushToast(res.message ?? res.error ?? "Import failed", "error");
+        return;
+      }
+      pushToast(`Imported ${res.imported?.rows ?? 0} rows.`, "success");
+      api.refresh();
+    };
+
     return (
       <div className="admin-menu-tab-stack">
-        <MenuSection title="Menu import / export" description="Move catalog data in and out — CSV, Excel, and future POS migration.">
+        <MenuSection title="Menu import / export" description="Move catalog data in and out — CSV and Excel-compatible export.">
           <MenuActionRow>
-            <MenuToolbarButton disabled={busy} onClick={() => futureToast("CSV export")}>
+            <MenuToolbarButton disabled={importBusy} onClick={() => void downloadCsv(`menu-${restaurantId}.csv`)}>
               Export CSV
             </MenuToolbarButton>
-            <MenuToolbarButton disabled={busy} onClick={() => futureToast("CSV import")}>
-              Import CSV
+            <MenuToolbarButton disabled={importBusy}>
+              <label className="cursor-pointer">
+                Import CSV
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void importFromFile(file);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
             </MenuToolbarButton>
-            <MenuToolbarButton disabled={busy} onClick={() => futureToast("Excel export")}>
+            <MenuToolbarButton disabled={importBusy} onClick={() => void downloadCsv(`menu-${restaurantId}.xlsx.csv`)}>
               Export Excel
             </MenuToolbarButton>
-            <MenuToolbarButton disabled={busy} onClick={() => futureToast("Excel import")}>
-              Import Excel
+            <MenuToolbarButton disabled={importBusy}>
+              <label className="cursor-pointer">
+                Import Excel
+                <input
+                  type="file"
+                  accept=".csv,.xlsx,text/csv"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void importFromFile(file);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
             </MenuToolbarButton>
           </MenuActionRow>
         </MenuSection>
-        <MenuSection title="Future POS migration" description="One-click migration from legacy POS systems when connectors are available.">
-          <p className="admin-config-text-subtle text-sm">POS migration tools will appear here when your integration is ready.</p>
-          <MenuToolbarButton disabled={busy} onClick={() => futureToast("POS migration")}>
-            Start migration
-          </MenuToolbarButton>
+        <MenuSection title="POS migration" description="Import a CSV export from your legacy POS to bootstrap categories and items.">
+          <p className="admin-config-text-subtle text-sm">Use Import CSV with a file that includes category, item, price_cents, and modifier columns.</p>
         </MenuSection>
       </div>
     );

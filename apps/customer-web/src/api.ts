@@ -266,6 +266,51 @@ export type MenuTree = {
   }>;
 };
 
+export type MenuSurfaceRow = {
+  id: string;
+  name: string;
+  description: string | null;
+  surfaceKey: string | null;
+  status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
+  sortOrder: number;
+  categoryCount: number;
+  itemCount: number;
+  activeVersionNumber: number | null;
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function listRestaurantMenus(token: string, restaurantId: string) {
+  return apiFetch<{ ok: boolean; menus?: MenuSurfaceRow[]; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menus`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function createRestaurantMenu(
+  token: string,
+  restaurantId: string,
+  body: { name: string; description?: string; surfaceKey?: string }
+) {
+  return apiFetch<{ ok: boolean; menu?: MenuSurfaceRow; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menus`,
+    { method: "POST", headers: authHeaders(token), body: JSON.stringify(body) }
+  );
+}
+
+export async function publishRestaurantMenu(token: string, restaurantId: string, menuId: string) {
+  return apiFetch<{
+    ok: boolean;
+    menu?: { id: string; status: string; versionNumber: number; publishedAt: string };
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}/publish`, {
+    method: "POST",
+    headers: authHeaders(token)
+  });
+}
+
 export async function getMenuAdmin(token: string, restaurantId: string) {
   return apiFetch<{ ok: boolean; error?: string } & Partial<MenuTree>>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menu`,
@@ -315,6 +360,146 @@ export async function createModifierOption(
   );
 }
 
+export type MenuEntityAction =
+  | "view"
+  | "create"
+  | "edit"
+  | "delete"
+  | "publish"
+  | "archive"
+  | "reorder"
+  | "upload"
+  | "remove";
+
+export type MenuEntity =
+  | "menu"
+  | "category"
+  | "item"
+  | "modifier_group"
+  | "modifier_option"
+  | "description"
+  | "media";
+
+export type MenuCapabilitiesPayload = {
+  entities: Record<MenuEntity, Record<MenuEntityAction, boolean>>;
+  limits: {
+    maxImagesPerItem: number;
+    maxVideosPerItem: number;
+    maxVideoDurationMs: number;
+    maxVideoBytes: number;
+  };
+};
+
+export async function getMenuCapabilities(token: string, restaurantId: string) {
+  return apiFetch<{ ok: boolean; capabilities?: MenuCapabilitiesPayload; error?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menu/capabilities`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export type MenuItemMediaRow = {
+  id: string;
+  kind: "image" | "video";
+  sortOrder: number;
+  contentType: string;
+  byteSize: number;
+  durationMs: number | null;
+  originalName: string | null;
+  objectKey: string;
+  isCover: boolean;
+  url: string | null;
+};
+
+export async function listMenuItemMedia(token: string, restaurantId: string, menuItemId: string) {
+  return apiFetch<{
+    ok: boolean;
+    media?: MenuItemMediaRow[];
+    counts?: { images: number; videos: number };
+    limits?: MenuCapabilitiesPayload["limits"];
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/menu/items/${encodeURIComponent(menuItemId)}/media`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export async function attachMenuItemMedia(
+  token: string,
+  restaurantId: string,
+  menuItemId: string,
+  body: { mediaId: string; setAsCover?: boolean; durationMs?: number }
+) {
+  return apiFetch<{ ok: boolean; media?: MenuItemMediaRow; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menu/items/${encodeURIComponent(menuItemId)}/media`,
+    { method: "POST", headers: authHeaders(token), body: JSON.stringify(body) }
+  );
+}
+
+export async function removeMenuItemMedia(token: string, restaurantId: string, menuItemId: string, mediaId: string) {
+  return apiFetch<{ ok: boolean; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menu/items/${encodeURIComponent(menuItemId)}/media/${encodeURIComponent(mediaId)}`,
+    { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function createMenuMediaUploadSession(
+  token: string,
+  body: {
+    scope: "menu" | "video";
+    contentType: string;
+    restaurantId: string;
+    menuItemId?: string;
+    originalName?: string;
+  }
+) {
+  return apiFetch<{
+    ok: boolean;
+    upload?: { objectKey: string; uploadUrl: string; maxBytes: number };
+    error?: string;
+  }>("/media/upload-session", {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(body)
+  });
+}
+
+export async function completeMenuMediaUpload(
+  token: string,
+  body: {
+    scope: "menu" | "video";
+    objectKey: string;
+    contentType: string;
+    restaurantId: string;
+    menuItemId?: string;
+    originalName?: string;
+  }
+) {
+  return apiFetch<{ ok: boolean; media?: { id: string }; error?: string }>("/media/complete", {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(body)
+  });
+}
+
+export async function uploadMenuMediaBase64(
+  token: string,
+  body: {
+    scope: "menu" | "video";
+    objectKey: string;
+    contentType: string;
+    dataBase64: string;
+    restaurantId: string;
+    menuItemId?: string;
+    originalName?: string;
+  }
+) {
+  return apiFetch<{ ok: boolean; media?: { id: string }; error?: string }>("/media/upload", {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(body)
+  });
+}
+
 export type OrderRow = {
   id: string;
   status: string;
@@ -347,5 +532,284 @@ export async function setActiveRestaurant(token: string, restaurantId: string) {
       headers: authHeaders(token),
       body: JSON.stringify({ restaurantId })
     }
+  );
+}
+
+export type VenuePaymentSettings = {
+  providers: {
+    stripe: { connected: boolean; accountId?: string; connectedAt?: string; displayName?: string };
+    swish: { connected: boolean; merchantId?: string; connectedAt?: string; displayName?: string };
+  };
+  methods: Record<string, boolean>;
+  rules: {
+    payBeforeOrder: boolean;
+    payAfterMeal: boolean;
+    depositRequired: boolean;
+    minOrderCents: number | null;
+    maxOrderCents: number | null;
+    defaultPaymentMode: "PAY_AT_VENUE" | "PREPAY" | "HYBRID";
+  };
+  refunds: {
+    managerApproval: boolean;
+    automaticRefund: boolean;
+    manualRefund: boolean;
+    refundTimeoutHours: number;
+  };
+  taxes: {
+    vatStandardPercent: number;
+    serviceFeePercent: number;
+    deliveryFeeCents: number;
+    tipsEnabled: boolean;
+  };
+  bankAccount: { linked: boolean; lastFour?: string; holderName?: string };
+};
+
+export type PaymentStats = {
+  successful: number;
+  pending: number;
+  refunded: number;
+  failed: number;
+  disputed: number;
+  connectedProviders: number;
+  disconnectedProviders: number;
+  lastSyncAt: string | null;
+};
+
+export async function getVenuePaymentSettings(token: string, restaurantId: string) {
+  return apiFetch<{
+    ok: boolean;
+    settings?: VenuePaymentSettings;
+    stats?: PaymentStats;
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/payment-settings`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export async function patchVenuePaymentSettings(
+  token: string,
+  restaurantId: string,
+  body: Partial<Pick<VenuePaymentSettings, "methods" | "rules" | "refunds" | "taxes" | "bankAccount">>
+) {
+  return apiFetch<{ ok: boolean; settings?: VenuePaymentSettings; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/payment-settings`,
+    { method: "PATCH", headers: authHeaders(token), body: JSON.stringify(body) }
+  );
+}
+
+export async function connectVenuePaymentProvider(
+  token: string,
+  restaurantId: string,
+  body: { provider: "stripe" | "swish"; accountId?: string; merchantId?: string; displayName?: string }
+) {
+  return apiFetch<{ ok: boolean; settings?: VenuePaymentSettings; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/payment-settings/connect`,
+    { method: "POST", headers: authHeaders(token), body: JSON.stringify(body) }
+  );
+}
+
+export async function disconnectVenuePaymentProvider(
+  token: string,
+  restaurantId: string,
+  provider: "stripe" | "swish"
+) {
+  return apiFetch<{ ok: boolean; settings?: VenuePaymentSettings; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/payment-settings/disconnect`,
+    { method: "POST", headers: authHeaders(token), body: JSON.stringify({ provider }) }
+  );
+}
+
+export async function archiveRestaurantMenu(token: string, restaurantId: string, menuId: string) {
+  return apiFetch<{ ok: boolean; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}/archive`,
+    { method: "POST", headers: authHeaders(token) }
+  );
+}
+
+export async function duplicateRestaurantMenu(token: string, restaurantId: string, menuId: string) {
+  return apiFetch<{ ok: boolean; menu?: MenuSurfaceRow; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}/duplicate`,
+    { method: "POST", headers: authHeaders(token) }
+  );
+}
+
+export async function scheduleRestaurantMenu(
+  token: string,
+  restaurantId: string,
+  menuId: string,
+  body: { scheduledPublishAt: string | null; availabilityWindows?: Record<string, unknown> }
+) {
+  return apiFetch<{ ok: boolean; menu?: MenuSurfaceRow & { scheduledPublishAt?: string | null }; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}/schedule`,
+    { method: "PATCH", headers: authHeaders(token), body: JSON.stringify(body) }
+  );
+}
+
+export async function exportMenuCsv(token: string, restaurantId: string) {
+  const res = await fetch(
+    `${getApiBaseUrl()}/restaurants/${encodeURIComponent(restaurantId)}/menu/export.csv`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!res.ok) return { ok: false as const, error: "export_failed" };
+  const csv = await res.text();
+  return { ok: true as const, csv };
+}
+
+export async function importMenuCsv(token: string, restaurantId: string, csv: string) {
+  return apiFetch<{
+    ok: boolean;
+    imported?: { categoriesCreated: number; itemsCreated: number; modifiersCreated: number; rows: number };
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/menu/import.csv`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ csv })
+  });
+}
+
+export async function createOrderingSession(
+  token: string,
+  restaurantId: string,
+  body?: { tableLabel?: string; paymentMode?: string }
+) {
+  return apiFetch<{
+    ok: boolean;
+    session?: { id: string; menuUrl: string; paymentMode: string };
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/ordering-sessions`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(body ?? {})
+  });
+}
+
+export async function getOrderingSessionQr(token: string, restaurantId: string, sessionId: string) {
+  return apiFetch<{
+    ok: boolean;
+    menuUrl?: string;
+    qrImageUrl?: string;
+    pngDownloadUrl?: string;
+    error?: string;
+    message?: string;
+  }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/ordering-sessions/${encodeURIComponent(sessionId)}/qr`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export type PublicOrderingSession = {
+  id: string;
+  restaurantId: string;
+  paymentMode: string;
+  tableLabel: string | null;
+  menuUrl: string;
+};
+
+export async function fetchOrderingSession(sessionId: string) {
+  return apiFetch<{ ok: boolean; session?: PublicOrderingSession; error?: string; message?: string }>(
+    `/ordering-sessions/${encodeURIComponent(sessionId)}`
+  );
+}
+
+export async function fetchSessionMenu(sessionId: string) {
+  return apiFetch<{
+    ok: boolean;
+    session?: PublicOrderingSession;
+    restaurant?: { id: string; name: string };
+    categories?: MenuTree["categories"];
+    error?: string;
+    message?: string;
+  }>(`/ordering-sessions/${encodeURIComponent(sessionId)}/menu`);
+}
+
+export type SessionCartPayload = {
+  lines: Array<{
+    id: string;
+    menuItemId: string;
+    name: string;
+    quantity: number;
+    unitPriceCents: number;
+    lineTotalCents: number;
+    modifierOptionIds: string[];
+  }>;
+  subtotalCents: number;
+  totalQuantity: number;
+  orderNote: string;
+};
+
+export async function fetchSessionCart(sessionId: string) {
+  return apiFetch<{ ok: boolean; error?: string } & Partial<SessionCartPayload>>(
+    `/ordering-sessions/${encodeURIComponent(sessionId)}/cart`
+  );
+}
+
+export async function addSessionCartItem(
+  sessionId: string,
+  body: { menuItemId: string; quantity?: number; modifierOptionIds?: string[] }
+) {
+  return apiFetch<{ ok: boolean; error?: string; meta?: { message?: string } } & Partial<SessionCartPayload>>(
+    `/ordering-sessions/${encodeURIComponent(sessionId)}/cart/items`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+  );
+}
+
+export async function patchSessionCartLine(
+  sessionId: string,
+  lineId: string,
+  body: { delta?: number; quantity?: number; confirmRemove?: boolean }
+) {
+  return apiFetch<{ ok: boolean; error?: string; meta?: Record<string, unknown> } & Partial<SessionCartPayload>>(
+    `/ordering-sessions/${encodeURIComponent(sessionId)}/cart/lines/${encodeURIComponent(lineId)}`,
+    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+  );
+}
+
+export async function placeOrderFromSession(body: {
+  restaurantId: string;
+  sourceSessionId: string;
+  fromSessionCart?: boolean;
+  note?: string;
+}) {
+  return apiFetch<{
+    ok: boolean;
+    order?: { id: string; status: string; paymentStatus: string; totalCents: number };
+    error?: string;
+    message?: string;
+  }>("/orders/place", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...body, fromSessionCart: true })
+  });
+}
+
+export async function startOrderCheckout(orderId: string, provider: "stripe" | "swish" | "cash") {
+  return apiFetch<{
+    ok: boolean;
+    checkout?: {
+      orderId: string;
+      provider: string;
+      amountCents: number;
+      status: string;
+      clientSecret?: string;
+      swishQrData?: string;
+      swishDeepLink?: string;
+      instructions?: string;
+    };
+    error?: string;
+    message?: string;
+  }>(`/orders/${encodeURIComponent(orderId)}/checkout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider })
+  });
+}
+
+export async function completeOrderCheckout(orderId: string, provider: string) {
+  return apiFetch<{ ok: boolean; error?: string; message?: string }>(
+    `/orders/${encodeURIComponent(orderId)}/checkout/complete`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider }) }
   );
 }

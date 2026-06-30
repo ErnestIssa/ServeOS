@@ -183,7 +183,7 @@ const FALLBACK_PERMISSION_GROUPS = [
   { id: "operations", label: "Operations", keys: ["staff.assigned_orders", "admin.live_orders", "staff.reservations", "staff.tables", "staff.shift_tools"] },
   { id: "kitchen", label: "Kitchen", keys: ["staff.kitchen", "admin.kitchen_overview"] },
   { id: "payments", label: "Payments", keys: ["staff.checkout", "admin.payment_settings"] },
-  { id: "content", label: "Content", keys: ["admin.menu", "admin.modifiers"] },
+  { id: "content", label: "Content", keys: ["admin.menu", "admin.modifiers", "admin.menu_publish", "admin.menu_archive", "admin.menu_category", "admin.menu_item", "admin.menu_modifier", "admin.menu_media"] },
   { id: "management", label: "Management", keys: ["admin.dashboard", "admin.analytics", "admin.revenue"] },
   { id: "system", label: "System", keys: ["admin.staff_management", "admin.staff_invite", "admin.devices"] }
 ];

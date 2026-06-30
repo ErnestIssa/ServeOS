@@ -10,11 +10,10 @@ const coreAmbientSrc = path.join(repoRoot, "core/ambient/src");
 const coreLoadingSrc = path.join(repoRoot, "core/loading/src");
 const coreThemeSrc = path.join(repoRoot, "core/theme/src");
 
-const agentsClientSrc = path.join(repoRoot, "apps/Agents/src/client");
+const agentsSrc = path.join(repoRoot, "apps/Agents/src");
 
 const workspacePackages = [
   "@serveos/agents",
-  "@serveos/agents/client",
   "@serveos/core-shared",
   "@serveos/core-shared/signup-wizard",
   "@serveos/core-shared/currency",
@@ -49,7 +48,7 @@ export default defineConfig({
     preserveSymlinks: false,
     dedupe: ["react", "react-dom"],
     alias: {
-      "@serveos/agents/client": path.join(agentsClientSrc, "index.ts"),
+      "@serveos/agents": path.join(agentsSrc, "index.ts"),
       "@serveos/core-shared/signup-wizard": path.join(coreSharedSrc, "signupWizard.ts"),
       "@serveos/core-shared/currency": path.join(coreSharedSrc, "currency.ts"),
       "@serveos/core-shared": path.join(coreSharedSrc, "index.ts"),

@@ -1,9 +1,9 @@
 import { hasInviteTokenInLocation, readInviteSearchFromLocation } from "./inviteToken";
 import { legalSlugFromPath, pathForLegalSlug, type LegalSlug } from "./legal/legalRoutes";
 
-export type AppView = "landing" | "how-it-works" | "signup" | "login" | "admin" | "legal" | "preferences" | "email-templates" | "invite-accept";
+export type AppView = "landing" | "how-it-works" | "signup" | "login" | "admin" | "legal" | "preferences" | "email-templates" | "invite-accept" | "guest-order";
 
-const VIEW_PATHS: Record<Exclude<AppView, "legal">, string> = {
+const VIEW_PATHS: Record<Exclude<AppView, "legal" | "guest-order">, string> = {
   landing: "/",
   "how-it-works": "/how-it-works",
   signup: "/signup",
@@ -30,8 +30,14 @@ function readLoginSearchFromLocation(): string {
   return q ? `?${q}` : "";
 }
 
+function guestSessionIdFromPath(pathname: string): string | null {
+  const match = pathname.match(/^\/menu\/session\/([^/]+)$/);
+  return match?.[1] ?? null;
+}
+
 export function viewFromPath(pathname: string): AppView {
   const path = pathname.replace(/\/+$/, "") || "/";
+  if (guestSessionIdFromPath(path)) return "guest-order";
   if (path === "/how-it-works") return "how-it-works";
   if (path === "/signup" || path === "/no-business-yet") return "signup";
   if (path === "/login") return "login";
@@ -44,8 +50,13 @@ export function viewFromPath(pathname: string): AppView {
   return "landing";
 }
 
+export function guestSessionIdFromPathname(pathname: string): string | null {
+  return guestSessionIdFromPath(pathname);
+}
+
 export function pathForView(view: AppView, legalSlug: LegalSlug = "center"): string {
   if (view === "legal") return pathForLegalSlug(legalSlug);
+  if (view === "guest-order") return window.location.pathname;
   return VIEW_PATHS[view];
 }
 

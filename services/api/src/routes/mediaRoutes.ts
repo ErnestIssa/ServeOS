@@ -3,7 +3,6 @@ import type { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import type { StorageScope } from "../lib/integrations/objectStorage.js";
 import {
-  attachMenuItemImage,
   attachRestaurantImage,
   createMediaUploadSession,
   deleteStoredMedia,
@@ -12,6 +11,9 @@ import {
   refreshMediaCdnCache,
   uploadMediaBase64
 } from "../lib/media/mediaService.js";
+import { attachMenuItemCoverImage } from "../lib/menu/menuItemMediaService.js";
+import { requireMenuVenueMembership } from "../lib/menu/menuMembership.js";
+import { assertMenuEntityPermission } from "../lib/menu/menuPermissions.js";
 import { toJwtRole } from "../plugins/auth.js";
 
 const scopeSchema = z.enum([
@@ -36,6 +38,17 @@ function bearerUser(req: { headers: { authorization?: string } }, app: FastifyIn
   return { userId: payload.sub, role: toJwtRole(payload.role) };
 }
 
+async function assertVenueMenuMediaUpload(
+  prisma: PrismaClient,
+  req: { headers: { authorization?: string } },
+  restaurantId: string,
+  scope: string
+) {
+  if (scope !== "menu" && scope !== "video") return;
+  const { membership } = await requireMenuVenueMembership(prisma, req, restaurantId);
+  assertMenuEntityPermission("media", "upload", membership);
+}
+
 export function registerMediaRoutes(app: FastifyInstance, prisma: PrismaClient) {
   app.post("/media/upload-session", async (req, reply) => {
     const { userId } = bearerUser(req, app);
@@ -55,6 +68,7 @@ export function registerMediaRoutes(app: FastifyInstance, prisma: PrismaClient) 
         where: { userId, restaurantId: body.restaurantId, status: "ACTIVE" }
       });
       if (!member) return reply.status(403).send({ ok: false, error: "venue_access_denied" });
+      await assertVenueMenuMediaUpload(prisma, req, body.restaurantId, body.scope);
     }
 
     const keyParts: string[] = [];
@@ -102,6 +116,14 @@ export function registerMediaRoutes(app: FastifyInstance, prisma: PrismaClient) 
       return reply.status(400).send({ ok: false, error: "invalid_object_key" });
     }
 
+    if (body.restaurantId) {
+      const member = await prisma.membership.findFirst({
+        where: { userId, restaurantId: body.restaurantId, status: "ACTIVE" }
+      });
+      if (!member) return reply.status(403).send({ ok: false, error: "venue_access_denied" });
+      await assertVenueMenuMediaUpload(prisma, req, body.restaurantId, body.scope);
+    }
+
     const result = await uploadMediaBase64(prisma, {
       scope: body.scope as StorageScope,
       objectKey: body.objectKey,
@@ -131,6 +153,14 @@ export function registerMediaRoutes(app: FastifyInstance, prisma: PrismaClient) 
         originalName: z.string().max(200).optional()
       })
       .parse(req.body);
+
+    if (body.restaurantId) {
+      const member = await prisma.membership.findFirst({
+        where: { userId, restaurantId: body.restaurantId, status: "ACTIVE" }
+      });
+      if (!member) return reply.status(403).send({ ok: false, error: "venue_access_denied" });
+      await assertVenueMenuMediaUpload(prisma, req, body.restaurantId, body.scope);
+    }
 
     const result = await recordUploadedObject(prisma, {
       scope: body.scope as StorageScope,
@@ -224,19 +254,16 @@ export function registerMediaRoutes(app: FastifyInstance, prisma: PrismaClient) 
   });
 
   app.post("/restaurants/:restaurantId/menu/items/:menuItemId/image", async (req, reply) => {
-    const { userId } = bearerUser(req, app);
     const params = z.object({ restaurantId: z.string(), menuItemId: z.string() }).parse(req.params);
     const body = z.object({ mediaId: z.string() }).parse(req.body);
-    const member = await prisma.membership.findFirst({
-      where: { userId, restaurantId: params.restaurantId, status: "ACTIVE" }
-    });
-    if (!member) return reply.status(403).send({ ok: false, error: "venue_access_denied" });
-    const result = await attachMenuItemImage(prisma, {
+    const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("media", "upload", membership);
+    const result = await attachMenuItemCoverImage(prisma, {
       restaurantId: params.restaurantId,
       menuItemId: params.menuItemId,
       mediaId: body.mediaId
     });
     if (!result.ok) return reply.status(400).send(result);
-    return { ok: true, imageKey: result.objectKey };
+    return { ok: true, imageKey: result.media?.objectKey ?? null, media: result.media };
   });
 }

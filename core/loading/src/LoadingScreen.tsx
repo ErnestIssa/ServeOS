@@ -74,7 +74,8 @@ export function LoadingScreen({ appReady }: LoadingScreenProps) {
               <motion.div
                 className="relative flex items-center justify-center font-black leading-none tracking-[-0.08em] text-white [font-synthesis:none] text-[clamp(48px,10vw,124px)]"
                 style={{
-                  fontFamily: "Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif"
+                  fontFamily: "Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif",
+                  fontWeight: 900
                 }}
                 aria-label="SERVEOS"
                 layout

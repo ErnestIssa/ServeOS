@@ -79,12 +79,20 @@ export function MenuToolbarButton({
   );
 }
 
-export function MenuPreviewFrame({ label, aspect }: { label: string; aspect: "desktop" | "mobile" | "qr" }) {
+export function MenuPreviewFrame({
+  label,
+  aspect,
+  children
+}: {
+  label: string;
+  aspect: "desktop" | "mobile" | "qr";
+  children?: ReactNode;
+}) {
   return (
     <div className={`admin-menu-preview-frame admin-menu-preview-frame--${aspect}`}>
       <p className="admin-menu-preview-label">{label}</p>
       <div className="admin-menu-preview-canvas">
-        <p className="admin-config-text-subtle text-sm">Live preview when menu data is published.</p>
+        {children ?? <p className="admin-config-text-subtle text-sm">Live preview when menu data is published.</p>}
       </div>
     </div>
   );

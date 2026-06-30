@@ -91,7 +91,7 @@ export function AdminGlobalSearchModal({ open, onClose, restaurantName, ownerNam
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Orders, tables, menu, staff, billing, settings…"
-            className="admin-search-input admin-search-input--modal relative z-[2] w-full rounded-2xl py-3.5 pl-11 pr-4 text-sm outline-none transition sm:py-4 sm:text-base"
+            className="admin-search-input admin-search-input--modal admin-search-input--accent relative z-[2] w-full rounded-2xl py-3.5 pl-11 pr-4 outline-none transition sm:py-4"
             autoComplete="off"
           />
         </label>

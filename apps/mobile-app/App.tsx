@@ -100,8 +100,17 @@ import { ActionModal } from "./src/components/ActionModal";
 import { SwapColorFullscreenLoader } from "./src/components/SwapColorLoader";
 import { buildCustomerHomeHeader, customerDisplayName, formatUserRoleExperience } from "./src/customer/customerHomeCopy";
 import { CustomerMenuBrowsing, recordOrderedItemsForRestaurant } from "./src/menu/CustomerMenuBrowsing";
+import { MenuItemDetailSheet } from "./src/menu/MenuItemDetailSheet";
+import { createGuestOrderingSession, touchOrderingSession } from "./src/customer/orderingSessionApi";
+import {
+  addSessionCartItem,
+  completeOrderCheckout,
+  fetchSessionCart,
+  placeOrderFromSessionCart,
+  startOrderCheckout
+} from "./src/customer/sessionCartApi";
 import { bumpBrowseEngagement } from "./src/menu/menuPreferencesStorage";
-import { buildFilteredMenuPool, flattenMenu, type MenuCategoryLite } from "./src/menu/menuBrowseUtils";
+import { buildFilteredMenuPool, flattenMenu, type MenuCategoryLite, type MenuItemFlat } from "./src/menu/menuBrowseUtils";
 import { NavTopScrim } from "./src/shell/NavTopScrim";
 import {
   contentBottomInset,
@@ -194,6 +203,9 @@ export default function App() {
   const [venueDirectoryRefreshKey, setVenueDirectoryRefreshKey] = React.useState(0);
   const [menuRid, setMenuRid] = React.useState("");
   const [menuPreview, setMenuPreview] = React.useState<any>(null);
+  const [orderingSessionId, setOrderingSessionId] = React.useState<string | null>(null);
+  const [orderingSessionVenueId, setOrderingSessionVenueId] = React.useState<string | null>(null);
+  const [menuDetailItem, setMenuDetailItem] = React.useState<MenuItemFlat | null>(null);
   const [localCart, setLocalCart] = React.useState<Array<{ menuItemId: string; quantity: number; modifierOptionIds: string[] }>>(
     []
   );
@@ -888,10 +900,29 @@ export default function App() {
     };
   }, [warmAuthenticatedSession]);
 
+  async function ensureOrderingSession(restaurantId: string) {
+    const rid = restaurantId.trim();
+    if (!rid) return null;
+    if (orderingSessionId && orderingSessionVenueId === rid) {
+      void touchOrderingSession(orderingSessionId);
+      return orderingSessionId;
+    }
+    const res = await createGuestOrderingSession(rid, { paymentMode: "PAY_AT_VENUE" });
+    if (res.ok && res.session?.id) {
+      setOrderingSessionId(res.session.id);
+      setOrderingSessionVenueId(rid);
+      return res.session.id;
+    }
+    return null;
+  }
+
   async function fetchPublicMenuForRestaurant(restaurantId: string) {
-    return apiFetch<Record<string, unknown> & { ok?: boolean; error?: string }>(
-      `/restaurants/public/menu/${encodeURIComponent(restaurantId.trim())}`
-    );
+    const rid = restaurantId.trim();
+    const sessionId = await ensureOrderingSession(rid);
+    const path = sessionId
+      ? `/ordering-sessions/${encodeURIComponent(sessionId)}/menu`
+      : `/restaurants/public/menu/${encodeURIComponent(rid)}`;
+    return apiFetch<Record<string, unknown> & { ok?: boolean; error?: string }>(path);
   }
 
   React.useEffect(() => {
@@ -976,6 +1007,8 @@ export default function App() {
       setMenuRid(rid);
       setTrackResult(null);
       setMenuPrefsSeq((x) => x + 1);
+      setOrderingSessionId(null);
+      setOrderingSessionVenueId(null);
       const res = await fetchPublicMenuForRestaurant(rid);
       if (res.ok) {
         setMenuPreview(res);
@@ -1034,19 +1067,25 @@ export default function App() {
       skipCartNotePersistRef.current = true;
       const noteSave = await patchCustomerCartNote(token, rid, orderNote);
       if (noteSave.ok) applyCustomerCartResponse(noteSave);
+      const sessionId = await ensureOrderingSession(rid);
+      const placeBody: Record<string, unknown> = {
+        restaurantId: rid,
+        fromCart: true,
+        note: noteTrim
+      };
+      if (sessionId) {
+        placeBody.sourceSessionId = sessionId;
+        placeBody.sourceSessionType = "LINK";
+      }
       setPlacingOrder(true);
-      const res = await apiFetch<Record<string, unknown> & { ok?: boolean; error?: string; order?: { id?: string } }>(
-        "/orders/place",
-        {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            restaurantId: rid,
-            fromCart: true,
-            note: noteTrim
-          })
-        }
-      );
+    const res = await apiFetch<Record<string, unknown> & { ok?: boolean; error?: string; order?: { id?: string } }>(
+      "/orders/place",
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify(placeBody)
+      }
+    );
       setPlacingOrder(false);
       if (!res.ok) return setStatus(res.error ?? "order_failed");
       const placed = res.order as {
@@ -1092,22 +1131,50 @@ export default function App() {
     if (localCart.length === 0) return setStatus("Need restaurant + cart");
 
     lineIdsSnapshot = localCart.map((l) => l.menuItemId);
+    const sessionId = await ensureOrderingSession(rid);
+    const guestBody: Record<string, unknown> = {
+      restaurantId: rid,
+      note: noteTrim
+    };
+    if (sessionId) {
+      guestBody.fromSessionCart = true;
+      guestBody.sourceSessionId = sessionId;
+      guestBody.sourceSessionType = "LINK";
+    } else {
+      guestBody.lines = localCart.map((l) => ({
+        menuItemId: l.menuItemId,
+        quantity: l.quantity,
+        modifierOptionIds: l.modifierOptionIds.length ? l.modifierOptionIds : undefined
+      }));
+    }
     setPlacingOrder(true);
-    const res = await apiFetch<Record<string, unknown> & { ok?: boolean; error?: string; order?: { id?: string } }>("/orders/place", {
+    const res = await apiFetch<Record<string, unknown> & { ok?: boolean; error?: string; order?: { id?: string; status?: string; paymentStatus?: string; totalCents?: number } }>("/orders/place", {
       method: "POST",
       headers,
-      body: JSON.stringify({
-        restaurantId: rid,
-        lines: localCart.map((l) => ({
-          menuItemId: l.menuItemId,
-          quantity: l.quantity,
-          modifierOptionIds: l.modifierOptionIds.length ? l.modifierOptionIds : undefined
-        })),
-        note: noteTrim
-      })
+      body: JSON.stringify(guestBody)
     });
     setPlacingOrder(false);
     if (!res.ok) return setStatus(res.error ?? "order_failed");
+    const placed = res.order;
+    if (placed?.status === "PENDING_PAYMENT" && placed.id) {
+      const checkout = await startOrderCheckout(placed.id, "swish");
+      if (checkout.ok) {
+        setActionModal({
+          visible: true,
+          title: "Complete payment",
+          message: checkout.checkout?.instructions ?? "Open Swish and approve the payment.",
+          primaryLabel: "I paid",
+          onPrimary: () => {
+            void completeOrderCheckout(placed.id!, "swish").then(() => {
+              setActionModal((p) => ({ ...p, visible: false }));
+              setStatus("Payment confirmed");
+            });
+          },
+          secondaryLabel: "Later",
+          onSecondary: () => setActionModal((p) => ({ ...p, visible: false }))
+        });
+      }
+    }
     void recordOrderedItemsForRestaurant(rid, lineIdsSnapshot, token);
     setMenuPrefsSeq((x) => x + 1);
     setStatus("Order placed");
@@ -1273,7 +1340,7 @@ export default function App() {
   }
 
   /** Menu + from Home / Orders (+) buttons */
-  async function addMenuLineFromBrowse(menuItemId: string) {
+  async function addMenuLineFromBrowse(menuItemId: string, modifierOptionIds: string[] = []) {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     const rid = activeRestaurantId();
@@ -1332,8 +1399,30 @@ export default function App() {
         return;
       }
 
-      setLocalCart((c) => [...c, { menuItemId, quantity: 1, modifierOptionIds: [] }]);
+      setLocalCart((c) => [...c, { menuItemId, quantity: 1, modifierOptionIds }]);
       setOptimisticCartQty((q) => q + 1);
+
+      if (rid) {
+        const sessionId = await ensureOrderingSession(rid);
+        if (sessionId) {
+          const res = await addSessionCartItem(sessionId, { menuItemId, quantity: 1, modifierOptionIds });
+          if (!res.ok) {
+            setStatus(res.error ?? "cart_add_failed");
+            return;
+          }
+          setLocalCart(
+            (res.lines ?? []).map((l) => ({
+              menuItemId: l.menuItemId,
+              quantity: l.quantity,
+              modifierOptionIds: l.modifierOptionIds ?? []
+            }))
+          );
+          setOptimisticCartQty(res.totalQuantity ?? 0);
+          setStatus("Added to cart");
+          return;
+        }
+      }
+
       setStatus("Added to cart (this device only — sign in as a diner for cloud cart).");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "cart_add_failed";
@@ -1829,6 +1918,7 @@ export default function App() {
                       authToken={token}
                       onMenuEngagement={() => setMenuPrefsSeq((s) => s + 1)}
                       onAddItem={(it) => void addMenuLineFromBrowse(it.id)}
+                      onOpenItem={(it) => setMenuDetailItem(it)}
                     />
                   </View>
                 ) : customerHasVenue && !menuPreview?.ok ? (
@@ -2256,6 +2346,17 @@ export default function App() {
       />
 
       <NutritionInfoModal visible={nutritionOpen} onDismiss={() => setNutritionOpen(false)} />
+      <MenuItemDetailSheet
+        visible={Boolean(menuDetailItem)}
+        item={menuDetailItem}
+        money={money}
+        onClose={() => setMenuDetailItem(null)}
+        onAddToCart={(it, modifierOptionIds) => {
+          void addMenuLineFromBrowse(it.id, modifierOptionIds ?? []);
+          setMenuDetailItem(null);
+        }}
+        adding={menuDetailItem ? !!addingById[menuDetailItem.id] : false}
+      />
 
       {experienceVenueConfirmOverlay ? (
         <View

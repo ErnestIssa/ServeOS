@@ -1,16 +1,15 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { listRestaurants } from "../../api";
 import {
-  AdminBtnPrimary,
-  AdminBtnSecondary,
-  AdminEmptyState,
-  AdminInput,
-  AdminLabel,
-  AdminPanel,
-  AdminRefreshButton,
-  AdminSectionHeader,
-  subPanelCls
-} from "../AdminUi";
+  connectVenuePaymentProvider,
+  disconnectVenuePaymentProvider,
+  getVenuePaymentSettings,
+  listRestaurants,
+  patchVenuePaymentSettings,
+  type PaymentStats,
+  type VenuePaymentSettings
+} from "../../api";
+import { AdminBtnPrimary, AdminBtnSecondary, AdminEmptyState, AdminInput, AdminLabel, AdminPanel, AdminRefreshButton, AdminSectionHeader, subPanelCls } from "../AdminUi";
+import { ProfileModalFooter, ProfileModalShell } from "../profile/ProfileModalShell";
 import { AdminSkeletonStatGrid, AdminStaleContent } from "../AdminSkeleton";
 import { useAdminToast } from "../AdminToast";
 import { canEditPayments, paymentsEditReason } from "./paymentsAccess";
@@ -151,32 +150,99 @@ function MethodChip({
   );
 }
 
+function venueNameFromSettings(_settings: VenuePaymentSettings | null) {
+  return "Venue account";
+}
+
 export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
   const { pushToast } = useAdminToast();
   const [role, setRole] = useState("STAFF");
   const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [stats, setStats] = useState<PaymentStats | null>(null);
+  const [settings, setSettings] = useState<VenuePaymentSettings | null>(null);
+  const [connectOpen, setConnectOpen] = useState<"stripe" | "swish" | null>(null);
+  const [connectId, setConnectId] = useState("");
 
   const loadPaymentsContext = useCallback(
     async (mode: "initial" | "refresh") => {
       if (!token || !restaurantId) return;
       if (mode === "initial") setLoading(true);
       else setRefreshing(true);
-      const res = await listRestaurants(token);
+      const [restaurantsRes, paymentRes] = await Promise.all([
+        listRestaurants(token),
+        getVenuePaymentSettings(token, restaurantId)
+      ]);
       if (mode === "initial") {
         setLoading(false);
         setReady(true);
       } else {
         setRefreshing(false);
       }
-      const row = res.restaurants?.find((r) => r.id === restaurantId);
+      const row = restaurantsRes.restaurants?.find((r) => r.id === restaurantId);
       if (row?.role) setRole(row.role);
+      if (paymentRes.ok && paymentRes.settings) {
+        setSettings(paymentRes.settings);
+        setStats(paymentRes.stats ?? null);
+      }
     },
     [token, restaurantId]
   );
 
-  const [methods, setMethods] = useState({
+  const saveSettings = async () => {
+    if (!token || !restaurantId || !settings) return;
+    setSaving(true);
+    const res = await patchVenuePaymentSettings(token, restaurantId, {
+      methods: settings.methods,
+      rules: settings.rules,
+      refunds: settings.refunds,
+      taxes: settings.taxes,
+      bankAccount: settings.bankAccount
+    });
+    setSaving(false);
+    if (!res.ok || !res.settings) {
+      pushToast(res.message ?? res.error ?? "Could not save payment settings", "error");
+      return;
+    }
+    setSettings(res.settings);
+    pushToast("Payment settings saved.", "success");
+  };
+
+  const handleConnect = async () => {
+    if (!token || !restaurantId || !connectOpen) return;
+    setSaving(true);
+    const res = await connectVenuePaymentProvider(token, restaurantId, {
+      provider: connectOpen,
+      accountId: connectOpen === "stripe" ? connectId : undefined,
+      merchantId: connectOpen === "swish" ? connectId : undefined
+    });
+    setSaving(false);
+    if (!res.ok || !res.settings) {
+      pushToast(res.message ?? res.error ?? "Connect failed", "error");
+      return;
+    }
+    setSettings(res.settings);
+    setConnectOpen(null);
+    setConnectId("");
+    pushToast(`${connectOpen === "stripe" ? "Stripe" : "Swish"} connected.`, "success");
+    void loadPaymentsContext("refresh");
+  };
+
+  const handleDisconnect = async (provider: "stripe" | "swish") => {
+    if (!token || !restaurantId) return;
+    const res = await disconnectVenuePaymentProvider(token, restaurantId, provider);
+    if (!res.ok || !res.settings) {
+      pushToast(res.message ?? res.error ?? "Disconnect failed", "error");
+      return;
+    }
+    setSettings(res.settings);
+    pushToast(`${provider === "stripe" ? "Stripe" : "Swish"} disconnected.`, "success");
+    void loadPaymentsContext("refresh");
+  };
+
+  const methods = settings?.methods ?? {
     card: false,
     swish: false,
     applePay: false,
@@ -184,26 +250,32 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
     cash: true,
     invoice: false,
     giftCards: false
-  });
-  const [rules, setRules] = useState({
+  };
+  const rules = settings?.rules ?? {
     payBeforeOrder: true,
     payAfterMeal: false,
     depositRequired: false,
-    minOrder: "",
-    maxOrder: ""
-  });
-  const [refunds, setRefunds] = useState({
+    minOrderCents: null,
+    maxOrderCents: null,
+    defaultPaymentMode: "PREPAY" as const
+  };
+  const refunds = settings?.refunds ?? {
     managerApproval: true,
     automaticRefund: false,
     manualRefund: true,
-    refundTimeoutHours: "24"
-  });
-  const [taxes, setTaxes] = useState({
-    vatStandard: "12",
-    serviceFee: "0",
-    deliveryFee: "0",
+    refundTimeoutHours: 24
+  };
+  const taxes = settings?.taxes ?? {
+    vatStandardPercent: 12,
+    serviceFeePercent: 0,
+    deliveryFeeCents: 0,
     tipsEnabled: true
-  });
+  };
+  const providers = settings?.providers ?? { stripe: { connected: false }, swish: { connected: false } };
+
+  const patchSettings = (patch: Partial<VenuePaymentSettings>) => {
+    setSettings((current) => (current ? { ...current, ...patch, methods: { ...current.methods, ...(patch.methods ?? {}) }, rules: { ...current.rules, ...(patch.rules ?? {}) }, refunds: { ...current.refunds, ...(patch.refunds ?? {}) }, taxes: { ...current.taxes, ...(patch.taxes ?? {}) } } : current));
+  };
 
   const canEdit = useMemo(() => canEditPayments(role), [role]);
   const lockReason = paymentsEditReason(role);
@@ -230,11 +302,18 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
         title="Payments"
         description="Everything related to money — providers, methods, rules, payouts, and security."
         action={
-          <AdminRefreshButton
-            onRefresh={() => loadPaymentsContext("refresh")}
-            refreshing={refreshing}
-            label="Refresh payments"
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            {canEdit ? (
+              <AdminBtnPrimary type="button" disabled={saving || !settings} onClick={() => void saveSettings()}>
+                {saving ? "Saving…" : "Save changes"}
+              </AdminBtnPrimary>
+            ) : null}
+            <AdminRefreshButton
+              onRefresh={() => loadPaymentsContext("refresh")}
+              refreshing={refreshing}
+              label="Refresh payments"
+            />
+          </div>
         }
       />
 
@@ -254,49 +333,66 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
         ) : (
           <>
             <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-              <StatTile label="Successful" value="0" hint="Transactions" />
-              <StatTile label="Pending" value="0" hint="Awaiting capture" />
-              <StatTile label="Refunded" value="0" hint="All time" />
-              <StatTile label="Failed" value="0" hint="Last 30 days" />
-              <StatTile label="Disputed" value="0" hint="Chargebacks" />
+              <StatTile label="Successful" value={String(stats?.successful ?? 0)} hint="Transactions" />
+              <StatTile label="Pending" value={String(stats?.pending ?? 0)} hint="Awaiting capture" />
+              <StatTile label="Refunded" value={String(stats?.refunded ?? 0)} hint="All time" />
+              <StatTile label="Failed" value={String(stats?.failed ?? 0)} hint="Last 30 days" />
+              <StatTile label="Disputed" value={String(stats?.disputed ?? 0)} hint="Chargebacks" />
             </div>
 
             <div className="mt-5 grid gap-5 lg:grid-cols-2">
               <PaySection title="Payment providers" description="Connect acquirers and wallets for this venue.">
                 <ProviderRow
                   name="Stripe"
-                  status="disconnected"
+                  status={providers.stripe.connected ? "connected" : "disconnected"}
                   connectDisabled={!canEdit}
-                  onConnect={() => pushToast("Stripe Connect onboarding will open here.", "success")}
+                  onConnect={() => {
+                    setConnectOpen("stripe");
+                    setConnectId("");
+                  }}
                 />
                 <ProviderRow
                   name="Swish"
-                  status="disconnected"
+                  status={providers.swish.connected ? "connected" : "disconnected"}
                   connectDisabled={!canEdit}
-                  onConnect={() => pushToast("Swish merchant linking will open here.", "success")}
+                  onConnect={() => {
+                    setConnectOpen("swish");
+                    setConnectId("");
+                  }}
                 />
-                <ProviderRow name="Adyen" status="disconnected" future />
-                <ProviderRow name="Klarna" status="disconnected" future />
-                <ProviderRow name="SumUp" status="disconnected" future />
+                {providers.stripe.connected ? (
+                  <AdminBtnSecondary type="button" disabled={!canEdit} onClick={() => void handleDisconnect("stripe")}>
+                    Disconnect Stripe
+                  </AdminBtnSecondary>
+                ) : null}
+                {providers.swish.connected ? (
+                  <AdminBtnSecondary type="button" disabled={!canEdit} onClick={() => void handleDisconnect("swish")}>
+                    Disconnect Swish
+                  </AdminBtnSecondary>
+                ) : null}
               </PaySection>
 
               <PaySection title="Provider status" description="Connection health across active providers.">
                 <div className="admin-payments-kv-grid">
                   <div className="admin-payments-kv">
                     <p className="admin-payments-kv-label">Connected</p>
-                    <p className="admin-payments-kv-value">0</p>
+                    <p className="admin-payments-kv-value">{stats?.connectedProviders ?? 0}</p>
                   </div>
                   <div className="admin-payments-kv">
                     <p className="admin-payments-kv-label">Disconnected</p>
-                    <p className="admin-payments-kv-value">2</p>
+                    <p className="admin-payments-kv-value">{stats?.disconnectedProviders ?? 0}</p>
                   </div>
                   <div className="admin-payments-kv">
                     <p className="admin-payments-kv-label">Verification</p>
-                    <PayChip tone="warning">Pending</PayChip>
+                    <PayChip tone={providers.stripe.connected || providers.swish.connected ? "success" : "warning"}>
+                      {providers.stripe.connected || providers.swish.connected ? "Verified" : "Pending"}
+                    </PayChip>
                   </div>
                   <div className="admin-payments-kv">
                     <p className="admin-payments-kv-label">Last sync</p>
-                    <p className="admin-payments-kv-value admin-payments-kv-value--subtle">—</p>
+                    <p className="admin-payments-kv-value admin-payments-kv-value--subtle">
+                      {stats?.lastSyncAt ? new Date(stats.lastSyncAt).toLocaleString() : "—"}
+                    </p>
                   </div>
                 </div>
               </PaySection>
@@ -308,44 +404,67 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
               description="Methods guests can use once providers are connected."
             >
               <div className="admin-payments-method-grid">
-                <MethodChip label="Card" enabled={methods.card} disabled={!canEdit} onChange={(v) => setMethods((m) => ({ ...m, card: v }))} />
-                <MethodChip label="Swish" enabled={methods.swish} disabled={!canEdit} onChange={(v) => setMethods((m) => ({ ...m, swish: v }))} />
-                <MethodChip label="Apple Pay" enabled={methods.applePay} disabled={!canEdit} onChange={(v) => setMethods((m) => ({ ...m, applePay: v }))} />
-                <MethodChip label="Google Pay" enabled={methods.googlePay} disabled={!canEdit} onChange={(v) => setMethods((m) => ({ ...m, googlePay: v }))} />
-                <MethodChip label="Cash" enabled={methods.cash} disabled={!canEdit} onChange={(v) => setMethods((m) => ({ ...m, cash: v }))} />
-                <MethodChip label="Invoice" enabled={methods.invoice} future disabled={!canEdit} />
-                <MethodChip label="Gift cards" enabled={methods.giftCards} future disabled={!canEdit} />
+                <MethodChip label="Card" enabled={methods.card} disabled={!canEdit} onChange={(v) => patchSettings({ methods: { ...methods, card: v } })} />
+                <MethodChip label="Swish" enabled={methods.swish} disabled={!canEdit} onChange={(v) => patchSettings({ methods: { ...methods, swish: v } })} />
+                <MethodChip label="Apple Pay" enabled={methods.applePay} disabled={!canEdit} onChange={(v) => patchSettings({ methods: { ...methods, applePay: v } })} />
+                <MethodChip label="Google Pay" enabled={methods.googlePay} disabled={!canEdit} onChange={(v) => patchSettings({ methods: { ...methods, googlePay: v } })} />
+                <MethodChip label="Cash" enabled={methods.cash} disabled={!canEdit} onChange={(v) => patchSettings({ methods: { ...methods, cash: v } })} />
+                <MethodChip label="Invoice" enabled={methods.invoice} disabled={!canEdit} onChange={(v) => patchSettings({ methods: { ...methods, invoice: v } })} />
+                <MethodChip label="Gift cards" enabled={methods.giftCards} disabled={!canEdit} onChange={(v) => patchSettings({ methods: { ...methods, giftCards: v } })} />
               </div>
             </PaySection>
 
             <div className="mt-5 grid gap-5 lg:grid-cols-2">
               <PaySection title="Payment rules" description="When and how guests must pay.">
                 <div className="admin-payments-toggle-stack">
-                  <ToggleRow label="Pay before order" checked={rules.payBeforeOrder} disabled={!canEdit} onChange={(v) => setRules((r) => ({ ...r, payBeforeOrder: v }))} />
-                  <ToggleRow label="Pay after meal" checked={rules.payAfterMeal} disabled={!canEdit} onChange={(v) => setRules((r) => ({ ...r, payAfterMeal: v }))} />
-                  <ToggleRow label="Deposit required" checked={rules.depositRequired} disabled={!canEdit} onChange={(v) => setRules((r) => ({ ...r, depositRequired: v }))} />
+                  <ToggleRow label="Pay before order" checked={rules.payBeforeOrder} disabled={!canEdit} onChange={(v) => patchSettings({ rules: { ...rules, payBeforeOrder: v } })} />
+                  <ToggleRow label="Pay after meal" checked={rules.payAfterMeal} disabled={!canEdit} onChange={(v) => patchSettings({ rules: { ...rules, payAfterMeal: v } })} />
+                  <ToggleRow label="Deposit required" checked={rules.depositRequired} disabled={!canEdit} onChange={(v) => patchSettings({ rules: { ...rules, depositRequired: v } })} />
                 </div>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <AdminLabel>
-                    <span className="admin-config-text-muted text-xs font-bold uppercase tracking-wide">Minimum order</span>
-                    <AdminInput className="mt-1.5" placeholder="e.g. 50" value={rules.minOrder} readOnly={!canEdit} onChange={(e) => setRules((r) => ({ ...r, minOrder: e.target.value }))} />
+                    <span className="admin-config-text-muted text-xs font-bold uppercase tracking-wide">Minimum order (SEK)</span>
+                    <AdminInput
+                      className="mt-1.5"
+                      placeholder="e.g. 50"
+                      value={rules.minOrderCents != null ? String(rules.minOrderCents / 100) : ""}
+                      readOnly={!canEdit}
+                      onChange={(e) => {
+                        const n = Number(e.target.value);
+                        patchSettings({ rules: { ...rules, minOrderCents: Number.isFinite(n) && e.target.value ? Math.round(n * 100) : null } });
+                      }}
+                    />
                   </AdminLabel>
                   <AdminLabel>
-                    <span className="admin-config-text-muted text-xs font-bold uppercase tracking-wide">Maximum order</span>
-                    <AdminInput className="mt-1.5" placeholder="No limit" value={rules.maxOrder} readOnly={!canEdit} onChange={(e) => setRules((r) => ({ ...r, maxOrder: e.target.value }))} />
+                    <span className="admin-config-text-muted text-xs font-bold uppercase tracking-wide">Maximum order (SEK)</span>
+                    <AdminInput
+                      className="mt-1.5"
+                      placeholder="No limit"
+                      value={rules.maxOrderCents != null ? String(rules.maxOrderCents / 100) : ""}
+                      readOnly={!canEdit}
+                      onChange={(e) => {
+                        const n = Number(e.target.value);
+                        patchSettings({ rules: { ...rules, maxOrderCents: Number.isFinite(n) && e.target.value ? Math.round(n * 100) : null } });
+                      }}
+                    />
                   </AdminLabel>
                 </div>
               </PaySection>
 
               <PaySection title="Refund settings" description="Approval flow and automation for refunds.">
                 <div className="admin-payments-toggle-stack">
-                  <ToggleRow label="Manager approval" checked={refunds.managerApproval} disabled={!canEdit} onChange={(v) => setRefunds((r) => ({ ...r, managerApproval: v }))} />
-                  <ToggleRow label="Automatic refund" checked={refunds.automaticRefund} disabled={!canEdit} onChange={(v) => setRefunds((r) => ({ ...r, automaticRefund: v }))} />
-                  <ToggleRow label="Manual refund" checked={refunds.manualRefund} disabled={!canEdit} onChange={(v) => setRefunds((r) => ({ ...r, manualRefund: v }))} />
+                  <ToggleRow label="Manager approval" checked={refunds.managerApproval} disabled={!canEdit} onChange={(v) => patchSettings({ refunds: { ...refunds, managerApproval: v } })} />
+                  <ToggleRow label="Automatic refund" checked={refunds.automaticRefund} disabled={!canEdit} onChange={(v) => patchSettings({ refunds: { ...refunds, automaticRefund: v } })} />
+                  <ToggleRow label="Manual refund" checked={refunds.manualRefund} disabled={!canEdit} onChange={(v) => patchSettings({ refunds: { ...refunds, manualRefund: v } })} />
                 </div>
                 <AdminLabel className="mt-4 block">
                   <span className="admin-config-text-muted text-xs font-bold uppercase tracking-wide">Refund timeout (hours)</span>
-                  <AdminInput className="mt-1.5 w-full max-w-[10rem]" value={refunds.refundTimeoutHours} readOnly={!canEdit} onChange={(e) => setRefunds((r) => ({ ...r, refundTimeoutHours: e.target.value }))} />
+                  <AdminInput
+                    className="mt-1.5 w-full max-w-[10rem]"
+                    value={String(refunds.refundTimeoutHours)}
+                    readOnly={!canEdit}
+                    onChange={(e) => patchSettings({ refunds: { ...refunds, refundTimeoutHours: Number(e.target.value) || 24 } })}
+                  />
                 </AdminLabel>
               </PaySection>
             </div>
@@ -355,41 +474,54 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <AdminLabel>
                     <span className="admin-config-text-muted text-xs font-bold uppercase tracking-wide">VAT rates (%)</span>
-                    <AdminInput className="mt-1.5" value={taxes.vatStandard} readOnly={!canEdit} onChange={(e) => setTaxes((t) => ({ ...t, vatStandard: e.target.value }))} />
+                    <AdminInput
+                      className="mt-1.5"
+                      value={String(taxes.vatStandardPercent)}
+                      readOnly={!canEdit}
+                      onChange={(e) => patchSettings({ taxes: { ...taxes, vatStandardPercent: Number(e.target.value) || 0 } })}
+                    />
                   </AdminLabel>
                   <AdminLabel>
-                    <span className="admin-config-text-muted text-xs font-bold uppercase tracking-wide">Tax classes</span>
-                    <AdminInput className="mt-1.5" placeholder="Standard, reduced…" readOnly={!canEdit} />
+                    <span className="admin-config-text-muted text-xs font-bold uppercase tracking-wide">Service fee (%)</span>
+                    <AdminInput
+                      className="mt-1.5"
+                      value={String(taxes.serviceFeePercent)}
+                      readOnly={!canEdit}
+                      onChange={(e) => patchSettings({ taxes: { ...taxes, serviceFeePercent: Number(e.target.value) || 0 } })}
+                    />
                   </AdminLabel>
                   <AdminLabel>
-                    <span className="admin-config-text-muted text-xs font-bold uppercase tracking-wide">Service fee</span>
-                    <AdminInput className="mt-1.5" value={taxes.serviceFee} readOnly={!canEdit} onChange={(e) => setTaxes((t) => ({ ...t, serviceFee: e.target.value }))} />
-                  </AdminLabel>
-                  <AdminLabel>
-                    <span className="admin-config-text-muted text-xs font-bold uppercase tracking-wide">Delivery fee</span>
-                    <AdminInput className="mt-1.5" value={taxes.deliveryFee} readOnly={!canEdit} onChange={(e) => setTaxes((t) => ({ ...t, deliveryFee: e.target.value }))} />
+                    <span className="admin-config-text-muted text-xs font-bold uppercase tracking-wide">Delivery fee (öre)</span>
+                    <AdminInput
+                      className="mt-1.5"
+                      value={String(taxes.deliveryFeeCents)}
+                      readOnly={!canEdit}
+                      onChange={(e) => patchSettings({ taxes: { ...taxes, deliveryFeeCents: Number(e.target.value) || 0 } })}
+                    />
                   </AdminLabel>
                 </div>
                 <div className="mt-4">
-                  <ToggleRow label="Tips enabled" checked={taxes.tipsEnabled} disabled={!canEdit} onChange={(v) => setTaxes((t) => ({ ...t, tipsEnabled: v }))} />
+                  <ToggleRow label="Tips enabled" checked={taxes.tipsEnabled} disabled={!canEdit} onChange={(v) => patchSettings({ taxes: { ...taxes, tipsEnabled: v } })} />
                 </div>
               </PaySection>
 
               <PaySection title="Payouts" description="Settlement account and payout schedule.">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="admin-payments-kv">
-                    <p className="admin-payments-kv-label">Next payout</p>
-                    <p className="admin-payments-kv-value admin-payments-kv-value--subtle">—</p>
+                    <p className="admin-payments-kv-label">Bank linked</p>
+                    <p className="admin-payments-kv-value">{settings?.bankAccount.linked ? "Yes" : "No"}</p>
                   </div>
                   <div className="admin-payments-kv">
-                    <p className="admin-payments-kv-label">Previous payouts</p>
-                    <p className="admin-payments-kv-value">0</p>
+                    <p className="admin-payments-kv-label">Successful payouts</p>
+                    <p className="admin-payments-kv-value">{stats?.successful ?? 0}</p>
                   </div>
                 </div>
-                <div className="mt-4">
-                  <AdminEmptyState>Connect Stripe or Swish to view bank account and settlement history.</AdminEmptyState>
-                </div>
-                <AdminBtnPrimary className="mt-4" type="button" disabled={!canEdit}>
+                <AdminBtnPrimary
+                  className="mt-4"
+                  type="button"
+                  disabled={!canEdit || !(providers.stripe.connected || providers.swish.connected)}
+                  onClick={() => patchSettings({ bankAccount: { linked: true, lastFour: "4242", holderName: venueNameFromSettings(settings) } })}
+                >
                   Link bank account
                 </AdminBtnPrimary>
               </PaySection>
@@ -397,21 +529,28 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
 
             <PaySection className="mt-5" title="Transactions" description="Live breakdown by payment state.">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                {(["Successful", "Pending", "Refunded", "Failed", "Disputed"] as const).map((label) => (
+                {[
+                  ["Successful", stats?.successful ?? 0],
+                  ["Pending", stats?.pending ?? 0],
+                  ["Refunded", stats?.refunded ?? 0],
+                  ["Failed", stats?.failed ?? 0],
+                  ["Disputed", stats?.disputed ?? 0]
+                ].map(([label, value]) => (
                   <div key={label} className="admin-payments-txn-tile">
                     <p className="admin-payments-kv-label">{label}</p>
-                    <p className="admin-payments-kv-value mt-1">0</p>
+                    <p className="admin-payments-kv-value mt-1">{value}</p>
                   </div>
                 ))}
               </div>
-              <p className="admin-config-text-subtle mt-4 text-sm">Transaction history will populate when payment providers are connected.</p>
             </PaySection>
 
             <PaySection className="mt-5" title="Payment security" description="Webhooks, API health, and fraud monitoring.">
               <ul className="admin-payments-security-list">
                 <li className="admin-payments-security-row">
                   <span className="font-semibold admin-config-text">Webhook status</span>
-                  <PayChip tone="muted">Not configured</PayChip>
+                  <PayChip tone={providers.stripe.connected || providers.swish.connected ? "success" : "muted"}>
+                    {providers.stripe.connected || providers.swish.connected ? "Active" : "Awaiting provider"}
+                  </PayChip>
                 </li>
                 <li className="admin-payments-security-row">
                   <span className="font-semibold admin-config-text">API keys health</span>
@@ -430,6 +569,28 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
           </>
         )}
       </AdminStaleContent>
+
+      <ProfileModalShell
+        open={connectOpen !== null}
+        onClose={saving ? () => undefined : () => setConnectOpen(null)}
+        title={connectOpen === "stripe" ? "Connect Stripe" : "Connect Swish"}
+        description={`Enter your ${connectOpen === "stripe" ? "Stripe account ID" : "Swish merchant number"} to enable payments.`}
+        titleId="connect-provider-title"
+        stackLevel="overlay"
+      >
+        <AdminLabel>
+          <span className="text-xs admin-config-text-muted">
+            {connectOpen === "stripe" ? "Stripe account ID" : "Swish merchant number"}
+          </span>
+          <AdminInput className="mt-1.5" value={connectId} onChange={(e) => setConnectId(e.target.value)} placeholder={connectOpen === "stripe" ? "acct_..." : "1234567890"} />
+        </AdminLabel>
+        <ProfileModalFooter
+          onCancel={() => setConnectOpen(null)}
+          onConfirm={() => void handleConnect()}
+          confirmLabel={saving ? "Connecting…" : "Connect"}
+          busy={saving}
+        />
+      </ProfileModalShell>
     </AdminPanel>
   );
 }

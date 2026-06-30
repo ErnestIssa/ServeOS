@@ -127,7 +127,7 @@ export function AdminTypingSearch({
         aria-hidden
       />
       <span className="admin-search-input admin-search-input--trigger pointer-events-none relative z-[2] block w-full rounded-2xl pl-10 pr-4 text-sm" aria-hidden />
-      <span className="admin-search-ghost pointer-events-none absolute inset-y-0 left-10 right-4 z-[3] flex items-center truncate text-sm">
+      <span className="admin-search-ghost pointer-events-none absolute inset-y-0 left-10 right-4 z-[3] flex items-center truncate">
         <span className="truncate">{typed}</span>
         <span className="admin-search-cursor" aria-hidden />
       </span>

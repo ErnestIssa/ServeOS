@@ -12,7 +12,7 @@ import {
   useWindowDimensions
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { menuImageSourceForKey } from "../menu/menuCardAssets";
+import { menuImageSourceForItem } from "../menu/menuMediaUtils";
 import type { MenuCategoryLite, MenuItemFlat } from "../menu/menuBrowseUtils";
 import { R } from "../theme";
 import { SwapColorSpinner } from "../components/SwapColorLoader";
@@ -67,7 +67,13 @@ function SearchResultRow({
   const line = subline ?? item.categoryName;
   return (
     <View style={styles.resultRow}>
-      <Image source={menuImageSourceForKey(item.id)} style={styles.resultImg} resizeMode="cover" />
+      {menuImageSourceForItem(item) ? (
+        <Image source={menuImageSourceForItem(item)!} style={styles.resultImg} resizeMode="cover" />
+      ) : (
+        <View style={[styles.resultImg, styles.resultImgPlaceholder]}>
+          <Text style={styles.resultImgPlaceholderText}>—</Text>
+        </View>
+      )}
       <View style={styles.resultMid}>
         <Text style={styles.resultTitle} numberOfLines={2}>
           {item.name}
@@ -495,6 +501,8 @@ const styles = StyleSheet.create({
     borderRadius: R.radius.tile,
     backgroundColor: R.bgSubtle
   },
+  resultImgPlaceholder: { alignItems: "center", justifyContent: "center" },
+  resultImgPlaceholderText: { fontSize: 11, fontWeight: "700", color: R.textMuted },
   resultMid: {
     flex: 1,
     minWidth: 0,

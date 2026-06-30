@@ -3,7 +3,7 @@ import { FlatList, Platform, StyleSheet, Text, useWindowDimensions, View, type V
 import { R } from "../theme";
 import { MenuItemCard } from "./MenuItemCard";
 import { MenuCardScrollReveal } from "./MenuCardScrollReveal";
-import { menuImageSourceForKey } from "./menuCardAssets";
+import { menuImageSourceForItem } from "./menuMediaUtils";
 import {
   appendLastOrdered,
   bumpBrowseEngagement,
@@ -38,7 +38,8 @@ function MenuCarouselStrip({
   onToggleLike,
   onAddItem,
   addingItemIds,
-  markedMenuItemIds
+  markedMenuItemIds,
+  onOpenItem
 }: {
   trackingKey: string;
   headingTitle: string;
@@ -51,6 +52,7 @@ function MenuCarouselStrip({
   likedOrder: string[];
   onToggleLike: (id: string) => void;
   onAddItem: (item: MenuItemFlat) => void;
+  onOpenItem?: (item: MenuItemFlat) => void;
   addingItemIds?: Record<string, boolean> | undefined;
   markedMenuItemIds?: Record<string, boolean> | undefined;
 }) {
@@ -92,12 +94,13 @@ function MenuCarouselStrip({
               title={item.name}
               description={item.description}
               priceLabel={money(item.priceCents)}
-              image={menuImageSourceForKey(item.id)}
+              image={menuImageSourceForItem(item)}
               liked={likedOrder.includes(item.id)}
               onToggleLike={() => onToggleLike(item.id)}
               addLoading={!!addingItemIds?.[item.id]}
               addedJustNow={!!markedMenuItemIds?.[item.id]}
               onAddPress={() => onAddItem(item)}
+              onOpenDetail={onOpenItem ? () => onOpenItem(item) : undefined}
             />
           </MenuCardScrollReveal>
         )}
@@ -116,7 +119,8 @@ function MenuGridChunk({
   onToggleLike,
   onAddItem,
   addingItemIds,
-  markedMenuItemIds
+  markedMenuItemIds,
+  onOpenItem
 }: {
   trackingKey: string;
   items: MenuItemFlat[];
@@ -126,6 +130,7 @@ function MenuGridChunk({
   likedOrder: string[];
   onToggleLike: (id: string) => void;
   onAddItem: (item: MenuItemFlat) => void;
+  onOpenItem?: (item: MenuItemFlat) => void;
   addingItemIds?: Record<string, boolean> | undefined;
   markedMenuItemIds?: Record<string, boolean> | undefined;
 }) {
@@ -158,12 +163,13 @@ function MenuGridChunk({
             title={item.name}
             description={item.description}
             priceLabel={money(item.priceCents)}
-            image={menuImageSourceForKey(item.id)}
+            image={menuImageSourceForItem(item)}
             liked={likedOrder.includes(item.id)}
             onToggleLike={() => onToggleLike(item.id)}
             addLoading={!!addingItemIds?.[item.id]}
             addedJustNow={!!markedMenuItemIds?.[item.id]}
             onAddPress={() => onAddItem(item)}
+            onOpenDetail={onOpenItem ? () => onOpenItem(item) : undefined}
           />
         </MenuCardScrollReveal>
       )}
@@ -183,6 +189,7 @@ type Props = {
   restaurantId: string;
   filterQuery?: string;
   onAddItem: (item: MenuItemFlat) => void;
+  onOpenItem?: (item: MenuItemFlat) => void;
   addingItemIds?: Record<string, boolean> | undefined;
   markedMenuItemIds?: Record<string, boolean> | undefined;
   likedIdsInitial?: string[];
@@ -199,6 +206,7 @@ export function CustomerMenuBrowsing({
   restaurantId,
   filterQuery = "",
   onAddItem,
+  onOpenItem,
   addingItemIds,
   markedMenuItemIds,
   likedIdsInitial,
@@ -267,7 +275,11 @@ export function CustomerMenuBrowsing({
               description: item.description,
               priceCents: item.priceCents ?? 0,
               categoryId: cat.id,
-              categoryName: cat.name
+              categoryName: cat.name,
+              coverUrl: item.coverUrl,
+              imageKey: item.imageKey,
+              media: item.media,
+              modifierGroups: item.modifierGroups
             })),
             filterQuery
           );
@@ -328,6 +340,7 @@ export function CustomerMenuBrowsing({
       void handleLike(id);
     },
     onAddItem: handleAddItem,
+    onOpenItem,
     addingItemIds,
     markedMenuItemIds
   };
@@ -412,6 +425,7 @@ export function CustomerMenuBrowsing({
                       likedOrder={likedOrder}
                       onToggleLike={(id) => void handleLike(id)}
                       onAddItem={handleAddItem}
+                      onOpenItem={onOpenItem}
                       addingItemIds={addingItemIds}
                       markedMenuItemIds={markedMenuItemIds}
                     />

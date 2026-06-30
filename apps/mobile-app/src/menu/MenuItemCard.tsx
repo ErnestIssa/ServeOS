@@ -15,13 +15,14 @@ type Props = {
   title: string;
   description?: string | null;
   priceLabel: string;
-  image: ImageSourcePropType;
+  image: ImageSourcePropType | null;
   layout: "carousel" | "grid";
   carouselWidth?: number;
   gridCardWidth?: number;
   liked?: boolean;
   onToggleLike?: () => void;
   onAddPress: () => void;
+  onOpenDetail?: () => void;
   addLoading?: boolean;
   /** Sticky ✓ after a successful add (matches nav search sheet). */
   addedJustNow?: boolean;
@@ -38,6 +39,7 @@ export function MenuItemCard({
   liked,
   onToggleLike,
   onAddPress,
+  onOpenDetail,
   addLoading = false,
   addedJustNow = false
 }: Props) {
@@ -47,8 +49,18 @@ export function MenuItemCard({
 
   return (
     <View style={[styles.shell, carousel ? styles.shellCarousel : styles.shellGrid, widthStyle]}>
-      <Pressable accessibilityRole="button" accessibilityLabel={`Add ${title}`} onPress={onAddPress}>
-        <Image source={image} style={[styles.image, carousel ? styles.imageCarousel : styles.imageGrid]} resizeMode="cover" />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`View ${title}`}
+        onPress={onOpenDetail ?? onAddPress}
+      >
+        {image ? (
+          <Image source={image} style={[styles.image, carousel ? styles.imageCarousel : styles.imageGrid]} resizeMode="cover" />
+        ) : (
+          <View style={[styles.image, carousel ? styles.imageCarousel : styles.imageGrid, styles.imagePlaceholder]}>
+            <Text style={styles.imagePlaceholderText}>No photo</Text>
+          </View>
+        )}
       </Pressable>
       <View style={styles.body}>
         <View style={styles.titleRow}>
@@ -126,6 +138,10 @@ const styles = StyleSheet.create({
   imageCarousel: { height: 118 },
 
   imageGrid: { height: 128 },
+
+  imagePlaceholder: { alignItems: "center", justifyContent: "center", backgroundColor: R.bgSubtle },
+
+  imagePlaceholderText: { fontSize: 11, fontWeight: "700", color: R.textMuted },
 
   body: {
     paddingHorizontal: 12,

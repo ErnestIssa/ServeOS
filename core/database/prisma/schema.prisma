@@ -259,12 +259,17 @@ model StoredMedia {
   menuItemId    String?
   chatRoomId    String?
   chatMessageId String?               @unique
+  /// Gallery order within a menu item (images and videos sorted separately).
+  sortOrder     Int                   @default(0)
+  /// Client-reported duration for short item videos (ms).
+  durationMs    Int?
   createdAt     DateTime              @default(now())
 
   restaurant Restaurant? @relation(fields: [restaurantId], references: [id], onDelete: SetNull)
   menuItem   MenuItem?   @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
 
   @@index([restaurantId, scope])
+  @@index([menuItemId, scope, sortOrder])
   @@index([userId])
   @@index([chatRoomId])
 }
@@ -291,6 +296,8 @@ model Restaurant {
   orderIdentityPolicy     Json?
   /// Per-venue order source rule overrides.
   orderSourcePolicy       Json?
+  /// Stripe/Swish connect, accepted methods, rules, taxes, refunds.
+  paymentSettings         Json?
 
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -299,9 +306,12 @@ model Restaurant {
   staffInvitations  StaffInvitation[]
   customerInvitations CustomerInvitation[]
   menuCategories MenuCategory[]
+  menus          Menu[]
+  orderingSessions OrderingSession[]
   orders         Order[]
   orderCounter   RestaurantOrderCounter?
   shoppingCarts  ShoppingCart[]
+  sessionCarts   SessionCart[]
   chatRooms      ChatRoom[]
   reservationDrafts CustomerReservationDraft[]
   customerReservations CustomerReservation[]
@@ -448,6 +458,7 @@ model CustomerInvitation {
 model MenuCategory {
   id           String   @id @default(cuid())
   restaurantId String
+  menuId       String?
   name         String
   sortOrder    Int      @default(0)
   isActive     Boolean  @default(true)
@@ -455,9 +466,128 @@ model MenuCategory {
   updatedAt    DateTime @updatedAt
 
   restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  menu       Menu?      @relation(fields: [menuId], references: [id], onDelete: SetNull)
   items      MenuItem[]
 
   @@index([restaurantId])
+  @@index([menuId])
+}
+
+enum MenuStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+/// Versioned menu surface — draft → publish creates immutable MenuVersion snapshot.
+model Menu {
+  id              String     @id @default(cuid())
+  restaurantId    String
+  name            String
+  description     String?
+  surfaceKey      String?
+  status          MenuStatus @default(DRAFT)
+  activeVersionId String?    @unique
+  createdByUserId String
+  sortOrder            Int        @default(0)
+  scheduledPublishAt   DateTime?
+  availabilityWindows  Json?
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+
+  restaurant    Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  categories    MenuCategory[]
+  versions      MenuVersion[]
+  activeVersion MenuVersion?  @relation("ActiveMenuVersion", fields: [activeVersionId], references: [id], onDelete: SetNull)
+
+  @@index([restaurantId, status])
+  @@index([restaurantId, sortOrder])
+}
+
+model MenuVersion {
+  id              String    @id @default(cuid())
+  menuId          String
+  versionNumber   Int
+  snapshot        Json?
+  publishedAt     DateTime?
+  createdByUserId String
+  createdAt       DateTime  @default(now())
+
+  menu          Menu  @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  activeForMenu Menu? @relation("ActiveMenuVersion")
+
+  @@unique([menuId, versionNumber])
+  @@index([menuId])
+}
+
+enum OrderingSessionType {
+  QR_SESSION
+  WALK_IN_SESSION
+  LINK_SESSION
+  STAFF_ASSISTED_SESSION
+}
+
+enum OrderingSessionStatus {
+  ACTIVE
+  EXPIRED
+  CLOSED
+}
+
+enum OrderingPaymentMode {
+  PAY_AT_VENUE
+  PREPAY
+  HYBRID
+}
+
+/// Guest / QR ordering context — ties menu browse, cart, and placement together.
+model OrderingSession {
+  id           String                @id @default(cuid())
+  restaurantId String
+  sessionType  OrderingSessionType     @default(QR_SESSION)
+  status       OrderingSessionStatus   @default(ACTIVE)
+  entryMode    String?
+  tableId      String?
+  tableLabel   String?
+  locationId   String?
+  paymentMode  OrderingPaymentMode     @default(PREPAY)
+  expiresAt    DateTime
+  lastActiveAt DateTime              @default(now())
+  createdAt    DateTime              @default(now())
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  cart       SessionCart?
+
+  @@index([restaurantId, status])
+  @@index([expiresAt])
+}
+
+/// Guest cart scoped to an ordering session (QR / link flows).
+model SessionCart {
+  id                String   @id @default(cuid())
+  orderingSessionId String   @unique
+  restaurantId      String
+  orderNote         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  orderingSession OrderingSession @relation(fields: [orderingSessionId], references: [id], onDelete: Cascade)
+  restaurant      Restaurant      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  lines           SessionCartLine[]
+
+  @@index([restaurantId])
+}
+
+model SessionCartLine {
+  id                String @id @default(cuid())
+  sessionCartId     String
+  menuItemId        String
+  quantity          Int    @default(1)
+  modifierOptionIds Json   @default("[]")
+
+  sessionCart SessionCart @relation(fields: [sessionCartId], references: [id], onDelete: Cascade)
+  menuItem    MenuItem    @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@index([sessionCartId])
 }
 
 model MenuItem {
@@ -476,6 +606,7 @@ model MenuItem {
   modifierGroups ModifierGroup[]
   orderLineItems OrderLineItem[]
   cartLines      CartLine[]
+  sessionCartLines SessionCartLine[]
   storedMedia    StoredMedia[]
 
   @@index([categoryId])

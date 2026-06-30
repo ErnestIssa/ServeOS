@@ -25,6 +25,8 @@ import { ADMIN_WORKSPACE_FAB } from "./marketing/fabTone";
 import { SupportPopup } from "./marketing/SupportPopup";
 import { useSupportPopup } from "./marketing/useSupportPopup";
 import { scrollToId } from "./marketing/ui";
+import { GuestOrderingPage } from "./guest/GuestOrderingPage";
+import { guestSessionIdFromPathname } from "./appNavigation";
 
 export function App() {
   const [view, setView] = useState<AppView>(() => resolveAppViewForSession(window.location.pathname));
@@ -91,6 +93,7 @@ export function App() {
     if (viewFromPath(window.location.pathname) === "preferences") return;
     if (viewFromPath(window.location.pathname) === "email-templates") return;
     if (viewFromPath(window.location.pathname) === "invite-accept") return;
+    if (viewFromPath(window.location.pathname) === "guest-order") return;
     setView("admin");
     if (viewFromPath(window.location.pathname) !== "admin") {
       syncUrlForView("admin", true);
@@ -161,6 +164,12 @@ export function App() {
         <WorkspaceEnrollmentPage onBack={() => goLanding("top")} onGoLogin={goLogin} />
       ) : null}
       {view === "admin" ? <AdminDashboardPage onAfterLogout={() => goLanding("top")} /> : null}
+      {view === "guest-order" ? (
+        <GuestOrderingPage
+          sessionId={guestSessionIdFromPathname(window.location.pathname) ?? ""}
+          onHome={() => goLanding("top")}
+        />
+      ) : null}
 
       <SupportPopup
         isVisible={isSupportVisible}

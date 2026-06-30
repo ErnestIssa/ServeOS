@@ -12,12 +12,8 @@ function SendMessageIcon({ className }: { className?: string }) {
   );
 }
 
-type Props = {
-  apiBaseUrl: string;
-};
-
-export function SupportAgentThread({ apiBaseUrl }: Props) {
-  const { messages, loading, sendUserMessage } = useSupportAgentChat({ apiBaseUrl });
+export function SupportAgentThread() {
+  const { messages, loading, sendUserMessage } = useSupportAgentChat();
   const [draft, setDraft] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);

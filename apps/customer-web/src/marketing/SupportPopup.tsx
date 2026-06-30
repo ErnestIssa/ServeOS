@@ -1,6 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { SupportAgentThread } from "@serveos/agents/client";
-import { getApiBaseUrl } from "../api";
+import { SupportAgentThread } from "@serveos/agents";
 import { readAdminTheme } from "../admin/adminNavContent";
 import { FOOTER_SUPPORT_EMAIL } from "./footerContent";
 import {
@@ -522,7 +521,7 @@ function SupportPopupBody({
         transition={messagesViewTransition}
       >
         {messagesThreadOpen ? (
-          <SupportAgentThread apiBaseUrl={getApiBaseUrl()} />
+          <SupportAgentThread />
         ) : (
           <SupportPopupMessagesInbox onStartThread={onStartMessagesThread} />
         )}

@@ -3,7 +3,7 @@ import { pathForView, viewFromPath } from "./appNavigation";
 import { hasInviteTokenInLocation } from "./inviteToken";
 import { hasActiveAdminSession } from "./authStorage";
 
-const PUBLIC_SESSION_VIEWS: AppView[] = ["preferences", "email-templates", "invite-accept", "login"];
+const PUBLIC_SESSION_VIEWS: AppView[] = ["preferences", "email-templates", "invite-accept", "login", "guest-order"];
 
 export function resolveAppViewForSession(pathname: string): AppView {
   const pathView = viewFromPath(pathname);

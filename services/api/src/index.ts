@@ -8,6 +8,8 @@ import Fastify from "fastify";
 import { PrismaClient } from "@prisma/client";
 import { authPlugin } from "./plugins/auth.js";
 import { registerAuthRoutes } from "./routes/authRoutes.js";
+import { registerVenuePaymentRoutes } from "./routes/venuePaymentRoutes.js";
+import { registerOrderingSessionRoutes } from "./routes/orderingSessionRoutes.js";
 import { registerRestaurantRoutes } from "./routes/restaurantRoutes.js";
 import { registerRestaurantChatRoutes } from "./routes/restaurantChatRoutes.js";
 import { registerOrderRoutes } from "./routes/orderRoutes.js";
@@ -43,8 +45,6 @@ import { registerWorkspaceProvisioningRoutes } from "./routes/workspaceProvision
 import { registerTrustRoutes } from "./routes/trustRoutes.js";
 import { startOrderOutboxProcessor } from "./lib/orders/orderOutboxProcessor.js";
 import { startOrderRecoveryProcessor } from "./lib/orders/orderRecoveryService.js";
-import { registerSupportAgentRoutes } from "./routes/supportAgentRoutes.js";
-import { isSupportAgentConfigured } from "./lib/supportAgent/supportAgentService.js";
 
 const port = Number(process.env.PORT ?? process.env.API_GATEWAY_PORT ?? 3000);
 /** Render / Docker: set `HOST=0.0.0.0` so the service accepts external connections. */
@@ -177,7 +177,6 @@ async function main() {
       objectStorage: { configured: isObjectStorageConfigured() },
       cloudflareCdn: { configured: isCloudflareCdnConfigured() },
       sms: { configured: isSmsProviderConfigured() },
-      supportAgent: { configured: isSupportAgentConfigured() },
       upstashRedis: redis.configured
         ? { configured: true, ok: redis.ok, ...(redis.error ? { error: redis.error } : {}) }
         : { configured: false, mode: "skipped" }
@@ -204,8 +203,7 @@ async function main() {
       "/trust/*",
       "/cart/*",
       "/notifications/*",
-      "/workspace-deployment/*",
-      "/api/support-agent"
+      "/workspace-deployment/*"
     ]
   }));
 
@@ -227,6 +225,9 @@ async function main() {
   registerMobileWorkspaceRoutes(app, prisma, chatBus, domainEventBus);
   registerStaffAccessRoutes(app, prisma, domainEventBus);
   registerRestaurantRoutes(app, prisma);
+  registerMenuRoutes(app, prisma);
+  registerVenuePaymentRoutes(app, prisma);
+  registerOrderingSessionRoutes(app, prisma);
   registerRestaurantChatRoutes(app, prisma, chatBus);
   registerCustomerRoutes(app, prisma);
   registerCustomerReservationRoutes(app, prisma);
@@ -241,7 +242,6 @@ async function main() {
   registerNotificationRealtime(app, notificationBus);
   registerCartRoutes(app, prisma);
   registerBusinessRoutes(app);
-  registerSupportAgentRoutes(app);
   registerWorkspaceDeploymentRoutes(app, prisma);
 
   await app.listen({ port, host });

@@ -49,9 +49,20 @@ import {
 } from "../lib/orderSource/index.js";
 import { applyOrderEditOperation } from "../lib/orderEdit/index.js";
 import { ORDER_STATUS_VALUES } from "../lib/orders/orderStatusValues.js";
+import type { PlaceOrderInput } from "../lib/orders/orderTypes.js";
 import { autoTerminateStaleActiveOrdersForCustomer } from "../lib/autoTerminateStaleActiveOrders.js";
 import { isVenueMembershipRole } from "../lib/membershipAccess.js";
 import { applyOrderStatusOcl, loadCustomerOrderOcl } from "../lib/orderOcl.js";
+import {
+  assertOrderingSessionForRestaurant,
+  placementDefaultsFromSession
+} from "../lib/ordering/orderingSessionService.js";
+import { loadSessionCartLinesForOrder, clearSessionCart } from "../lib/ordering/sessionCartService.js";
+import {
+  completeOrderCheckout,
+  createOrderCheckout,
+  mapCheckoutError
+} from "../lib/orders/orderCheckoutService.js";
 import {
   finalizeOrderStatusAudit,
   guardOrderStatusChange,
@@ -249,6 +260,7 @@ export async function registerOrderRoutes(
       note: z.string().max(2000).optional(),
       lines: z.array(orderLineBody).optional(),
       fromCart: z.boolean().optional(),
+      fromSessionCart: z.boolean().optional(),
       sourceSessionId: z.string().max(200).optional(),
       sourceSessionType: z.string().max(50).optional(),
       deviceId: z.string().max(200).optional(),
@@ -269,7 +281,7 @@ export async function registerOrderRoutes(
       createdByContext: z.enum(["CUSTOMER", "STAFF"]).optional()
     })
     .refine(
-      (b) => (b.fromCart ? true : !!(b.lines && b.lines.length > 0)),
+      (b) => (b.fromCart || b.fromSessionCart ? true : !!(b.lines && b.lines.length > 0)),
       { message: "lines_or_fromCart" }
     );
 
@@ -302,6 +314,17 @@ export async function registerOrderRoutes(
           ? (l.modifierOptionIds as string[])
           : []
       }));
+    } else if (body.fromSessionCart) {
+      if (!body.sourceSessionId?.trim()) {
+        throw Object.assign(new Error("source_session_required"), { statusCode: 400 });
+      }
+      const sessionCart = await loadSessionCartLinesForOrder(
+        prisma,
+        body.sourceSessionId.trim(),
+        body.restaurantId
+      );
+      if (!orderNote && sessionCart.orderNote) orderNote = sessionCart.orderNote;
+      lineSources = sessionCart.lines;
     } else {
       lineSources = body.lines ?? [];
     }
@@ -320,18 +343,45 @@ export async function registerOrderRoutes(
       });
     }
 
+    let source = body.source as PlaceOrderInput["source"];
+    let sourceSessionId = body.sourceSessionId;
+    let sourceSessionType = body.sourceSessionType;
+    let tableLabel: string | undefined;
+    let initialStatus: PlaceOrderInput["initialStatus"];
+    let paymentStatus: PlaceOrderInput["paymentStatus"];
+
+    if (sourceSessionId?.trim()) {
+      const session = await assertOrderingSessionForRestaurant(prisma, sourceSessionId.trim(), body.restaurantId);
+      if (!session.ok) {
+        throw Object.assign(new Error(session.error), { statusCode: 400 });
+      }
+      const defaults = placementDefaultsFromSession(session.session);
+      if (!source) source = defaults.source;
+      sourceSessionType = sourceSessionType ?? defaults.sourceSessionType;
+      tableLabel = defaults.tableLabel;
+      if (!body.source) {
+        initialStatus = defaults.initialStatus;
+        paymentStatus = defaults.paymentStatus;
+      }
+    } else if (!customer?.sub) {
+      throw Object.assign(new Error("source_session_required"), { statusCode: 400 });
+    }
+
     const order = await placeOrder(
       prisma,
       {
-        restaurantId: body.restaurantId,
+          restaurantId: body.restaurantId,
         note: orderNote,
         lines: lineInputs,
-        customerUserId: customer?.sub ?? null,
-        createdByUserId: customer?.sub ?? null,
+          customerUserId: customer?.sub ?? null,
+          createdByUserId: customer?.sub ?? null,
         createdByContext: body.createdByContext ?? "CUSTOMER",
-        source: body.source as never,
-        sourceSessionId: body.sourceSessionId,
-        sourceSessionType: body.sourceSessionType,
+        source,
+        sourceSessionId,
+        sourceSessionType,
+        tableLabel,
+        initialStatus,
+        paymentStatus,
         deviceId: body.deviceId,
         reservationId: body.reservationId,
         partnerId: body.partnerId,
@@ -342,11 +392,15 @@ export async function registerOrderRoutes(
       app.log
     );
 
-    if (body.fromCart && customer) {
+      if (body.fromCart && customer) {
       await prisma.shoppingCart.deleteMany({
-        where: { userId: customer.sub, restaurantId: body.restaurantId }
-      });
-    }
+          where: { userId: customer.sub, restaurantId: body.restaurantId }
+        });
+      }
+
+      if (body.fromSessionCart && body.sourceSessionId?.trim()) {
+        await clearSessionCart(prisma, body.sourceSessionId.trim());
+      }
 
     const identityPolicy = await loadRestaurantIdentityPolicy(prisma, order.restaurantId);
     const identity = buildOrderIdentitySnapshot(order, identityPolicy);
@@ -972,6 +1026,32 @@ export async function registerOrderRoutes(
     );
 
     return { ok: true, order };
+  });
+
+  app.post("/orders/:orderId/checkout", async (req, reply) => {
+    const { orderId } = z.object({ orderId: z.string().min(1) }).parse(req.params);
+    const body = z.object({ provider: z.enum(["stripe", "swish", "cash"]) }).parse(req.body ?? { provider: "stripe" });
+    const result = await createOrderCheckout(prisma, orderId, body.provider);
+    if (!result.ok) {
+      return reply.status(400).send({ ok: false, error: result.error, message: mapCheckoutError(result.error) });
+    }
+    return { ok: true, checkout: result.checkout };
+  });
+
+  app.post("/orders/:orderId/checkout/complete", async (req, reply) => {
+    const { orderId } = z.object({ orderId: z.string().min(1) }).parse(req.params);
+    const body = z.object({ provider: z.string().min(1) }).parse(req.body ?? {});
+    const result = await completeOrderCheckout(
+      prisma,
+      orderId,
+      body.provider,
+      { domainEventBus, orderBus },
+      app.log
+    );
+    if (!result.ok) {
+      return reply.status(400).send({ ok: false, error: result.error, message: mapCheckoutError(result.error) });
+    }
+    return { ok: true, ...result };
   });
 
   const paymentWebhookSchema = z.object({

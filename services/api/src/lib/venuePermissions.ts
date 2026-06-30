@@ -28,9 +28,15 @@ export const VENUE_PERMISSION = {
   checkout: "staff.checkout",
   paymentSettings: "admin.payment_settings",
 
-  // Content
+  // Content — menu surfaces, catalog, and media
   menuView: "admin.menu",
   menuEdit: "admin.modifiers",
+  menuPublish: "admin.menu_publish",
+  menuArchive: "admin.menu_archive",
+  menuCategory: "admin.menu_category",
+  menuItem: "admin.menu_item",
+  menuModifier: "admin.menu_modifier",
+  menuMedia: "admin.menu_media",
 
   // Management
   dashboard: "admin.dashboard",
@@ -87,7 +93,16 @@ export const PERMISSION_GROUPS: Array<{
   {
     id: "content",
     label: "Content",
-    keys: [VENUE_PERMISSION.menuView, VENUE_PERMISSION.menuEdit]
+    keys: [
+      VENUE_PERMISSION.menuView,
+      VENUE_PERMISSION.menuEdit,
+      VENUE_PERMISSION.menuPublish,
+      VENUE_PERMISSION.menuArchive,
+      VENUE_PERMISSION.menuCategory,
+      VENUE_PERMISSION.menuItem,
+      VENUE_PERMISSION.menuModifier,
+      VENUE_PERMISSION.menuMedia
+    ]
   },
   {
     id: "management",
