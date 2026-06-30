@@ -8,6 +8,7 @@ import Fastify from "fastify";
 import { PrismaClient } from "@prisma/client";
 import { authPlugin } from "./plugins/auth.js";
 import { registerAuthRoutes } from "./routes/authRoutes.js";
+import { registerMenuRoutes } from "./routes/menuRoutes.js";
 import { registerVenuePaymentRoutes } from "./routes/venuePaymentRoutes.js";
 import { registerOrderingSessionRoutes } from "./routes/orderingSessionRoutes.js";
 import { registerRestaurantRoutes } from "./routes/restaurantRoutes.js";
