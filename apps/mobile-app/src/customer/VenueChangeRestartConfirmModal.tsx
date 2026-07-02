@@ -1,6 +1,7 @@
 import { BlurView } from "expo-blur";
+import * as Haptics from "expo-haptics";
 import React from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { useAppTheme } from "../theme/AppThemeContext";
 
@@ -11,13 +12,15 @@ export type VenueChangeRestartConfirmOverlayProps = {
   onCancel: () => void;
   onConfirm: () => void | Promise<void>;
   loading?: boolean;
+  /** Subtle haptic when the user confirms (experience switcher modal only). */
+  hapticOnConfirm?: boolean;
 };
 
 /**
  * In-Modal overlay (not a separate Modal) so it always stacks above the venue sheet and rest of the app tree inside the same Modal.
  */
 export function VenueChangeRestartConfirmOverlay(props: VenueChangeRestartConfirmOverlayProps) {
-  const { userFirstName, currentVenueName, nextVenueName, onCancel, onConfirm, loading } = props;
+  const { userFirstName, currentVenueName, nextVenueName, onCancel, onConfirm, loading, hapticOnConfirm } = props;
   const { colors: t, isDark } = useAppTheme();
   const p = useSharedValue(0);
 
@@ -101,6 +104,11 @@ export function VenueChangeRestartConfirmOverlay(props: VenueChangeRestartConfir
 
   const first = userFirstName.trim() || "there";
 
+  const handleConfirm = React.useCallback(() => {
+    if (hapticOnConfirm) void Haptics.selectionAsync();
+    void onConfirm();
+  }, [hapticOnConfirm, onConfirm]);
+
   return (
     <View style={styles.root} pointerEvents="auto">
       <Animated.View style={[styles.backdrop, backdropStyle]}>
@@ -130,15 +138,11 @@ export function VenueChangeRestartConfirmOverlay(props: VenueChangeRestartConfir
               <Text style={styles.cancelText}>Cancel</Text>
             </Pressable>
             <Pressable
-              onPress={() => void onConfirm()}
+              onPress={handleConfirm}
               disabled={loading}
               style={({ pressed }) => [styles.confirmBtn, (pressed || loading) && styles.pressed]}
             >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.confirmText}>Confirm switch</Text>
-              )}
+              <Text style={[styles.confirmText, loading && { opacity: 0.58 }]}>Confirm switch</Text>
             </Pressable>
           </View>
         </Animated.View>

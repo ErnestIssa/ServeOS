@@ -41,7 +41,7 @@ export function ReservationDetailCardCarousel(props: Props) {
   const { options, readOnly = false } = props;
   const selectedIds = readOnly ? [] : props.selectedIds;
   const onSelect = readOnly ? undefined : props.onSelect;
-  const { colors: t, isDark } = useAppTheme();
+  const { colors: t } = useAppTheme();
   const listRef = React.useRef<FlatList<DetailCardOption>>(null);
   const onSelectRef = React.useRef(onSelect);
   onSelectRef.current = onSelect;
@@ -59,8 +59,8 @@ export function ReservationDetailCardCarousel(props: Props) {
   const cardH = Math.round(cardW * CARD_ASPECT);
   const pageH = cardH + 12;
 
-  const idleBg = isDark ? "rgba(15,23,42,0.62)" : "rgba(255,255,255,0.94)";
-  const idleBorder = isDark ? "rgba(148,163,184,0.26)" : "rgba(226,232,240,0.94)";
+  const idleBg = "rgba(255,255,255,0.94)";
+  const idleBorder = "rgba(226,232,240,0.94)";
   const purple = t.ordersNavPurpleBright;
 
   const emitSelection = React.useCallback(

@@ -2,6 +2,7 @@ import React from "react";
 import { StyleSheet, Text, TextInput, View, type ImageStyle, type TextStyle, type ViewStyle } from "react-native";
 import type { AuthUser } from "../../api";
 import { useAppTheme } from "../../theme/AppThemeContext";
+import { SkeletonBlock, SkeletonScreenFill } from "../../components/skeleton/SkeletonUi";
 import { loadAppSettingsForCustomer, saveAppSettingsForCustomer } from "./profilePrefsStorage";
 import type { AppSettings, SettingsDetailKey } from "./profilePrefsStorage";
 import {
@@ -143,7 +144,10 @@ export function SettingsDetailScreen(props: DetailProps) {
   if (!settings) {
     return (
       <ProfileScreenContainer topInset={0} bottomInset={props.bottomInset}>
-        <Text style={styles.loading}>Loading…</Text>
+        <SkeletonScreenFill style={{ flex: 1, paddingTop: 8 }}>
+          <SkeletonBlock lines={5} style={{ marginBottom: 20 }} />
+          <SkeletonBlock lines={3} />
+        </SkeletonScreenFill>
       </ProfileScreenContainer>
     );
   }

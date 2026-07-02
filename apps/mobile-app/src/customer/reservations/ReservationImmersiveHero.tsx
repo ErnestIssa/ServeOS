@@ -36,10 +36,10 @@ type Props = {
 
 export function ReservationImmersiveHero(props: Props) {
   const { width: screenW, height: screenH } = useWindowDimensions();
-  const { isDark, colors: theme } = useAppTheme();
+  const { colors: theme } = useAppTheme();
   const ambient = ambientNativePalettes.bookings;
   /** Same top tint as the scrolling sheet card — rounded lip at hero seam. */
-  const sheetFill = isDark ? theme.meshTop : ambient.top;
+  const sheetFill = ambient.top;
   const heroPurple = theme.ordersNavPurpleBright;
   const heroH = Math.round(Math.min(screenH * 0.54, 440));
   const [activeIndex, setActiveIndex] = React.useState(0);

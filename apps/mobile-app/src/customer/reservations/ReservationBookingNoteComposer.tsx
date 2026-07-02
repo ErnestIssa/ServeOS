@@ -18,7 +18,7 @@ type Props = {
  * Chat-style multiline composer (no send/camera) — matches booking card chrome.
  */
 export function ReservationBookingNoteComposer({ value, onChange, disabled, inputRef }: Props) {
-  const { colors: t, isDark } = useAppTheme();
+  const { colors: t } = useAppTheme();
   const showPlaceholder = value.length === 0;
 
   const focusInput = React.useCallback(() => {
@@ -27,7 +27,7 @@ export function ReservationBookingNoteComposer({ value, onChange, disabled, inpu
   }, [disabled, inputRef]);
 
   const borderColor = t.ordersNavPurpleBright;
-  const shellBg = isDark ? "rgba(15,23,42,0.62)" : "rgba(255,255,255,0.94)";
+  const shellBg = "rgba(255,255,255,0.94)";
 
   return (
     <View style={styles.wrap}>

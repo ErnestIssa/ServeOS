@@ -30,6 +30,8 @@ type AppErrorContextValue = {
     opts?: Omit<ErrorModalState, "message"> & { fallback?: string; onClosed?: () => void }
   ) => void;
   clearErrorModal: () => void;
+  /** True while the non-fatal error modal is on screen. */
+  errorModalVisible: boolean;
 };
 
 const AppErrorContext = React.createContext<AppErrorContextValue | null>(null);
@@ -89,9 +91,10 @@ export function AppErrorHost({ children }: Props) {
       reportGlobalError,
       clearGlobalError,
       showErrorModal,
-      clearErrorModal
+      clearErrorModal,
+      errorModalVisible: modal != null
     }),
-    [reportGlobalError, clearGlobalError, showErrorModal, clearErrorModal]
+    [reportGlobalError, clearGlobalError, showErrorModal, clearErrorModal, modal]
   );
 
   return (

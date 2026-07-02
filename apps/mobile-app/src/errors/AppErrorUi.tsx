@@ -45,7 +45,7 @@ function ErrorIcon({ size = 40 }: { size?: number }) {
 }
 
 function useErrorCardStyles() {
-  const { colors: t, isDark } = useAppTheme();
+  const { colors: t } = useAppTheme();
   return React.useMemo(
     () =>
       StyleSheet.create({
@@ -54,16 +54,16 @@ function useErrorCardStyles() {
           width: "100%",
           borderRadius: 22,
           borderWidth: 2,
-          borderColor: isDark ? "rgba(248,113,113,0.45)" : "rgba(220,38,38,0.28)",
-          backgroundColor: isDark ? "rgba(30,20,35,0.94)" : "rgba(255,255,255,0.96)",
+          borderColor: "rgba(220,38,38,0.28)",
+          backgroundColor: "rgba(255,255,255,0.96)",
           paddingHorizontal: 22,
           paddingVertical: 22,
           alignItems: "center",
           ...Platform.select({
             ios: {
-              shadowColor: isDark ? "#000" : "#7F1D1D",
+              shadowColor: "#7F1D1D",
               shadowOffset: { width: 0, height: 10 },
-              shadowOpacity: isDark ? 0.35 : 0.12,
+              shadowOpacity: 0.12,
               shadowRadius: 24
             },
             android: { elevation: 8 },
@@ -126,7 +126,7 @@ function useErrorCardStyles() {
         btnGhostText: { color: t.textSecondary, fontSize: 14, fontWeight: "800" },
         pressed: { opacity: 0.88 }
       }),
-    [t, isDark]
+    [t]
   );
 }
 
@@ -246,7 +246,6 @@ export function AppErrorModal({
   onDismiss,
   dismissLabel = "Close"
 }: ModalProps) {
-  const { isDark } = useAppTheme();
   const styles = useErrorCardStyles();
   const p = useSharedValue(0);
 
@@ -265,7 +264,7 @@ export function AppErrorModal({
   return (
     <Modal transparent visible animationType="none" onRequestClose={onDismiss} statusBarTranslucent>
       <Animated.View style={[modalStyles.backdrop, backdropStyle]}>
-        <BlurView intensity={isDark ? 48 : 56} tint={isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} />
+        <BlurView intensity={56} tint="light" style={StyleSheet.absoluteFill} />
         <Pressable
           style={StyleSheet.absoluteFill}
           onPress={onDismiss}

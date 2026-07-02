@@ -41,7 +41,6 @@ type Props = {
   accentColor: string;
   textColor: string;
   accessibilityLabel: string;
-  isDark?: boolean;
   /** True while the user is dragging/snapping this wheel — parent sheet scroll should pause. */
   onDragActiveChange?: (active: boolean) => void;
 };
@@ -129,7 +128,7 @@ function VerticalSnapWheelInner(props: Props) {
   const lastCommittedIndex = React.useRef(props.selectedIndex);
   const [centerIndex, setCenterIndex] = React.useState(props.selectedIndex);
 
-  const { selectedIndex, onIndexChange, disabled, isDark = false, onDragActiveChange } = props;
+  const { selectedIndex, onIndexChange, disabled, onDragActiveChange } = props;
 
   const clearReleaseTimer = React.useCallback(() => {
     if (releaseTimerRef.current) {
@@ -163,7 +162,7 @@ function VerticalSnapWheelInner(props: Props) {
   }, [clearReleaseTimer, endDragSession, onDragActiveChange]);
 
   React.useEffect(() => () => clearReleaseTimer(), [clearReleaseTimer]);
-  const mutedColor = isDark ? "rgba(148,163,184,0.45)" : "rgba(100,116,139,0.4)";
+  const mutedColor = "rgba(100,116,139,0.4)";
 
   const canGoUp = centerIndex > 0;
   const canGoDown = centerIndex < maxIndex;

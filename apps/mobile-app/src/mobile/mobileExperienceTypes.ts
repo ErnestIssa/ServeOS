@@ -95,7 +95,6 @@ export type SettingsDetailKey =
   | "privacy"
   | "address"
   | "accessibility"
-  | "night_mode"
   | "shortcuts"
   | "communication"
   | "navigation"
@@ -131,7 +130,6 @@ export type MobileExperienceManifest = {
   controlCentre: {
     chips: ControlCentreChipManifest[];
     sections: ControlCentreSectionManifest[];
-    showDarkModeToggle: boolean;
   };
   settings: {
     accountKeys: SettingsDetailKey[];

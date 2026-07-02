@@ -76,7 +76,7 @@ function selectionFromIndices(
 
 const ReservationDateTimeWheelsInner = React.forwardRef<ReservationDateTimeWheelsHandle, Props>(
   function ReservationDateTimeWheelsInner(props, ref) {
-    const { colors: t, isDark } = useAppTheme();
+    const { colors: t } = useAppTheme();
     const dateOptions = React.useMemo(
       () =>
         props.serverDateOptions?.length
@@ -217,7 +217,6 @@ const ReservationDateTimeWheelsInner = React.forwardRef<ReservationDateTimeWheel
             options={dateWheelOptions}
             selectedIndex={dateIndex}
             disabled={props.disabled}
-            isDark={isDark}
             accentColor={t.ordersNavPurpleBright}
             textColor={t.textMuted}
             onIndexChange={onDateIndex}
@@ -233,7 +232,6 @@ const ReservationDateTimeWheelsInner = React.forwardRef<ReservationDateTimeWheel
             }
             selectedIndex={timeWheelOptions.length > 0 ? timeIndex : 0}
             disabled={props.disabled}
-            isDark={isDark}
             accentColor={t.ordersNavPurpleBright}
             textColor={t.textMuted}
             onIndexChange={onTimeIndex}

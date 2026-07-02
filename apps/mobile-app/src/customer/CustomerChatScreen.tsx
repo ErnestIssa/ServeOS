@@ -1,7 +1,6 @@
 import * as Haptics from "expo-haptics";
 import React from "react";
 import {
-  ActivityIndicator,
   Alert,
   Animated,
   FlatList,
@@ -16,7 +15,11 @@ import {
   View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { chatComposerBottomInset, FLOAT_MARGIN_SIDE } from "../shell/navBottomMetrics";
+import {
+  chatImmersiveComposerBottomInset,
+  chatImmersiveContentTop,
+  FLOAT_MARGIN_SIDE
+} from "../shell/navBottomMetrics";
 import { R } from "../theme";
 import {
   mergeThreadFeed,
@@ -44,6 +47,7 @@ import { isIncomingMessage, isMessageUnread } from "./chat/chatUnreadHelpers";
 import { joinChatRoom, sendChatRead, sendChatTyping, subscribeChatRelay } from "./chat/customerChatSocket";
 import { ChatVenueTypeRotator } from "./chat/ChatVenueTypeRotator";
 import { ScreenErrorState } from "../errors";
+import { SkeletonChatThread, SkeletonSyncDot } from "../components/skeleton/SkeletonUi";
 import { noMenuAtVenueMessage } from "./venueContentHelpers";
 
 const TYPING_EMIT_MS = 400;
@@ -70,8 +74,6 @@ type Props = {
   onScroll: ReturnType<typeof Animated.event>;
   onScrollEndDrag?: () => void;
   onMomentumScrollEnd?: () => void;
-  scrollTopPad: number;
-  scrollBottom: number;
   userId?: string | null;
   chatFocused: boolean;
   onUnreadCountChange?: (count: number) => void;
@@ -83,6 +85,7 @@ type Props = {
   hasBrowsableMenu?: boolean;
   venueDisplayName?: string;
   onSwitchVenue?: () => void;
+  onBack: () => void;
 };
 
 function patchMyDeliveryStatus(
@@ -114,8 +117,6 @@ export function CustomerChatScreen(props: Props) {
     onScroll,
     onScrollEndDrag,
     onMomentumScrollEnd,
-    scrollTopPad,
-    scrollBottom,
     userId,
     chatFocused,
     onUnreadCountChange,
@@ -126,7 +127,8 @@ export function CustomerChatScreen(props: Props) {
     onReorder,
     hasBrowsableMenu = true,
     venueDisplayName = "",
-    onSwitchVenue
+    onSwitchVenue,
+    onBack
   } = props;
 
   const [hub, setHub] = React.useState<CustomerChatHubResponse | null>(null);
@@ -623,10 +625,14 @@ export function CustomerChatScreen(props: Props) {
     </View>
   ) : null;
 
-  /** Just above floating tab bar when keyboard closed; flush when open. */
-  const composerBottomPad = keyboardOpen ? 0 : chatComposerBottomInset(insets.bottom);
+  /** Immersive chat — no app top/bottom chrome. */
+  const chatContentTop = chatImmersiveContentTop(insets.top);
+  const chatScrollBottom = Math.max(insets.bottom, 8) + 16;
 
-  const listTopInset = chatListTopInset(scrollTopPad);
+  /** Just above home indicator when keyboard closed; flush when open. */
+  const composerBottomPad = keyboardOpen ? 0 : chatImmersiveComposerBottomInset(insets.bottom);
+
+  const listTopInset = chatListTopInset(chatContentTop);
   const showVenueStatus = Boolean(hub?.ok && !needsVenue);
 
   return (
@@ -637,7 +643,13 @@ export function CustomerChatScreen(props: Props) {
     >
       <ChatCollapsingHeader
         scrollY={scrollY}
-        topInset={scrollTopPad}
+        topInset={chatContentTop}
+        safeAreaTop={insets.top}
+        immersive
+        onBack={() => {
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          onBack();
+        }}
         showStatus={showVenueStatus}
         openingHours={hub?.restaurant?.openingHours}
         venueStatus={hub?.venueStatus}
@@ -653,14 +665,24 @@ export function CustomerChatScreen(props: Props) {
       />
 
       {loading && !hub?.ok && !needsVenue && !needsMenu ? (
-        <Pressable style={styles.loadingRow} onPress={dismissKeyboard}>
-          <ActivityIndicator color={R.accentPurple} />
-          <Text style={styles.loadingText}>Loading thread…</Text>
-        </Pressable>
+        <View style={[styles.threadColumn, { paddingTop: listTopInset }]}>
+          <SkeletonChatThread count={7} style={{ flex: 1 }} />
+          <View style={[styles.composerDock, { paddingBottom: composerBottomPad, opacity: 0.55 }]}>
+            <ChatComposerBar
+              value=""
+              onChange={() => {}}
+              onSend={() => {}}
+              onPickImages={() => {}}
+              sending={false}
+              pickingImage={false}
+              inputRef={inputRef}
+            />
+          </View>
+        </View>
       ) : null}
       {revalidating && hub?.ok ? (
         <View style={[styles.syncDotRow, { top: listTopInset - 28 }]} pointerEvents="none">
-          <ActivityIndicator size="small" color={R.accentPurple} />
+          <SkeletonSyncDot size={7} />
         </View>
       ) : null}
 
@@ -674,7 +696,7 @@ export function CustomerChatScreen(props: Props) {
       ) : null}
 
       {needsVenue && !loadErr && !needsMenu ? (
-        <View style={[styles.noVenueColumn, { paddingTop: listTopInset, paddingBottom: scrollBottom }]}>
+        <View style={[styles.noVenueColumn, { paddingTop: listTopInset, paddingBottom: chatScrollBottom }]}>
           <View style={styles.noVenueCenter}>
             <ChatVenueTypeRotator />
             <Text style={styles.noVenueSub}>Choose a venue to proceed</Text>
@@ -683,7 +705,7 @@ export function CustomerChatScreen(props: Props) {
       ) : null}
 
       {needsMenu && !loadErr ? (
-        <View style={[styles.noVenueColumn, { paddingTop: listTopInset, paddingBottom: scrollBottom }]}>
+        <View style={[styles.noVenueColumn, { paddingTop: listTopInset, paddingBottom: chatScrollBottom }]}>
           <View style={styles.noVenueCenter}>
             <Text style={styles.noMenuHeadline}>{noMenuAtVenueMessage(venueDisplayName)}</Text>
             <Text style={styles.noVenueSub}>

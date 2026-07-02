@@ -1,11 +1,9 @@
 import React from "react";
 import { Animated, StyleSheet, Text, View } from "react-native";
-import { useAppTheme } from "../../theme/AppThemeContext";
 
 const VISIT_PHRASES = ["Plan your visit", "Reserve a table", "Dine in", "Celebrate"] as const;
 
 const COLOR_LIGHT = ["#4C1D95", "#B45309", "#047857", "#0369A1"] as const;
-const COLOR_DARK = ["#C4B5FD", "#FCD34D", "#6EE7B7", "#7DD3FC"] as const;
 
 /** Swipe + fade phrase rotation; color only advances when the phrase changes. */
 function useRotatingPhrase(phrases: readonly string[], intervalMs = 3000) {
@@ -53,9 +51,8 @@ function useRotatingPhrase(phrases: readonly string[], intervalMs = 3000) {
 }
 
 function ReservationPlanVisitIntroInner() {
-  const { isDark } = useAppTheme();
   const swap = useRotatingPhrase(VISIT_PHRASES, 3000);
-  const phraseColor = isDark ? COLOR_DARK[swap.colorIndex]! : COLOR_LIGHT[swap.colorIndex]!;
+  const phraseColor = COLOR_LIGHT[swap.colorIndex]!;
 
   return (
     <View style={styles.root} pointerEvents="none">

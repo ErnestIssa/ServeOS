@@ -129,7 +129,7 @@ export function NavHighlightWrap(props: {
   children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
 }) {
-  const { colors: t, isDark } = useAppTheme();
+  const { colors: t } = useAppTheme();
   const pulse = React.useRef(new Animated.Value(0)).current;
 
   React.useEffect(() => {
@@ -150,7 +150,7 @@ export function NavHighlightWrap(props: {
 
   const bg = pulse.interpolate({
     inputRange: [0, 1],
-    outputRange: ["transparent", isDark ? "rgba(167, 139, 250, 0.28)" : "rgba(139, 92, 246, 0.2)"]
+    outputRange: ["transparent", "rgba(139, 92, 246, 0.2)"]
   });
 
   const border = pulse.interpolate({

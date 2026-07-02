@@ -47,10 +47,10 @@ type Props = {
 /** Post-landing booking steps — same fixed hero + gradient sheet as the Book landing screen. */
 export function ReservationImmersiveStepShell(props: Props) {
   const { height: screenH } = useWindowDimensions();
-  const { colors: t, isDark } = useAppTheme();
+  const { colors: t } = useAppTheme();
   const sheetTopOffset = immersiveSheetTopOffset(screenH);
   const ambient = ambientNativePalettes.bookings;
-  const sheetGradient: [string, string] = isDark ? [t.meshTop, t.meshBottom] : [ambient.top, ambient.bottom];
+  const sheetGradient: [string, string] = [ambient.top, ambient.bottom];
   const internalScrollRef = React.useRef<ScrollView | null>(null);
   const scrollRef = props.scrollRefExternal ?? internalScrollRef;
   const lastEnterScrollTokenRef = React.useRef(0);

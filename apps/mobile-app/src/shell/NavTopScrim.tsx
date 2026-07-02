@@ -22,6 +22,8 @@ import {
 import {
   CONTENT_GAP_BELOW_TOP_NAV,
   FLOAT_MARGIN_TOP,
+  FLOAT_MARGIN_TOP_HOME,
+  FLOATING_HOME_TOP_BAR_HEIGHT,
   FLOATING_TOP_BAR_HEIGHT
 } from "./navBottomMetrics";
 
@@ -98,22 +100,26 @@ type Props = {
   topInset: number;
   /** 1 = idle; 0 = scrolling — subtle local intensity only. */
   navFocusSV: SharedValue<number>;
+  /** Customer home uses the thinner split top row metrics. */
+  customerHome?: boolean;
 };
 
 /**
  * Fixed top depth field + frosted glass band — mirrors the bottom nav scrim stack.
  * Bleeds from the physical screen top through the floating top nav and fades below.
  */
-export function NavTopScrim({ topInset, navFocusSV }: Props) {
+export function NavTopScrim({ topInset, navFocusSV, customerHome = false }: Props) {
   const { isDark } = useAppTheme();
   const { height: screenH } = useWindowDimensions();
+
+  const topMargin = customerHome ? FLOAT_MARGIN_TOP_HOME : FLOAT_MARGIN_TOP;
+  const topBarHeight = customerHome ? FLOATING_HOME_TOP_BAR_HEIGHT : FLOATING_TOP_BAR_HEIGHT;
 
   const ambientStops = React.useMemo(() => navTopAmbientStops(isDark), [isDark]);
   const localStops = React.useMemo(() => navTopLocalStops(isDark), [isDark]);
   const glassFeather = React.useMemo(() => navGlassGradientFeather(isDark), [isDark]);
 
-  const navChromeBottom =
-    topInset + FLOAT_MARGIN_TOP + FLOATING_TOP_BAR_HEIGHT + CONTENT_GAP_BELOW_TOP_NAV;
+  const navChromeBottom = topInset + topMargin + topBarHeight + CONTENT_GAP_BELOW_TOP_NAV;
 
   const glassBandHeight = navChromeBottom + NAV_GLASS_SCOOP_RADIUS;
   const localHeight = Math.max(180, navChromeBottom + 56);

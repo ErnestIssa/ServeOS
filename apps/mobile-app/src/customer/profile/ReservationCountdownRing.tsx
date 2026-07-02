@@ -110,7 +110,7 @@ function pulsePhaseFromElapsed(elapsedMs: number): { phase: number; active: bool
 }
 
 export function ReservationCountdownRing({ startsAt, createdAt, size = 300 }: Props) {
-  const { colors: t, isDark } = useAppTheme();
+  const { colors: t } = useAppTheme();
   const uid = svgId(React.useId());
   const [now, setNow] = React.useState(() => Date.now());
   const [pulsePhase, setPulsePhase] = React.useState(0);
@@ -194,7 +194,7 @@ export function ReservationCountdownRing({ startsAt, createdAt, size = 300 }: Pr
           r={r - stroke * 0.35}
           stroke={RING_GREY_INNER}
           strokeWidth={trackStroke}
-          fill={isDark ? "rgba(15,23,42,0.35)" : "rgba(248,250,252,0.85)"}
+          fill="rgba(248,250,252,0.85)"
         />
 
         <Circle cx={cx} cy={cx} r={r} stroke={RING_GREY} strokeWidth={stroke} fill="none" />

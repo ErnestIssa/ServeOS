@@ -1,5 +1,6 @@
 import React from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { SkeletonBlock, SkeletonScreenFill } from "../../components/skeleton/SkeletonUi";
 import { buildBookRecapParts } from "../reservations/reservationBookRecap";
 import {
   fetchCustomerReservation,
@@ -109,15 +110,19 @@ export function MeReservationConfirmationScreen(props: Props) {
   return (
     <ProfileScreenContainer topInset={props.topInset} bottomInset={props.bottomInset}>
       {loading && !reservation ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={t.ordersNavPurpleBright} />
-        </View>
+        <SkeletonScreenFill style={{ flex: 1, paddingTop: 24 }}>
+          <SkeletonBlock lines={4} style={{ marginBottom: 24 }} />
+          <SkeletonBlock lines={3} />
+        </SkeletonScreenFill>
       ) : !reservation ? (
         <View style={styles.center}>
           <Text style={styles.empty}>This booking could not be loaded.</Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={[styles.scroll, loading && reservation ? { opacity: 0.88 } : null]}
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.card}>
             <Text style={styles.emoji}>✓</Text>
             <ReservationBookingRef

@@ -14,8 +14,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { menuImageSourceForItem } from "../menu/menuMediaUtils";
 import type { MenuCategoryLite, MenuItemFlat } from "../menu/menuBrowseUtils";
-import { R } from "../theme";
-import { SwapColorSpinner } from "../components/SwapColorLoader";
+import { NAV_BOTTOM_DOCK_SHELL_BG } from "../shell/navDockGlass";
+import { R } from "../theme/syncLegacyTheme";
 import { appendNavSearchRecent, loadNavSearchRecent } from "./navSearchRecentStorage";
 import {
   bestDrinksItems,
@@ -30,6 +30,7 @@ import {
 } from "./searchSheetModel";
 
 type Props = {
+  surface?: "light" | "dock";
   restaurantId: string;
   categories: MenuCategoryLite[];
   money: (cents: number) => string;
@@ -38,6 +39,7 @@ type Props = {
   onAddItem: (item: MenuItemFlat) => void;
   addingItemIds?: Record<string, boolean>;
   markedMenuItemIds?: Record<string, boolean>;
+  onDismissKeyboard?: () => void;
 };
 
 type SectionId = "tonight" | "staff" | "fast" | "drinks" | "related";
@@ -55,7 +57,8 @@ function SearchResultRow({
   onAdd,
   addLoading,
   addedJustNow,
-  subline
+  subline,
+  dock
 }: {
   item: MenuItemFlat;
   money: (cents: number) => string;
@@ -63,26 +66,27 @@ function SearchResultRow({
   addLoading?: boolean;
   addedJustNow?: boolean;
   subline?: string;
+  dock?: boolean;
 }) {
   const line = subline ?? item.categoryName;
   return (
-    <View style={styles.resultRow}>
+    <View style={[styles.resultRow, dock && styles.resultRowDock]}>
       {menuImageSourceForItem(item) ? (
-        <Image source={menuImageSourceForItem(item)!} style={styles.resultImg} resizeMode="cover" />
+        <Image source={menuImageSourceForItem(item)!} style={[styles.resultImg, dock && styles.resultImgDock]} resizeMode="cover" />
       ) : (
-        <View style={[styles.resultImg, styles.resultImgPlaceholder]}>
-          <Text style={styles.resultImgPlaceholderText}>—</Text>
+        <View style={[styles.resultImg, styles.resultImgPlaceholder, dock && styles.resultImgDock]}>
+          <Text style={[styles.resultImgPlaceholderText, dock && styles.resultImgPlaceholderTextDock]}>—</Text>
         </View>
       )}
       <View style={styles.resultMid}>
-        <Text style={styles.resultTitle} numberOfLines={2}>
+        <Text style={[styles.resultTitle, dock && styles.resultTitleDock]} numberOfLines={2}>
           {item.name}
         </Text>
-        <Text style={styles.resultSub} numberOfLines={1}>
+        <Text style={[styles.resultSub, dock && styles.resultSubDock]} numberOfLines={1}>
           {line}
           {item.description?.trim() ? ` · ${item.description.trim()}` : ""}
         </Text>
-        <Text style={styles.resultPrice}>{money(item.priceCents)}</Text>
+        <Text style={[styles.resultPrice, dock && styles.resultPriceDock]}>{money(item.priceCents)}</Text>
       </View>
       <Pressable
         accessibilityRole="button"
@@ -91,10 +95,8 @@ function SearchResultRow({
         style={({ pressed }) => [styles.addBtn, pressed && styles.addBtnPressed]}
         disabled={!!addLoading && !addedJustNow}
       >
-        {addLoading && !addedJustNow ? (
-          <SwapColorSpinner size={18} stroke={2} />
-        ) : addedJustNow ? (
-          <Text style={styles.addBtnCheck}>✓</Text>
+        {addedJustNow || addLoading ? (
+          <Text style={[styles.addBtnCheck, addLoading && !addedJustNow && { opacity: 0.62 }]}>✓</Text>
         ) : (
           <Text style={styles.addBtnText}>+</Text>
         )}
@@ -104,6 +106,7 @@ function SearchResultRow({
 }
 
 export function CustomerNavSearchSheet({
+  surface = "light",
   restaurantId,
   categories,
   money,
@@ -111,7 +114,8 @@ export function CustomerNavSearchSheet({
   onSearchChange,
   onAddItem,
   addingItemIds,
-  markedMenuItemIds
+  markedMenuItemIds,
+  onDismissKeyboard
 }: Props) {
   const insets = useSafeAreaInsets();
   const { width: windowW } = useWindowDimensions();
@@ -237,9 +241,11 @@ export function CustomerNavSearchSheet({
     relatedHits
   ]);
 
+  const dock = surface === "dock";
+
   return (
     <KeyboardAvoidingView
-      style={styles.shell}
+      style={[styles.shell, dock && styles.shellDock]}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
     >
@@ -248,6 +254,7 @@ export function CustomerNavSearchSheet({
         contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 12) + 18 }]}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
+        onScrollBeginDrag={onDismissKeyboard}
         showsVerticalScrollIndicator={false}
         stickySectionHeadersEnabled
         sections={sections}
@@ -256,6 +263,7 @@ export function CustomerNavSearchSheet({
           <SearchResultRow
             item={item}
             money={money}
+            dock={dock}
             onAdd={() => onAddItem(item)}
             addLoading={!!addingItemIds?.[item.id]}
             addedJustNow={!!markedMenuItemIds?.[item.id]}
@@ -281,7 +289,7 @@ export function CustomerNavSearchSheet({
           const isOpen = openSections[section.id];
 
           return (
-            <View style={styles.sectionStickyWrap}>
+            <View style={[styles.sectionStickyWrap, dock && styles.sectionStickyWrapDock]}>
               <Pressable
                 onPress={isCollapsible ? () => toggleSection(section.id) : undefined}
                 disabled={!isCollapsible}
@@ -292,8 +300,10 @@ export function CustomerNavSearchSheet({
                 }
               >
                 <View style={styles.sectionHeadCopy}>
-                  <Text style={styles.sectionEmojiTitle}>{section.title}</Text>
-                  {section.subtitle && (!isCollapsible || isOpen) ? <Text style={styles.sectionSub}>{section.subtitle}</Text> : null}
+                  <Text style={[styles.sectionEmojiTitle, dock && styles.sectionEmojiTitleDock]}>{section.title}</Text>
+                  {section.subtitle && (!isCollapsible || isOpen) ? (
+                    <Text style={[styles.sectionSub, dock && styles.sectionSubDock]}>{section.subtitle}</Text>
+                  ) : null}
                 </View>
                 {isCollapsible ? (
                   <Text style={[styles.sectionChevron, isOpen && styles.sectionChevronOpen]}>›</Text>
@@ -305,15 +315,15 @@ export function CustomerNavSearchSheet({
         ListHeaderComponent={
           !q ? (
             <View>
-              <Text style={styles.sectionLabel}>Popular searches</Text>
+              <Text style={[styles.sectionLabel, dock && styles.sectionLabelDock]}>Popular searches</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
                 {quickChips.map((label) => (
                   <Pressable
                     key={label}
                     onPress={() => onChipPress(label)}
-                    style={({ pressed }) => [styles.chip, pressed && styles.chipPressed]}
+                    style={({ pressed }) => [styles.chip, dock && styles.chipDock, pressed && styles.chipPressed]}
                   >
-                    <Text style={styles.chipText}>{label}</Text>
+                    <Text style={[styles.chipText, dock && styles.chipTextDock]}>{label}</Text>
                   </Pressable>
                 ))}
                 {recent
@@ -322,16 +332,20 @@ export function CustomerNavSearchSheet({
                     <Pressable
                       key={`r-${label}`}
                       onPress={() => onChipPress(label)}
-                      style={({ pressed }) => [styles.chipMuted, pressed && styles.chipPressed]}
+                      style={({ pressed }) => [
+                        styles.chipMuted,
+                        dock && styles.chipMutedDock,
+                        pressed && styles.chipPressed
+                      ]}
                     >
-                      <Text style={styles.chipMutedText}>{label}</Text>
+                      <Text style={[styles.chipMutedText, dock && styles.chipMutedTextDock]}>{label}</Text>
                     </Pressable>
                   ))}
               </ScrollView>
 
               {categoryPills.length > 0 ? (
                 <>
-                  <Text style={[styles.sectionLabel, styles.mtMd]}>Categories</Text>
+                  <Text style={[styles.sectionLabel, styles.mtMd, dock && styles.sectionLabelDock]}>Categories</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
                     {categoryPills.map((c) => {
                       const active = categoryId === c.id;
@@ -341,11 +355,21 @@ export function CustomerNavSearchSheet({
                           onPress={() => setCategoryId(active ? null : c.id)}
                           style={({ pressed }) => [
                             styles.catPill,
+                            dock && styles.catPillDock,
                             active && styles.catPillActive,
+                            active && dock && styles.catPillActiveDock,
                             pressed && styles.chipPressed
                           ]}
                         >
-                          <Text style={[styles.catPillText, active && styles.catPillTextActive]} numberOfLines={1}>
+                          <Text
+                            style={[
+                              styles.catPillText,
+                              dock && styles.catPillTextDock,
+                              active && styles.catPillTextActive,
+                              active && dock && styles.catPillTextActiveDock
+                            ]}
+                            numberOfLines={1}
+                          >
                             {c.name}
                           </Text>
                         </Pressable>
@@ -356,15 +380,17 @@ export function CustomerNavSearchSheet({
               ) : null}
 
               {categoryId ? (
-                <Text style={styles.filterNotice} numberOfLines={2}>
+                <Text style={[styles.filterNotice, dock && styles.filterNoticeDock]} numberOfLines={2}>
                   Showing {categoryPills.find((c) => c.id === categoryId)?.name ?? "category"} only · Tap again to clear
                 </Text>
               ) : null}
             </View>
           ) : primaryHits.length === 0 ? (
-            <View style={[styles.emptyHints, { maxWidth: windowW - 32 }]}>
-              <Text style={styles.emptyTitle}>No exact matches</Text>
-              <Text style={styles.emptyBody}>Try a category chip above or a shorter search — we&apos;ll show related dishes next.</Text>
+            <View style={[styles.emptyHints, dock && styles.emptyHintsDock, { maxWidth: windowW - 32 }]}>
+              <Text style={[styles.emptyTitle, dock && styles.emptyTitleDock]}>No exact matches</Text>
+              <Text style={[styles.emptyBody, dock && styles.emptyBodyDock]}>
+                Try a category chip above or a shorter search — we&apos;ll show related dishes next.
+              </Text>
             </View>
           ) : null
         }
@@ -379,6 +405,9 @@ const styles = StyleSheet.create({
     minHeight: 120,
     backgroundColor: "rgba(255,255,255,0.94)"
   },
+  shellDock: {
+    backgroundColor: NAV_BOTTOM_DOCK_SHELL_BG
+  },
   scroll: { flex: 1 },
   scrollContent: {
     paddingTop: 12,
@@ -388,6 +417,9 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.94)",
     paddingTop: 12
   },
+  sectionStickyWrapDock: {
+    backgroundColor: NAV_BOTTOM_DOCK_SHELL_BG
+  },
   sectionLabel: {
     fontSize: R.type.label,
     fontWeight: "900",
@@ -395,11 +427,17 @@ const styles = StyleSheet.create({
     letterSpacing: 0.15,
     marginBottom: 10
   },
+  sectionLabelDock: {
+    color: "rgba(255,255,255,0.72)"
+  },
   sectionEmojiTitle: {
     fontSize: 17,
     fontWeight: "900",
     color: R.text,
     letterSpacing: -0.2
+  },
+  sectionEmojiTitleDock: {
+    color: "#FFFFFF"
   },
   sectionSub: {
     marginTop: 4,
@@ -408,6 +446,9 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: R.textMuted,
     lineHeight: 17
+  },
+  sectionSubDock: {
+    color: "rgba(255,255,255,0.55)"
   },
   sectionHeadRow: {
     flexDirection: "row",
@@ -445,8 +486,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(139,92,246,0.35)"
   },
+  chipDock: {
+    backgroundColor: "rgba(167,139,250,0.16)",
+    borderColor: "rgba(167,139,250,0.42)"
+  },
   chipPressed: { opacity: 0.88 },
   chipText: { fontSize: 14, fontWeight: "800", color: R.accentPurple },
+  chipTextDock: { color: "#C4B5FD" },
   chipMuted: {
     paddingHorizontal: 16,
     paddingVertical: 11,
@@ -455,7 +501,12 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: R.border
   },
+  chipMutedDock: {
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(255,255,255,0.14)"
+  },
   chipMutedText: { fontSize: 14, fontWeight: "700", color: R.textSecondary },
+  chipMutedTextDock: { color: "rgba(255,255,255,0.72)" },
   catPill: {
     paddingHorizontal: 14,
     paddingVertical: 10,
@@ -465,17 +516,30 @@ const styles = StyleSheet.create({
     borderColor: R.border,
     maxWidth: 220
   },
+  catPillDock: {
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(255,255,255,0.14)"
+  },
   catPillActive: {
     backgroundColor: "rgba(139,92,246,0.14)",
     borderColor: R.accentPurple
   },
+  catPillActiveDock: {
+    backgroundColor: "rgba(167,139,250,0.18)",
+    borderColor: "#A78BFA"
+  },
   catPillText: { fontSize: 13, fontWeight: "800", color: R.text },
+  catPillTextDock: { color: "rgba(255,255,255,0.88)" },
   catPillTextActive: { color: R.accentPurple },
+  catPillTextActiveDock: { color: "#C4B5FD" },
   filterNotice: {
     marginTop: 10,
     fontSize: R.type.caption,
     fontWeight: "600",
     color: R.ordersNavPurple
+  },
+  filterNoticeDock: {
+    color: "rgba(196,181,253,0.88)"
   },
   sectionBlock: {
     marginTop: 22,
@@ -495,14 +559,21 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: R.border
   },
+  resultRowDock: {
+    borderBottomColor: "rgba(255,255,255,0.1)"
+  },
   resultImg: {
     width: 58,
     height: 58,
     borderRadius: R.radius.tile,
     backgroundColor: R.bgSubtle
   },
+  resultImgDock: {
+    backgroundColor: "rgba(255,255,255,0.08)"
+  },
   resultImgPlaceholder: { alignItems: "center", justifyContent: "center" },
   resultImgPlaceholderText: { fontSize: 11, fontWeight: "700", color: R.textMuted },
+  resultImgPlaceholderTextDock: { color: "rgba(255,255,255,0.45)" },
   resultMid: {
     flex: 1,
     minWidth: 0,
@@ -515,6 +586,9 @@ const styles = StyleSheet.create({
     color: R.text,
     letterSpacing: -0.2
   },
+  resultTitleDock: {
+    color: "#FFFFFF"
+  },
   resultSub: {
     marginTop: 3,
     fontSize: R.type.caption,
@@ -522,11 +596,17 @@ const styles = StyleSheet.create({
     color: R.textSecondary,
     lineHeight: 16
   },
+  resultSubDock: {
+    color: "rgba(255,255,255,0.58)"
+  },
   resultPrice: {
     marginTop: 6,
     fontSize: R.type.label,
     fontWeight: "900",
     color: R.text
+  },
+  resultPriceDock: {
+    color: "rgba(255,255,255,0.92)"
   },
   addBtn: {
     width: 46,
@@ -557,6 +637,12 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: R.border
   },
+  emptyHintsDock: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderColor: "rgba(255,255,255,0.12)"
+  },
   emptyTitle: { fontSize: R.type.label, fontWeight: "900", color: R.text },
+  emptyTitleDock: { color: "#FFFFFF" },
   emptyBody: { marginTop: 8, fontSize: R.type.body, fontWeight: "600", color: R.textSecondary, lineHeight: 22 },
+  emptyBodyDock: { color: "rgba(255,255,255,0.62)" },
 });

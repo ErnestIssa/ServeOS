@@ -15,14 +15,13 @@ function cardHaptic() {
 
 export function ReservationChoiceCardGrid(props: {
   options: readonly ChoiceCardOpt[];
-  isDark: boolean;
   t: ThemeColors;
   selectedId: (id: string) => boolean;
   onToggle: (id: string) => void;
 }) {
-  const { isDark, t } = props;
-  const idleBg = isDark ? "rgba(15,23,42,0.62)" : "rgba(255,255,255,0.94)";
-  const idleBorder = isDark ? "rgba(148,163,184,0.26)" : "rgba(226,232,240,0.94)";
+  const { t } = props;
+  const idleBg = "rgba(255,255,255,0.94)";
+  const idleBorder = "rgba(226,232,240,0.94)";
   const purple = t.ordersNavPurpleBright;
 
   return (

@@ -89,8 +89,54 @@ export type CustomerChatHubResponse = {
 
 export type CustomerChatUnreadResponse = { ok: boolean; unreadCount?: number; error?: string };
 
+export type CustomerChatOverviewThread = {
+  chatRoomId: string | null;
+  restaurantId: string;
+  restaurantName: string;
+  threadKind: "venue" | "order" | "reservation" | "staff" | "support";
+  lastMessageAt: string | null;
+  lastMessagePreview: string | null;
+  lastMessageSenderRole: string | null;
+  unreadCount: number;
+  hasUnread: boolean;
+  activeOrder: {
+    id: string;
+    shortLabel: string;
+    status: string;
+    statusLabel: string;
+    statusEmoji: string;
+  } | null;
+};
+
+export type CustomerChatActivityItem = {
+  id: string;
+  kind: "order_update" | "message" | "system";
+  restaurantId: string;
+  restaurantName: string;
+  title: string;
+  subtitle?: string;
+  at: string;
+  chatRoomId?: string | null;
+  orderId?: string | null;
+  hasUnread?: boolean;
+};
+
+export type CustomerChatOverviewResponse = {
+  ok: boolean;
+  error?: string;
+  threads?: CustomerChatOverviewThread[];
+  activity?: CustomerChatActivityItem[];
+  totalUnread?: number;
+};
+
 export async function fetchCustomerChatUnreadCount(token: string): Promise<CustomerChatUnreadResponse> {
   return apiFetch<CustomerChatUnreadResponse>("/customer/chat/unread-count", {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export async function fetchCustomerChatOverview(token: string): Promise<CustomerChatOverviewResponse> {
+  return apiFetch<CustomerChatOverviewResponse>("/customer/chat/overview", {
     headers: { Authorization: `Bearer ${token}` }
   });
 }

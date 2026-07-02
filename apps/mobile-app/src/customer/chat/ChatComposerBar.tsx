@@ -1,6 +1,6 @@
 import * as Haptics from "expo-haptics";
 import React from "react";
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { R } from "../../theme";
 import { CHAT } from "./chatTheme";
 import { ChatIconCamera } from "./ChatIconCamera";
@@ -87,7 +87,9 @@ export function ChatComposerBar({
             accessibilityLabel="Add photo"
           >
             {pickingImage ? (
-              <ActivityIndicator color="#fff" size="small" />
+              <View style={{ opacity: 0.55 }}>
+                <ChatIconCamera color="#fff" size={22} />
+              </View>
             ) : (
               <ChatIconCamera color="#fff" size={22} />
             )}
@@ -108,11 +110,7 @@ export function ChatComposerBar({
             accessibilityRole="button"
             accessibilityLabel="Send message"
           >
-            {sending ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <Text style={styles.sendText}>Send</Text>
-            )}
+            <Text style={[styles.sendText, sending && { opacity: 0.58 }]}>Send</Text>
           </Pressable>
         )}
       </View>

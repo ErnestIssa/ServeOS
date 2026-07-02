@@ -1,6 +1,6 @@
 import * as Haptics from "expo-haptics";
 import React from "react";
-import { LayoutChangeEvent, Platform, StyleSheet, View } from "react-native";
+import { LayoutChangeEvent, Platform, StyleSheet, Text, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Easing,
@@ -15,7 +15,6 @@ import Animated, {
   withSpring,
   withTiming
 } from "react-native-reanimated";
-import { SwapColorSpinner } from "../components/SwapColorLoader";
 import { R } from "../theme";
 
 /** Matches `ReservationConfirmationScreen` manage CTA (`minHeight: 64`, `borderRadius: 20`). */
@@ -176,7 +175,7 @@ export function SwipePlaceOrderBar({ disabled, placing, label, onCommit }: Props
         accessibilityRole="progressbar"
         accessibilityLabel="Placing order"
       >
-        <SwapColorSpinner size={24} stroke={2.5} />
+        <Text style={styles.placingLabel}>Placing order…</Text>
       </Animated.View>
     );
   }
@@ -226,6 +225,12 @@ const styles = StyleSheet.create({
   railLoading: {
     alignItems: "center",
     justifyContent: "center"
+  },
+  placingLabel: {
+    color: "rgba(255,255,255,0.96)",
+    fontSize: 17,
+    fontWeight: "900",
+    letterSpacing: -0.2
   },
   trackFill: {
     ...StyleSheet.absoluteFillObject,

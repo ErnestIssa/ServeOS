@@ -1,5 +1,6 @@
 import React from "react";
 import { StyleSheet, Text } from "react-native";
+import { SkeletonBlock, SkeletonScreenFill } from "../../components/skeleton/SkeletonUi";
 import { useAppTheme } from "../../theme/AppThemeContext";
 import { loadAppSettingsForCustomer, saveAppSettingsForCustomer } from "./profilePrefsStorage";
 import type { AppSettings } from "./profilePrefsStorage";
@@ -37,7 +38,10 @@ export function SafetyScreen(props: Props) {
   if (!settings) {
     return (
       <ProfileScreenContainer topInset={0} bottomInset={props.bottomInset}>
-        <Text style={styles.loading}>Loading…</Text>
+        <SkeletonScreenFill style={{ flex: 1, paddingTop: 8 }}>
+          <SkeletonBlock lines={4} style={{ marginBottom: 16 }} />
+          <SkeletonBlock lines={3} />
+        </SkeletonScreenFill>
       </ProfileScreenContainer>
     );
   }

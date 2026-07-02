@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from "react-native";
 import type { AuthUser } from "../../api";
 import { ThemedSwitch } from "../../components/ThemedSwitch";
 import type { MobileExperienceManifest, MeHubRowManifest } from "../../mobile/mobileExperienceTypes";
+import { SkeletonBlock } from "../../components/skeleton/SkeletonUi";
 import { useAppTheme } from "../../theme/AppThemeContext";
 import { ProfileAvatarModal } from "./ProfileAvatarModal";
 import type { MeNavHighlightKey } from "./profileNavHighlight";
@@ -221,7 +222,7 @@ export function CustomerMeHub(props: Props) {
             <SectionLabel variant="me">Notifications</SectionLabel>
             <ProfileCard>
               {!prefsReady ? (
-                <Text style={{ fontSize: 14, fontWeight: "600", color: t.textMuted }}>Loading…</Text>
+                <SkeletonBlock lines={2} style={{ paddingVertical: 6 }} />
               ) : (
                 <>
                   <View style={[switchStyles.switchRow, !isCustomerExperience && switchStyles.switchRowLast]}>

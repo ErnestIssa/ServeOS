@@ -26,7 +26,7 @@ import { BlurView } from "expo-blur";
 import { ThemedSwitch } from "../components/ThemedSwitch";
 import { CountrySelect, type AllowedCountry } from "../components/CountrySelect";
 import { CITIES, CitySelect } from "../components/CitySelect";
-import { SwapColorFullscreenLoader, SwapColorSpinner } from "../components/SwapColorLoader";
+import { AppConnectSkeleton } from "../components/skeleton/AppConnectSkeleton";
 
 const BG = "#8B5CF6";
 const BG_DEEP = "#4C1D95";
@@ -1433,7 +1433,7 @@ export function AuthFlowScreen({ onAuthed }: Props) {
           >
           {mode === "signin" && busy ? (
             <View style={StyleSheet.absoluteFillObject} pointerEvents="auto">
-              <SwapColorFullscreenLoader hint="Signing you in" sub="Setting up your session…" />
+              <AppConnectSkeleton hint="Signing you in" sub="Setting up your session…" />
             </View>
           ) : null}
           {mode === "signin" ? (
@@ -1600,7 +1600,7 @@ export function AuthFlowScreen({ onAuthed }: Props) {
                     disabled={busy}
                   >
                     {busy ? (
-                      <SwapColorSpinner size={18} stroke={3} />
+                      <Text style={[styles.primaryText, { opacity: 0.58 }]}>Sign in</Text>
                     ) : signinBtnErr ? (
                       <Text style={styles.primaryTextErr}>{signinBtnErr}</Text>
                     ) : (
@@ -2640,7 +2640,7 @@ export function AuthFlowScreen({ onAuthed }: Props) {
                     disabled={busy || bizLookupBusy}
                   >
                     {bizLookupBusy && wizardFlow === "BUSINESS" && wizardStep === 0 ? (
-                      <SwapColorSpinner size={18} stroke={3} />
+                      <Text style={[styles.wizardNextText, { opacity: 0.58 }]}>Continue</Text>
                     ) : wizardBtnErr ? (
                       <Text style={styles.primaryTextErr}>{wizardBtnErr}</Text>
                     ) : (

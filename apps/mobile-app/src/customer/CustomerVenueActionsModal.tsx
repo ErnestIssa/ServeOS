@@ -3,7 +3,7 @@ import React from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Animated, { Easing, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { type CustomerRestaurantRow } from "../api";
-import { R } from "../theme";
+import { useAppTheme } from "../theme/AppThemeContext";
 import { CustomerVenueDirectorySection } from "./CustomerVenueDirectorySection";
 
 const MODAL_OPEN_MS = 520;
@@ -24,9 +24,48 @@ type Props = {
 
 export function CustomerVenueActionsModal(props: Props) {
   const { visible, onDismiss, userDisplayName, active, restaurants, directoryLoading, token, onVenueHydrated, changeDisabled, onSwitchError } = props;
+  const { colors: t } = useAppTheme();
   const progress = useSharedValue(0);
   const [mounted, setMounted] = React.useState(visible);
   const [venueConfirmOverlay, setVenueConfirmOverlay] = React.useState<React.ReactNode>(null);
+
+  const styles = React.useMemo(
+    () =>
+      StyleSheet.create({
+        modalRoot: { flex: 1 },
+        backdrop: {
+          ...StyleSheet.absoluteFillObject,
+          backgroundColor: "rgba(2,6,23,0.45)"
+        },
+        center: {
+          flex: 1,
+          justifyContent: "flex-end",
+          padding: 16
+        },
+        card: {
+          maxHeight: "88%",
+          borderRadius: 22,
+          backgroundColor: "rgba(255,255,255,0.96)",
+          borderWidth: 1,
+          borderColor: t.border
+        },
+        scroll: { maxHeight: "100%" },
+        scrollContent: { padding: 16, paddingBottom: 20 },
+        closeBtn: {
+          marginTop: 8,
+          borderRadius: 16,
+          paddingVertical: 12,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: "rgba(15,23,42,0.92)",
+          borderWidth: 0,
+          borderColor: t.border
+        },
+        closeText: { color: "#fff", fontSize: 14, fontWeight: "900" },
+        pressed: { opacity: 0.9 }
+      }),
+    [t]
+  );
 
   const finishClose = React.useCallback(() => {
     setMounted(false);
@@ -109,48 +148,11 @@ export function CustomerVenueActionsModal(props: Props) {
         </View>
 
         {venueConfirmOverlay ? (
-          <View style={styles.confirmOverlayHost} pointerEvents="box-none">
+          <Modal transparent visible animationType="fade" statusBarTranslucent onRequestClose={() => setVenueConfirmOverlay(null)}>
             {venueConfirmOverlay}
-          </View>
+          </Modal>
         ) : null}
       </View>
     </Modal>
   );
 }
-
-const styles = StyleSheet.create({
-  modalRoot: { flex: 1 },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(2,6,23,0.45)"
-  },
-  center: {
-    flex: 1,
-    justifyContent: "flex-end",
-    padding: 16
-  },
-  card: {
-    maxHeight: "88%",
-    borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,0.92)",
-    borderWidth: 1,
-    borderColor: "rgba(226,232,240,0.9)"
-  },
-  scroll: { maxHeight: "100%" },
-  scrollContent: { padding: 16, paddingBottom: 20 },
-  closeBtn: {
-    marginTop: 8,
-    borderRadius: 16,
-    paddingVertical: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(15,23,42,0.92)"
-  },
-  closeText: { color: "#fff", fontSize: 14, fontWeight: "900" },
-  confirmOverlayHost: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 99999,
-    elevation: 100
-  },
-  pressed: { opacity: 0.9 }
-});

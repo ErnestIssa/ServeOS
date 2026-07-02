@@ -110,19 +110,61 @@ export function LiquidGlassChrome({
 
       <View style={[StyleSheet.absoluteFill, { backgroundColor: fill }]} />
 
-      {!isPill && !isControl ? (
-        <View
-          style={[
-            styles.edgeHighlight,
-            {
-              backgroundColor: tokens.shellEdgeHighlight,
-              height: rimWidth,
-              left: Math.max(12, borderRadius * 0.28),
-              right: Math.max(12, borderRadius * 0.28)
-            }
-          ]}
-          pointerEvents="none"
-        />
+      {isShell ? (
+        <>
+          <LinearGradient
+            colors={tokens.shellRefractionTop}
+            locations={[0, 0.42, 1]}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
+
+          <LinearGradient
+            colors={tokens.shellRefractionBottom}
+            locations={[0.55, 1]}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
+
+          <LinearGradient
+            colors={tokens.specularStreak}
+            locations={[0.2, 0.5, 0.8]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[StyleSheet.absoluteFill, styles.specular]}
+            pointerEvents="none"
+          />
+
+          <View
+            style={[
+              styles.innerGlow,
+              {
+                backgroundColor: tokens.shellInnerGlow,
+                borderRadius: borderRadius * 0.72
+              }
+            ]}
+            pointerEvents="none"
+          />
+
+          <GlassNoise opacity={tokens.noiseOpacity} />
+
+          <View
+            style={[
+              styles.edgeHighlight,
+              {
+                backgroundColor: tokens.shellEdgeHighlight,
+                height: rimWidth,
+                left: Math.max(12, borderRadius * 0.28),
+                right: Math.max(12, borderRadius * 0.28)
+              }
+            ]}
+            pointerEvents="none"
+          />
+        </>
       ) : (
         <>
           <LinearGradient

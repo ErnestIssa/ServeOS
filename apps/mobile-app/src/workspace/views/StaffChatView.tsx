@@ -1,7 +1,6 @@
 import * as Haptics from "expo-haptics";
 import React from "react";
 import {
-  ActivityIndicator,
   FlatList,
   Pressable,
   StyleSheet,
@@ -11,6 +10,7 @@ import {
 } from "react-native";
 import { useAppTheme } from "../../theme/AppThemeContext";
 import { fetchVenueChatMessages, sendVenueChatMessage } from "../../mobile/workspaceApi";
+import { SkeletonChatThread } from "../../components/skeleton/SkeletonUi";
 
 type Thread = {
   id: string;
@@ -160,7 +160,7 @@ export function StaffChatView(props: Props) {
         <Text style={{ color: t.accentBlue, fontWeight: "700", marginBottom: 12 }}>← Conversations</Text>
       </Pressable>
       {loading ? (
-        <ActivityIndicator color={t.accentPurple} />
+        <SkeletonChatThread count={5} />
       ) : (
         <FlatList
           data={messages}

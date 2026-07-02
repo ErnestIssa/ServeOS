@@ -65,7 +65,7 @@ function timeIndexFromLabel(label: string, wheelOptions: WheelOption[]): number 
 }
 
 function ReservationQuickBookingBarInner(props: Props) {
-  const { colors: t, isDark } = useAppTheme();
+  const { colors: t } = useAppTheme();
   const dateOptions = React.useMemo(() => buildQuickDateOptions(10), []);
   const dateWheelOptions = React.useMemo<WheelOption[]>(() => {
     const bookable = props.bookableDateIds?.length ? new Set(props.bookableDateIds) : null;
@@ -98,8 +98,8 @@ function ReservationQuickBookingBarInner(props: Props) {
   const guestIndex = guestIndexFromValue(props.guests);
   const timeIndex = timeIndexFromLabel(props.timeLabel, timeOptions);
 
-  const tint = isDark ? "dark" : "light";
-  const androidGlass = isDark ? "rgba(11,18,32,0.52)" : "rgba(248,250,252,0.52)";
+  const tint = "light";
+  const androidGlass = "rgba(248,250,252,0.52)";
 
   const onGuestsIndex = React.useCallback(
     (i: number) => {
@@ -138,7 +138,6 @@ function ReservationQuickBookingBarInner(props: Props) {
           options={GUEST_OPTIONS}
           selectedIndex={guestIndex}
           disabled={props.disabled}
-          isDark={isDark}
           accentColor={t.ordersNavPurpleBright}
           textColor={t.textMuted}
           onIndexChange={onGuestsIndex}
@@ -152,7 +151,6 @@ function ReservationQuickBookingBarInner(props: Props) {
           options={dateWheelOptions}
           selectedIndex={dateIndex}
           disabled={props.disabled}
-          isDark={isDark}
           accentColor={t.ordersNavPurpleBright}
           textColor={t.textMuted}
           onIndexChange={onDateIndex}
@@ -166,7 +164,6 @@ function ReservationQuickBookingBarInner(props: Props) {
           options={timeOptions}
           selectedIndex={timeOptions.length > 0 ? timeIndex : 0}
           disabled={props.disabled || props.slotsLoading || timeOptions.length === 0}
-          isDark={isDark}
           accentColor={t.ordersNavPurpleBright}
           textColor={t.textMuted}
           onIndexChange={onTimeIndex}
@@ -207,7 +204,7 @@ function ReservationQuickBookingBarInner(props: Props) {
           styles.card,
           {
             borderColor: t.ordersNavPurpleBright,
-            shadowColor: isDark ? "#000" : "#4C1D95"
+            shadowColor: "#4C1D95"
           }
         ]}
       >
@@ -217,11 +214,7 @@ function ReservationQuickBookingBarInner(props: Props) {
           <View style={[StyleSheet.absoluteFill, { backgroundColor: androidGlass }]} />
         )}
         <LinearGradient
-          colors={
-            isDark
-              ? ["rgba(11,18,32,0.20)", "rgba(11,18,32,0.00)"]
-              : ["rgba(248,250,252,0.20)", "rgba(248,250,252,0.00)"]
-          }
+          colors={["rgba(248,250,252,0.20)", "rgba(248,250,252,0.00)"]}
           locations={[0, 1]}
           start={{ x: 0.5, y: 0 }}
           end={{ x: 0.5, y: 1 }}

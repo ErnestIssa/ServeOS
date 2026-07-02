@@ -1,9 +1,7 @@
 import * as Haptics from "expo-haptics";
 import React from "react";
-import { Animated, Modal, Pressable, StyleSheet, Text, View, type ScrollView } from "react-native";
-import Svg, { Path } from "react-native-svg";
+import { Animated, Dimensions, Modal, StyleSheet, View, type ScrollView } from "react-native";
 import type { AuthUser } from "../../api";
-import { useAppTheme } from "../../theme/AppThemeContext";
 import { CustomerMeHub } from "./CustomerMeHub";
 import { MeReservationConfirmationScreen } from "./MeReservationConfirmationScreen";
 import { ProfileHubSubpageOverlay, useProfileSubpageMotion } from "./ProfileHubSubpageOverlay";
@@ -20,11 +18,11 @@ import { SafetyScreen } from "./SafetyScreen";
 import { SettingsDetailScreen, SettingsHomeScreen } from "./SettingsScreens";
 import {
   REVIEW_CLOSE_FADE_MS,
-  REVIEW_CLOSE_Y_MS,
-  REVIEW_CLOSE_Y_TO,
+  REVIEW_CLOSE_X_MS,
+  REVIEW_CLOSE_X_TO,
   REVIEW_OPEN_FADE_MS,
-  REVIEW_OPEN_Y_FROM,
-  REVIEW_OPEN_Y_MS
+  REVIEW_OPEN_X_FROM,
+  REVIEW_OPEN_X_MS
 } from "./profileReviewTransition";
 
 type Props = {
@@ -47,19 +45,7 @@ type Props = {
   onAtRootChange?: (atRoot: boolean) => void;
 };
 
-function BackChevron({ color }: { color: string }) {
-  return (
-    <Svg width={14} height={14} viewBox="0 0 24 24">
-      <Path
-        fill={color}
-        d="M14.707 17.293a1 1 0 0 1-1.414 1.414l-6-6a1 1 0 0 1 0-1.414l6-6a1 1 0 0 1 1.414 1.414L9.414 12l5.293 5.293Z"
-      />
-    </Svg>
-  );
-}
-
 function CustomerMeStackInner(props: Props) {
-  const { colors: t } = useAppTheme();
   const { navigate, onReturnedToMeHome, clearPendingHighlight } = useProfileNavHighlight();
   const [stack, setStack] = React.useState<MeStackRoute[]>([{ name: "home" }]);
 
@@ -85,9 +71,20 @@ function CustomerMeStackInner(props: Props) {
         ? meStackOverlayTitle(route)
         : null;
   const reservationExitInFlightRef = React.useRef(false);
-  const { motionStyle, scrimStyle, runClose } = useProfileSubpageMotion(isReservationOverlay);
+  const isInlineSubpage = !atRoot && !isReviewRoute && !isReservationOverlay;
+  const {
+    motionStyle: reservationMotionStyle,
+    scrimStyle: reservationScrimStyle,
+    runClose: runCloseReservation
+  } = useProfileSubpageMotion(isReservationOverlay);
+  const {
+    motionStyle: inlineMotionStyle,
+    scrimStyle: inlineScrimStyle,
+    runClose: runCloseInline
+  } = useProfileSubpageMotion(isInlineSubpage);
+  const reviewScreenW = Dimensions.get("window").width;
   const reviewFade = React.useRef(new Animated.Value(0)).current;
-  const reviewY = React.useRef(new Animated.Value(REVIEW_OPEN_Y_FROM)).current;
+  const reviewX = React.useRef(new Animated.Value(reviewScreenW)).current;
   const reviewExitInFlightRef = React.useRef(false);
   const hubScrollRef = React.useRef<ScrollView | null>(null);
   const hubScrollYRef = React.useRef(0);
@@ -121,12 +118,6 @@ function CustomerMeStackInner(props: Props) {
     });
   }, [clearPendingHighlight, onReturnedToMeHome]);
 
-  const handleBack = React.useCallback(() => {
-    if (atRoot) return;
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    pop();
-  }, [atRoot, pop]);
-
   const restoreHubScroll = React.useCallback(() => {
     const y = hubScrollYRef.current;
     requestAnimationFrame(() => {
@@ -134,27 +125,40 @@ function CustomerMeStackInner(props: Props) {
     });
   }, []);
 
+  const handleBack = React.useCallback(() => {
+    if (atRoot) return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (isInlineSubpage) {
+      runCloseInline(() => {
+        pop();
+        restoreHubScroll();
+      });
+      return;
+    }
+    pop();
+  }, [atRoot, isInlineSubpage, pop, restoreHubScroll, runCloseInline]);
+
   const runReviewOpen = React.useCallback(() => {
     reviewExitInFlightRef.current = false;
     reviewFade.setValue(0);
-    reviewY.setValue(REVIEW_OPEN_Y_FROM);
+    reviewX.setValue(reviewScreenW * REVIEW_OPEN_X_FROM);
     Animated.parallel([
       Animated.timing(reviewFade, { toValue: 1, duration: REVIEW_OPEN_FADE_MS, useNativeDriver: true }),
-      Animated.timing(reviewY, { toValue: 0, duration: REVIEW_OPEN_Y_MS, useNativeDriver: true })
+      Animated.timing(reviewX, { toValue: 0, duration: REVIEW_OPEN_X_MS, useNativeDriver: true })
     ]).start();
-  }, [reviewFade, reviewY]);
+  }, [reviewFade, reviewScreenW, reviewX]);
 
   const runReviewClose = React.useCallback(
     (onDone: () => void) => {
       Animated.parallel([
         Animated.timing(reviewFade, { toValue: 0, duration: REVIEW_CLOSE_FADE_MS, useNativeDriver: true }),
-        Animated.timing(reviewY, { toValue: REVIEW_CLOSE_Y_TO, duration: REVIEW_CLOSE_Y_MS, useNativeDriver: true })
+        Animated.timing(reviewX, { toValue: reviewScreenW * REVIEW_CLOSE_X_TO, duration: REVIEW_CLOSE_X_MS, useNativeDriver: true })
       ]).start(({ finished }) => {
         if (!finished) return;
         onDone();
       });
     },
-    [reviewFade, reviewY]
+    [reviewFade, reviewScreenW, reviewX]
   );
 
   React.useEffect(() => {
@@ -185,9 +189,9 @@ function CustomerMeStackInner(props: Props) {
   React.useEffect(() => {
     if (isReviewRoute) return;
     reviewFade.setValue(0);
-    reviewY.setValue(REVIEW_OPEN_Y_FROM);
+    reviewX.setValue(reviewScreenW * REVIEW_OPEN_X_FROM);
     reviewExitInFlightRef.current = false;
-  }, [isReviewRoute, reviewFade, reviewY]);
+  }, [isReviewRoute, reviewFade, reviewScreenW, reviewX]);
 
   const captureHubScroll = React.useCallback((y: number) => {
     hubScrollYRef.current = Math.max(0, y);
@@ -215,12 +219,12 @@ function CustomerMeStackInner(props: Props) {
       return;
     }
     reservationExitInFlightRef.current = true;
-    runClose(() => {
+    runCloseReservation(() => {
       reservationExitInFlightRef.current = false;
       pop();
       restoreHubScroll();
     });
-  }, [isReservationOverlay, pop, restoreHubScroll, route.name, runClose]);
+  }, [isReservationOverlay, pop, restoreHubScroll, route.name, runCloseReservation]);
 
   const pushAppSection = React.useCallback(
     (sectionTitle: string, subtitle: string | undefined, key: AppNavHighlightKey) => {
@@ -318,17 +322,15 @@ function CustomerMeStackInner(props: Props) {
       />
     ) : null;
 
-  const content =
-    route.name === "home" || route.name === "review" || isReservationOverlay ? (
-      meHub
-    ) : route.name === "workspace" && props.authToken ? (
+  const inlineSubpageContent =
+    route.name === "workspace" && props.authToken ? (
       <WorkspaceScreenHost
         screenKey={route.screenKey}
         authToken={props.authToken}
         restaurantId={props.workspaceRestaurantId}
         title={route.title}
         subtitle={route.subtitle}
-        topInset={hubTopInset}
+        topInset={0}
         bottomInset={props.bottomInset}
       />
     ) : route.name === "settings" ? (
@@ -351,7 +353,7 @@ function CustomerMeStackInner(props: Props) {
       <ProfilePlaceholderScreen
         title="Help"
         subtitle="Guides and contact options"
-        topInset={hubTopInset}
+        topInset={0}
         bottomInset={props.bottomInset}
       />
     ) : route.name === "safety" ? (
@@ -360,62 +362,49 @@ function CustomerMeStackInner(props: Props) {
       <ProfilePlaceholderScreen
         title={route.title}
         subtitle={route.subtitle}
-        topInset={hubTopInset}
+        topInset={0}
         bottomInset={props.bottomInset}
       />
     ) : null;
+
+  const showHubUnderlay =
+    route.name === "home" || route.name === "review" || isReservationOverlay || isInlineSubpage;
 
   const styles = React.useMemo(
     () =>
       StyleSheet.create({
         fill: { flex: 1 },
-        topBar: { paddingHorizontal: t.space.sm, zIndex: 2, minHeight: atRoot ? 0 : 36 },
-        backBtn: {
-          flexDirection: "row",
-          alignItems: "center",
-          alignSelf: "flex-start",
-          paddingVertical: 6,
-          paddingRight: 10,
-          gap: 2
-        },
-        pressed: { opacity: 0.85 },
-        backLabel: { fontSize: 15, fontWeight: "600", color: t.accentBlue },
-        title: {
-          fontSize: 18,
-          fontWeight: "800",
-          color: t.text,
-          textAlign: "center",
-          marginTop: 2,
-          marginBottom: 4
-        },
         content: { flex: 1 }
       }),
-    [t, atRoot]
+    []
   );
 
   return (
     <View style={styles.fill}>
-      {!atRoot && !isReviewRoute && !isReservationOverlay ? (
-        <View style={[styles.topBar, { paddingTop: props.compactTopInset }]}>
-          <Pressable
-            onPress={handleBack}
-            accessibilityRole="button"
-            accessibilityLabel="Back"
-            hitSlop={12}
-            style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}
-          >
-            <BackChevron color={t.accentBlue} />
-            <Text style={styles.backLabel}>Back</Text>
-          </Pressable>
-          {title ? <Text style={styles.title}>{title}</Text> : null}
+      {showHubUnderlay ? (
+        <View
+          style={styles.content}
+          pointerEvents={
+            isInlineSubpage ? "none" : isReviewRoute || isReservationOverlay ? "box-none" : "auto"
+          }
+        >
+          {meHub}
         </View>
       ) : null}
-      <View
-        style={styles.content}
-        pointerEvents={isReviewRoute || isReservationOverlay ? "box-none" : "auto"}
-      >
-        {content}
-      </View>
+
+      {isInlineSubpage && inlineSubpageContent ? (
+        <ProfileHubSubpageOverlay
+          visible
+          presentation="inline"
+          title={title}
+          topInset={props.compactTopInset}
+          motionStyle={inlineMotionStyle}
+          scrimStyle={inlineScrimStyle}
+          onBack={handleBack}
+        >
+          {inlineSubpageContent}
+        </ProfileHubSubpageOverlay>
+      ) : null}
 
       <Modal
         visible={isReservationOverlay}
@@ -430,8 +419,8 @@ function CustomerMeStackInner(props: Props) {
             presentation="modal"
             title={reservationOverlayTitle}
             topInset={props.compactTopInset}
-            motionStyle={motionStyle}
-            scrimStyle={scrimStyle}
+            motionStyle={reservationMotionStyle}
+            scrimStyle={reservationScrimStyle}
             onBack={closeReservationOverlay}
           >
             {reservationOverlayContent}
@@ -447,7 +436,7 @@ function CustomerMeStackInner(props: Props) {
         onRequestClose={closeReview}
       >
         <Animated.View
-          style={{ flex: 1, opacity: reviewFade, transform: [{ translateY: reviewY }] }}
+          style={{ flex: 1, opacity: reviewFade, transform: [{ translateX: reviewX }] }}
         >
           <ProfileReviewScreen topInset={props.compactTopInset} onClose={closeReview} />
         </Animated.View>

@@ -17,11 +17,26 @@ export function createAppStyles(t: ThemeColors, isDark: boolean) {
       zIndex: 13,
       elevation: 0
     },
+    searchKeyboardDismissLayer: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 29
+    },
     splashOnly: { flex: 1, backgroundColor: "#8B5CF6" },
     sessionLoading: { flex: 1, backgroundColor: "#8B5CF6", alignItems: "center", justifyContent: "center" },
     sessionHint: { marginTop: 16, textAlign: "center", color: "rgba(255,255,255,0.88)", fontSize: 14, fontWeight: "600" },
     shell: { flex: 1, backgroundColor: "transparent", position: "relative" },
+    appChromeTopLayer: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 30,
+      pointerEvents: "box-none"
+    },
+    appChromeBottomLayer: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 22,
+      pointerEvents: "box-none"
+    },
     main: { flex: 1, position: "relative" },
+    tabStage: { flex: 1, overflow: "hidden" },
     scrollLayer: { flex: 1, zIndex: 1 },
     scrollPad: { paddingHorizontal: t.space.sm },
     scrollPadHomeBleed: { paddingHorizontal: 0 },

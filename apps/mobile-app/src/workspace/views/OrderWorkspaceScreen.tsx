@@ -1,7 +1,6 @@
 import * as Haptics from "expo-haptics";
 import React from "react";
 import {
-  ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -13,6 +12,7 @@ import {
   View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SkeletonChatThread } from "../../components/skeleton/SkeletonUi";
 import { formatDisplayMoney } from "../../formatMoney";
 import { useAppTheme } from "../../theme/AppThemeContext";
 import { API_URL } from "../../api";
@@ -252,7 +252,7 @@ export function OrderWorkspaceScreen(props: Props) {
             <Text style={styles.back}>← Back</Text>
           </Pressable>
           {loading && !thread ? (
-            <ActivityIndicator color={t.accentPurple} style={{ marginTop: 24 }} />
+            <SkeletonChatThread count={4} style={{ marginTop: 20, width: "100%" }} />
           ) : err ? (
             <Text style={{ color: t.danger, marginTop: 16, fontWeight: "700" }}>{err}</Text>
           ) : h ? (

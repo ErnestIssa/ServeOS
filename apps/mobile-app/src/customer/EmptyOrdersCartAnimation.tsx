@@ -17,6 +17,8 @@ const CART_COLOR = "#312e81";
 const CART_SIZE = 112;
 /** Time between bounce cycles while user stays on empty orders (slow pace). */
 export const EMPTY_ORDERS_CART_LOOP_MS = 5600;
+/** Wait after the orders screen is visible before the first bounce. */
+export const EMPTY_ORDERS_CART_LAND_DELAY_MS = 1000;
 /** Nudge cart slightly above vertical centre of the orders tab area. */
 const ABOVE_CENTRE_OFFSET = -56;
 
@@ -62,11 +64,20 @@ type Props = {
   onLastBounceLand?: () => void;
   /** Stops bounce loop and timers (e.g. search sheet open on Orders). */
   paused?: boolean;
+  /** True only when the empty-orders cart is on screen and the user can see it. */
+  active?: boolean;
 };
 
-export function EmptyOrdersCartAnimation({ minHeight, embedded, onLastBounceLand, paused = false }: Props) {
+export function EmptyOrdersCartAnimation({
+  minHeight,
+  embedded,
+  onLastBounceLand,
+  paused = false,
+  active = false
+}: Props) {
   const translateY = useSharedValue(0);
   const landTimeoutsRef = React.useRef<ReturnType<typeof setTimeout>[]>([]);
+  const resumeAfterPauseRef = React.useRef(false);
 
   const clearLandSchedule = React.useCallback(() => {
     for (const t of landTimeoutsRef.current) clearTimeout(t);
@@ -86,20 +97,34 @@ export function EmptyOrdersCartAnimation({ minHeight, embedded, onLastBounceLand
   }, [translateY, clearLandSchedule, onLastBounceLand]);
 
   React.useEffect(() => {
-    if (paused) {
+    if (!active || paused) {
+      if (active && paused) resumeAfterPauseRef.current = true;
       clearLandSchedule();
       cancelAnimation(translateY);
       translateY.value = 0;
       return;
     }
-    play();
-    const id = setInterval(play, EMPTY_ORDERS_CART_LOOP_MS);
+
+    cancelAnimation(translateY);
+    translateY.value = 0;
+
+    const landDelay = resumeAfterPauseRef.current ? 0 : EMPTY_ORDERS_CART_LAND_DELAY_MS;
+    resumeAfterPauseRef.current = false;
+
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    const startDelay = setTimeout(() => {
+      play();
+      intervalId = setInterval(play, EMPTY_ORDERS_CART_LOOP_MS);
+    }, landDelay);
+
     return () => {
-      clearInterval(id);
+      clearTimeout(startDelay);
+      if (intervalId) clearInterval(intervalId);
       clearLandSchedule();
       cancelAnimation(translateY);
+      translateY.value = 0;
     };
-  }, [play, translateY, clearLandSchedule, paused]);
+  }, [active, paused, play, translateY, clearLandSchedule]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.value }]

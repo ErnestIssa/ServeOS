@@ -3,6 +3,9 @@ import { StyleSheet } from "react-native";
 
 /** Hairline dock rim — barely-visible brand purple (not white frost). */
 const NAV_DOCK_SHELL_BORDER = "rgba(124, 58, 237, 0.17)";
+/** Bottom tab dock liquid-glass base (#0c1014). */
+export const NAV_BOTTOM_DOCK_SHELL_BG = "#0c1014";
+const NAV_BOTTOM_DOCK_FLAT = "rgba(12, 16, 20, 0)";
 /** Dock capsule border — 3× device hairline. */
 export const NAV_DOCK_SHELL_BORDER_WIDTH = StyleSheet.hairlineWidth * 3;
 
@@ -89,5 +92,31 @@ export function navDockGlassTokens(isDark: boolean): NavDockGlassTokens {
     blurTint: "light",
     shadowColor: "#0f172a",
     shadowOpacity: 0.2
+  };
+}
+
+/** Bottom tab bar only — uniform #0c1014 dock (no inner tint patches). */
+export function navBottomDockGlassTokens(_isDark: boolean): NavDockGlassTokens {
+  const base = navDockGlassTokens(true);
+  return {
+    ...base,
+    shellBg: NAV_BOTTOM_DOCK_SHELL_BG,
+    shellBorder: "rgba(255, 255, 255, 0.07)",
+    shellEdgeHighlight: NAV_BOTTOM_DOCK_FLAT,
+    shellRefractionTop: [NAV_BOTTOM_DOCK_FLAT, NAV_BOTTOM_DOCK_FLAT, NAV_BOTTOM_DOCK_FLAT],
+    shellRefractionBottom: [NAV_BOTTOM_DOCK_FLAT, NAV_BOTTOM_DOCK_FLAT],
+    shellInnerGlow: NAV_BOTTOM_DOCK_FLAT,
+    specularStreak: [NAV_BOTTOM_DOCK_FLAT, NAV_BOTTOM_DOCK_FLAT, NAV_BOTTOM_DOCK_FLAT],
+    pillBg: NAV_BOTTOM_DOCK_FLAT,
+    pillBorder: NAV_BOTTOM_DOCK_FLAT,
+    pillRefractionTop: [NAV_BOTTOM_DOCK_FLAT, NAV_BOTTOM_DOCK_FLAT, NAV_BOTTOM_DOCK_FLAT],
+    pillInnerGlow: NAV_BOTTOM_DOCK_FLAT,
+    pillGlowColor: NAV_BOTTOM_DOCK_FLAT,
+    noiseOpacity: 0,
+    blurTint: "dark",
+    blurIntensity: 0,
+    blurIntensityPill: 0,
+    shadowColor: "#000000",
+    shadowOpacity: 0.38
   };
 }

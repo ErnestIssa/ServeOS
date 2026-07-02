@@ -1,6 +1,5 @@
 import React from "react";
 import {
-  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,6 +11,7 @@ import { useAppTheme } from "../theme/AppThemeContext";
 import { fetchWorkspaceScreen, patchOrderStatus, type WorkspaceScreenResponse } from "../mobile/workspaceApi";
 import { ProfilePlaceholderScreen } from "../customer/profile/ProfilePlaceholderScreen";
 import { ProfileScreenContainer, SectionLabel } from "../customer/profile/ProfileUi";
+import { SkeletonListRows, SkeletonOrderCards, SkeletonScreenFill } from "../components/skeleton/SkeletonUi";
 
 type Props = {
   screenKey: string;
@@ -105,9 +105,15 @@ export function WorkspaceScreenHost(props: Props) {
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator color={t.accentPurple} />
-      </View>
+      <ProfileScreenContainer topInset={props.topInset} bottomInset={props.bottomInset}>
+        <SkeletonScreenFill style={{ flex: 1, paddingTop: 12 }}>
+          {props.screenKey.includes("order") ? (
+            <SkeletonOrderCards count={4} />
+          ) : (
+            <SkeletonListRows count={6} />
+          )}
+        </SkeletonScreenFill>
+      </ProfileScreenContainer>
     );
   }
 

@@ -2,7 +2,7 @@ import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
 import { Animated, Platform, StyleSheet, View } from "react-native";
-import { FLOATING_TAB_BAR_HEIGHT, FLOAT_MARGIN_SIDE } from "../../shell/navBottomMetrics";
+import { FLOATING_TAB_BAR_HEIGHT, FLOATING_TAB_BAR_MARGIN_SIDE } from "../../shell/navBottomMetrics";
 
 /**
  * Visible glass height — lower half of the home tab bar chrome (80px → 40px)
@@ -235,13 +235,13 @@ const styles = StyleSheet.create({
     overflow: "hidden"
   },
   /**
-   * Lower half of home tab bar: side margins match `FLOAT_MARGIN_SIDE`;
+   * Lower half of home tab bar: side margins match `FLOATING_TAB_BAR_MARGIN_SIDE`;
    * bottom corners match shell (28); top corners scoop upward like `BottomNavContentDimmer`.
    */
   bottomGlass: {
     position: "absolute",
-    left: FLOAT_MARGIN_SIDE,
-    right: FLOAT_MARGIN_SIDE,
+    left: FLOATING_TAB_BAR_MARGIN_SIDE,
+    right: FLOATING_TAB_BAR_MARGIN_SIDE,
     bottom: 0,
     height: FROSTED_SCROLL_EDGE_BELOW,
     overflow: "hidden",

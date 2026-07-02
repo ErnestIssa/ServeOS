@@ -45,6 +45,8 @@ type Props = {
   ordersEmptySessionVisits?: number;
   /** Pauses empty-state cart bounce + rotating CTA (e.g. search sheet open). */
   emptyMotionPaused?: boolean;
+  /** True when the orders tab is focused and visible — gates empty-cart bounce. */
+  cartMotionActive?: boolean;
 };
 
 export function CustomerOrdersVenueScreen(props: Props) {
@@ -67,7 +69,8 @@ export function CustomerOrdersVenueScreen(props: Props) {
     cartItemCount = 0,
     menuPrefsVersion = 0,
     ordersEmptySessionVisits = 0,
-    emptyMotionPaused = false
+    emptyMotionPaused = false,
+    cartMotionActive = false
   } = props;
   const { colors: t } = useAppTheme();
   const clock = useVenueClockTick(30000);
@@ -78,6 +81,7 @@ export function CustomerOrdersVenueScreen(props: Props) {
   const [directoryLoading, setDirectoryLoading] = React.useState(false);
   const [directoryRetryTick, setDirectoryRetryTick] = React.useState(0);
   const [venueModalOpen, setVenueModalOpen] = React.useState(false);
+  const emptyOrdersMotionPaused = emptyMotionPaused || venueModalOpen;
   const [phraseLandTick, setPhraseLandTick] = React.useState(0);
 
   const aid = activeId.trim();
@@ -249,7 +253,8 @@ export function CustomerOrdersVenueScreen(props: Props) {
         >
           <EmptyOrdersCartAnimation
             embedded
-            paused={emptyMotionPaused}
+            active={cartMotionActive}
+            paused={emptyOrdersMotionPaused}
             onLastBounceLand={() => setPhraseLandTick((n) => n + 1)}
           />
           <EmptyOrdersCtaSection
@@ -259,7 +264,7 @@ export function CustomerOrdersVenueScreen(props: Props) {
             menuPrefsVersion={menuPrefsVersion}
             ordersSessionVisits={ordersEmptySessionVisits}
             phraseLandTick={phraseLandTick}
-            motionPaused={emptyMotionPaused}
+            motionPaused={emptyOrdersMotionPaused}
             noBrowsableMenu={!hasBrowsableMenu}
             authToken={token}
             onPrimaryCta={onBrowseMenu}

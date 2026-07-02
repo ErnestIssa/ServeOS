@@ -9,7 +9,6 @@ import {
   type ImageSourcePropType
 } from "react-native";
 import { R } from "../theme";
-import { SwapColorSpinner } from "../components/SwapColorLoader";
 
 type Props = {
   title: string;
@@ -97,10 +96,8 @@ export function MenuItemCard({
             disabled={addLoading && !addedJustNow}
             onPress={onAddPress}
           >
-            {addLoading && !addedJustNow ? (
-              <SwapColorSpinner size={18} stroke={3} />
-            ) : addedJustNow ? (
-              <Text style={styles.addBtnCheck}>✓</Text>
+            {addedJustNow || addLoading ? (
+              <Text style={[styles.addBtnCheck, addLoading && !addedJustNow && { opacity: 0.62 }]}>✓</Text>
             ) : (
               <Text style={styles.addBtnText}>+</Text>
             )}

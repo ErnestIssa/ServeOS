@@ -2,7 +2,6 @@ import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import React from "react";
 import {
-  ActivityIndicator,
   Alert,
   LayoutAnimation,
   Modal,
@@ -21,6 +20,7 @@ import Animated, {
   withTiming
 } from "react-native-reanimated";
 import { R } from "../../theme";
+import { SkeletonBlock, SkeletonScreenFill } from "../../components/skeleton/SkeletonUi";
 import { useAppTheme } from "../../theme/AppThemeContext";
 import { CHAT } from "../chat/chatTheme";
 import { ReservationBookingRef } from "./ReservationBookingRef";
@@ -287,11 +287,7 @@ export function ReservationManageModal({
                     onPress={() => void handleCancelPress()}
                     disabled={cancelLoading}
                   >
-                    {cancelLoading ? (
-                      <ActivityIndicator color="#FFF" />
-                    ) : (
-                      <Text style={styles.dangerBtnText}>Cancel booking</Text>
-                    )}
+                    <Text style={[styles.dangerBtnText, cancelLoading && { opacity: 0.58 }]}>Cancel booking</Text>
                   </Pressable>
                 </View>
               </>
@@ -317,11 +313,10 @@ export function ReservationManageModal({
                 </Text>
 
                 {!pickerReady && slotsLoading ? (
-                  <ActivityIndicator
-                    style={styles.slotsLoader}
-                    color={t.ordersNavPurpleBright}
-                    size="large"
-                  />
+                  <SkeletonScreenFill style={{ minHeight: 220, marginVertical: 8 }}>
+                    <SkeletonBlock lines={2} style={{ marginBottom: 16 }} />
+                    <SkeletonBlock lines={4} />
+                  </SkeletonScreenFill>
                 ) : bookableDateIds.length === 0 || availableTimeLabels.length === 0 ? (
                   <Text style={[styles.noSlots, { color: t.textSecondary }]}>
                     No bookable dates right now. Try again closer to your visit or contact the venue.
@@ -366,11 +361,7 @@ export function ReservationManageModal({
                     availableTimeLabels.length === 0
                   }
                 >
-                  {saveLoading ? (
-                    <ActivityIndicator color="#FFF" />
-                  ) : (
-                    <Text style={styles.primaryBtnText}>Save changes</Text>
-                  )}
+                  <Text style={[styles.primaryBtnText, saveLoading && { opacity: 0.58 }]}>Save changes</Text>
                 </Pressable>
               </View>
             ) : null}

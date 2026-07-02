@@ -1,7 +1,7 @@
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
-import { Animated, Platform, StyleSheet, Text, View } from "react-native";
+import { Animated, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import {
   CONTENT_GAP_BELOW_TOP_NAV,
   FLOATING_TOP_BAR_HEIGHT,
@@ -13,8 +13,9 @@ import { R } from "../../theme";
 import type { CustomerChatVenueStatus } from "../customerChatApi";
 import { ChatVenueStatusRow } from "./ChatVenueStatusRow";
 
-/** Highest compact title Y: 2px under the floating search capsule. */
-function compactTitleTop(scrollTopPad: number): number {
+/** Highest compact title Y: 2px under the floating search capsule (standard shell). */
+function compactTitleTop(scrollTopPad: number, immersive?: boolean): number {
+  if (immersive) return scrollTopPad - 38;
   const topInset =
     scrollTopPad - CONTENT_GAP_BELOW_TOP_NAV - FLOAT_MARGIN_TOP - FLOATING_TOP_BAR_HEIGHT - R.space.sm;
   return floatingTopBarBottomY(Math.max(0, topInset)) + 4;
@@ -36,6 +37,10 @@ type Props = {
   openingHours: string | null | undefined;
   venueStatus?: CustomerChatVenueStatus | null;
   onInfoPress?: () => void;
+  /** Immersive chat — no floating app top bar. */
+  immersive?: boolean;
+  safeAreaTop?: number;
+  onBack?: () => void;
 };
 
 /**
@@ -43,7 +48,8 @@ type Props = {
  * (same interpolation curve family as Book / ReservationImmersiveHero).
  */
 export function ChatCollapsingHeader(props: Props) {
-  const { scrollY, topInset, showStatus, openingHours, venueStatus, onInfoPress } = props;
+  const { scrollY, topInset, showStatus, openingHours, venueStatus, onInfoPress, immersive, safeAreaTop, onBack } =
+    props;
   const { colors: theme, isDark } = useAppTheme();
   const titleColor = theme.ordersNavPurpleBright;
   const blurTint = isDark ? "dark" : "light";
@@ -108,10 +114,23 @@ export function ChatCollapsingHeader(props: Props) {
     extrapolate: "clamp"
   });
 
-  const compactTop = compactTitleTop(topInset);
+  const compactTop = compactTitleTop(topInset, immersive);
 
   return (
     <View style={styles.wrap} pointerEvents="box-none">
+      {onBack ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          onPress={onBack}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          style={[styles.backBtn, { top: (safeAreaTop ?? 0) + 4 }]}
+        >
+          <Text style={[styles.backChevron, { color: titleColor }]} allowFontScaling={false}>
+            ‹
+          </Text>
+        </Pressable>
+      ) : null}
       <Animated.View
         pointerEvents="none"
         style={[
@@ -193,6 +212,21 @@ const styles = StyleSheet.create({
     top: 0,
     zIndex: 12,
     paddingHorizontal: R.space.sm
+  },
+  backBtn: {
+    position: "absolute",
+    left: R.space.sm,
+    zIndex: 20,
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  backChevron: {
+    fontSize: 32,
+    fontWeight: "300",
+    lineHeight: 34,
+    marginTop: -2
   },
   compactNav: {
     position: "absolute",

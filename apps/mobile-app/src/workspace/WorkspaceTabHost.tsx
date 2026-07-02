@@ -1,6 +1,5 @@
 import React from "react";
 import {
-  ActivityIndicator,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -21,6 +20,7 @@ import { AdminMenuView } from "./views/AdminMenuView";
 import { AdminStaffView } from "./views/AdminStaffView";
 import { AdminProfileView } from "./views/AdminProfileView";
 import { OrderWorkspaceScreen, type OclWorkspaceTarget } from "./views/OrderWorkspaceScreen";
+import { SkeletonListRows, SkeletonOrderCards, SkeletonScreenFill } from "../components/skeleton/SkeletonUi";
 
 type Props = {
   tabKey: string;
@@ -116,9 +116,9 @@ export function WorkspaceTabHost(props: Props) {
   const body = () => {
     if (loading) {
       return (
-        <View style={{ paddingVertical: 48, alignItems: "center" }}>
-          <ActivityIndicator color={t.accentPurple} />
-        </View>
+        <SkeletonScreenFill style={{ paddingTop: 8, minHeight: 360 }}>
+          {props.tabKey.includes("order") ? <SkeletonOrderCards count={4} /> : <SkeletonListRows count={6} />}
+        </SkeletonScreenFill>
       );
     }
     if (error) {

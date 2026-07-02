@@ -25,12 +25,11 @@ import type { EdgeInsets } from "react-native-safe-area-context";
 import {
   FLOATING_TAB_BAR_HEIGHT,
   FLOAT_MARGIN_BOTTOM,
-  FLOAT_MARGIN_SIDE,
+  FLOATING_TAB_BAR_MARGIN_SIDE,
   contentBottomInset,
   floatingDockBottomY
 } from "./navBottomMetrics";
-import { navDockGlassTokens } from "./navDockGlass";
-import { LiquidGlassChrome } from "./LiquidGlassChrome";
+import { navBottomDockGlassTokens, NAV_BOTTOM_DOCK_SHELL_BG } from "./navDockGlass";
 import type { MobileTabIconKey } from "../mobile/mobileExperienceTypes";
 import {
   NavIconAccount,
@@ -70,18 +69,62 @@ const PILL_DRAG_SNAP_MS = 260;
 const PILL_EASE = Easing.bezier(0.22, 1, 0.36, 1);
 const PILL_DRAG_EASE = Easing.out(Easing.cubic);
 const PILL_LIFT_MS = 200;
-const PILL_LIFT_SCALE = 1.08;
-const PILL_LIFT_RISE_Y = -3;
 const PILL_DRAG_MIN_DISTANCE = 4;
 const PILL_LIFT_TRANSLATION_X = 4;
-const PILL_INSET = 4;
-const TAB_INDEX_INPUT = [0, 1, 2, 3, 4] as const;
-const ICON_SIZE = 24;
+const ICON_SIZE = 27;
 const DOCK_RADIUS = 999;
+/** Gray capsule behind the active tab — nearly full dock height. */
+const PICKER_COLOR = "#a8a8a8";
+/** Tiny gap between picker and nav shell (top/bottom/edge tabs). */
+const PICKER_SHELL_INSET_V = 3;
+const PICKER_SHELL_INSET_H = 3;
+/** Small gap between picker and neighboring tab centers (wider = more rectangular). */
+const PICKER_INNER_GAP = 2;
+const TAB_INDEX_INPUT = [0, 1, 2, 3, 4] as const;
 
 function clampPillProgress(n: number, maxIndex: number): number {
   "worklet";
   return Math.min(maxIndex, Math.max(0, n));
+}
+
+function pickerShapeWidth(
+  rowW: number,
+  lastIdx: number,
+  cx0: number,
+  cw0: number,
+  cxLast: number,
+  cwLast: number,
+  shellPad: number,
+  shellEdgeGap: number,
+  innerGap: number
+): number {
+  "worklet";
+  const shellEdgeTx = -shellPad + shellEdgeGap;
+  const fromFirst = cx0 + cw0 * 0.5 - innerGap - shellEdgeTx;
+  const lastTx = cxLast - cwLast * 0.5 + innerGap;
+  const fromLast = rowW + shellPad - shellEdgeGap - lastTx;
+  return Math.max(36, fromFirst, fromLast);
+}
+
+function pickerLayoutAtIndex(
+  index: number,
+  lastIdx: number,
+  rowW: number,
+  cx: number,
+  cw: number,
+  shellPad: number,
+  shellEdgeGap: number,
+  innerGap: number,
+  shapeW: number
+): { tx: number; w: number } {
+  "worklet";
+  if (index <= 0) {
+    return { tx: -shellPad + shellEdgeGap, w: shapeW };
+  }
+  if (index >= lastIdx) {
+    return { tx: rowW + shellPad - shellEdgeGap - shapeW, w: shapeW };
+  }
+  return { tx: cx - shapeW * 0.5, w: shapeW };
 }
 
 function useTabStopLayout() {
@@ -105,11 +148,19 @@ function useTabStopLayout() {
 }
 
 /** ME tab profile photo — slightly larger than nav glyphs. */
-const ME_AVATAR_TAB_SIZE = 32;
+const ME_AVATAR_TAB_SIZE = 35;
 const TAB_EDGE_INSET_H = 6;
-const TAB_STRIP_PAD_V = 4;
+const TAB_STRIP_PAD_V = PICKER_SHELL_INSET_V;
+const PICKER_HEIGHT = FLOATING_TAB_BAR_HEIGHT - PICKER_SHELL_INSET_V * 2;
+/** Matches inner curvature of the nav shell on the left/right ends. */
+const PICKER_EDGE_END_RADIUS = PICKER_HEIGHT / 2;
 
-export { FLOATING_TAB_BAR_HEIGHT, FLOAT_MARGIN_BOTTOM, FLOAT_MARGIN_SIDE, contentBottomInset };
+export {
+  FLOATING_TAB_BAR_HEIGHT,
+  FLOAT_MARGIN_BOTTOM,
+  FLOATING_TAB_BAR_MARGIN_SIDE,
+  contentBottomInset
+};
 
 type Props = {
   tab: TabId;
@@ -195,9 +246,13 @@ export function FloatingGlassTabBar({
   const tabCount = visibleTabs.length;
   const tabLastIndex = Math.max(0, tabCount - 1);
 
-  const { isDark, colors: theme } = useAppTheme();
-  const glass = React.useMemo(() => navDockGlassTokens(isDark), [isDark]);
+  const { isDark } = useAppTheme();
+  const glass = React.useMemo(() => navBottomDockGlassTokens(isDark), [isDark]);
   const dockBottom = floatingDockBottomY(insets.bottom);
+  const bottomNavIconColor = React.useCallback((_tabItem: NavTabItem, selected: boolean) => {
+    if (selected) return "#FFFFFF";
+    return "rgba(255, 255, 255, 0.58)";
+  }, []);
 
   const { centers: tabCenters, widths: tabWidths } = useTabStopLayout();
   const pillProgress = useSharedValue(0);
@@ -389,9 +444,25 @@ export function FloatingGlassTabBar({
     [panTabRow]
   );
 
-  const pillAnimatedStyle = useAnimatedStyle(() => {
+  const pickerAnimatedStyle = useAnimatedStyle(() => {
+    const progress = pillProgress.value;
+    const rowW = tabRowWidthSV.value;
+    const lastIdx = Math.min(4, Math.max(0, tabLastIndexSV.value));
+    const shellPad = TAB_EDGE_INSET_H;
+    const shapeW = pickerShapeWidth(
+      rowW,
+      lastIdx,
+      tabCenters[0].value,
+      tabWidths[0].value,
+      tabCenters[lastIdx].value,
+      tabWidths[lastIdx].value,
+      shellPad,
+      PICKER_SHELL_INSET_H,
+      PICKER_INNER_GAP
+    );
+
     const x = interpolate(
-      pillProgress.value,
+      progress,
       TAB_INDEX_INPUT,
       [
         tabCenters[0].value,
@@ -402,44 +473,40 @@ export function FloatingGlassTabBar({
       ]
     );
     const w = interpolate(
-      pillProgress.value,
+      progress,
       TAB_INDEX_INPUT,
       [tabWidths[0].value, tabWidths[1].value, tabWidths[2].value, tabWidths[3].value, tabWidths[4].value]
     );
-    const rowW = tabRowWidthSV.value;
-    const lastIdx = Math.min(4, Math.max(0, tabLastIndexSV.value));
-    const fallbackSeg = rowW > 0 ? rowW / Math.max(1, tabCount) : 64;
-    const wSafe = w > 8 ? w : fallbackSeg;
+
+    const layout0 = pickerLayoutAtIndex(0, lastIdx, rowW, tabCenters[0].value, tabWidths[0].value, shellPad, PICKER_SHELL_INSET_H, PICKER_INNER_GAP, shapeW);
+    const layout1 = pickerLayoutAtIndex(1, lastIdx, rowW, tabCenters[1].value, tabWidths[1].value, shellPad, PICKER_SHELL_INSET_H, PICKER_INNER_GAP, shapeW);
+    const layout2 = pickerLayoutAtIndex(2, lastIdx, rowW, tabCenters[2].value, tabWidths[2].value, shellPad, PICKER_SHELL_INSET_H, PICKER_INNER_GAP, shapeW);
+    const layout3 = pickerLayoutAtIndex(3, lastIdx, rowW, tabCenters[3].value, tabWidths[3].value, shellPad, PICKER_SHELL_INSET_H, PICKER_INNER_GAP, shapeW);
+    const layout4 = pickerLayoutAtIndex(4, lastIdx, rowW, tabCenters[4].value, tabWidths[4].value, shellPad, PICKER_SHELL_INSET_H, PICKER_INNER_GAP, shapeW);
+
     const rangeOk = tabCenters[lastIdx].value - tabCenters[0].value > 8;
+    const fallbackSeg = rowW > 0 ? rowW / Math.max(1, lastIdx + 1) : 64;
+    const wSafe = w > 8 ? w : fallbackSeg;
     const xSafe = rangeOk
       ? x
       : rowW > 0
-        ? 6 + (pillProgress.value + 0.5) * Math.max(0, rowW - 12) / Math.max(1, tabCount)
+        ? (progress + 0.5) * Math.max(0, rowW) / Math.max(1, lastIdx + 1)
         : 0;
-    const pillW = Math.max(36, wSafe - PILL_INSET * 2);
-    const lift = pillLiftSV.value;
-    const atRest = lift < 0.001;
-    const focus = navFocusSV.value;
-    const focusScale = interpolate(focus, [0, 1], [0.9, 1], Extrapolation.CLAMP);
-    const dragScale = atRest ? 1 : interpolate(lift, [0, 1], [1, PILL_LIFT_SCALE]);
-    const scale = focusScale * dragScale;
-    const liftY = atRest ? 0 : interpolate(lift, [0, 1], [0, PILL_LIFT_RISE_Y]);
-    const tx = xSafe - wSafe / 2;
-    const translateX = atRest ? Math.round(tx) : tx;
+
+    const pillW = rangeOk ? shapeW : Math.max(36, wSafe - PICKER_INNER_GAP * 2);
+    const translateX = rangeOk
+      ? interpolate(progress, TAB_INDEX_INPUT, [layout0.tx, layout1.tx, layout2.tx, layout3.tx, layout4.tx])
+      : xSafe - pillW / 2;
+
     return {
-      width: pillW * focusScale,
-      zIndex: atRest ? 1 : 10,
-      shadowOpacity: atRest ? 0.14 : interpolate(lift, [0, 1], [0.14, 0.28]),
-      shadowRadius: atRest ? 8 : interpolate(lift, [0, 1], [8, 16]),
-      elevation: atRest ? 3 : interpolate(lift, [0, 1], [3, 10]),
-      transform: [{ translateX }, { translateY: liftY }, { scale }]
+      width: pillW,
+      transform: [{ translateX: Math.round(translateX) }],
+      borderTopLeftRadius: PICKER_EDGE_END_RADIUS,
+      borderBottomLeftRadius: PICKER_EDGE_END_RADIUS,
+      borderTopRightRadius: PICKER_EDGE_END_RADIUS,
+      borderBottomRightRadius: PICKER_EDGE_END_RADIUS
     };
   });
-
-  const pillFillStyle = React.useMemo(
-    () => ({ backgroundColor: glass.pillBg, borderColor: glass.pillBorder }),
-    [glass.pillBg, glass.pillBorder]
-  );
 
   const dockShellStyle = useAnimatedStyle(() => {
     const focus = navFocusSV.value;
@@ -463,14 +530,6 @@ export function FloatingGlassTabBar({
     void Haptics.selectionAsync();
   };
 
-  const iconColorFor = (tabItem: NavTabItem, selected: boolean) => {
-    if (tabItem.id === "orders") {
-      return selected ? theme.ordersNavPurpleBright : theme.ordersNavPurple;
-    }
-    if (selected) return theme.accentPurple;
-    return theme.navIconIdle;
-  };
-
   return (
     <View pointerEvents="box-none" style={styles.screenAnchor}>
       <Animated.View
@@ -479,18 +538,16 @@ export function FloatingGlassTabBar({
           dockShellStyle,
           {
             bottom: dockBottom,
-            left: FLOAT_MARGIN_SIDE,
-            right: FLOAT_MARGIN_SIDE,
+            left: FLOATING_TAB_BAR_MARGIN_SIDE,
+            right: FLOATING_TAB_BAR_MARGIN_SIDE,
             shadowColor: glass.shadowColor,
             shadowOpacity: glass.shadowOpacity
           }
         ]}
       >
-        <LiquidGlassChrome
-          tokens={glass}
-          variant="shell"
-          borderRadius={DOCK_RADIUS}
-          focusSV={navFocusSV}
+        <View
+          pointerEvents="none"
+          style={[StyleSheet.absoluteFill, styles.dockSolidFill, { borderRadius: DOCK_RADIUS }]}
         />
 
         <View style={styles.tabStrip} accessibilityRole="tablist">
@@ -498,31 +555,22 @@ export function FloatingGlassTabBar({
             <View style={styles.tabGestureSizer}>
               <GestureDetector gesture={panTabRowWithPress}>
                 <View style={styles.tabSwipeArea}>
-                  <Animated.View style={[styles.selectionPill, pillAnimatedStyle]} pointerEvents="none" collapsable={false}>
-                    <View style={[styles.selectionPillFill, pillFillStyle]} />
-                  </Animated.View>
-
                   <View style={styles.tabRow} onLayout={onTabRowLayout}>
+                    <Animated.View
+                      style={[styles.selectionPicker, pickerAnimatedStyle]}
+                      pointerEvents="none"
+                      collapsable={false}
+                    />
                     {visibleTabs.map((t, index) => {
                       const selected = tab === t.id;
-                      const iconColor = iconColorFor(t, selected);
+                      const iconColor = bottomNavIconColor(t, selected);
                       return (
                         <Pressable
                           key={t.id}
                           accessibilityRole="tab"
                           accessibilityLabel={t.label}
                           accessibilityState={{ selected }}
-                          style={({ pressed }) => [styles.tabItem, webTabPressNoOutline, pressed && styles.pressed]}
-                          android_ripple={
-                            Platform.OS === "android"
-                              ? {
-                                  color: "rgba(255,255,255,0.12)",
-                                  foreground: false,
-                                  borderless: false,
-                                  radius: 22
-                                }
-                              : undefined
-                          }
+                          style={[styles.tabItem, webTabPressNoOutline]}
                           onLayout={onTabItemLayout(index)}
                           onPress={() => onTabPress(t.id, index)}
                         >
@@ -577,6 +625,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     overflow: "hidden",
     borderRadius: DOCK_RADIUS,
+    backgroundColor: NAV_BOTTOM_DOCK_SHELL_BG,
     ...Platform.select({
       ios: {
         shadowOffset: { width: 0, height: 14 },
@@ -586,23 +635,29 @@ const styles = StyleSheet.create({
       default: {}
     })
   },
+  dockSolidFill: {
+    backgroundColor: NAV_BOTTOM_DOCK_SHELL_BG
+  },
   tabStrip: {
     flex: 1,
     height: FLOATING_TAB_BAR_HEIGHT,
-    minHeight: FLOATING_TAB_BAR_HEIGHT
+    minHeight: FLOATING_TAB_BAR_HEIGHT,
+    backgroundColor: NAV_BOTTOM_DOCK_SHELL_BG
   },
   gestureHost: {
     flex: 1,
     width: "100%",
     justifyContent: "center",
     paddingHorizontal: TAB_EDGE_INSET_H,
-    paddingVertical: TAB_STRIP_PAD_V
+    paddingVertical: TAB_STRIP_PAD_V,
+    backgroundColor: NAV_BOTTOM_DOCK_SHELL_BG
   },
   tabGestureSizer: {
     flex: 1,
     minHeight: 0,
     alignSelf: "stretch",
-    width: "100%"
+    width: "100%",
+    backgroundColor: NAV_BOTTOM_DOCK_SHELL_BG
   },
   tabSwipeArea: {
     flex: 1,
@@ -610,42 +665,40 @@ const styles = StyleSheet.create({
     width: "100%",
     justifyContent: "center",
     position: "relative",
-    overflow: "visible"
-  },
-  selectionPill: {
-    position: "absolute",
-    left: 0,
-    top: PILL_INSET,
-    bottom: PILL_INSET,
-    borderRadius: DOCK_RADIUS,
-    overflow: "hidden",
-    zIndex: 0
-  },
-  selectionPillFill: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: DOCK_RADIUS,
-    borderWidth: StyleSheet.hairlineWidth
+    overflow: "visible",
+    backgroundColor: NAV_BOTTOM_DOCK_SHELL_BG
   },
   tabRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     alignSelf: "stretch",
-    minHeight: 42,
+    height: PICKER_HEIGHT,
+    minHeight: PICKER_HEIGHT,
     paddingHorizontal: 4,
     position: "relative",
-    zIndex: 4,
-    overflow: "visible"
+    zIndex: 1,
+    overflow: "visible",
+    backgroundColor: NAV_BOTTOM_DOCK_SHELL_BG
+  },
+  selectionPicker: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    height: PICKER_HEIGHT,
+    backgroundColor: PICKER_COLOR,
+    zIndex: 0
   },
   tabItem: {
     flex: 1,
     minWidth: 0,
-    minHeight: 44,
+    height: PICKER_HEIGHT,
+    minHeight: PICKER_HEIGHT,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 4,
-    borderRadius: DOCK_RADIUS,
-    overflow: "visible"
+    overflow: "visible",
+    backgroundColor: "transparent",
+    zIndex: 2
   },
   tabGlyphWrap: {
     width: ME_AVATAR_TAB_SIZE,
@@ -693,6 +746,5 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "800",
     lineHeight: 12
-  },
-  pressed: { opacity: 0.88 }
+  }
 });

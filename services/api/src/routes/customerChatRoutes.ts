@@ -41,6 +41,7 @@ import { isRestaurantStaffOnline } from "../lib/restaurantPresence.js";
 import { buildVenueStatusPayload } from "../lib/venueHoursStatus.js";
 import { countCustomerChatImagesInRoom, ensureChatMessageImageEnum } from "../lib/chatImageEnum.js";
 import { countCustomerChatUnread, countRoomUnreadForCustomer } from "../lib/chatUnread.js";
+import { buildCustomerChatOverview } from "../lib/customerChatOverview.js";
 
 function bearerToken(headers: { authorization?: string }): string | null {
   const auth = headers.authorization;
@@ -121,6 +122,17 @@ export function registerCustomerChatRoutes(
     }
     const unreadCount = await countCustomerChatUnread(prisma, pl.sub);
     return { ok: true, unreadCount };
+  });
+
+  app.get("/customer/chat/overview", async (req, reply) => {
+    const tok = bearerToken(req.headers as { authorization?: string });
+    if (!tok) return reply.status(401).send({ ok: false, error: "missing_token" });
+    const pl = app.verifyJwt(tok);
+    if (pl.role !== "CUSTOMER") {
+      return reply.status(403).send({ ok: false, error: "customer_only" });
+    }
+    const overview = await buildCustomerChatOverview(prisma, pl.sub);
+    return { ok: true, ...overview };
   });
 
   app.get("/customer/chat/hub", async (req, reply) => {

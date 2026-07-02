@@ -5,7 +5,7 @@ import type { SharedValue } from "react-native-reanimated";
 import { runOnJS, useAnimatedReaction, useSharedValue, withSpring } from "react-native-reanimated";
 import type { EdgeInsets } from "react-native-safe-area-context";
 import { FLOATING_TAB_BAR_HEIGHT, DOCK_SHEET_GAP, floatingDockBottomY } from "./navBottomMetrics";
-import { FLOATING_TOP_BAR_HEIGHT, FLOAT_MARGIN_TOP } from "./FloatingTopBar";
+import { FLOATING_TOP_BAR_HEIGHT, FLOAT_MARGIN_TOP, FLOATING_HOME_TOP_BAR_HEIGHT, FLOAT_MARGIN_TOP_HOME } from "./FloatingTopBar";
 import { NAV_SHEET_SNAP_IMPACT_BAND_PX, onNavSheetSnapSettled } from "./navSheetSnapHaptics";
 
 /** Settle after release — velocity is applied for continuity with the finger. */
@@ -18,9 +18,11 @@ const RUBBER = 0.42;
 const VELOCITY_SNAP_SCALE = 0.11;
 const MAX_VELOCITY_SNAP_FRAC = 0.3;
 
-export function computeNavSheetSnapDims(screenH: number, insets: EdgeInsets) {
+export function computeNavSheetSnapDims(screenH: number, insets: EdgeInsets, customerHome = true) {
   const pillAnchorBottom = floatingDockBottomY(insets.bottom) + FLOATING_TAB_BAR_HEIGHT + DOCK_SHEET_GAP;
-  const topReserve = insets.top + FLOAT_MARGIN_TOP + FLOATING_TOP_BAR_HEIGHT + 8;
+  const topMargin = customerHome ? FLOAT_MARGIN_TOP_HOME : FLOAT_MARGIN_TOP;
+  const topBarHeight = customerHome ? FLOATING_HOME_TOP_BAR_HEIGHT : FLOATING_TOP_BAR_HEIGHT;
+  const topReserve = insets.top + topMargin + topBarHeight + 8;
   const fullH = Math.max(120, screenH - topReserve);
   const dockMaxH = Math.max(0, fullH - pillAnchorBottom);
   const hMid = Math.max(140, Math.min(dockMaxH * 0.48, fullH * 0.42)) + 3 + 15;

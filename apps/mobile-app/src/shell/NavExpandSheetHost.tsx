@@ -15,7 +15,7 @@ import type { EdgeInsets } from "react-native-safe-area-context";
 import {
   DOCK_SHEET_GAP,
   FLOATING_TAB_BAR_HEIGHT,
-  FLOAT_MARGIN_SIDE,
+  FLOATING_TAB_BAR_MARGIN_SIDE,
   floatingDockBottomY
 } from "./navBottomMetrics";
 import { computeNavSheetSnapDims, useNavSheetPanGestures } from "./NavExpandSheet";
@@ -103,8 +103,8 @@ export function NavExpandSheetHost({
         height: 0,
         opacity: 0,
         bottom: dockClearance,
-        left: FLOAT_MARGIN_SIDE,
-        right: FLOAT_MARGIN_SIDE,
+        left: FLOATING_TAB_BAR_MARGIN_SIDE,
+        right: FLOATING_TAB_BAR_MARGIN_SIDE,
         borderTopLeftRadius: 22,
         borderTopRightRadius: 22,
         borderBottomLeftRadius: 22,
@@ -116,7 +116,7 @@ export function NavExpandSheetHost({
     const sh = snapHighSV.value;
     const span = Math.max(1, sh - sm);
     const expandT = h <= sm ? 0 : h >= sh ? 1 : (h - sm) / span;
-    const marginH = interpolate(expandT, [0, 1], [FLOAT_MARGIN_SIDE, 0], Extrapolation.CLAMP);
+    const marginH = interpolate(expandT, [0, 1], [FLOATING_TAB_BAR_MARGIN_SIDE, 0], Extrapolation.CLAMP);
     const radius = interpolate(expandT, [0, 1], [22, 0], Extrapolation.CLAMP);
 
     return {

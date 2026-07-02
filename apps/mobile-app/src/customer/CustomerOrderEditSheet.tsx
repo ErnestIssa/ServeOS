@@ -1,6 +1,5 @@
 import React from "react";
 import {
-  ActivityIndicator,
   Modal,
   Pressable,
   StyleSheet,
@@ -130,7 +129,11 @@ export function CustomerOrderEditSheet({ visible, order, token, money, onClose, 
               disabled={busy}
               onPress={() => void saveNote()}
             >
-              {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Save changes</Text>}
+              {busy ? (
+                <Text style={[styles.btnText, { opacity: 0.58 }]}>Save changes</Text>
+              ) : (
+                <Text style={styles.btnText}>Save changes</Text>
+              )}
             </Pressable>
           </>
         )}

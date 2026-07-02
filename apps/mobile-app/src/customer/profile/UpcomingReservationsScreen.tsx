@@ -1,7 +1,6 @@
 import * as Haptics from "expo-haptics";
 import React from "react";
 import {
-  ActivityIndicator,
   Alert,
   FlatList,
   NativeScrollEvent,
@@ -13,6 +12,7 @@ import {
   useWindowDimensions
 } from "react-native";
 import { useAppTheme } from "../../theme/AppThemeContext";
+import { SkeletonListRows, SkeletonScreenFill } from "../../components/skeleton/SkeletonUi";
 import {
   cancelCustomerReservation,
   fetchUpcomingReservations,
@@ -284,11 +284,9 @@ export function UpcomingReservationsScreen(props: Props) {
         ]}
       >
         {loading ? (
-          <View style={styles.center}>
-            <View style={styles.centerInner}>
-              <ActivityIndicator size="large" color={t.ordersNavPurpleBright} />
-            </View>
-          </View>
+          <SkeletonScreenFill style={{ flex: 1, paddingTop: 24 }}>
+            <SkeletonListRows count={3} />
+          </SkeletonScreenFill>
         ) : !active ? (
           <View style={styles.center}>
             <View style={styles.centerInner}>

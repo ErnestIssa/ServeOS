@@ -115,6 +115,10 @@ export function mapApiErrorToMessage(res?: { message?: string; error?: string } 
 }
 
 function authHeaders(token: string) {
+  return { Authorization: `Bearer ${token}` } as const;
+}
+
+function authJsonHeaders(token: string) {
   return { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } as const;
 }
 
@@ -156,7 +160,7 @@ export async function provisionBusinessWorkspace(
 ): Promise<ProvisionBusinessResponse> {
   return apiFetch<ProvisionBusinessResponse>("/workspaces/provision-business", {
     method: "POST",
-    headers: authHeaders(token),
+    headers: authJsonHeaders(token),
     body: JSON.stringify({ registrationProfile })
   });
 }
@@ -229,7 +233,7 @@ export async function listRestaurants(token: string) {
 export async function createRestaurant(token: string, params: { name: string; companyId?: string }) {
   return apiFetch<{ ok: boolean; restaurant?: { id: string; name: string }; error?: string }>("/restaurants/restaurants", {
     method: "POST",
-    headers: authHeaders(token),
+    headers: authJsonHeaders(token),
     body: JSON.stringify(params)
   });
 }
@@ -295,7 +299,7 @@ export async function createRestaurantMenu(
 ) {
   return apiFetch<{ ok: boolean; menu?: MenuSurfaceRow; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menus`,
-    { method: "POST", headers: authHeaders(token), body: JSON.stringify(body) }
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body) }
   );
 }
 
@@ -321,7 +325,7 @@ export async function getMenuAdmin(token: string, restaurantId: string) {
 export async function createCategory(token: string, restaurantId: string, body: { name: string; sortOrder?: number }) {
   return apiFetch<{ ok: boolean; error?: string; category?: { id: string } }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menu/categories`,
-    { method: "POST", headers: authHeaders(token), body: JSON.stringify(body) }
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body) }
   );
 }
 
@@ -332,7 +336,7 @@ export async function createMenuItem(
 ) {
   return apiFetch<{ ok: boolean; error?: string; item?: { id: string } }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menu/items`,
-    { method: "POST", headers: authHeaders(token), body: JSON.stringify(body) }
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body) }
   );
 }
 
@@ -344,7 +348,7 @@ export async function createModifierGroup(
 ) {
   return apiFetch<{ ok: boolean; error?: string; group?: { id: string } }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menu/items/${encodeURIComponent(itemId)}/modifier-groups`,
-    { method: "POST", headers: authHeaders(token), body: JSON.stringify(body) }
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body) }
   );
 }
 
@@ -356,7 +360,7 @@ export async function createModifierOption(
 ) {
   return apiFetch<{ ok: boolean; error?: string; option?: { id: string } }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menu/modifier-groups/${encodeURIComponent(groupId)}/options`,
-    { method: "POST", headers: authHeaders(token), body: JSON.stringify(body) }
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body) }
   );
 }
 
@@ -431,7 +435,7 @@ export async function attachMenuItemMedia(
 ) {
   return apiFetch<{ ok: boolean; media?: MenuItemMediaRow; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menu/items/${encodeURIComponent(menuItemId)}/media`,
-    { method: "POST", headers: authHeaders(token), body: JSON.stringify(body) }
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body) }
   );
 }
 
@@ -458,7 +462,7 @@ export async function createMenuMediaUploadSession(
     error?: string;
   }>("/media/upload-session", {
     method: "POST",
-    headers: authHeaders(token),
+    headers: authJsonHeaders(token),
     body: JSON.stringify(body)
   });
 }
@@ -476,7 +480,7 @@ export async function completeMenuMediaUpload(
 ) {
   return apiFetch<{ ok: boolean; media?: { id: string }; error?: string }>("/media/complete", {
     method: "POST",
-    headers: authHeaders(token),
+    headers: authJsonHeaders(token),
     body: JSON.stringify(body)
   });
 }
@@ -495,7 +499,7 @@ export async function uploadMenuMediaBase64(
 ) {
   return apiFetch<{ ok: boolean; media?: { id: string }; error?: string }>("/media/upload", {
     method: "POST",
-    headers: authHeaders(token),
+    headers: authJsonHeaders(token),
     body: JSON.stringify(body)
   });
 }
@@ -519,7 +523,7 @@ export async function listRestaurantOrders(token: string, restaurantId: string) 
 export async function patchOrderStatus(token: string, orderId: string, status: string) {
   return apiFetch<{ ok: boolean; error?: string }>(`/orders/${encodeURIComponent(orderId)}/status`, {
     method: "PATCH",
-    headers: authHeaders(token),
+    headers: authJsonHeaders(token),
     body: JSON.stringify({ status })
   });
 }
@@ -529,7 +533,7 @@ export async function setActiveRestaurant(token: string, restaurantId: string) {
     "/workspace/active-restaurant",
     {
       method: "PATCH",
-      headers: authHeaders(token),
+      headers: authJsonHeaders(token),
       body: JSON.stringify({ restaurantId })
     }
   );
@@ -594,7 +598,7 @@ export async function patchVenuePaymentSettings(
 ) {
   return apiFetch<{ ok: boolean; settings?: VenuePaymentSettings; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/payment-settings`,
-    { method: "PATCH", headers: authHeaders(token), body: JSON.stringify(body) }
+    { method: "PATCH", headers: authJsonHeaders(token), body: JSON.stringify(body) }
   );
 }
 
@@ -605,7 +609,7 @@ export async function connectVenuePaymentProvider(
 ) {
   return apiFetch<{ ok: boolean; settings?: VenuePaymentSettings; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/payment-settings/connect`,
-    { method: "POST", headers: authHeaders(token), body: JSON.stringify(body) }
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body) }
   );
 }
 
@@ -616,7 +620,7 @@ export async function disconnectVenuePaymentProvider(
 ) {
   return apiFetch<{ ok: boolean; settings?: VenuePaymentSettings; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/payment-settings/disconnect`,
-    { method: "POST", headers: authHeaders(token), body: JSON.stringify({ provider }) }
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify({ provider }) }
   );
 }
 
@@ -642,7 +646,7 @@ export async function scheduleRestaurantMenu(
 ) {
   return apiFetch<{ ok: boolean; menu?: MenuSurfaceRow & { scheduledPublishAt?: string | null }; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}/schedule`,
-    { method: "PATCH", headers: authHeaders(token), body: JSON.stringify(body) }
+    { method: "PATCH", headers: authJsonHeaders(token), body: JSON.stringify(body) }
   );
 }
 
@@ -664,7 +668,7 @@ export async function importMenuCsv(token: string, restaurantId: string, csv: st
     message?: string;
   }>(`/restaurants/${encodeURIComponent(restaurantId)}/menu/import.csv`, {
     method: "POST",
-    headers: authHeaders(token),
+    headers: authJsonHeaders(token),
     body: JSON.stringify({ csv })
   });
 }
@@ -681,7 +685,7 @@ export async function createOrderingSession(
     message?: string;
   }>(`/restaurants/${encodeURIComponent(restaurantId)}/ordering-sessions`, {
     method: "POST",
-    headers: authHeaders(token),
+    headers: authJsonHeaders(token),
     body: JSON.stringify(body ?? {})
   });
 }

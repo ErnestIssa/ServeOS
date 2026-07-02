@@ -1,8 +1,9 @@
 import * as Haptics from "expo-haptics";
 import React from "react";
 import {
-  ActivityIndicator,
   LayoutAnimation,
+  Linking,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -12,6 +13,7 @@ import {
 } from "react-native";
 import { patchCustomerPreferredRestaurant, type CustomerRestaurantRow } from "../api";
 import { VenueEmptyCard } from "../components/VenueEmptyCard";
+import { SkeletonVenueRows } from "../components/skeleton/SkeletonUi";
 import { AdminNavChevron } from "../shell/AdminNavChevron";
 import { useAppTheme } from "../theme/AppThemeContext";
 import { formatApiError } from "./venueContentHelpers";
@@ -33,7 +35,7 @@ export type CustomerVenueDirectorySectionProps = {
   changeDisabled?: boolean;
   onSwitchError?: (message: string) => void;
   /** Borderless layout for the experience switcher sheet. */
-  variant?: "default" | "experienceSheet";
+  variant?: "default" | "experienceSheet" | "experienceModal";
   /** When set, confirm UI is rendered by the parent (e.g. nav sheet shell). */
   onConfirmOverlayChange?: (node: React.ReactNode) => void;
 };
@@ -52,9 +54,14 @@ export function CustomerVenueDirectorySection(props: CustomerVenueDirectorySecti
     onConfirmOverlayChange
   } = props;
   const isSheet = variant === "experienceSheet";
-  const { colors: t } = useAppTheme();
+  const isModal = variant === "experienceModal";
+  const isCompactSheet = isSheet || isModal;
+  const { colors: t, isDark } = useAppTheme();
   const clock = useVenueClockTick(30000);
-  const [venuesExpanded, setVenuesExpanded] = React.useState(true);
+  const activeIdAtMount = active.id.trim();
+  const [venuesExpanded, setVenuesExpanded] = React.useState(
+    () => isModal || !isCompactSheet || !activeIdAtMount
+  );
   const [pendingSwitch, setPendingSwitch] = React.useState<{ id: string; name: string } | null>(null);
   const [confirmLoading, setConfirmLoading] = React.useState(false);
 
@@ -224,16 +231,132 @@ export function CustomerVenueDirectorySection(props: CustomerVenueDirectorySecti
         sheetVenueRow: {
           flexDirection: "row",
           alignItems: "center",
-          paddingVertical: 12,
-          paddingHorizontal: 0,
-          minHeight: 44
+          paddingVertical: 14,
+          paddingHorizontal: 14,
+          minHeight: 56,
+          borderRadius: 14,
+          borderWidth: 1,
+          borderColor: t.border,
+          backgroundColor: t.bgElevated,
+          marginBottom: 8
+        },
+        sheetVenueRowPressed: {
+          backgroundColor: isDark ? "rgba(96, 165, 250, 0.14)" : "rgba(59, 130, 246, 0.1)",
+          borderColor: t.accentBlue
+        },
+        sheetVenueRowPending: {
+          borderColor: t.accentPurple,
+          backgroundColor: isDark ? "rgba(167, 139, 250, 0.14)" : "rgba(139, 92, 246, 0.1)"
         },
         sheetVenueRowBorder: {
           borderBottomWidth: StyleSheet.hairlineWidth,
           borderBottomColor: t.border
+        },
+        changeCtaHint: {
+          marginTop: 8,
+          fontSize: 13,
+          lineHeight: 18,
+          fontWeight: "600",
+          color: t.textMuted,
+          textAlign: "center"
+        },
+        mapBtnDisabled: { opacity: 0.4 },
+        modalSectionLabel: {
+          flex: 1,
+          fontSize: 13,
+          fontWeight: "900",
+          color: t.accentPurple,
+          letterSpacing: -0.2
+        },
+        modalVenueName: {
+          fontSize: 15,
+          fontWeight: "900",
+          color: t.text,
+          letterSpacing: -0.2
+        },
+        modalChangeCta: {
+          marginTop: 8,
+          borderRadius: 12,
+          paddingVertical: 10,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: t.danger
+        },
+        modalChangeCtaText: { color: "#fff", fontSize: 12, fontWeight: "900" },
+        modalVenueRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          paddingVertical: 9,
+          paddingHorizontal: 10,
+          minHeight: 42,
+          borderRadius: 11,
+          borderWidth: 1,
+          borderColor: t.border,
+          backgroundColor: t.bgElevated,
+          marginBottom: 6
+        },
+        modalMeta: { marginTop: 2, fontSize: 10, fontWeight: "600", color: t.textMuted, lineHeight: 14 },
+        modalStatusTag: {
+          marginTop: 4,
+          alignSelf: "flex-start",
+          fontSize: 10,
+          fontWeight: "800",
+          paddingHorizontal: 7,
+          paddingVertical: 2,
+          borderRadius: 6,
+          overflow: "hidden"
+        },
+        modalAltName: { fontSize: 13, fontWeight: "800", color: t.text },
+        modalMapBtn: {
+          paddingHorizontal: 10,
+          paddingVertical: 5,
+          borderRadius: 9,
+          borderWidth: 1,
+          borderColor: t.border,
+          backgroundColor: t.bgElevated
+        },
+        modalMapBtnText: { fontSize: 11, fontWeight: "800", color: t.text },
+        currentVenueCard: {
+          marginTop: 6,
+          marginBottom: 10,
+          borderRadius: 16,
+          borderWidth: 2,
+          borderColor: isDark ? "rgba(52,211,153,0.42)" : "rgba(16,185,129,0.38)",
+          backgroundColor: isDark ? "rgba(16,185,129,0.08)" : "rgba(16,185,129,0.06)",
+          paddingHorizontal: 14,
+          paddingVertical: 14,
+          paddingTop: 16,
+          position: "relative"
+        },
+        currentSticker: {
+          position: "absolute",
+          top: -1,
+          right: 10,
+          backgroundColor: "#10B981",
+          paddingHorizontal: 8,
+          paddingVertical: 3,
+          borderRadius: 8,
+          borderWidth: 1,
+          borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.9)",
+          ...Platform.select({
+            ios: {
+              shadowColor: "#059669",
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.22,
+              shadowRadius: 4
+            },
+            android: { elevation: 3 }
+          })
+        },
+        currentStickerText: {
+          fontSize: 9,
+          fontWeight: "900",
+          color: "#fff",
+          letterSpacing: 0.4,
+          textTransform: "uppercase"
         }
       }),
-    [t]
+    [isDark, t]
   );
 
   const activeId = active.id.trim();
@@ -253,12 +376,12 @@ export function CustomerVenueDirectorySection(props: CustomerVenueDirectorySecti
 
   const venuesListTitle = activeId ? "Other venues" : "Our venues";
   const allVenuesForSheet = activeId ? selectable : restaurants;
-  const collapsibleVenueCount = isSheet ? allVenuesForSheet.length : selectable.length;
+  const collapsibleVenueCount = isCompactSheet ? allVenuesForSheet.length : selectable.length;
 
   const cancelRestart = React.useCallback(() => {
     setPendingSwitch(null);
-    void Haptics.selectionAsync();
-  }, []);
+    if (!isModal) void Haptics.selectionAsync();
+  }, [isModal]);
 
   const pendingSwitchRef = React.useRef(pendingSwitch);
   pendingSwitchRef.current = pendingSwitch;
@@ -285,7 +408,7 @@ export function CustomerVenueDirectorySection(props: CustomerVenueDirectorySecti
 
   function requestSwitch(r: CustomerRestaurantRow) {
     if (changeDisabled || confirmLoading) return;
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (!isModal) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setPendingSwitch({ id: r.id, name: r.name.trim() || "Selected venue" });
   }
 
@@ -293,14 +416,14 @@ export function CustomerVenueDirectorySection(props: CustomerVenueDirectorySecti
     if (collapsibleVenueCount === 0) return;
     LayoutAnimation.configureNext(VENUE_SECTION_LAYOUT_ANIM);
     setVenuesExpanded((e) => !e);
-    void Haptics.selectionAsync();
+    if (!isModal) void Haptics.selectionAsync();
   }
 
   function openVenuesFromChangeCta() {
     if (changeDisabled || collapsibleVenueCount === 0) return;
     LayoutAnimation.configureNext(VENUE_SECTION_LAYOUT_ANIM);
     setVenuesExpanded(true);
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (!isModal) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }
 
   const onConfirmOverlayChangeRef = React.useRef(onConfirmOverlayChange);
@@ -311,9 +434,16 @@ export function CustomerVenueDirectorySection(props: CustomerVenueDirectorySecti
   confirmSwitchRef.current = confirmSwitch;
   const overlaySignatureRef = React.useRef<string | null>(null);
 
+  function openVenueMap() {
+    if (!activeId) return;
+    const query = encodeURIComponent(currentVenueLabel);
+    if (!isModal) void Haptics.selectionAsync();
+    void Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
+  }
+
   React.useEffect(() => {
     const notify = onConfirmOverlayChangeRef.current;
-    if (!notify) return;
+    if (!notify || isSheet || isModal) return;
 
     if (!pendingSwitch) {
       if (overlaySignatureRef.current !== null) {
@@ -338,15 +468,42 @@ export function CustomerVenueDirectorySection(props: CustomerVenueDirectorySecti
         loading={confirmLoading}
       />
     );
-  }, [pendingSwitch, confirmLoading, userDisplayName, currentVenueLabel, activeId]);
+  }, [pendingSwitch, confirmLoading, userDisplayName, currentVenueLabel, activeId, isSheet, isModal]);
 
-  if (directoryLoading && restaurants.length === 0) {
+  function renderConfirmOverlay() {
+    if (!pendingSwitch) return null;
     return (
-      <View style={styles.loadingRow}>
-        <ActivityIndicator color={t.accentPurple} />
-        <Text style={styles.loadingText}>Loading venues…</Text>
+      <VenueChangeRestartConfirmOverlay
+        userFirstName={userDisplayName}
+        currentVenueName={activeId ? currentVenueLabel : "No venue selected"}
+        nextVenueName={pendingSwitch.name}
+        onCancel={cancelRestart}
+        onConfirm={confirmSwitch}
+        loading={confirmLoading}
+        hapticOnConfirm={isModal}
+      />
+    );
+  }
+
+  function renderConfirmHost() {
+    if (!pendingSwitch) return null;
+    if (isSheet || isModal) {
+      return (
+        <Modal transparent visible animationType="fade" statusBarTranslucent onRequestClose={cancelRestart}>
+          {renderConfirmOverlay()}
+        </Modal>
+      );
+    }
+    if (onConfirmOverlayChange) return null;
+    return (
+      <View style={styles.confirmHost} pointerEvents="box-none">
+        {renderConfirmOverlay()}
       </View>
     );
+  }
+
+  if (directoryLoading && restaurants.length === 0) {
+    return <SkeletonVenueRows count={4} style={{ marginTop: 12 }} />;
   }
 
   if (restaurants.length === 0) {
@@ -354,32 +511,47 @@ export function CustomerVenueDirectorySection(props: CustomerVenueDirectorySecti
       <VenueEmptyCard
         title="No venues yet"
         message="When a venue registers on ServeOS, it will appear here so you can browse menus and place orders."
-        style={isSheet ? { marginTop: 4 } : undefined}
+        style={isModal ? { marginTop: 2 } : isSheet ? { marginTop: 4 } : undefined}
       />
     );
   }
 
-  function renderVenueRow(r: CustomerRestaurantRow, sheetRow: boolean, isLast: boolean) {
+  function renderVenueRow(r: CustomerRestaurantRow, sheetRow: boolean, _isLast: boolean) {
     const lines = formatOpeningHoursLines(r.openingHours);
     const rowOpen = isVenueOpenNow(r.openingHours, clock);
+    const isPending = pendingSwitch?.id === r.id;
+    const rowDisabled = (pendingSwitch && !isPending) || confirmLoading || changeDisabled;
+    const compact = isModal && sheetRow;
     return (
       <Pressable
         key={r.id}
-        disabled={!!pendingSwitch || confirmLoading || changeDisabled}
+        accessibilityRole="button"
+        accessibilityLabel={`Switch to ${r.name}`}
+        accessibilityHint="Shows a confirmation before changing your venue"
+        disabled={rowDisabled}
         onPress={() => requestSwitch(r)}
+        android_ripple={sheetRow ? { color: isDark ? "rgba(96,165,250,0.2)" : "rgba(59,130,246,0.15)" } : undefined}
         style={({ pressed }) => [
-          sheetRow ? styles.sheetVenueRow : styles.altRow,
-          sheetRow && !isLast && styles.sheetVenueRowBorder,
-          pressed && styles.pressed
+          sheetRow ? (compact ? styles.modalVenueRow : styles.sheetVenueRow) : styles.altRow,
+          sheetRow && isPending && styles.sheetVenueRowPending,
+          !sheetRow && r.id === activeId && styles.altRowActive,
+          pressed && !rowDisabled && (sheetRow ? styles.sheetVenueRowPressed : styles.pressed)
         ]}
       >
         <View style={styles.altRowText}>
-          <Text style={styles.altName}>{r.name}</Text>
-          <Text style={[styles.altOpenTag, rowOpen ? styles.statusOpen : styles.statusClosed]}>
+          <Text style={compact ? styles.modalAltName : styles.altName} numberOfLines={1}>
+            {r.name}
+          </Text>
+          <Text
+            style={[
+              compact ? styles.modalStatusTag : styles.altOpenTag,
+              rowOpen ? styles.statusOpen : styles.statusClosed
+            ]}
+          >
             {rowOpen ? "Open" : "Closed"}
           </Text>
-          {r.hasMenu === false ? <Text style={styles.altMeta}>Menu not published yet</Text> : null}
-          {lines.length > 0 ? (
+          {!compact && r.hasMenu === false ? <Text style={styles.altMeta}>Menu not published yet</Text> : null}
+          {lines.length > 0 && !sheetRow ? (
             <View style={styles.altHoursBlock}>
               {lines.map((line, i) => (
                 <Text key={`${r.id}-${i}-${line}`} style={[styles.altHoursLine, i > 0 && styles.altHoursGap]}>
@@ -389,53 +561,92 @@ export function CustomerVenueDirectorySection(props: CustomerVenueDirectorySecti
             </View>
           ) : null}
         </View>
-        {pendingSwitch?.id === r.id && confirmLoading ? (
-          <ActivityIndicator color={t.accentPurple} />
-        ) : sheetRow ? null : (
-          <Text style={styles.altChevron}>→</Text>
+        {isPending && confirmLoading ? (
+          <Text style={[styles.altChevron, compact && { fontSize: 15 }, { opacity: 0.45 }]}>→</Text>
+        ) : (
+          <Text style={[styles.altChevron, compact && { fontSize: 15 }]}>{sheetRow ? "›" : "→"}</Text>
         )}
       </Pressable>
     );
   }
 
-  if (isSheet) {
+  if (isCompactSheet) {
     const sectionTitle = activeId ? "Your venue" : "Choose a venue";
     return (
       <View>
-        <View style={styles.sheetTitleRow}>
-          <Text style={styles.sheetSectionLabel}>{sectionTitle}</Text>
+        <View style={[styles.sheetTitleRow, isModal && { marginBottom: 2 }]}>
+          <Text style={isModal ? styles.modalSectionLabel : styles.sheetSectionLabel}>{sectionTitle}</Text>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Map"
-            onPress={() => void Haptics.selectionAsync()}
-            style={({ pressed }) => [styles.mapBtn, pressed && styles.pressed]}
+            accessibilityLabel="Open venue in maps"
+            disabled={!activeId}
+            onPress={openVenueMap}
+            style={({ pressed }) => [
+              isModal ? styles.modalMapBtn : styles.mapBtn,
+              !activeId && styles.mapBtnDisabled,
+              pressed && activeId && styles.pressed
+            ]}
           >
-            <Text style={styles.mapBtnText}>Map</Text>
+            <Text style={isModal ? styles.modalMapBtnText : styles.mapBtnText}>Map</Text>
           </Pressable>
         </View>
         {activeId ? (
-          <>
-            <Text style={styles.sheetVenueName} numberOfLines={2}>
-              {currentVenueLabel}
-            </Text>
-            {!activeInDirectory ? (
-              <Text style={[styles.altMeta, { marginTop: 6 }]}>
-                This venue is no longer available. Pick another from our venues below.
+          isModal ? (
+            <View style={styles.currentVenueCard}>
+              <View style={styles.currentSticker} pointerEvents="none">
+                <Text style={styles.currentStickerText}>Current</Text>
+              </View>
+              <Text style={styles.modalVenueName} numberOfLines={2}>
+                {currentVenueLabel}
               </Text>
-            ) : (
-              <Text style={[styles.statusTag, activeOpen ? styles.statusOpen : styles.statusClosed, { marginTop: 8 }]}>
-                {activeOpen ? "Open" : "Closed"}
+              {!activeInDirectory ? (
+                <Text style={[styles.modalMeta, { marginTop: 6 }]} numberOfLines={2}>
+                  This venue is no longer available. Pick another from the list below.
+                </Text>
+              ) : (
+                <Text
+                  style={[
+                    styles.modalStatusTag,
+                    activeOpen ? styles.statusOpen : styles.statusClosed,
+                    { marginTop: 6 }
+                  ]}
+                >
+                  {activeOpen ? "Open" : "Closed"}
+                </Text>
+              )}
+            </View>
+          ) : (
+            <>
+              <Text style={styles.sheetVenueName} numberOfLines={1}>
+                {currentVenueLabel}
               </Text>
-            )}
-          </>
+              {!activeInDirectory ? (
+                <Text style={[styles.altMeta, { marginTop: 6 }]} numberOfLines={2}>
+                  This venue is no longer available. Pick another from our venues below.
+                </Text>
+              ) : (
+                <Text
+                  style={[
+                    styles.statusTag,
+                    activeOpen ? styles.statusOpen : styles.statusClosed,
+                    { marginTop: 8 }
+                  ]}
+                >
+                  {activeOpen ? "Open" : "Closed"}
+                </Text>
+              )}
+            </>
+          )
         ) : (
-          <Text style={[styles.altMeta, { marginTop: 2, marginBottom: 4 }]}>
+          <Text style={[isModal ? styles.modalMeta : styles.altMeta, { marginTop: 2, marginBottom: isModal ? 2 : 4 }]} numberOfLines={2}>
             Select a registered venue to load menus, orders, and chat.
           </Text>
         )}
 
-        {activeId ? (
+        {!isModal && activeId ? (
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Change venue"
             onPress={openVenuesFromChangeCta}
             disabled={changeDisabled || selectable.length === 0}
             style={({ pressed }) => [
@@ -448,6 +659,12 @@ export function CustomerVenueDirectorySection(props: CustomerVenueDirectorySecti
           </Pressable>
         ) : null}
 
+        {!isModal ? (
+          <Text style={styles.changeCtaHint}>
+            Choose a venue below — you will confirm before anything changes.
+          </Text>
+        ) : null}
+
         {allVenuesForSheet.length > 0 ? (
           <CollapsibleSection
             title={venuesListTitle}
@@ -456,24 +673,11 @@ export function CustomerVenueDirectorySection(props: CustomerVenueDirectorySecti
             variant="sheet"
             styles={styles}
           >
-            {allVenuesForSheet.map((r, i) =>
-              renderVenueRow(r, true, i === allVenuesForSheet.length - 1)
-            )}
+            {allVenuesForSheet.map((r) => renderVenueRow(r, true, false))}
           </CollapsibleSection>
         ) : null}
 
-        {!onConfirmOverlayChange && pendingSwitch ? (
-          <View style={styles.confirmHost} pointerEvents="box-none">
-            <VenueChangeRestartConfirmOverlay
-              userFirstName={userDisplayName}
-              currentVenueName={currentVenueLabel}
-              nextVenueName={pendingSwitch.name}
-              onCancel={cancelRestart}
-              onConfirm={confirmSwitch}
-              loading={confirmLoading}
-            />
-          </View>
-        ) : null}
+        {renderConfirmHost()}
       </View>
     );
   }
@@ -546,18 +750,7 @@ export function CustomerVenueDirectorySection(props: CustomerVenueDirectorySecti
         </>
       ) : null}
 
-      {!onConfirmOverlayChange && pendingSwitch ? (
-        <View style={styles.confirmHost} pointerEvents="box-none">
-          <VenueChangeRestartConfirmOverlay
-            userFirstName={userDisplayName}
-            currentVenueName={currentVenueLabel}
-            nextVenueName={pendingSwitch.name}
-            onCancel={cancelRestart}
-            onConfirm={confirmSwitch}
-            loading={confirmLoading}
-          />
-        </View>
-      ) : null}
+      {renderConfirmHost()}
     </View>
   );
 }
