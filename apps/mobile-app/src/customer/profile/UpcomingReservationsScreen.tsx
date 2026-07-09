@@ -1,4 +1,3 @@
-import * as Haptics from "expo-haptics";
 import React from "react";
 import {
   Alert,
@@ -232,7 +231,6 @@ export function UpcomingReservationsScreen(props: Props) {
       const clamped = Math.max(0, Math.min(reservations.length - 1, idx));
       if (clamped !== activeIndex) {
         setActiveIndex(clamped);
-        void Haptics.selectionAsync();
       }
     },
     [activeIndex, pageWidth, reservations.length]
@@ -340,7 +338,6 @@ export function UpcomingReservationsScreen(props: Props) {
                       onPress={() => {
                         listRef.current?.scrollToIndex({ index: i, animated: true });
                         setActiveIndex(i);
-                        void Haptics.selectionAsync();
                       }}
                       style={[styles.dot, i === activeIndex && styles.dotActive]}
                       accessibilityRole="button"
@@ -353,19 +350,13 @@ export function UpcomingReservationsScreen(props: Props) {
               <View style={styles.btnRow}>
                 <Pressable
                   style={({ pressed }) => [styles.btn, styles.btnManage, pressed && styles.btnPressed]}
-                  onPress={() => {
-                    void Haptics.selectionAsync();
-                    setManageOpen(true);
-                  }}
+                  onPress={() => setManageOpen(true)}
                 >
                   <Text style={styles.btnLabel}>Manage booking</Text>
                 </Pressable>
                 <Pressable
                   style={({ pressed }) => [styles.btn, styles.btnDetails, pressed && styles.btnPressed]}
-                  onPress={() => {
-                    void Haptics.selectionAsync();
-                    props.onOpenBookingDetails(active);
-                  }}
+                  onPress={() => props.onOpenBookingDetails(active)}
                 >
                   <Text style={styles.btnLabel}>Booking details</Text>
                 </Pressable>

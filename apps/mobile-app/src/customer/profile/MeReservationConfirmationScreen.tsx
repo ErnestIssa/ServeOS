@@ -7,6 +7,7 @@ import {
   type CustomerReservationApi
 } from "../reservations/reservationApi";
 import { useAppTheme } from "../../theme/AppThemeContext";
+import { reportBottomNavScroll, useBottomNavScrollReporter } from "../../shell/BottomNavScrollReporter";
 import { ReservationBookingRef } from "./ReservationBookingRef";
 import { ProfileScreenContainer } from "./ProfileUi";
 
@@ -21,6 +22,7 @@ type Props = {
 
 export function MeReservationConfirmationScreen(props: Props) {
   const { colors: t, isDark } = useAppTheme();
+  const reportBottomNavScrollY = useBottomNavScrollReporter();
   const [reservation, setReservation] = React.useState<CustomerReservationApi | null>(
     props.initialReservation ?? null
   );
@@ -122,6 +124,8 @@ export function MeReservationConfirmationScreen(props: Props) {
         <ScrollView
           contentContainerStyle={[styles.scroll, loading && reservation ? { opacity: 0.88 } : null]}
           showsVerticalScrollIndicator={false}
+          scrollEventThrottle={16}
+          onScroll={(e) => reportBottomNavScroll(reportBottomNavScrollY, e)}
         >
           <View style={styles.card}>
             <Text style={styles.emoji}>✓</Text>

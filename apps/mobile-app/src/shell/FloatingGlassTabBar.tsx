@@ -1,6 +1,6 @@
-import * as Haptics from "expo-haptics";
 import React from "react";
 import {
+  AppState,
   Platform,
   StyleSheet,
   Text,
@@ -18,7 +18,6 @@ import Animated, {
   type SharedValue,
   useAnimatedStyle,
   useSharedValue,
-  withSpring,
   withTiming
 } from "react-native-reanimated";
 import type { EdgeInsets } from "react-native-safe-area-context";
@@ -29,6 +28,12 @@ import {
   contentBottomInset,
   floatingDockBottomY
 } from "./navBottomMetrics";
+import {
+  BOTTOM_NAV_FOCUS_TIMING,
+  BOTTOM_NAV_MIN_SCALE,
+  BOTTOM_NAV_PRESS_SCALE,
+  BOTTOM_NAV_PRESS_TIMING
+} from "./navBottomFocus";
 import { navBottomDockGlassTokens, NAV_BOTTOM_DOCK_SHELL_BG } from "./navDockGlass";
 import type { MobileTabIconKey } from "../mobile/mobileExperienceTypes";
 import {
@@ -62,11 +67,10 @@ const FALLBACK_CUSTOMER_TABS: ReadonlyArray<NavTabItem> = [
   { id: "account", label: "Profile", icon: "profile" }
 ];
 
-/** Smooth spring for selection pill — liquid glass feel. */
-const PILL_SPRING = { damping: 20, stiffness: 260, mass: 0.62 };
-const PILL_MOVE_MS = 300;
+const PILL_MOVE_MS = 280;
 const PILL_DRAG_SNAP_MS = 260;
-const PILL_EASE = Easing.bezier(0.22, 1, 0.36, 1);
+/** Single easing curve for tap and drag snap — consistent speed at any distance. */
+const PILL_EASE = Easing.bezier(0.25, 0.1, 0.25, 1);
 const PILL_DRAG_EASE = Easing.out(Easing.cubic);
 const PILL_LIFT_MS = 200;
 const PILL_DRAG_MIN_DISTANCE = 4;
@@ -80,12 +84,6 @@ const PICKER_SHELL_INSET_V = 3;
 const PICKER_SHELL_INSET_H = 3;
 /** Small gap between picker and neighboring tab centers (wider = more rectangular). */
 const PICKER_INNER_GAP = 2;
-const TAB_INDEX_INPUT = [0, 1, 2, 3, 4] as const;
-
-function clampPillProgress(n: number, maxIndex: number): number {
-  "worklet";
-  return Math.min(maxIndex, Math.max(0, n));
-}
 
 function pickerShapeWidth(
   rowW: number,
@@ -127,6 +125,85 @@ function pickerLayoutAtIndex(
   return { tx: cx - shapeW * 0.5, w: shapeW };
 }
 
+function clampTranslateX(tx: number, minTx: number, maxTx: number): number {
+  "worklet";
+  return Math.min(maxTx, Math.max(minTx, tx));
+}
+
+function resolvePickerLayout(
+  index: number,
+  lastIdx: number,
+  rowW: number,
+  c0: number,
+  c1: number,
+  c2: number,
+  c3: number,
+  c4: number,
+  w0: number,
+  w1: number,
+  w2: number,
+  w3: number,
+  w4: number,
+  shellPad: number
+): { tx: number; w: number } {
+  "worklet";
+  const centers = [c0, c1, c2, c3, c4];
+  const widths = [w0, w1, w2, w3, w4];
+  const i = Math.max(0, Math.min(lastIdx, index));
+  const shapeW = pickerShapeWidth(
+    rowW,
+    lastIdx,
+    c0,
+    w0,
+    centers[lastIdx],
+    widths[lastIdx],
+    shellPad,
+    PICKER_SHELL_INSET_H,
+    PICKER_INNER_GAP
+  );
+  return pickerLayoutAtIndex(
+    i,
+    lastIdx,
+    rowW,
+    centers[i],
+    widths[i],
+    shellPad,
+    PICKER_SHELL_INSET_H,
+    PICKER_INNER_GAP,
+    shapeW
+  );
+}
+
+function nearestTabIndexForTranslateX(
+  tx: number,
+  lastIdx: number,
+  rowW: number,
+  c0: number,
+  c1: number,
+  c2: number,
+  c3: number,
+  c4: number,
+  w0: number,
+  w1: number,
+  w2: number,
+  w3: number,
+  w4: number,
+  shellPad: number
+): number {
+  "worklet";
+  let nearest = 0;
+  let bestDist = Number.POSITIVE_INFINITY;
+  for (let i = 0; i <= lastIdx; i++) {
+    const layout = resolvePickerLayout(i, lastIdx, rowW, c0, c1, c2, c3, c4, w0, w1, w2, w3, w4, shellPad);
+    const dist = Math.abs(layout.tx - tx);
+    if (dist < bestDist) {
+      bestDist = dist;
+      nearest = i;
+    }
+  }
+  return nearest;
+}
+
 function useTabStopLayout() {
   const c0 = useSharedValue(0);
   const c1 = useSharedValue(0);
@@ -166,8 +243,10 @@ type Props = {
   tab: TabId;
   onChange: (t: TabId) => void;
   insets: EdgeInsets;
-  /** 1 = expanded dock; animates down while content scrolls. */
-  navFocusSV?: SharedValue<number>;
+  /** 1 = full emphasis; 0 = scrolled-down compact scale. */
+  bottomNavFocusSV?: SharedValue<number>;
+  /** Tap anywhere on the dock chrome (non-tab) to restore full size. */
+  onDockPress?: () => void;
   /** Unread incoming chat messages (customer). */
   messagesUnreadCount?: number;
   /** Active (in-progress) orders — hidden while Orders tab is open. */
@@ -228,7 +307,8 @@ export function FloatingGlassTabBar({
   tab,
   onChange,
   insets,
-  navFocusSV: navFocusProp,
+  bottomNavFocusSV: bottomNavFocusProp,
+  onDockPress,
   messagesUnreadCount = 0,
   ordersActiveCount = 0,
   bookingsUpcomingCount = 0,
@@ -236,7 +316,7 @@ export function FloatingGlassTabBar({
   navTabs
 }: Props) {
   const fallbackFocusSV = useSharedValue(1);
-  const navFocusSV = navFocusProp ?? fallbackFocusSV;
+  const bottomNavFocusSV = bottomNavFocusProp ?? fallbackFocusSV;
   const visibleTabs = React.useMemo((): ReadonlyArray<NavTabItem> => {
     if (navTabs?.length) {
       return navTabs.map((t) => ({ id: t.key, label: t.label, icon: t.icon }));
@@ -255,65 +335,256 @@ export function FloatingGlassTabBar({
   }, []);
 
   const { centers: tabCenters, widths: tabWidths } = useTabStopLayout();
-  const pillProgress = useSharedValue(0);
+  const pillTranslateX = useSharedValue(0);
+  const pillWidthSV = useSharedValue(36);
+  const pillAnimTargetSV = useSharedValue(0);
+  const pillInMotionSV = useSharedValue(0);
+  const pillDraggingSV = useSharedValue(0);
   const pillLiftSV = useSharedValue(0);
-  const dragStartProgress = useSharedValue(0);
+  const dragStartTranslateX = useSharedValue(0);
   const lastPillTabIndex = useSharedValue(0);
   const pillDragDidMoveSV = useSharedValue(0);
   const tabIndexSV = useSharedValue(0);
   const tabLastIndexSV = useSharedValue(tabLastIndex);
   const tabRowWidthSV = useSharedValue(0);
-  const tabIndex = React.useMemo(
-    () => Math.max(0, visibleTabs.findIndex((t) => t.id === tab)),
-    [tab, visibleTabs]
-  );
+  const tabIndex = React.useMemo(() => {
+    const idx = visibleTabs.findIndex((t) => t.id === tab);
+    if (idx >= 0) return idx;
+    const homeIdx = visibleTabs.findIndex((t) => t.id === "home");
+    if (homeIdx >= 0) return homeIdx;
+    return 0;
+  }, [tab, visibleTabs]);
+
+  const bottomNavPressSV = useSharedValue(1);
+  const tabRef = React.useRef(tab);
+  tabRef.current = tab;
+  const tabIndexRef = React.useRef(tabIndex);
+  tabIndexRef.current = tabIndex;
+  const pillDragActiveRef = React.useRef(false);
+  const pillAnimatingRef = React.useRef(false);
+  const pendingCommitIndexRef = React.useRef<number | null>(null);
 
   React.useLayoutEffect(() => {
     tabIndexSV.value = tabIndex;
     tabLastIndexSV.value = tabLastIndex;
-  }, [tabIndex, tabIndexSV, tabLastIndex, tabLastIndexSV]);
+    tabIndexRef.current = tabIndex;
+    lastPillTabIndex.value = tabIndex;
+    pillAnimTargetSV.value = tabIndex;
+  }, [tabIndex, tabIndexSV, tabLastIndex, tabLastIndexSV, lastPillTabIndex, pillAnimTargetSV]);
 
-  const tabRef = React.useRef(tab);
-  tabRef.current = tab;
-  const pillDragActiveRef = React.useRef(false);
+  const beginNavPress = React.useCallback(() => {
+    cancelAnimation(bottomNavPressSV);
+    bottomNavPressSV.value = withTiming(BOTTOM_NAV_PRESS_SCALE, BOTTOM_NAV_PRESS_TIMING);
+  }, [bottomNavPressSV]);
+
+  const endNavPress = React.useCallback(() => {
+    cancelAnimation(bottomNavPressSV);
+    bottomNavPressSV.value = withTiming(1, BOTTOM_NAV_PRESS_TIMING);
+  }, [bottomNavPressSV]);
+
+  const getPickerLayout = React.useCallback(
+    (index: number) => {
+      const rowW = tabRowWidthSV.value;
+      const lastIdx = tabLastIndex;
+      const shellPad = TAB_EDGE_INSET_H;
+      return resolvePickerLayout(
+        index,
+        lastIdx,
+        rowW,
+        tabCenters[0].value,
+        tabCenters[1].value,
+        tabCenters[2].value,
+        tabCenters[3].value,
+        tabCenters[4].value,
+        tabWidths[0].value,
+        tabWidths[1].value,
+        tabWidths[2].value,
+        tabWidths[3].value,
+        tabWidths[4].value,
+        shellPad
+      );
+    },
+    [tabCenters, tabLastIndex, tabRowWidthSV, tabWidths]
+  );
+
+  const clearPillAnimating = React.useCallback(() => {
+    pillAnimatingRef.current = false;
+  }, []);
+
+  const commitTabSelection = React.useCallback(
+    (index: number) => {
+      if (pendingCommitIndexRef.current !== index) return;
+      pendingCommitIndexRef.current = null;
+      const id = visibleTabs[index]?.id;
+      if (id && id !== tabRef.current) onChange(id);
+      else pillAnimatingRef.current = false;
+    },
+    [onChange, visibleTabs]
+  );
+
+  const scheduleTabCommit = React.useCallback((index: number) => {
+    pendingCommitIndexRef.current = index;
+    pillAnimatingRef.current = true;
+  }, []);
+
+  const drivePillToRef = React.useRef<(index: number, opts?: { immediate?: boolean; durationMs?: number; commitOnComplete?: boolean }) => void>(() => {});
+  const getPickerLayoutRef = React.useRef<(index: number) => { tx: number; w: number }>(() => ({ tx: 0, w: 36 }));
+  const dockPickerAtIndexRef = React.useRef<(index: number) => void>(() => {});
+
+  const dockPickerAtIndex = React.useCallback(
+    (index: number) => {
+      const clamped = Math.max(0, Math.min(tabLastIndex, index));
+      if (tabRowWidthSV.value <= 0) return;
+      const target = getPickerLayout(clamped);
+      cancelAnimation(pillTranslateX);
+      pillTranslateX.value = target.tx;
+      pillWidthSV.value = target.w;
+      pillAnimTargetSV.value = clamped;
+      lastPillTabIndex.value = clamped;
+      pillInMotionSV.value = 0;
+      pillDraggingSV.value = 0;
+    },
+    [
+      getPickerLayout,
+      lastPillTabIndex,
+      pillAnimTargetSV,
+      pillDraggingSV,
+      pillInMotionSV,
+      pillTranslateX,
+      pillWidthSV,
+      tabLastIndex,
+      tabRowWidthSV
+    ]
+  );
+
+  dockPickerAtIndexRef.current = dockPickerAtIndex;
+
+  const syncPickerToCurrentTab = React.useCallback(
+    (opts?: { force?: boolean }) => {
+      if (pillDragActiveRef.current) return;
+      if (
+        !opts?.force &&
+        pillAnimatingRef.current &&
+        pendingCommitIndexRef.current !== null &&
+        pendingCommitIndexRef.current !== tabIndexRef.current
+      ) {
+        return;
+      }
+      if (tabRowWidthSV.value <= 0) return;
+      pillAnimTargetSV.value = tabIndexRef.current;
+      dockPickerAtIndex(tabIndexRef.current);
+    },
+    [dockPickerAtIndex, pillAnimTargetSV, tabRowWidthSV]
+  );
+
+  const syncPickerToCurrentTabRef = React.useRef(syncPickerToCurrentTab);
+  syncPickerToCurrentTabRef.current = syncPickerToCurrentTab;
 
   const resetPillLift = React.useCallback(() => {
     cancelAnimation(pillLiftSV);
     pillLiftSV.value = withTiming(0, { duration: PILL_LIFT_MS, easing: PILL_DRAG_EASE });
   }, [pillLiftSV]);
 
-  const snapPillTo = React.useCallback(
-    (index: number) => {
+  const drivePillTo = React.useCallback(
+    (index: number, opts?: { immediate?: boolean; durationMs?: number; commitOnComplete?: boolean }) => {
       const clamped = Math.max(0, Math.min(tabLastIndex, index));
+      const target = getPickerLayout(clamped);
+      pillAnimTargetSV.value = clamped;
       lastPillTabIndex.value = clamped;
       cancelAnimation(pillLiftSV);
       pillLiftSV.value = 0;
-      pillProgress.value = withSpring(clamped, PILL_SPRING);
+      cancelAnimation(pillTranslateX);
+
+      if (opts?.commitOnComplete) {
+        scheduleTabCommit(clamped);
+      }
+
+      if (opts?.immediate) {
+        dockPickerAtIndex(clamped);
+        if (opts.commitOnComplete) {
+          commitTabSelection(clamped);
+        }
+        return;
+      }
+
+      pillInMotionSV.value = 1;
+      const duration = opts?.durationMs ?? PILL_MOVE_MS;
+      const commitIndex = opts?.commitOnComplete ? clamped : -1;
+      pillWidthSV.value = target.w;
+      pillTranslateX.value = withTiming(
+        target.tx,
+        { duration, easing: PILL_EASE },
+        (finished) => {
+          "worklet";
+          if (finished) {
+            runOnJS(dockPickerAtIndex)(clamped);
+            runOnJS(endNavPress)();
+            if (commitIndex >= 0) {
+              runOnJS(commitTabSelection)(commitIndex);
+            } else {
+              runOnJS(clearPillAnimating)();
+            }
+          }
+        }
+      );
     },
-    [lastPillTabIndex, pillLiftSV, pillProgress, tabLastIndex]
+    [
+      clearPillAnimating,
+      commitTabSelection,
+      dockPickerAtIndex,
+      endNavPress,
+      getPickerLayout,
+      lastPillTabIndex,
+      pillAnimTargetSV,
+      pillInMotionSV,
+      pillLiftSV,
+      pillTranslateX,
+      pillWidthSV,
+      scheduleTabCommit,
+      tabLastIndex
+    ]
   );
 
-  const finishPan = React.useCallback(
-    (index: number) => {
-      const id = visibleTabs[index]?.id;
-      if (!id || id === tabRef.current) return;
-      onChange(id);
-    },
-    [onChange, visibleTabs]
-  );
-
-  const fireTabCrossHaptic = React.useCallback(() => {
-    void Haptics.selectionAsync();
-  }, []);
+  drivePillToRef.current = drivePillTo;
+  getPickerLayoutRef.current = getPickerLayout;
 
   const setPillDragActive = React.useCallback((active: boolean) => {
     pillDragActiveRef.current = active;
   }, []);
 
+  React.useLayoutEffect(() => {
+    syncPickerToCurrentTabRef.current({ force: true });
+  }, [tab, tabIndex, tabCount]);
+
   React.useEffect(() => {
-    if (pillDragActiveRef.current) return;
-    snapPillTo(tabIndex);
-  }, [tab, tabIndex, snapPillTo]);
+    if (pillAnimatingRef.current && Math.round(pillAnimTargetSV.value) === tabIndex) {
+      pillAnimatingRef.current = false;
+      pendingCommitIndexRef.current = null;
+    }
+    syncPickerToCurrentTabRef.current();
+  }, [tab, tabIndex, pillAnimTargetSV]);
+
+  const handleAppForeground = React.useCallback(() => {
+    pillDragActiveRef.current = false;
+    pillAnimatingRef.current = false;
+    pendingCommitIndexRef.current = null;
+    cancelAnimation(pillTranslateX);
+    cancelAnimation(pillLiftSV);
+    pillLiftSV.value = 0;
+    pillInMotionSV.value = 0;
+    pillDraggingSV.value = 0;
+    endNavPress();
+    requestAnimationFrame(() => {
+      syncPickerToCurrentTabRef.current({ force: true });
+    });
+  }, [endNavPress, pillDraggingSV, pillInMotionSV, pillLiftSV, pillTranslateX]);
+
+  React.useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") handleAppForeground();
+    });
+    return () => sub.remove();
+  }, [handleAppForeground]);
 
   const seedTabStopsFromRowWidth = React.useCallback(
     (rowW: number) => {
@@ -335,12 +606,11 @@ export function FloatingGlassTabBar({
       const rowW = e.nativeEvent.layout.width;
       if (rowW <= 0) return;
       seedTabStopsFromRowWidth(rowW);
-      if (!pillDragActiveRef.current) {
-        pillProgress.value = tabIndex;
-        lastPillTabIndex.value = tabIndex;
-      }
+      if (pillDragActiveRef.current) return;
+      if (pillAnimatingRef.current && pendingCommitIndexRef.current !== null) return;
+      syncPickerToCurrentTabRef.current({ force: true });
     },
-    [lastPillTabIndex, pillProgress, seedTabStopsFromRowWidth, tabIndex]
+    [seedTabStopsFromRowWidth]
   );
 
   const onTabItemLayout = React.useCallback(
@@ -349,8 +619,11 @@ export function FloatingGlassTabBar({
       if (width <= 0) return;
       tabCenters[index].value = x + width / 2;
       tabWidths[index].value = width;
+      if (pillDragActiveRef.current) return;
+      if (pillAnimatingRef.current && pendingCommitIndexRef.current !== null) return;
+      dockPickerAtIndex(tabIndexRef.current);
     },
-    [tabCenters, tabWidths]
+    [dockPickerAtIndex, tabCenters, tabWidths]
   );
 
   const panTabRow = React.useMemo(() => {
@@ -363,17 +636,32 @@ export function FloatingGlassTabBar({
 
     pan.onBegin(() => {
       "worklet";
-      dragStartProgress.value = pillProgress.value;
-      lastPillTabIndex.value = Math.round(pillProgress.value);
+      bottomNavFocusSV.value = withTiming(1, BOTTOM_NAV_FOCUS_TIMING);
+      dragStartTranslateX.value = pillTranslateX.value;
       pillDragDidMoveSV.value = 0;
+      pillDraggingSV.value = 1;
+      runOnJS(beginNavPress)();
       runOnJS(setPillDragActive)(true);
     });
 
     pan.onUpdate((event) => {
       "worklet";
       const lastIdx = tabLastIndexSV.value;
-      const range = tabCenters[lastIdx].value - tabCenters[0].value;
-      if (range <= 1) return;
+      const rowW = tabRowWidthSV.value;
+      const shellPad = TAB_EDGE_INSET_H;
+      const c0 = tabCenters[0].value;
+      const c1 = tabCenters[1].value;
+      const c2 = tabCenters[2].value;
+      const c3 = tabCenters[3].value;
+      const c4 = tabCenters[4].value;
+      const w0 = tabWidths[0].value;
+      const w1 = tabWidths[1].value;
+      const w2 = tabWidths[2].value;
+      const w3 = tabWidths[3].value;
+      const w4 = tabWidths[4].value;
+      const first = resolvePickerLayout(0, lastIdx, rowW, c0, c1, c2, c3, c4, w0, w1, w2, w3, w4, shellPad);
+      const last = resolvePickerLayout(lastIdx, lastIdx, rowW, c0, c1, c2, c3, c4, w0, w1, w2, w3, w4, shellPad);
+      if (last.tx - first.tx <= 1) return;
 
       if (Math.abs(event.translationX) >= PILL_LIFT_TRANSLATION_X) {
         pillDragDidMoveSV.value = 1;
@@ -383,14 +671,11 @@ export function FloatingGlassTabBar({
         }
       }
 
-      const next = dragStartProgress.value + (event.translationX / range) * lastIdx;
-      pillProgress.value = clampPillProgress(next, lastIdx);
-      const idx = Math.round(pillProgress.value);
-      const clamped = Math.max(0, Math.min(lastIdx, idx));
-      if (clamped !== lastPillTabIndex.value) {
-        lastPillTabIndex.value = clamped;
-        runOnJS(fireTabCrossHaptic)();
-      }
+      pillTranslateX.value = clampTranslateX(
+        dragStartTranslateX.value + event.translationX,
+        first.tx,
+        last.tx
+      );
     });
 
     pan.onEnd(() => {
@@ -399,21 +684,81 @@ export function FloatingGlassTabBar({
       pillLiftSV.value = withTiming(0, { duration: PILL_LIFT_MS, easing: PILL_DRAG_EASE });
 
       const lastIdx = tabLastIndexSV.value;
+      const rowW = tabRowWidthSV.value;
+      const shellPad = TAB_EDGE_INSET_H;
+      const c0 = tabCenters[0].value;
+      const c1 = tabCenters[1].value;
+      const c2 = tabCenters[2].value;
+      const c3 = tabCenters[3].value;
+      const c4 = tabCenters[4].value;
+      const w0 = tabWidths[0].value;
+      const w1 = tabWidths[1].value;
+      const w2 = tabWidths[2].value;
+      const w3 = tabWidths[3].value;
+      const w4 = tabWidths[4].value;
 
       if (pillDragDidMoveSV.value < 0.5) {
         const home = Math.max(0, Math.min(lastIdx, tabIndexSV.value));
-        pillProgress.value = withTiming(home, { duration: PILL_DRAG_SNAP_MS, easing: PILL_DRAG_EASE });
+        const homeLayout = resolvePickerLayout(home, lastIdx, rowW, c0, c1, c2, c3, c4, w0, w1, w2, w3, w4, shellPad);
+        pillAnimTargetSV.value = home;
+        cancelAnimation(pillTranslateX);
+        pillWidthSV.value = homeLayout.w;
+        pillDraggingSV.value = 0;
+        pillInMotionSV.value = 1;
+        pillTranslateX.value = withTiming(
+          homeLayout.tx,
+          {
+            duration: PILL_DRAG_SNAP_MS,
+            easing: PILL_DRAG_EASE
+          },
+          (finished) => {
+            "worklet";
+            if (finished) {
+              runOnJS(dockPickerAtIndex)(home);
+              runOnJS(endNavPress)();
+            }
+          }
+        );
         runOnJS(setPillDragActive)(false);
         return;
       }
 
-      const clamped = Math.max(0, Math.min(lastIdx, Math.round(pillProgress.value)));
-      lastPillTabIndex.value = clamped;
-      pillProgress.value = withTiming(clamped, {
-        duration: PILL_DRAG_SNAP_MS,
-        easing: PILL_DRAG_EASE
-      });
-      runOnJS(finishPan)(clamped);
+      const nearest = nearestTabIndexForTranslateX(
+        pillTranslateX.value,
+        lastIdx,
+        rowW,
+        c0,
+        c1,
+        c2,
+        c3,
+        c4,
+        w0,
+        w1,
+        w2,
+        w3,
+        w4,
+        shellPad
+      );
+      const target = resolvePickerLayout(nearest, lastIdx, rowW, c0, c1, c2, c3, c4, w0, w1, w2, w3, w4, shellPad);
+      lastPillTabIndex.value = nearest;
+      pillAnimTargetSV.value = nearest;
+      pillWidthSV.value = target.w;
+      cancelAnimation(pillTranslateX);
+      pillDraggingSV.value = 0;
+      pillInMotionSV.value = 1;
+      runOnJS(scheduleTabCommit)(nearest);
+      pillTranslateX.value = withTiming(
+        target.tx,
+        { duration: PILL_DRAG_SNAP_MS, easing: PILL_EASE },
+        (finished) => {
+          "worklet";
+          if (finished) {
+            runOnJS(dockPickerAtIndex)(nearest);
+            runOnJS(endNavPress)();
+            runOnJS(commitTabSelection)(nearest);
+          }
+        }
+      );
       runOnJS(setPillDragActive)(false);
     });
 
@@ -426,81 +771,74 @@ export function FloatingGlassTabBar({
 
     return pan;
   }, [
-    dragStartProgress,
-    finishPan,
-    fireTabCrossHaptic,
-    lastPillTabIndex,
+    beginNavPress,
+    bottomNavFocusSV,
+    commitTabSelection,
+    dockPickerAtIndex,
+    dragStartTranslateX,
+    endNavPress,
+    pillAnimTargetSV,
     pillDragDidMoveSV,
+    pillDraggingSV,
+    pillInMotionSV,
     pillLiftSV,
-    pillProgress,
+    pillTranslateX,
+    pillWidthSV,
+    scheduleTabCommit,
     setPillDragActive,
     tabCenters,
     tabIndexSV,
-    tabLastIndexSV
+    tabLastIndexSV,
+    tabRowWidthSV,
+    tabWidths
   ]);
 
-  const panTabRowWithPress = React.useMemo(
-    () => Gesture.Exclusive(panTabRow, Gesture.Native()),
-    [panTabRow]
-  );
-
   const pickerAnimatedStyle = useAnimatedStyle(() => {
-    const progress = pillProgress.value;
     const rowW = tabRowWidthSV.value;
-    const lastIdx = Math.min(4, Math.max(0, tabLastIndexSV.value));
+    const lastIdx = Math.max(0, tabLastIndexSV.value);
+    const layoutReady = rowW > 8;
+    const inMotion = pillInMotionSV.value > 0.5 || pillDraggingSV.value > 0.5;
     const shellPad = TAB_EDGE_INSET_H;
-    const shapeW = pickerShapeWidth(
-      rowW,
-      lastIdx,
-      tabCenters[0].value,
-      tabWidths[0].value,
-      tabCenters[lastIdx].value,
-      tabWidths[lastIdx].value,
-      shellPad,
-      PICKER_SHELL_INSET_H,
-      PICKER_INNER_GAP
-    );
+    const c0 = tabCenters[0].value;
+    const c1 = tabCenters[1].value;
+    const c2 = tabCenters[2].value;
+    const c3 = tabCenters[3].value;
+    const c4 = tabCenters[4].value;
+    const w0 = tabWidths[0].value;
+    const w1 = tabWidths[1].value;
+    const w2 = tabWidths[2].value;
+    const w3 = tabWidths[3].value;
+    const w4 = tabWidths[4].value;
 
-    const x = interpolate(
-      progress,
-      TAB_INDEX_INPUT,
-      [
-        tabCenters[0].value,
-        tabCenters[1].value,
-        tabCenters[2].value,
-        tabCenters[3].value,
-        tabCenters[4].value
-      ]
-    );
-    const w = interpolate(
-      progress,
-      TAB_INDEX_INPUT,
-      [tabWidths[0].value, tabWidths[1].value, tabWidths[2].value, tabWidths[3].value, tabWidths[4].value]
-    );
+    let tx = pillTranslateX.value;
+    let w = pillWidthSV.value;
 
-    const layout0 = pickerLayoutAtIndex(0, lastIdx, rowW, tabCenters[0].value, tabWidths[0].value, shellPad, PICKER_SHELL_INSET_H, PICKER_INNER_GAP, shapeW);
-    const layout1 = pickerLayoutAtIndex(1, lastIdx, rowW, tabCenters[1].value, tabWidths[1].value, shellPad, PICKER_SHELL_INSET_H, PICKER_INNER_GAP, shapeW);
-    const layout2 = pickerLayoutAtIndex(2, lastIdx, rowW, tabCenters[2].value, tabWidths[2].value, shellPad, PICKER_SHELL_INSET_H, PICKER_INNER_GAP, shapeW);
-    const layout3 = pickerLayoutAtIndex(3, lastIdx, rowW, tabCenters[3].value, tabWidths[3].value, shellPad, PICKER_SHELL_INSET_H, PICKER_INNER_GAP, shapeW);
-    const layout4 = pickerLayoutAtIndex(4, lastIdx, rowW, tabCenters[4].value, tabWidths[4].value, shellPad, PICKER_SHELL_INSET_H, PICKER_INNER_GAP, shapeW);
-
-    const rangeOk = tabCenters[lastIdx].value - tabCenters[0].value > 8;
-    const fallbackSeg = rowW > 0 ? rowW / Math.max(1, lastIdx + 1) : 64;
-    const wSafe = w > 8 ? w : fallbackSeg;
-    const xSafe = rangeOk
-      ? x
-      : rowW > 0
-        ? (progress + 0.5) * Math.max(0, rowW) / Math.max(1, lastIdx + 1)
-        : 0;
-
-    const pillW = rangeOk ? shapeW : Math.max(36, wSafe - PICKER_INNER_GAP * 2);
-    const translateX = rangeOk
-      ? interpolate(progress, TAB_INDEX_INPUT, [layout0.tx, layout1.tx, layout2.tx, layout3.tx, layout4.tx])
-      : xSafe - pillW / 2;
+    if (layoutReady && !inMotion) {
+      const idx = Math.max(0, Math.min(lastIdx, Math.round(pillAnimTargetSV.value)));
+      const docked = resolvePickerLayout(
+        idx,
+        lastIdx,
+        rowW,
+        c0,
+        c1,
+        c2,
+        c3,
+        c4,
+        w0,
+        w1,
+        w2,
+        w3,
+        w4,
+        shellPad
+      );
+      tx = docked.tx;
+      w = docked.w;
+    }
 
     return {
-      width: pillW,
-      transform: [{ translateX: Math.round(translateX) }],
+      width: w,
+      opacity: layoutReady ? 1 : 0,
+      transform: [{ translateX: tx }],
       borderTopLeftRadius: PICKER_EDGE_END_RADIUS,
       borderBottomLeftRadius: PICKER_EDGE_END_RADIUS,
       borderTopRightRadius: PICKER_EDGE_END_RADIUS,
@@ -509,25 +847,48 @@ export function FloatingGlassTabBar({
   });
 
   const dockShellStyle = useAnimatedStyle(() => {
-    const focus = navFocusSV.value;
-    const scale = interpolate(focus, [0, 1], [0.94, 1], Extrapolation.CLAMP);
-    const opacity = interpolate(focus, [0, 1], [0.8, 1], Extrapolation.CLAMP);
-    const height = interpolate(focus, [0, 1], [FLOATING_TAB_BAR_HEIGHT - 6, FLOATING_TAB_BAR_HEIGHT], Extrapolation.CLAMP);
+    const focus = bottomNavFocusSV.value;
+    const scrollScale = interpolate(focus, [0, 1], [BOTTOM_NAV_MIN_SCALE, 1], Extrapolation.CLAMP);
+    const scale = scrollScale * bottomNavPressSV.value;
+    const opacity = interpolate(focus, [0, 1], [0.78, 1], Extrapolation.CLAMP);
+    const anchorLift = ((1 - scale) * FLOATING_TAB_BAR_HEIGHT) / 2;
     return {
-      transform: [{ scale }],
-      opacity,
-      height
+      transform: [{ translateY: anchorLift }, { scale }],
+      opacity
     };
   });
 
+  const restoreDockFocus = React.useCallback(() => {
+    bottomNavFocusSV.value = withTiming(1, BOTTOM_NAV_FOCUS_TIMING);
+    onDockPress?.();
+  }, [bottomNavFocusSV, onDockPress]);
+
+  const tapDockGesture = React.useMemo(
+    () =>
+      Gesture.Tap().onEnd(() => {
+        "worklet";
+        bottomNavFocusSV.value = withTiming(1, BOTTOM_NAV_FOCUS_TIMING);
+        if (onDockPress) runOnJS(onDockPress)();
+      }),
+    [bottomNavFocusSV, onDockPress]
+  );
+
+  const panTabRowWithPress = React.useMemo(
+    () => Gesture.Exclusive(panTabRow, Gesture.Simultaneous(tapDockGesture, Gesture.Native())),
+    [panTabRow, tapDockGesture]
+  );
+
   const onTabPress = (id: TabId, index: number) => {
-    navFocusSV.value = withSpring(1, PILL_SPRING);
+    if (id === tab) {
+      restoreDockFocus();
+      setTimeout(() => endNavPress(), PILL_MOVE_MS);
+      return;
+    }
+    restoreDockFocus();
     pillDragActiveRef.current = false;
     pillDragDidMoveSV.value = 0;
     resetPillLift();
-    snapPillTo(index);
-    onChange(id);
-    void Haptics.selectionAsync();
+    drivePillTo(index, { commitOnComplete: true });
   };
 
   return (
@@ -540,6 +901,7 @@ export function FloatingGlassTabBar({
             bottom: dockBottom,
             left: FLOATING_TAB_BAR_MARGIN_SIDE,
             right: FLOATING_TAB_BAR_MARGIN_SIDE,
+            height: FLOATING_TAB_BAR_HEIGHT,
             shadowColor: glass.shadowColor,
             shadowOpacity: glass.shadowOpacity
           }
@@ -572,6 +934,7 @@ export function FloatingGlassTabBar({
                           accessibilityState={{ selected }}
                           style={[styles.tabItem, webTabPressNoOutline]}
                           onLayout={onTabItemLayout(index)}
+                          onPressIn={beginNavPress}
                           onPress={() => onTabPress(t.id, index)}
                         >
                           <View style={styles.tabGlyphWrap}>

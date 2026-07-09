@@ -5,6 +5,7 @@ import { formatMoneyCents } from "@serveos/core-shared/currency";
 import { ServeOSBrandScreenNative } from "@serveos/core-loading-native";
 import React from "react";
 import {
+  AppState,
   Animated,
   Dimensions,
   Keyboard,
@@ -64,6 +65,7 @@ import { fetchCustomerAppContext } from "./src/customer/customerAppApi";
 import {
   defaultNavTabKey,
   fetchMobileExperience,
+  homeNavTabKey,
   isChatNavTab,
   isProfileNavTab,
   mobileExperienceFromUser,
@@ -131,6 +133,7 @@ import {
   contentBottomInset,
   contentTopInset,
   homeContentTopInset,
+  homeScrollBottomInset,
   contentTopInsetWithoutTopNav,
   FLOATING_TAB_BAR_HEIGHT,
   FLOAT_MARGIN_SIDE,
@@ -143,6 +146,9 @@ import {
 import { computeNavSheetSnapDims, SHEET_SPRING_CONFIG } from "./src/shell/NavExpandSheet";
 import { NavExpandSheetHost } from "./src/shell/NavExpandSheetHost";
 import { NavBottomScrim } from "./src/shell/NavBottomScrim";
+import { BOTTOM_NAV_FOCUS_TIMING } from "./src/shell/navBottomFocus";
+import { BottomNavScrollReporter } from "./src/shell/BottomNavScrollReporter";
+import { updateBottomNavFocusFromScrollY } from "./src/shell/updateBottomNavFocusFromScrollY";
 import { CustomerMeStack } from "./src/customer/profile/CustomerMeStack";
 import { loadProfileAvatarUri } from "./src/customer/profile/profileAvatarStorage";
 import { ExperienceSwitcherModal } from "./src/shell/ExperienceSwitcherModal";
@@ -188,6 +194,10 @@ export default function App() {
   /** Backend `roleType` — not raw DB role strings. */
   const isCustomerSession = mobileRoleType === "CUSTOMER";
   const navTabs = navTabsFromUser(sessionUser);
+  const homeTabKey = React.useMemo(
+    (): TabId => homeNavTabKey(mobileExperienceFromUser(sessionUser)) as TabId,
+    [sessionUser]
+  );
   const profileTabKey = React.useMemo(
     () => navTabs.find((t) => isProfileNavTab(t.key))?.key ?? "account",
     [navTabs]
@@ -354,8 +364,8 @@ export default function App() {
 
   React.useEffect(() => {
     if (!navTabs.length) return;
-    if (!navTabs.some((t) => t.key === tab)) setTab(navTabs[0]!.key);
-  }, [tab, navTabs]);
+    if (!navTabs.some((t) => t.key === tab)) setTab(homeTabKey);
+  }, [tab, navTabs, homeTabKey]);
 
   React.useEffect(() => {
     if (!token || sessionUser?.mobileExperience) return;
@@ -433,8 +443,10 @@ export default function App() {
 
   const scrollY = React.useRef(new Animated.Value(0)).current;
   const sheetHeightSV = useSharedValue(0);
-  const navFocusSV = useSharedValue(1);
+  const bottomNavFocusSV = useSharedValue(1);
+  const lastScrollYRef = React.useRef(0);
   const appChromeDismissSV = useSharedValue(1);
+  const profileBottomNavSV = useSharedValue(1);
   const customerSearchOpenSV = useSharedValue(0);
   const snapImpactTargetSV = useSharedValue(-1);
   const snapImpactArmedSV = useSharedValue(0);
@@ -451,7 +463,7 @@ export default function App() {
   });
 
   const appChromeDismissStyleBottom = useAnimatedStyle(() => {
-    const v = appChromeDismissSV.value;
+    const v = appChromeDismissSV.value * profileBottomNavSV.value;
     return {
       opacity: interpolate(v, [0, 1], [0, 1], Extrapolation.CLAMP),
       transform: [
@@ -474,16 +486,27 @@ export default function App() {
     () =>
       Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
         useNativeDriver: false,
-        listener: () => {
-          navFocusSV.value = withTiming(0, { duration: 140 });
+        listener: (e: { nativeEvent: { contentOffset: { y: number } } }) => {
+          updateBottomNavFocusFromScrollY(bottomNavFocusSV, lastScrollYRef, e.nativeEvent.contentOffset.y);
         }
       }),
-    [scrollY, navFocusSV]
+    [scrollY, bottomNavFocusSV]
   );
 
+  const reportContentScroll = React.useCallback(
+    (y: number) => {
+      updateBottomNavFocusFromScrollY(bottomNavFocusSV, lastScrollYRef, y);
+    },
+    [bottomNavFocusSV]
+  );
+
+  const restoreBottomNavFocus = React.useCallback(() => {
+    bottomNavFocusSV.value = withTiming(1, BOTTOM_NAV_FOCUS_TIMING);
+  }, [bottomNavFocusSV]);
+
   const onScrollEnd = React.useCallback(() => {
-    navFocusSV.value = withSpring(1, { damping: 20, stiffness: 180, mass: 0.65 });
-  }, [navFocusSV]);
+    // Bottom nav restores on scroll-up or dock interaction — not on scroll idle.
+  }, []);
 
   const armNavSheetSnapImpact = React.useCallback(
     (target: number) => {
@@ -774,6 +797,14 @@ export default function App() {
     }
   }, [experienceSwitcherOpen, experienceSwitcherChromeHold, appChromeDismissSV]);
 
+  React.useEffect(() => {
+    const hideProfileBottomNav = !!token && !!mobileExperience && isProfileNavTab(tab) && !meStackAtRoot;
+    profileBottomNavSV.value = withTiming(hideProfileBottomNav ? 0 : 1, {
+      duration: APP_CHROME_DISMISS_MS,
+      easing: APP_CHROME_EASE
+    });
+  }, [token, mobileExperience, tab, meStackAtRoot, profileBottomNavSV]);
+
   const openExperienceSwitcher = React.useCallback(() => {
     Keyboard.dismiss();
     setHomeNavSheetCartEligible(false);
@@ -857,7 +888,21 @@ export default function App() {
 
   React.useEffect(() => {
     scrollY.setValue(0);
-  }, [tab, scrollY]);
+    lastScrollYRef.current = 0;
+    bottomNavFocusSV.value = withTiming(1, BOTTOM_NAV_FOCUS_TIMING);
+  }, [tab, scrollY, bottomNavFocusSV]);
+
+  React.useEffect(() => {
+    if (!token) return;
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next !== "active") return;
+      Keyboard.dismiss();
+      restoreBottomNavFocus();
+      setChatThreadRestaurantId(null);
+      navigateTab(homeTabKey);
+    });
+    return () => sub.remove();
+  }, [token, homeTabKey, navigateTab, restoreBottomNavFocus]);
 
   React.useEffect(() => {
     if (!isChatNavTab(tab)) {
@@ -975,7 +1020,7 @@ export default function App() {
       setToken(jwt);
       setUserRole(meUser.role);
       const exp = meUser.mobileExperience ?? (await fetchMobileExperience(jwt));
-      if (exp) setTab(defaultNavTabKey(exp) as TabId);
+      if (exp) setTab(homeNavTabKey(exp) as TabId);
       setStatus("");
       void syncDevicePushTokenWithBackend(jwt);
     },
@@ -994,7 +1039,7 @@ export default function App() {
             if (cancelled) return;
             setToken(stored);
             setUserRole(user.role);
-            if (user.mobileExperience) setTab(defaultNavTabKey(user.mobileExperience) as TabId);
+            if (user.mobileExperience) setTab(homeNavTabKey(user.mobileExperience) as TabId);
             void syncDevicePushTokenWithBackend(stored);
           } catch {
             await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
@@ -1162,12 +1207,12 @@ export default function App() {
       setCustomerSearchQuery("");
       setHomeNavSheetCartEligible(false);
       Keyboard.dismiss();
-      navFocusSV.value = withSpring(1, { damping: 20, stiffness: 180, mass: 0.65 });
+      restoreBottomNavFocus();
       navigateTab("home");
       setVenueDirectoryRefreshKey((n) => n + 1);
       void refreshExperienceSwitcher();
     },
-    [applyCustomerVenueChange, closeNavSheetFully, navFocusSV, refreshExperienceSwitcher, navigateTab]
+    [applyCustomerVenueChange, closeNavSheetFully, restoreBottomNavFocus, refreshExperienceSwitcher, navigateTab]
   );
 
   async function addFirstMenuItemToCart() {
@@ -1840,6 +1885,10 @@ export default function App() {
   const meCompactTopPad = insets.top + 8;
   const hideProfileSubpageTopNav = !!token && mobileExperience && isProfileNavTab(tab) && !meStackAtRoot;
   const hideChromeForChat = isCustomerSession && isChatNavTab(tab) && !!chatThreadRestaurantId;
+  const hideChromeForProfileSubpage = hideProfileSubpageTopNav;
+  const profileStackBottomInset = hideChromeForProfileSubpage
+    ? homeScrollBottomInset(insets.bottom)
+    : scrollBottom;
   const hideChromeForExperienceSwitcher = experienceSwitcherChromeHold;
   const hideAppChrome = hideChromeForExperienceSwitcher || hideChromeForChat;
   const showHomeTopNav = tab === "home" && !hideProfileSubpageTopNav && !hideChromeForChat;
@@ -1931,6 +1980,7 @@ export default function App() {
 
       <View style={styles.main}>
         <ScrollMeshBackground tab={navKeyToAmbientTab(tab)} scrollY={scrollY} />
+        <BottomNavScrollReporter report={reportContentScroll}>
         <View style={styles.tabStage}>
           <TabTransitionPanel
             tabKey="home"
@@ -2329,7 +2379,7 @@ export default function App() {
                 <CustomerMeStack
                   topInset={scrollTopPad}
                   compactTopInset={meCompactTopPad}
-                  bottomInset={scrollBottom}
+                  bottomInset={profileStackBottomInset}
                   user={sessionUser}
                   authToken={token}
                   mobileExperience={mobileExperience}
@@ -2421,6 +2471,7 @@ export default function App() {
             )}
           </TabTransitionPanel>
         </View>
+        </BottomNavScrollReporter>
       </View>
 
       {showHomeTopNav ? (
@@ -2429,13 +2480,12 @@ export default function App() {
           pointerEvents={experienceSwitcherChromeHold ? "none" : "box-none"}
         >
           {!(isCustomerSession && customerSearchOpen) ? (
-            <NavTopScrim topInset={insets.top} navFocusSV={navFocusSV} customerHome={isCustomerSession} />
+            <NavTopScrim topInset={insets.top} customerHome={isCustomerSession} />
           ) : null}
           {isCustomerSession ? (
             <FloatingTopBar
               variant="customer"
               topInset={insets.top}
-              navFocusSV={navFocusSV}
               searchOpenSV={customerSearchOpenSV}
               searchValue={customerSearchQuery}
               onSearchChange={setCustomerSearchQuery}
@@ -2452,7 +2502,6 @@ export default function App() {
           ) : (
             <FloatingTopBar
               topInset={insets.top}
-              navFocusSV={navFocusSV}
               leftLabel={leftLabel}
               leftSubLabel={leftSubLabel}
               centerTitle={pageTitle}
@@ -2564,18 +2613,21 @@ export default function App() {
       {!hideChromeForChat ? (
         <Reanimated.View
           style={[styles.appChromeBottomLayer, appChromeDismissStyleBottom]}
-          pointerEvents={experienceSwitcherChromeHold ? "none" : "box-none"}
+          pointerEvents={
+            hideChromeForProfileSubpage || experienceSwitcherChromeHold ? "none" : "box-none"
+          }
         >
-          <NavBottomScrim navFocusSV={navFocusSV} />
+          <NavBottomScrim bottomNavFocusSV={bottomNavFocusSV} />
           <FloatingGlassTabBar
             tab={tab}
             onChange={(next) => {
               Keyboard.dismiss();
-              navFocusSV.value = withSpring(1, { damping: 20, stiffness: 180, mass: 0.65 });
+              restoreBottomNavFocus();
               navigateTab(next);
             }}
             insets={insets}
-            navFocusSV={navFocusSV}
+            bottomNavFocusSV={bottomNavFocusSV}
+            onDockPress={restoreBottomNavFocus}
             messagesUnreadCount={chatUnreadCount}
             ordersActiveCount={ordersTabBadgeCount}
             bookingsUpcomingCount={bookTabBadgeCount}

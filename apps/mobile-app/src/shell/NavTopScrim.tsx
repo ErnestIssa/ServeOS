@@ -2,12 +2,6 @@ import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
 import { Platform, StyleSheet, useWindowDimensions, View } from "react-native";
-import Animated, {
-  Extrapolation,
-  interpolate,
-  type SharedValue,
-  useAnimatedStyle
-} from "react-native-reanimated";
 import { useAppTheme } from "../theme/AppThemeContext";
 import {
   NAV_BOTTOM_AMBIENT_HEIGHT_RATIO
@@ -98,8 +92,6 @@ function navTopLocalStops(isDark: boolean): GradientStops {
 type Props = {
   /** Safe-area top inset — scrim bleeds from physical screen top through the nav capsule. */
   topInset: number;
-  /** 1 = idle; 0 = scrolling — subtle local intensity only. */
-  navFocusSV: SharedValue<number>;
   /** Customer home uses the thinner split top row metrics. */
   customerHome?: boolean;
 };
@@ -107,8 +99,9 @@ type Props = {
 /**
  * Fixed top depth field + frosted glass band — mirrors the bottom nav scrim stack.
  * Bleeds from the physical screen top through the floating top nav and fades below.
+ * Top chrome never reacts to scroll direction.
  */
-export function NavTopScrim({ topInset, navFocusSV, customerHome = false }: Props) {
+export function NavTopScrim({ topInset, customerHome = false }: Props) {
   const { isDark } = useAppTheme();
   const { height: screenH } = useWindowDimensions();
 
@@ -128,32 +121,14 @@ export function NavTopScrim({ topInset, navFocusSV, customerHome = false }: Prop
     Math.round(screenH * NAV_BOTTOM_AMBIENT_HEIGHT_RATIO)
   );
 
-  const rootStyle = useAnimatedStyle(() => {
-    const focus = navFocusSV.value;
-    const opacity = interpolate(focus, [0, 1], [1, 0.92], Extrapolation.CLAMP);
-    return { opacity };
-  });
-
-  const localLayerStyle = useAnimatedStyle(() => {
-    const focus = navFocusSV.value;
-    const opacity = interpolate(focus, [0, 1], [1, 0.84], Extrapolation.CLAMP);
-    return { opacity };
-  });
-
-  const fieldLayerStyle = useAnimatedStyle(() => {
-    const focus = navFocusSV.value;
-    const opacity = interpolate(focus, [0, 1], [1, 0.96], Extrapolation.CLAMP);
-    return { opacity };
-  });
-
   return (
-    <Animated.View
+    <View
       pointerEvents="none"
-      style={[styles.anchor, rootStyle]}
+      style={styles.anchor}
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
     >
-      <Animated.View style={[styles.layer, { height: fieldHeight }, fieldLayerStyle]}>
+      <View style={[styles.layer, { height: fieldHeight }]}>
         <LinearGradient
           colors={[...ambientStops.colors]}
           locations={[...ambientStops.locations]}
@@ -162,9 +137,9 @@ export function NavTopScrim({ topInset, navFocusSV, customerHome = false }: Prop
           style={StyleSheet.absoluteFill}
           pointerEvents="none"
         />
-      </Animated.View>
+      </View>
 
-      <Animated.View style={[styles.layer, { height: localHeight }, localLayerStyle]}>
+      <View style={[styles.layer, { height: localHeight }]}>
         <LinearGradient
           colors={[...localStops.colors]}
           locations={[...localStops.locations]}
@@ -173,7 +148,7 @@ export function NavTopScrim({ topInset, navFocusSV, customerHome = false }: Prop
           style={StyleSheet.absoluteFill}
           pointerEvents="none"
         />
-      </Animated.View>
+      </View>
 
       <View style={[styles.glassAnchor, { height: glassBandHeight }]} pointerEvents="none">
         <View
@@ -205,7 +180,7 @@ export function NavTopScrim({ topInset, navFocusSV, customerHome = false }: Prop
           />
         </View>
       </View>
-    </Animated.View>
+    </View>
   );
 }
 

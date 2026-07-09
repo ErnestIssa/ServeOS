@@ -1,4 +1,4 @@
-import * as Haptics from "expo-haptics";
+import { hapticConfirm } from "../../mobile/appHaptics";
 import React from "react";
 import {
   Keyboard,
@@ -162,7 +162,7 @@ export const ReviewFeedbackExperience = React.forwardRef<
   }, [noteW, noteShift, noteWidth, progress, lastLandStep]);
 
   const fireStepLandHaptic = React.useCallback(() => {
-    void Haptics.selectionAsync();
+    /* navigation — stay silent */
   }, []);
 
   const animateCompose = React.useCallback(
@@ -190,21 +190,15 @@ export const ReviewFeedbackExperience = React.forwardRef<
   }, [dismissCompose]);
 
   const handleComposeSubmit = React.useCallback(() => {
-    if (!comment.trim()) {
-      void Haptics.selectionAsync();
-      return;
-    }
+    if (!comment.trim()) return;
     setSendStaged(true);
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    hapticConfirm();
     dismissCompose();
   }, [comment, dismissCompose]);
 
   const handleCollapsedSubmit = React.useCallback(() => {
-    if (!sendStaged || !comment.trim()) {
-      void Haptics.selectionAsync();
-      return;
-    }
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (!sendStaged || !comment.trim()) return;
+    hapticConfirm();
     setSendStaged(false);
   }, [comment, sendStaged]);
 

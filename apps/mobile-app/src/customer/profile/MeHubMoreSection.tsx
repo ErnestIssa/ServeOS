@@ -26,7 +26,7 @@ export function MeHubMoreSection(props: Props) {
   const { controlCentre } = props.mobileExperience;
 
   const hasContent =
-    controlCentre.chips.length > 0 ||
+    (!props.hideChips && controlCentre.chips.length > 0) ||
     controlCentre.sections.some((s) => s.rows.length > 0) ||
     controlCentre.showDarkModeToggle;
 

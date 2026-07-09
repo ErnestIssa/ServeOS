@@ -2,7 +2,7 @@ import { Platform } from "react-native";
 
 /**
  * Universal floating top/bottom nav glass — same blur, tint, and scoop on every tab.
- * Used by `TopNavContentDimmer`, `BottomNavContentDimmer`, and kept in sync with tab bar chrome.
+ * Used by `NavTopScrim`, `NavBottomScrim`, `NavGlassSurface`, and tab bar chrome.
  */
 export const NAV_GLASS_SCOOP_RADIUS = 24;
 

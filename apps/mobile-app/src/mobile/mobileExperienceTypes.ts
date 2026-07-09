@@ -95,10 +95,15 @@ export type SettingsDetailKey =
   | "privacy"
   | "address"
   | "accessibility"
+  | "night_mode"
   | "shortcuts"
   | "communication"
   | "navigation"
-  | "sounds_voice";
+  | "sounds_voice"
+  | "connected_devices"
+  | "sessions"
+  | "notifications"
+  | "security";
 
 export type VenueAccessState = "none" | "active" | "pending_approval" | "suspended";
 
@@ -130,9 +135,11 @@ export type MobileExperienceManifest = {
   controlCentre: {
     chips: ControlCentreChipManifest[];
     sections: ControlCentreSectionManifest[];
+    showDarkModeToggle?: boolean;
   };
   settings: {
     accountKeys: SettingsDetailKey[];
     generalKeys: SettingsDetailKey[];
+    platformKeys: SettingsDetailKey[];
   };
 };

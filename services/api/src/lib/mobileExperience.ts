@@ -113,7 +113,11 @@ export type SettingsDetailKey =
   | "shortcuts"
   | "communication"
   | "navigation"
-  | "sounds_voice";
+  | "sounds_voice"
+  | "connected_devices"
+  | "sessions"
+  | "notifications"
+  | "security";
 
 export type MobileExperienceManifest = {
   roleType: MobileRoleType;
@@ -153,6 +157,7 @@ export type MobileExperienceManifest = {
   settings: {
     accountKeys: SettingsDetailKey[];
     generalKeys: SettingsDetailKey[];
+    platformKeys: SettingsDetailKey[];
   };
 };
 
@@ -532,18 +537,6 @@ function buildCustomerMeHub(options?: { showExperienceSwitcher?: boolean }): MeH
       ]
     },
     {
-      id: "help",
-      label: "Help",
-      rows: [
-        {
-          id: "me:support",
-          title: "Support",
-          subtitle: "Quick help and contact",
-          action: "open_support"
-        }
-      ]
-    },
-    {
       id: "session",
       label: "Session",
       rows: [
@@ -618,78 +611,6 @@ function buildStaffAdminMeHub(roleType: MobileRoleType): MeHubSectionManifest[] 
       rows: workspaceRows
     },
     {
-      id: "account",
-      label: "Account",
-      rows: [
-        {
-          id: "me:manage_account",
-          title: "Manage account",
-          subtitle: "Email, password, and profile",
-          action: "navigate_section",
-          sectionTitle: "Manage account",
-          sectionSubtitle: "Update your account"
-        },
-        {
-          id: "me:privacy",
-          title: "Privacy",
-          subtitle: "Data and visibility",
-          action: "navigate_section",
-          sectionTitle: "Privacy",
-          sectionSubtitle: "Control your data"
-        },
-        {
-          id: "me:notifications",
-          title: "Notifications",
-          subtitle: "Operational and account alerts",
-          action: "navigate_section",
-          sectionTitle: "Notifications",
-          sectionSubtitle: "Push and in-app alerts"
-        },
-        {
-          id: "me:security",
-          title: "Security",
-          subtitle: "Password and active sessions",
-          action: "navigate_section",
-          sectionTitle: "Security",
-          sectionSubtitle: "Protect your account"
-        }
-      ]
-    },
-    {
-      id: "app",
-      label: "App",
-      rows: [
-        {
-          id: "app:chip:help",
-          title: "Help",
-          subtitle: "Guides and contact",
-          action: "navigate_section",
-          sectionTitle: "Help",
-          sectionSubtitle: "How ServeOS works"
-        },
-        {
-          id: "app:chip:settings",
-          title: "App settings",
-          subtitle: "Theme, accessibility, sounds",
-          action: "navigate_section",
-          sectionTitle: "App settings",
-          sectionSubtitle: "Personalize ServeOS"
-        }
-      ]
-    },
-    {
-      id: "help",
-      label: "Support",
-      rows: [
-        {
-          id: "me:support",
-          title: "Support",
-          subtitle: "Quick help and contact",
-          action: "open_support"
-        }
-      ]
-    },
-    {
       id: "session",
       label: "Session",
       rows: [
@@ -715,58 +636,29 @@ function buildCustomerControlCentre(): {
       { id: "app:chip:safety", label: "Safety", action: "navigate_safety" },
       { id: "app:chip:settings", label: "App settings", action: "navigate_settings" }
     ],
-    sections: [
-      {
-        id: "privacy_app",
-        label: "Privacy & app",
-        rows: [
-          {
-            id: "app:safety_privacy",
-            title: "Safety & privacy",
-            subtitle: "Policies and data controls",
-            action: "navigate_safety"
-          },
-          {
-            id: "app:chip:settings",
-            title: "App settings",
-            subtitle: "Theme, language, device",
-            action: "navigate_settings"
-          },
-          {
-            id: "app:connected",
-            title: "Connected devices",
-            subtitle: "Printers, KDS, displays",
-            action: "navigate_section",
-            sectionTitle: "Connected devices",
-            sectionSubtitle: "Hardware pairing"
-          }
-        ]
-      },
-      {
-        id: "platform",
-        label: "Platform",
-        rows: [
-          {
-            id: "app:sessions",
-            title: "Session management",
-            subtitle: "Active sessions and devices",
-            action: "navigate_section",
-            sectionTitle: "Session management",
-            sectionSubtitle: "Devices signed in"
-          },
-          {
-            id: "app:about",
-            title: "About ServeOS",
-            subtitle: "Platform version and legal",
-            action: "navigate_section",
-            sectionTitle: "About ServeOS",
-            sectionSubtitle: "System information",
-            last: true
-          }
-        ]
-      }
-    ]
+    sections: []
   };
+}
+
+function controlCentreSectionsToMeHub(sections: ControlCentreSectionManifest[]): MeHubSectionManifest[] {
+  return sections.map((section) => ({
+    id: `hub_${section.id}`,
+    label: section.label,
+    rows: section.rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      subtitle: row.subtitle,
+      action:
+        row.action === "navigate_screen"
+          ? "navigate_screen"
+          : row.action === "choose_venue"
+            ? "choose_venue"
+            : "navigate_section",
+      screenKey: row.screenKey,
+      sectionTitle: row.sectionTitle ?? row.title,
+      sectionSubtitle: row.sectionSubtitle ?? row.subtitle
+    }))
+  }));
 }
 
 function buildAdminControlCentre(perms: Set<string>): {
@@ -1025,7 +917,6 @@ function buildAdminControlCentre(perms: Set<string>): {
   const sections: ControlCentreSectionManifest[] = [];
   if (restaurantRows.length) sections.push({ id: "restaurant", label: "Restaurant", rows: restaurantRows });
   if (opsRows.length) sections.push({ id: "operations", label: "Operations", rows: opsRows });
-  sections.push(...platform.sections);
 
   return {
     chips: platform.chips,
@@ -1126,7 +1017,6 @@ function buildStaffControlCentre(perms: Set<string>, flags: StaffCapabilityFlags
   const shared = buildCustomerControlCentre();
   const sections: ControlCentreSectionManifest[] = [];
   if (ops.length) sections.push({ id: "operations", label: "Operations", rows: ops });
-  sections.push(...shared.sections.filter((s) => s.id === "privacy_app" || s.id === "platform"));
 
   return { chips: shared.chips, sections };
 }
@@ -1134,6 +1024,7 @@ function buildStaffControlCentre(perms: Set<string>, flags: StaffCapabilityFlags
 function settingsForRole(roleType: MobileRoleType): {
   accountKeys: SettingsDetailKey[];
   generalKeys: SettingsDetailKey[];
+  platformKeys: SettingsDetailKey[];
 } {
   const sharedGeneral: SettingsDetailKey[] = [
     "accessibility",
@@ -1141,15 +1032,18 @@ function settingsForRole(roleType: MobileRoleType): {
     "communication",
     "sounds_voice"
   ];
+  const platformKeys: SettingsDetailKey[] = ["connected_devices", "sessions"];
   if (roleType === "CUSTOMER") {
     return {
       accountKeys: ["manage_account", "privacy", "address"],
-      generalKeys: [...sharedGeneral, "shortcuts", "navigation"]
+      generalKeys: [...sharedGeneral, "shortcuts", "navigation"],
+      platformKeys
     };
   }
   return {
-    accountKeys: ["manage_account", "privacy"],
-    generalKeys: sharedGeneral
+    accountKeys: ["manage_account", "privacy", "security"],
+    generalKeys: sharedGeneral,
+    platformKeys
   };
 }
 
@@ -1183,12 +1077,12 @@ export function buildMobileExperienceManifest(input: {
         tabs: buildTabsForRole("CUSTOMER"),
         meHub: {
           sections: buildCustomerMeHub({ showExperienceSwitcher: !!input.hasWorkspaceMemberships }),
-          showNotificationToggles: true,
+          showNotificationToggles: false,
           showVenueLine: true
         },
         controlCentre: {
           ...buildCustomerControlCentre(),
-          showDarkModeToggle: true
+          showDarkModeToggle: false
         },
         settings: settingsForRole("CUSTOMER")
       },
@@ -1211,12 +1105,12 @@ export function buildMobileExperienceManifest(input: {
         tabs: buildTabsForRole("CUSTOMER"),
         meHub: {
           sections: buildCustomerMeHub({ showExperienceSwitcher: !!input.hasWorkspaceMemberships }),
-          showNotificationToggles: true,
+          showNotificationToggles: false,
           showVenueLine: true
         },
         controlCentre: {
           ...buildCustomerControlCentre(),
-          showDarkModeToggle: true
+          showDarkModeToggle: false
         },
         settings: settingsForRole("CUSTOMER")
       },
@@ -1245,29 +1139,31 @@ export function buildMobileExperienceManifest(input: {
   if (roleType === "CUSTOMER") {
     meHubSections = buildCustomerMeHub({ showExperienceSwitcher: !!input.hasWorkspaceMemberships });
     controlCentre = buildCustomerControlCentre();
-    showNotificationToggles = true;
+    showNotificationToggles = false;
     showVenueLine = true;
   } else if (roleType === "ADMIN") {
     meHubSections = buildStaffAdminMeHub("ADMIN");
     controlCentre = buildAdminControlCentre(permSet);
-    showNotificationToggles = true;
+    showNotificationToggles = false;
     showVenueLine = true;
   } else {
     meHubSections = buildStaffAdminMeHub("STAFF");
     controlCentre = buildStaffControlCentre(permSet, staffFlags);
-    showNotificationToggles = true;
+    showNotificationToggles = false;
     showVenueLine = true;
   }
 
   const settings = settingsForRole(roleType);
 
   const screens = screenKeysForManifest(roleType, permissions);
-  const enrichedControl = {
-    ...controlCentre,
-    sections: enrichSectionsWithScreens(controlCentre.sections, permissions)
-  };
+  const operationalSections = controlCentre.sections;
+  const controlChips = controlCentre.chips;
+  const combinedMeHubSections = [
+    ...meHubSections,
+    ...controlCentreSectionsToMeHub(operationalSections)
+  ];
   const enrichedMe = {
-    sections: enrichSectionsWithScreens(meHubSections, permissions)
+    sections: enrichSectionsWithScreens(combinedMeHubSections, permissions)
   };
 
   const activeExperience =
@@ -1296,8 +1192,9 @@ export function buildMobileExperienceManifest(input: {
         showVenueLine
       },
       controlCentre: {
-        ...enrichedControl,
-        showDarkModeToggle: permSet.has(PERMS.shared.theme)
+        chips: controlChips,
+        sections: [],
+        showDarkModeToggle: false
       },
       settings
     },

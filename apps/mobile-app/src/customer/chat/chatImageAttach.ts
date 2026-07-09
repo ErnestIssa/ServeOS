@@ -23,7 +23,7 @@ async function ensureMediaPermission(kind: "camera" | "library"): Promise<boolea
   return req.granted;
 }
 
-async function prepareAsset(uri: string): Promise<PreparedChatImage | null> {
+export async function prepareChatImageFromUri(uri: string): Promise<PreparedChatImage | null> {
   try {
     const out = await ImageManipulator.manipulateAsync(
       uri,
@@ -55,6 +55,47 @@ function pickSourceAlert(): Promise<"camera" | "library" | null> {
   });
 }
 
+export async function pickChatImagesFromLibrary(
+  remainingRoom: number
+): Promise<PreparedChatImage[] | null> {
+  const remaining = Math.max(0, Math.min(CHAT_MAX_IMAGES_PER_SEND, remainingRoom));
+  if (remaining <= 0) {
+    Alert.alert(
+      "Photo limit reached",
+      `You can send up to ${CHAT_MAX_IMAGES_PER_ROOM} photos in this chat.`
+    );
+    return null;
+  }
+
+  const allowed = await ensureMediaPermission("library");
+  if (!allowed) {
+    Alert.alert("Permission needed", "Allow photo access to send images.");
+    return null;
+  }
+
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ["images"],
+    quality: 0.85,
+    allowsMultipleSelection: remaining > 1,
+    selectionLimit: remaining
+  });
+
+  if (result.canceled || !result.assets?.length) return null;
+
+  const prepared: PreparedChatImage[] = [];
+  for (const asset of result.assets.slice(0, remaining)) {
+    const p = await prepareChatImageFromUri(asset.uri);
+    if (p) prepared.push(p);
+  }
+
+  if (!prepared.length) {
+    Alert.alert("Could not use photo", "Try another image (JPEG or PNG).");
+    return null;
+  }
+
+  return prepared;
+}
+
 export async function pickChatImages(remainingRoom: number): Promise<PreparedChatImage[] | null> {
   const remaining = Math.max(0, Math.min(CHAT_MAX_IMAGES_PER_SEND, remainingRoom));
   if (remaining <= 0) {
@@ -68,31 +109,27 @@ export async function pickChatImages(remainingRoom: number): Promise<PreparedCha
   const source = await pickSourceAlert();
   if (!source) return null;
 
-  const allowed = await ensureMediaPermission(source);
+  if (source === "library") {
+    return pickChatImagesFromLibrary(remainingRoom);
+  }
+
+  const allowed = await ensureMediaPermission("camera");
   if (!allowed) {
-    Alert.alert("Permission needed", "Allow camera or photo access to send images.");
+    Alert.alert("Permission needed", "Allow camera access to send images.");
     return null;
   }
 
-  const result =
-    source === "camera"
-      ? await ImagePicker.launchCameraAsync({
-          mediaTypes: ["images"],
-          quality: 0.85,
-          allowsEditing: false
-        })
-      : await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ["images"],
-          quality: 0.85,
-          allowsMultipleSelection: remaining > 1,
-          selectionLimit: remaining
-        });
+  const result = await ImagePicker.launchCameraAsync({
+    mediaTypes: ["images"],
+    quality: 0.85,
+    allowsEditing: false
+  });
 
   if (result.canceled || !result.assets?.length) return null;
 
   const prepared: PreparedChatImage[] = [];
   for (const asset of result.assets.slice(0, remaining)) {
-    const p = await prepareAsset(asset.uri);
+    const p = await prepareChatImageFromUri(asset.uri);
     if (p) prepared.push(p);
   }
 

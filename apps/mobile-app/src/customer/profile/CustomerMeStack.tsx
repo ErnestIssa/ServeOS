@@ -1,10 +1,9 @@
-import * as Haptics from "expo-haptics";
 import React from "react";
-import { Animated, Dimensions, Modal, StyleSheet, View, type ScrollView } from "react-native";
+import { Animated, Dimensions, Easing, Modal, StyleSheet, View, type ScrollView } from "react-native";
 import type { AuthUser } from "../../api";
 import { CustomerMeHub } from "./CustomerMeHub";
 import { MeReservationConfirmationScreen } from "./MeReservationConfirmationScreen";
-import { ProfileHubSubpageOverlay, useProfileSubpageMotion } from "./ProfileHubSubpageOverlay";
+import { ProfileHubSubpageOverlay } from "./ProfileHubSubpageOverlay";
 import { ProfilePlaceholderScreen } from "./ProfilePlaceholderScreen";
 import { WorkspaceScreenHost } from "../../workspace/WorkspaceScreenHost";
 import { ProfileReviewScreen } from "./ProfileReviewScreen";
@@ -13,7 +12,8 @@ import type { MobileExperienceManifest } from "../../mobile/mobileExperienceType
 import type { MeStackRoute } from "./profileHubRoutes";
 import { meStackOverlayTitle } from "./profileHubRoutes";
 import type { CustomerReservationApi } from "../reservations/reservationApi";
-import { ProfileNavHighlightProvider, useProfileNavHighlight, type MeNavHighlightKey, type AppNavHighlightKey } from "./profileNavHighlight";
+import { ProfileNavHighlightProvider, useProfileNavHighlight, type MeNavHighlightKey, type AppNavHighlightKey, type ProfileNavHighlightKey } from "./profileNavHighlight";
+import { HelpScreen } from "./HelpScreen";
 import { SafetyScreen } from "./SafetyScreen";
 import { SettingsDetailScreen, SettingsHomeScreen } from "./SettingsScreens";
 import {
@@ -24,6 +24,28 @@ import {
   REVIEW_OPEN_X_FROM,
   REVIEW_OPEN_X_MS
 } from "./profileReviewTransition";
+
+function meStackLayerKey(route: MeStackRoute): string {
+  switch (route.name) {
+    case "settings_detail":
+      return `settings_detail:${route.key}`;
+    case "section":
+      return `section:${route.title}`;
+    case "workspace":
+      return `workspace:${route.screenKey}`;
+    default:
+      return route.name;
+  }
+}
+
+function isInlineStackRoute(route: MeStackRoute): boolean {
+  return (
+    route.name !== "home" &&
+    route.name !== "review" &&
+    route.name !== "upcoming_reservations" &&
+    route.name !== "reservation_details"
+  );
+}
 
 type Props = {
   topInset: number;
@@ -46,7 +68,13 @@ type Props = {
 };
 
 function CustomerMeStackInner(props: Props) {
-  const { navigate, onReturnedToMeHome, clearPendingHighlight } = useProfileNavHighlight();
+  const {
+    navigate,
+    onReturnedToMeHome,
+    onReturnedToAppHome,
+    onReturnedToAppSettings,
+    clearPendingHighlight
+  } = useProfileNavHighlight();
   const [stack, setStack] = React.useState<MeStackRoute[]>([{ name: "home" }]);
 
   const route = stack[stack.length - 1]!;
@@ -60,34 +88,16 @@ function CustomerMeStackInner(props: Props) {
       : route.name === "reservation_details"
         ? "Booking details"
         : null;
-  const title =
-    route.name === "section"
-      ? route.title
-      : route.name === "settings" ||
-          route.name === "settings_detail" ||
-          route.name === "help" ||
-          route.name === "safety" ||
-          route.name === "workspace"
-        ? meStackOverlayTitle(route)
-        : null;
-  const reservationExitInFlightRef = React.useRef(false);
   const isInlineSubpage = !atRoot && !isReviewRoute && !isReservationOverlay;
-  const {
-    motionStyle: reservationMotionStyle,
-    scrimStyle: reservationScrimStyle,
-    runClose: runCloseReservation
-  } = useProfileSubpageMotion(isReservationOverlay);
-  const {
-    motionStyle: inlineMotionStyle,
-    scrimStyle: inlineScrimStyle,
-    runClose: runCloseInline
-  } = useProfileSubpageMotion(isInlineSubpage);
+  const dismissInlineOnBack = stack.length <= 2;
   const reviewScreenW = Dimensions.get("window").width;
   const reviewFade = React.useRef(new Animated.Value(0)).current;
   const reviewX = React.useRef(new Animated.Value(reviewScreenW)).current;
   const reviewExitInFlightRef = React.useRef(false);
   const hubScrollRef = React.useRef<ScrollView | null>(null);
   const hubScrollYRef = React.useRef(0);
+  const contentEnterX = React.useRef(new Animated.Value(0)).current;
+  const stackLenRef = React.useRef(1);
   const hubTopInset = route.name === "section" ? 0 : props.topInset;
 
   const push = React.useCallback((next: MeStackRoute) => {
@@ -109,14 +119,19 @@ function CustomerMeStackInner(props: Props) {
       if (s.length <= 1) return s;
       const closing = s[s.length - 1];
       const next = s.slice(0, -1);
+      const nextRoute = next[next.length - 1];
       if (closing?.name === "review") {
         clearPendingHighlight();
-      } else if (next[next.length - 1]?.name === "home") {
+      } else if (nextRoute?.name === "home") {
         onReturnedToMeHome();
+        onReturnedToAppHome();
+      } else if (nextRoute?.name === "settings" || nextRoute?.name === "safety" || nextRoute?.name === "help") {
+        onReturnedToAppSettings();
+        onReturnedToAppHome();
       }
       return next;
     });
-  }, [clearPendingHighlight, onReturnedToMeHome]);
+  }, [clearPendingHighlight, onReturnedToAppHome, onReturnedToAppSettings, onReturnedToMeHome]);
 
   const restoreHubScroll = React.useCallback(() => {
     const y = hubScrollYRef.current;
@@ -125,34 +140,47 @@ function CustomerMeStackInner(props: Props) {
     });
   }, []);
 
-  const handleBack = React.useCallback(() => {
-    if (atRoot) return;
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (isInlineSubpage) {
-      runCloseInline(() => {
-        pop();
-        restoreHubScroll();
-      });
+  const handleOverlayBackComplete = React.useCallback(() => {
+    pop();
+    restoreHubScroll();
+  }, [pop, restoreHubScroll]);
+
+  const handleOverlayNestedBack = React.useCallback(() => {
+    pop();
+  }, [pop]);
+
+  React.useEffect(() => {
+    if (!isInlineSubpage) {
+      stackLenRef.current = stack.length;
       return;
     }
-    pop();
-  }, [atRoot, isInlineSubpage, pop, restoreHubScroll, runCloseInline]);
+    const pushed = stack.length > stackLenRef.current;
+    stackLenRef.current = stack.length;
+    if (!pushed) return;
+    contentEnterX.setValue(28);
+    Animated.timing(contentEnterX, {
+      toValue: 0,
+      duration: 300,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true
+    }).start();
+  }, [route, stack.length, isInlineSubpage, contentEnterX]);
 
   const runReviewOpen = React.useCallback(() => {
     reviewExitInFlightRef.current = false;
     reviewFade.setValue(0);
     reviewX.setValue(reviewScreenW * REVIEW_OPEN_X_FROM);
     Animated.parallel([
-      Animated.timing(reviewFade, { toValue: 1, duration: REVIEW_OPEN_FADE_MS, useNativeDriver: true }),
-      Animated.timing(reviewX, { toValue: 0, duration: REVIEW_OPEN_X_MS, useNativeDriver: true })
+      Animated.timing(reviewFade, { toValue: 1, duration: REVIEW_OPEN_FADE_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(reviewX, { toValue: 0, duration: REVIEW_OPEN_X_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true })
     ]).start();
   }, [reviewFade, reviewScreenW, reviewX]);
 
   const runReviewClose = React.useCallback(
     (onDone: () => void) => {
       Animated.parallel([
-        Animated.timing(reviewFade, { toValue: 0, duration: REVIEW_CLOSE_FADE_MS, useNativeDriver: true }),
-        Animated.timing(reviewX, { toValue: reviewScreenW * REVIEW_CLOSE_X_TO, duration: REVIEW_CLOSE_X_MS, useNativeDriver: true })
+        Animated.timing(reviewFade, { toValue: 0, duration: REVIEW_CLOSE_FADE_MS, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(reviewX, { toValue: reviewScreenW * REVIEW_CLOSE_X_TO, duration: REVIEW_CLOSE_X_MS, easing: Easing.in(Easing.cubic), useNativeDriver: true })
       ]).start(({ finished }) => {
         if (!finished) return;
         onDone();
@@ -173,7 +201,6 @@ function CustomerMeStackInner(props: Props) {
   const closeReview = React.useCallback(() => {
     if (reviewExitInFlightRef.current) return;
     reviewExitInFlightRef.current = true;
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     runReviewClose(() => {
       reviewExitInFlightRef.current = false;
       pop();
@@ -200,31 +227,24 @@ function CustomerMeStackInner(props: Props) {
   const isCustomer = props.mobileExperience.roleType === "CUSTOMER";
 
   const openUpcomingReservations = React.useCallback(() => {
-    void Haptics.selectionAsync();
     if (!isCustomer || !props.authToken?.trim()) return;
     navigate("me:reservations", () => push({ name: "upcoming_reservations" }));
   }, [isCustomer, navigate, props.authToken, push]);
 
   const openReview = React.useCallback(() => {
     if (!isCustomer) return;
-    void Haptics.selectionAsync();
     push({ name: "review" });
   }, [isCustomer, push]);
 
   const closeReservationOverlay = React.useCallback(() => {
-    if (reservationExitInFlightRef.current || !isReservationOverlay) return;
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (!isReservationOverlay) return;
     if (route.name === "reservation_details") {
       pop();
       return;
     }
-    reservationExitInFlightRef.current = true;
-    runCloseReservation(() => {
-      reservationExitInFlightRef.current = false;
-      pop();
-      restoreHubScroll();
-    });
-  }, [isReservationOverlay, pop, restoreHubScroll, route.name, runCloseReservation]);
+    pop();
+    restoreHubScroll();
+  }, [isReservationOverlay, pop, restoreHubScroll, route.name]);
 
   const pushAppSection = React.useCallback(
     (sectionTitle: string, subtitle: string | undefined, key: AppNavHighlightKey) => {
@@ -247,14 +267,6 @@ function CustomerMeStackInner(props: Props) {
 
   const pushMeSection = React.useCallback(
     (sectionTitle: string, subtitle: string | undefined, key: MeNavHighlightKey) => {
-      if (key === "app:chip:settings") {
-        navigate(key, () => push({ name: "settings" }));
-        return;
-      }
-      if (key === "app:chip:help") {
-        navigate(key, () => push({ name: "help" }));
-        return;
-      }
       if (key === "me:manage_account") {
         navigate(key, () => push({ name: "settings_detail", key: "manage_account" }));
         return;
@@ -281,20 +293,17 @@ function CustomerMeStackInner(props: Props) {
       scrollEnabled={!isReviewRoute}
       onNavigateSection={pushMeSection}
       onNavigateScreen={(screenKey, title, subtitle) =>
-        navigate(screenKey, () => push({ name: "workspace", screenKey, title, subtitle }))
+        navigate(screenKey as ProfileNavHighlightKey, () =>
+          push({ name: "workspace", screenKey, title, subtitle })
+        )
       }
       onNavigateReview={openReview}
       onOpenBookings={openUpcomingReservations}
       onOpenOrders={props.onOpenOrders}
-      onOpenSupport={props.onOpenSupport}
       onChooseExperience={props.onChooseExperience}
       onNavigateHelp={() => navigate("app:chip:help", () => push({ name: "help" }))}
       onNavigateSafety={() => navigate("app:chip:safety", () => push({ name: "safety" }))}
       onNavigateAppSettings={() => navigate("app:chip:settings", () => push({ name: "settings" }))}
-      onNavigateAppSection={pushAppSection}
-      onNavigateAppScreen={(screenKey, title, subtitle) =>
-        navigate(screenKey as `app:${string}`, () => push({ name: "workspace", screenKey, title, subtitle }))
-      }
       onSignOut={props.onSignOut}
       onAvatarSaved={props.onAvatarSaved}
       onScrollCapture={captureHubScroll}
@@ -322,53 +331,94 @@ function CustomerMeStackInner(props: Props) {
       />
     ) : null;
 
-  const inlineSubpageContent =
-    route.name === "workspace" && props.authToken ? (
-      <WorkspaceScreenHost
-        screenKey={route.screenKey}
-        authToken={props.authToken}
-        restaurantId={props.workspaceRestaurantId}
-        title={route.title}
-        subtitle={route.subtitle}
-        topInset={0}
-        bottomInset={props.bottomInset}
-      />
-    ) : route.name === "settings" ? (
-      <SettingsHomeScreen
-        bottomInset={props.bottomInset}
-        accountKeys={props.mobileExperience.settings.accountKeys}
-        generalKeys={props.mobileExperience.settings.generalKeys}
-        onOpenDetail={(key) =>
-          navigate(`app:settings:${key}`, () => push({ name: "settings_detail", key }))
-        }
-      />
-    ) : route.name === "settings_detail" ? (
-      <SettingsDetailScreen
-        detailKey={route.key}
-        user={props.user}
-        authToken={props.authToken}
-        bottomInset={props.bottomInset}
-      />
-    ) : route.name === "help" ? (
-      <ProfilePlaceholderScreen
-        title="Help"
-        subtitle="Guides and contact options"
-        topInset={0}
-        bottomInset={props.bottomInset}
-      />
-    ) : route.name === "safety" ? (
-      <SafetyScreen bottomInset={props.bottomInset} />
-    ) : route.name === "section" ? (
-      <ProfilePlaceholderScreen
-        title={route.title}
-        subtitle={route.subtitle}
-        topInset={0}
-        bottomInset={props.bottomInset}
-      />
-    ) : null;
+  const renderStackRouteContent = React.useCallback(
+    (layerRoute: MeStackRoute) => {
+      if (layerRoute.name === "workspace" && props.authToken) {
+        return (
+          <WorkspaceScreenHost
+            screenKey={layerRoute.screenKey}
+            authToken={props.authToken}
+            restaurantId={props.workspaceRestaurantId}
+            title={layerRoute.title}
+            subtitle={layerRoute.subtitle}
+            topInset={0}
+            bottomInset={props.bottomInset}
+          />
+        );
+      }
+      if (layerRoute.name === "settings") {
+        return (
+          <SettingsHomeScreen
+            bottomInset={props.bottomInset}
+            accountKeys={props.mobileExperience.settings.accountKeys}
+            generalKeys={props.mobileExperience.settings.generalKeys}
+            platformKeys={props.mobileExperience.settings.platformKeys ?? []}
+            onOpenDetail={(key) =>
+              navigate(`app:settings:${key}`, () => push({ name: "settings_detail", key }))
+            }
+          />
+        );
+      }
+      if (layerRoute.name === "settings_detail") {
+        return (
+          <SettingsDetailScreen
+            detailKey={layerRoute.key}
+            user={props.user}
+            authToken={props.authToken}
+            roleType={props.mobileExperience.roleType}
+            bottomInset={props.bottomInset}
+          />
+        );
+      }
+      if (layerRoute.name === "help") {
+        return (
+          <HelpScreen
+            bottomInset={props.bottomInset}
+            onOpenSupport={() => navigate("app:help:support", () => props.onOpenSupport())}
+            onOpenSection={pushAppSection}
+          />
+        );
+      }
+      if (layerRoute.name === "safety") {
+        return (
+          <SafetyScreen
+            authToken={props.authToken}
+            bottomInset={props.bottomInset}
+            onOpenSettingsDetail={(key) =>
+              navigate(`app:settings:${key}`, () => push({ name: "settings_detail", key }))
+            }
+          />
+        );
+      }
+      if (layerRoute.name === "section") {
+        return (
+          <ProfilePlaceholderScreen
+            title={layerRoute.title}
+            subtitle={layerRoute.subtitle}
+            topInset={0}
+            bottomInset={props.bottomInset}
+          />
+        );
+      }
+      return null;
+    },
+    [
+      navigate,
+      props.authToken,
+      props.bottomInset,
+      props.mobileExperience.roleType,
+      props.mobileExperience.settings.accountKeys,
+      props.mobileExperience.settings.generalKeys,
+      props.mobileExperience.settings.platformKeys,
+      props.onOpenSupport,
+      props.user,
+      props.workspaceRestaurantId,
+      push,
+      pushAppSection
+    ]
+  );
 
-  const showHubUnderlay =
-    route.name === "home" || route.name === "review" || isReservationOverlay || isInlineSubpage;
+  const inlineStackRoutes = stack.slice(1).filter(isInlineStackRoute);
 
   const styles = React.useMemo(
     () =>
@@ -381,30 +431,42 @@ function CustomerMeStackInner(props: Props) {
 
   return (
     <View style={styles.fill}>
-      {showHubUnderlay ? (
-        <View
-          style={styles.content}
-          pointerEvents={
-            isInlineSubpage ? "none" : isReviewRoute || isReservationOverlay ? "box-none" : "auto"
-          }
-        >
-          {meHub}
-        </View>
-      ) : null}
+      <View
+        style={styles.content}
+        pointerEvents={atRoot && !isReviewRoute && !isReservationOverlay ? "auto" : "none"}
+      >
+        {meHub}
+      </View>
 
-      {isInlineSubpage && inlineSubpageContent ? (
-        <ProfileHubSubpageOverlay
-          visible
-          presentation="inline"
-          title={title}
-          topInset={props.compactTopInset}
-          motionStyle={inlineMotionStyle}
-          scrimStyle={inlineScrimStyle}
-          onBack={handleBack}
-        >
-          {inlineSubpageContent}
-        </ProfileHubSubpageOverlay>
-      ) : null}
+      {inlineStackRoutes.map((layerRoute, index) => {
+        const isTop = index === inlineStackRoutes.length - 1;
+        const layerTitle = meStackOverlayTitle(layerRoute);
+        const content = renderStackRouteContent(layerRoute);
+        if (!content) return null;
+
+        return (
+          <ProfileHubSubpageOverlay
+            key={meStackLayerKey(layerRoute)}
+            visible
+            layerMode={isTop ? "active" : "frozen"}
+            zIndex={10 + index}
+            presentation="inline"
+            title={layerTitle}
+            topInset={props.compactTopInset}
+            dismissOnBack={dismissInlineOnBack}
+            onBackComplete={handleOverlayBackComplete}
+            onNestedBack={handleOverlayNestedBack}
+          >
+            {isTop ? (
+              <Animated.View style={{ flex: 1, transform: [{ translateX: contentEnterX }] }}>
+                {content}
+              </Animated.View>
+            ) : (
+              content
+            )}
+          </ProfileHubSubpageOverlay>
+        );
+      })}
 
       <Modal
         visible={isReservationOverlay}
@@ -419,9 +481,9 @@ function CustomerMeStackInner(props: Props) {
             presentation="modal"
             title={reservationOverlayTitle}
             topInset={props.compactTopInset}
-            motionStyle={reservationMotionStyle}
-            scrimStyle={reservationScrimStyle}
-            onBack={closeReservationOverlay}
+            dismissOnBack={route.name === "upcoming_reservations"}
+            onBackComplete={closeReservationOverlay}
+            onNestedBack={closeReservationOverlay}
           >
             {reservationOverlayContent}
           </ProfileHubSubpageOverlay>

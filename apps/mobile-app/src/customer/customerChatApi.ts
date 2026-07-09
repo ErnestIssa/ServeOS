@@ -32,16 +32,6 @@ export type ThreadFeedItem =
 
 export type CustomerChatHubMessage = Extract<ThreadFeedItem, { kind: "message" }>;
 
-export type VenueHoursState = "open" | "closing_soon" | "closed";
-
-export type CustomerChatVenueStatus = {
-  restaurantOnline: boolean;
-  isOpen: boolean;
-  hoursState: VenueHoursState;
-  minutesUntilClose: number | null;
-  closingSoon: boolean;
-};
-
 export type CustomerChatHubResponse = {
   ok: boolean;
   error?: string;
@@ -81,7 +71,8 @@ export type CustomerChatHubResponse = {
   threadFeed?: ThreadFeedItem[];
   chatRoomId?: string | null;
   venueTyping?: boolean;
-  venueStatus?: CustomerChatVenueStatus;
+  /** Staff device connected to chat — not venue opening hours. */
+  restaurantOnline?: boolean;
   customerLastReadAt?: string | null;
   roomUnreadCount?: number;
   chatImageQuota?: { used: number; max: number; perSend: number };
@@ -173,6 +164,27 @@ export async function postCustomerChatImages(
   chatImageQuota?: { used: number; max: number; perSend: number };
 }> {
   return apiFetch(`/customer/chat/messages/images`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+}
+
+export async function postCustomerChatDocument(
+  token: string,
+  body: {
+    restaurantId: string;
+    orderId?: string;
+    fileName: string;
+    mimeType:
+      | "application/pdf"
+      | "text/plain"
+      | "application/msword"
+      | "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    dataBase64: string;
+  }
+): Promise<{ ok: boolean; error?: string; message?: CustomerChatHubMessage }> {
+  return apiFetch(`/customer/chat/messages/documents`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify(body)

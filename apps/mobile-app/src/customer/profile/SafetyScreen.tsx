@@ -4,18 +4,21 @@ import { SkeletonBlock, SkeletonScreenFill } from "../../components/skeleton/Ske
 import { useAppTheme } from "../../theme/AppThemeContext";
 import { loadAppSettingsForCustomer, saveAppSettingsForCustomer } from "./profilePrefsStorage";
 import type { AppSettings } from "./profilePrefsStorage";
+import type { SettingsDetailKey } from "./profilePrefsStorage";
 import {
   BoolRow,
   FadeSection,
   ProfileCard,
   ProfilePrimaryButton,
   ProfileScreenContainer,
+  RowItem,
   SectionLabel
 } from "./ProfileUi";
 
 type Props = {
   authToken?: string | null;
   bottomInset: number;
+  onOpenSettingsDetail?: (key: SettingsDetailKey) => void;
 };
 
 export function SafetyScreen(props: Props) {
@@ -29,8 +32,13 @@ export function SafetyScreen(props: Props) {
   const styles = React.useMemo(
     () =>
       StyleSheet.create({
-        loading: { padding: 20, color: t.textMuted, fontWeight: "600" },
-        intro: { fontSize: 14, fontWeight: "600", color: t.textSecondary, lineHeight: 20, marginBottom: 14 }
+        intro: {
+          fontSize: 14,
+          fontWeight: "600",
+          color: t.textSecondary,
+          lineHeight: 20,
+          marginBottom: 14
+        }
       }),
     [t]
   );
@@ -49,7 +57,7 @@ export function SafetyScreen(props: Props) {
   return (
     <ProfileScreenContainer topInset={0} bottomInset={props.bottomInset}>
       <FadeSection>
-        <SectionLabel variant="me">Safety & privacy</SectionLabel>
+        <SectionLabel variant="me">Visit safety</SectionLabel>
         <ProfileCard>
           <Text style={styles.intro}>Trip and check-in preferences for visits and pickups.</Text>
           <BoolRow
@@ -64,9 +72,44 @@ export function SafetyScreen(props: Props) {
           />
         </ProfileCard>
         <ProfilePrimaryButton
-          label="Save"
+          label="Save safety preferences"
           onPress={() => void saveAppSettingsForCustomer(settings, props.authToken)}
         />
+      </FadeSection>
+
+      <FadeSection>
+        <SectionLabel variant="me">Privacy & data</SectionLabel>
+        <ProfileCard noPad>
+          <RowItem
+            icon="🔒"
+            title="Privacy controls"
+            subtitle="Profile visibility and analytics sharing"
+            highlightKey="app:settings:privacy"
+            last
+            onPress={() => props.onOpenSettingsDetail?.("privacy")}
+          />
+        </ProfileCard>
+      </FadeSection>
+
+      <FadeSection>
+        <SectionLabel variant="me">Account security</SectionLabel>
+        <ProfileCard noPad>
+          <RowItem
+            icon="📱"
+            title="Session management"
+            subtitle="Devices signed in to your account"
+            highlightKey="app:settings:sessions"
+            onPress={() => props.onOpenSettingsDetail?.("sessions")}
+          />
+          <RowItem
+            icon="🛡️"
+            title="Security settings"
+            subtitle="Password and account protection"
+            highlightKey="app:settings:security"
+            last
+            onPress={() => props.onOpenSettingsDetail?.("security")}
+          />
+        </ProfileCard>
       </FadeSection>
     </ProfileScreenContainer>
   );

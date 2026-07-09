@@ -1,5 +1,4 @@
 import { BlurView } from "expo-blur";
-import * as Haptics from "expo-haptics";
 import React from "react";
 import {
   Animated,
@@ -17,8 +16,11 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import type { AuthUser } from "../../api";
 import { ThemedSwitch } from "../../components/ThemedSwitch";
+import { hapticConfirm, hapticSelect } from "../../mobile/appHaptics";
 import { useAppTheme, type ThemeColors } from "../../theme/AppThemeContext";
-import { profileFullName, profileInitial } from "./profileDisplay";
+import { reportBottomNavScroll, useBottomNavScrollReporter } from "../../shell/BottomNavScrollReporter";
+import type { ControlCentreChipManifest } from "../../mobile/mobileExperienceTypes";
+import { profileFirstName, profileInitial } from "./profileDisplay";
 import { NavHighlightWrap, useProfileNavHighlight, type ProfileNavHighlightKey } from "./profileNavHighlight";
 import {
   ProfileChipIconHelp,
@@ -29,9 +31,7 @@ import { ProfileScrollFrostedEdges } from "./profileScrollFrostedEdges";
 
 const SCREEN_X = 22;
 
-export function hapticSelect() {
-  void Haptics.selectionAsync();
-}
+export { hapticSelect } from "../../mobile/appHaptics";
 
 function useProfileStyles() {
   const { colors: t, isDark } = useAppTheme();
@@ -55,19 +55,91 @@ function makeProfileStyles(t: ThemeColors, isDark: boolean) {
     },
     cardNoPad: { paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" },
     pressed: { opacity: 0.9 },
+    profileHero: { marginBottom: 0 },
+    profileHeroBorder: {
+      borderWidth: 1,
+      borderColor: t.accentPurple,
+      borderRadius: 16,
+      paddingHorizontal: 14,
+      paddingVertical: 14
+    },
+    profileHeroTopRow: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      justifyContent: "space-between"
+    },
+    profileIdentityCol: { flex: 1, alignItems: "flex-start", paddingRight: 12 },
+    profileAvatarRing: {
+      padding: 2,
+      borderRadius: 40,
+      borderWidth: 2,
+      borderColor: t.accentPurple,
+      marginBottom: 10
+    },
+    profileAvatarInner: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: "hidden",
+      backgroundColor: isDark ? "rgba(96, 165, 250, 0.2)" : "rgba(59, 130, 246, 0.15)"
+    },
+    profileAvatarImage: { width: 64, height: 64, borderRadius: 32 },
+    profileAvatarInitial: { fontSize: 26, fontWeight: "900", color: t.accentBlue },
+    profileFirstName: {
+      fontSize: 20,
+      fontWeight: "800",
+      color: isDark ? t.text : "#0f172a",
+      letterSpacing: -0.3
+    },
+    profileRightCol: {
+      alignItems: "flex-end",
+      maxWidth: "44%",
+      minWidth: 108
+    },
+    profileMetaRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginTop: 6,
+      gap: 12
+    },
+    profileVenueMeta: {
+      flex: 1,
+      fontSize: 13,
+      fontWeight: "600",
+      color: t.textSecondary,
+      lineHeight: 18,
+      textAlign: "right"
+    },
+    profileRatingRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+    profileRatingStar: { fontSize: 12, fontWeight: "900", color: "#EAB308" },
+    profileRatingValue: { fontSize: 12, fontWeight: "700", color: t.textSecondary, letterSpacing: -0.2 },
+    switchAccountBtn: {
+      marginTop: 2,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: t.danger,
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      alignSelf: "flex-start"
+    },
+    switchAccountText: { fontSize: 12, fontWeight: "500", color: t.danger, letterSpacing: -0.1 },
+    profileQuickChipsRow: { flexDirection: "row", marginTop: 10, marginHorizontal: -4 },
     topChipHighlightWrap: { flex: 1, marginHorizontal: 4 },
     topChip: {
       flex: 1,
       alignItems: "center",
       justifyContent: "center",
-      minHeight: 72,
-      borderRadius: 16,
+      minHeight: 68,
+      borderRadius: 14,
       borderWidth: 1,
       borderColor: t.border,
       backgroundColor: t.bgElevated
     },
-    topChipIconWrap: { height: 26, alignItems: "center", justifyContent: "center", marginBottom: 4 },
-    topChipLabel: { marginTop: 2, fontSize: 12, fontWeight: "800", color: t.text },
+    topChipIconWrap: { height: 24, alignItems: "center", justifyContent: "center", marginBottom: 3 },
+    topChipLabel: { marginTop: 2, fontSize: 11, fontWeight: "700", color: t.text, letterSpacing: -0.1 },
     sectionLabel: {
       fontSize: 11,
       fontWeight: "800",
@@ -217,60 +289,103 @@ export function HubSpaceBanner(props: { title: string; subtitle: string }) {
 
 export function ProfileHeader(props: {
   user: AuthUser | null;
+  venueName?: string;
   streakScore?: string;
   showStreak?: boolean;
   avatarUri: string | null;
   onAvatarPress: () => void;
+  onSwitchAccount?: () => void;
 }) {
-  const { colors: t, scheme } = useAppTheme();
-  const displayName = profileFullName(props.user);
-  const email = props.user?.email?.trim() || "—";
+  const styles = useProfileStyles();
+  const firstName = profileFirstName(props.user);
   const streak = props.streakScore ?? "4.98";
   const showStreak = props.showStreak ?? true;
+  const venue = props.venueName?.trim();
 
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", marginBottom: t.space.sm }}>
-      <Pressable
-        onPress={props.onAvatarPress}
-        accessibilityRole="button"
-        accessibilityLabel="View profile photo"
-        style={{
-          padding: 3,
-          borderRadius: 56,
-          borderWidth: 2,
-          borderColor: t.accentPurple
-        }}
-      >
-        <View
-          style={{
-            width: 88,
-            height: 88,
-            borderRadius: 44,
-            alignItems: "center",
-            justifyContent: "center",
-            overflow: "hidden",
-            backgroundColor: scheme === "dark" ? "rgba(96, 165, 250, 0.2)" : "rgba(59, 130, 246, 0.15)"
-          }}
-        >
-          {props.avatarUri ? (
-            <Image source={{ uri: props.avatarUri }} style={{ width: 88, height: 88, borderRadius: 44 }} resizeMode="cover" />
-          ) : (
-            <Text style={{ fontSize: 34, fontWeight: "900", color: t.accentBlue }}>{profileInitial(props.user)}</Text>
-          )}
+    <View style={styles.profileHero}>
+      <View style={styles.profileHeroBorder}>
+        <View style={styles.profileHeroTopRow}>
+          <View style={styles.profileIdentityCol}>
+            <Pressable
+              onPress={props.onAvatarPress}
+              accessibilityRole="button"
+              accessibilityLabel="View profile photo"
+              style={styles.profileAvatarRing}
+            >
+              <View style={styles.profileAvatarInner}>
+                {props.avatarUri ? (
+                  <Image source={{ uri: props.avatarUri }} style={styles.profileAvatarImage} resizeMode="cover" />
+                ) : (
+                  <Text style={styles.profileAvatarInitial}>{profileInitial(props.user)}</Text>
+                )}
+              </View>
+            </Pressable>
+            <Text style={styles.profileFirstName}>{firstName}</Text>
+          </View>
+          <View style={styles.profileRightCol}>
+            {props.onSwitchAccount ? (
+              <Pressable
+                onPress={() => props.onSwitchAccount?.()}
+                accessibilityRole="button"
+                accessibilityLabel="Switch account"
+                style={({ pressed }) => [styles.switchAccountBtn, pressed && styles.pressed]}
+              >
+                <Text style={styles.switchAccountText}>Switch Account</Text>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
-      </Pressable>
-      <View style={{ flex: 1, marginLeft: 14 }}>
-        <Text style={{ fontSize: 22, fontWeight: "900", color: t.text, letterSpacing: -0.3 }}>{displayName}</Text>
-        <Text style={{ marginTop: 4, fontSize: 13, fontWeight: "600", color: t.textSecondary }}>{email}</Text>
-        {showStreak ? (
-          <View style={{ marginTop: 8, flexDirection: "row", alignItems: "center", gap: 4 }}>
-            <Text style={{ fontSize: 12, fontWeight: "900", color: "#EAB308" }} accessibilityLabel="Streak rating">
-              ★
-            </Text>
-            <Text style={{ fontSize: 12, fontWeight: "800", color: t.accentPurple, letterSpacing: -0.2 }}>{streak}</Text>
+        {showStreak || venue ? (
+          <View style={styles.profileMetaRow}>
+            {showStreak ? (
+              <View style={styles.profileRatingRow}>
+                <Text style={styles.profileRatingStar} accessibilityLabel="User rating">
+                  ★
+                </Text>
+                <Text style={styles.profileRatingValue}>{streak}</Text>
+              </View>
+            ) : (
+              <View />
+            )}
+            {venue ? (
+              <Text style={styles.profileVenueMeta} numberOfLines={2}>
+                {venue}
+              </Text>
+            ) : null}
           </View>
         ) : null}
       </View>
+    </View>
+  );
+}
+
+function controlCentreChipVariant(
+  action: ControlCentreChipManifest["action"]
+): "help" | "safety" | "settings" {
+  if (action === "navigate_safety") return "safety";
+  if (action === "navigate_settings") return "settings";
+  return "help";
+}
+
+export function ProfileQuickActionChips(props: {
+  chips: ControlCentreChipManifest[];
+  onChipPress: (chip: ControlCentreChipManifest) => void;
+}) {
+  const styles = useProfileStyles();
+  if (props.chips.length === 0) return null;
+
+  return (
+    <View style={styles.profileQuickChipsRow}>
+      {props.chips.map((chip) => (
+        <TopChip
+          key={chip.id}
+          variant={controlCentreChipVariant(chip.action)}
+          label={chip.label}
+          highlightKey={chip.id as ProfileNavHighlightKey}
+          onPress={() => props.onChipPress(chip)}
+        />
+      ))}
     </View>
   );
 }
@@ -301,6 +416,7 @@ export function ProfileScreenContainer(props: {
 }) {
   const styles = useProfileStyles();
   const { colors: t, isDark } = useAppTheme();
+  const reportBottomNavScrollY = useBottomNavScrollReporter();
   const frostedBase = t.menuGradient[0];
   const internalScrollRef = React.useRef<ScrollView | null>(null);
   const scrollRef = props.scrollRefExternal ?? internalScrollRef;
@@ -318,7 +434,8 @@ export function ProfileScreenContainer(props: {
     setAtBottom(nextBottom);
     props.onScrollOffset?.(y);
     props.onScrollEdges?.({ atTop: nextTop, atBottom: nextBottom });
-  }, [props.onScrollEdges, props.onScrollOffset]);
+    reportBottomNavScroll(reportBottomNavScrollY, e);
+  }, [props.onScrollEdges, props.onScrollOffset, reportBottomNavScrollY]);
 
   const topFadeOpacity = React.useRef(new Animated.Value(0)).current;
   const bottomFadeOpacity = React.useRef(new Animated.Value(0)).current;
@@ -431,10 +548,7 @@ export function TopChip(props: {
   return (
     <NavHighlightWrap active={active} style={styles.topChipHighlightWrap}>
       <Pressable
-        onPress={() => {
-          hapticSelect();
-          props.onPress();
-        }}
+        onPress={props.onPress}
         style={({ pressed }) => [styles.topChip, pressed && styles.pressed]}
       >
         <View style={styles.topChipIconWrap}>{icon}</View>
@@ -465,7 +579,6 @@ export function SectionRow(props: {
   const row = (
     <Pressable
       onPress={() => {
-        hapticSelect();
         props.onPress();
       }}
       style={({ pressed }) => [styles.sectionRow, pressed && styles.pressed, props.last && styles.sectionRowLast]}
@@ -505,7 +618,6 @@ export function RowItem(props: {
   const row = (
     <Pressable
       onPress={() => {
-        hapticSelect();
         props.onPress();
       }}
       style={({ pressed }) => [styles.settingsRow, pressed && styles.pressed]}
@@ -540,10 +652,7 @@ export function BoolRow(props: { label: string; value: boolean; onChange: (v: bo
       <Text style={styles.boolLabel}>{props.label}</Text>
       <ThemedSwitch
         value={props.value}
-        onValueChange={(v) => {
-          hapticSelect();
-          props.onChange(v);
-        }}
+        onValueChange={props.onChange}
       />
     </View>
   );
@@ -554,7 +663,6 @@ export function OptionRow(props: { label: string; selected: boolean; onPress: ()
   return (
     <Pressable
       onPress={() => {
-        hapticSelect();
         props.onPress();
       }}
       style={({ pressed }) => [styles.optionRow, props.selected && styles.optionRowSelected, pressed && styles.pressed]}
@@ -570,7 +678,7 @@ export function ProfilePrimaryButton(props: { label: string; onPress: () => void
   return (
     <Pressable
       onPress={() => {
-        hapticSelect();
+        hapticConfirm();
         props.onPress();
       }}
       style={({ pressed }) => [
@@ -621,7 +729,10 @@ export function BlurModalScrim(props: {
               </Pressable>
             ) : null}
             <Pressable
-              onPress={props.onPrimary}
+              onPress={() => {
+                hapticConfirm();
+                props.onPrimary();
+              }}
               style={({ pressed }) => [
                 styles.modalBtnPrimary,
                 props.primaryDanger && styles.modalBtnDanger,

@@ -1,5 +1,5 @@
 import { BlurView } from "expo-blur";
-import * as Haptics from "expo-haptics";
+import { hapticConfirm } from "../../mobile/appHaptics";
 import React from "react";
 import {
   Alert,
@@ -186,7 +186,6 @@ export function ReservationManageModal({
       setPickerReady(false);
     }
     setPanel(next);
-    void Haptics.selectionAsync();
   }
 
   const backdropStyle = useAnimatedStyle(() => ({
@@ -209,6 +208,7 @@ export function ReservationManageModal({
         text: "Cancel booking",
         style: "destructive",
         onPress: () => {
+          hapticConfirm();
           void (async () => {
             try {
               await onCancel();
@@ -230,6 +230,7 @@ export function ReservationManageModal({
     }
     const result = await onSaveEdit(picked);
     if (result.ok) {
+      hapticConfirm();
       Alert.alert(
         "Booking updated",
         `Your visit is now ${result.dateLabel} at ${result.timeLabel}.`
@@ -368,10 +369,7 @@ export function ReservationManageModal({
 
             <Pressable
               style={({ pressed }) => [styles.cancelBtn, pressed && styles.pressed]}
-              onPress={() => {
-                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                requestClose();
-              }}
+              onPress={requestClose}
             >
               <Text style={styles.cancelBtnText}>{panel === "menu" ? "Close" : "Cancel"}</Text>
             </Pressable>

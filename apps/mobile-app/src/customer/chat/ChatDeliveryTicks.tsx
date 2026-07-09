@@ -1,6 +1,7 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { deliveryTickColor } from "./chatTheme";
+import { useChatTheme } from "./useChatTheme";
 
 type Status = "sent" | "delivered" | "read";
 
@@ -9,7 +10,8 @@ type Props = {
 };
 
 export function ChatDeliveryTicks({ status }: Props) {
-  const color = deliveryTickColor(status);
+  const { tokens } = useChatTheme();
+  const color = deliveryTickColor(tokens, status);
   const isDouble = status === "delivered" || status === "read";
 
   return (

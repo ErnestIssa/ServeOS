@@ -87,7 +87,7 @@ export function navBottomLocalStops(isDark: boolean): GradientStops {
 
 type Props = {
   /** 1 = idle; 0 = scrolling — drives barely-visible local intensity only. */
-  navFocusSV: SharedValue<number>;
+  bottomNavFocusSV: SharedValue<number>;
 };
 
 /**
@@ -95,7 +95,7 @@ type Props = {
  * Layer A: long-range field (~50% screen) — fixed, no visible boundary.
  * Layer B: local reinforcement — subtle scroll-linked opacity only.
  */
-export function NavBottomScrim({ navFocusSV }: Props) {
+export function NavBottomScrim({ bottomNavFocusSV }: Props) {
   const { isDark } = useAppTheme();
   const { height: screenH } = useWindowDimensions();
 
@@ -106,13 +106,13 @@ export function NavBottomScrim({ navFocusSV }: Props) {
   const localHeight = Math.max(120, Math.round(screenH * NAV_BOTTOM_LOCAL_HEIGHT_RATIO));
 
   const localLayerStyle = useAnimatedStyle(() => {
-    const focus = navFocusSV.value;
+    const focus = bottomNavFocusSV.value;
     const opacity = interpolate(focus, [0, 1], [1, 0.82], Extrapolation.CLAMP);
     return { opacity };
   });
 
   const fieldLayerStyle = useAnimatedStyle(() => {
-    const focus = navFocusSV.value;
+    const focus = bottomNavFocusSV.value;
     const opacity = interpolate(focus, [0, 1], [1, 0.94], Extrapolation.CLAMP);
     return { opacity };
   });

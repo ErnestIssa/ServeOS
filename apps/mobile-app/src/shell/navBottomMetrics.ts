@@ -86,6 +86,13 @@ export function chatImmersiveComposerBottomInset(bottomInset: number): number {
 /** Height reserved for the back chevron row in immersive chat. */
 export const CHAT_IMMERSIVE_BACK_ROW = 44;
 
+/** Sticky thread nav (back + venue + online status). */
+export const CHAT_THREAD_NAV_HEIGHT = 50;
+
 export function chatImmersiveContentTop(safeTop: number): number {
   return safeTop + CHAT_IMMERSIVE_BACK_ROW;
+}
+
+export function chatThreadNavTop(safeTop: number): number {
+  return safeTop + CHAT_THREAD_NAV_HEIGHT + 6;
 }

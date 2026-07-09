@@ -1,9 +1,10 @@
 import React from "react";
 import { StyleSheet, Text, TextInput, View, type ImageStyle, type TextStyle, type ViewStyle } from "react-native";
 import type { AuthUser } from "../../api";
+import type { MobileExperienceManifest } from "../../mobile/mobileExperienceTypes";
 import { useAppTheme } from "../../theme/AppThemeContext";
 import { SkeletonBlock, SkeletonScreenFill } from "../../components/skeleton/SkeletonUi";
-import { loadAppSettingsForCustomer, saveAppSettingsForCustomer } from "./profilePrefsStorage";
+import { loadAppSettingsForCustomer, saveAppSettingsForCustomer, loadProfileQuickPrefsForCustomer, saveProfilePushForCustomer, saveProfileLocationForCustomer } from "./profilePrefsStorage";
 import type { AppSettings, SettingsDetailKey } from "./profilePrefsStorage";
 import {
   BoolRow,
@@ -23,27 +24,40 @@ type HubProps = {
   bottomInset: number;
   accountKeys: SettingsDetailKey[];
   generalKeys: SettingsDetailKey[];
+  platformKeys: SettingsDetailKey[];
   onOpenDetail: (key: SettingsDetailKey) => void;
 };
 
 const ACCOUNT_ROWS = [
   { key: "manage_account" as const, icon: "👤", title: "Manage account", subtitle: "Email, guest profile" },
   { key: "privacy" as const, icon: "🔒", title: "Privacy", subtitle: "Visibility & analytics" },
-  { key: "address" as const, icon: "📍", title: "Delivery address", subtitle: "Saved for orders" }
+  { key: "address" as const, icon: "📍", title: "Delivery address", subtitle: "Saved for orders" },
+  { key: "security" as const, icon: "🛡️", title: "Security", subtitle: "Password and protection" }
 ];
 
 const GENERAL_ROWS = [
   { key: "accessibility" as const, icon: "♿", title: "Accessibility", subtitle: "Motion & text" },
-  { key: "night_mode" as const, icon: "🌙", title: "Night mode", subtitle: "System, light, or dark" },
+  { key: "night_mode" as const, icon: "🌙", title: "Appearance", subtitle: "System, light, or dark" },
   { key: "shortcuts" as const, icon: "⚡", title: "Shortcuts", subtitle: "Quick actions" },
-  { key: "communication" as const, icon: "💬", title: "Communication", subtitle: "Email, push, SMS" },
+  {
+    key: "communication" as const,
+    icon: "💬",
+    title: "Communication",
+    subtitle: "Push, location, email & SMS"
+  },
   { key: "navigation" as const, icon: "🧭", title: "Navigation", subtitle: "Preferred maps app" },
   { key: "sounds_voice" as const, icon: "🔊", title: "Sounds & voice", subtitle: "Alerts & guidance" }
+];
+
+const PLATFORM_ROWS = [
+  { key: "connected_devices" as const, icon: "🖨️", title: "Connected devices", subtitle: "Printers, KDS, displays" },
+  { key: "sessions" as const, icon: "📱", title: "Session management", subtitle: "Active sessions and devices" }
 ];
 
 export function SettingsHomeScreen(props: HubProps) {
   const accountRows = ACCOUNT_ROWS.filter((r) => props.accountKeys.includes(r.key));
   const generalRows = GENERAL_ROWS.filter((r) => props.generalKeys.includes(r.key));
+  const platformRows = PLATFORM_ROWS.filter((r) => props.platformKeys.includes(r.key));
 
   return (
     <ProfileScreenContainer topInset={0} bottomInset={props.bottomInset}>
@@ -67,7 +81,7 @@ export function SettingsHomeScreen(props: HubProps) {
       ) : null}
       {generalRows.length > 0 ? (
         <FadeSection>
-          <SectionLabel variant="me">General</SectionLabel>
+          <SectionLabel variant="me">Preferences</SectionLabel>
           <ProfileCard noPad>
             {generalRows.map((row, i) => (
               <RowItem
@@ -83,6 +97,24 @@ export function SettingsHomeScreen(props: HubProps) {
           </ProfileCard>
         </FadeSection>
       ) : null}
+      {platformRows.length > 0 ? (
+        <FadeSection>
+          <SectionLabel variant="me">Platform</SectionLabel>
+          <ProfileCard noPad>
+            {platformRows.map((row, i) => (
+              <RowItem
+                key={row.key}
+                icon={row.icon}
+                title={row.title}
+                subtitle={row.subtitle}
+                highlightKey={`app:settings:${row.key}`}
+                last={i === platformRows.length - 1}
+                onPress={() => props.onOpenDetail(row.key)}
+              />
+            ))}
+          </ProfileCard>
+        </FadeSection>
+      ) : null}
     </ProfileScreenContainer>
   );
 }
@@ -91,6 +123,7 @@ type DetailProps = {
   detailKey: SettingsDetailKey;
   user: AuthUser | null;
   authToken?: string | null;
+  roleType: MobileExperienceManifest["roleType"];
   bottomInset: number;
 };
 
@@ -155,10 +188,96 @@ export function SettingsDetailScreen(props: DetailProps) {
   return (
     <ProfileScreenContainer topInset={0} bottomInset={props.bottomInset}>
       <FadeSection>
-        <ProfileCard>{renderDetailBody(props.detailKey, settings, patch, props.user, styles)}</ProfileCard>
+        <ProfileCard>
+          {props.detailKey === "communication" ? (
+            <CommunicationSettingsPanel
+              settings={settings}
+              patch={patch}
+              authToken={props.authToken}
+              roleType={props.roleType}
+              styles={styles}
+            />
+          ) : (
+            renderDetailBody(props.detailKey, settings, patch, props.user, styles)
+          )}
+        </ProfileCard>
         <ProfilePrimaryButton label={saved ? "Saved" : "Save"} onPress={() => void save()} />
       </FadeSection>
     </ProfileScreenContainer>
+  );
+}
+
+function CommunicationSettingsPanel(props: {
+  settings: AppSettings;
+  patch: (p: Partial<AppSettings>) => void;
+  authToken?: string | null;
+  roleType: MobileExperienceManifest["roleType"];
+  styles: SettingsDetailStyles;
+}) {
+  const isCustomer = props.roleType === "CUSTOMER";
+  const [devicePush, setDevicePush] = React.useState(true);
+  const [deviceLocation, setDeviceLocation] = React.useState(false);
+  const [deviceReady, setDeviceReady] = React.useState(false);
+  const { styles, settings: s, patch } = props;
+
+  React.useEffect(() => {
+    void loadProfileQuickPrefsForCustomer(props.authToken).then((q) => {
+      setDevicePush(q.push);
+      setDeviceLocation(q.location);
+      setDeviceReady(true);
+    });
+  }, [props.authToken]);
+
+  return (
+    <>
+      <Text style={styles.label}>This device</Text>
+      {deviceReady ? (
+        <>
+          <BoolRow
+            label={isCustomer ? "Order & chat push" : "Operational push alerts"}
+            value={devicePush}
+            onChange={(v) => {
+              setDevicePush(v);
+              void saveProfilePushForCustomer(v, props.authToken);
+            }}
+          />
+          {isCustomer ? (
+            <>
+              <View style={styles.gap12} />
+              <BoolRow
+                label="Location for venues"
+                value={deviceLocation}
+                onChange={(v) => {
+                  setDeviceLocation(v);
+                  void saveProfileLocationForCustomer(v, props.authToken);
+                }}
+              />
+            </>
+          ) : null}
+        </>
+      ) : null}
+      <Text style={[styles.label, styles.mt]}>Account channels</Text>
+      <BoolRow
+        label="Email"
+        value={s.communication.email}
+        onChange={(email) => patch({ communication: { ...s.communication, email } })}
+      />
+      <View style={styles.gap12} />
+      <BoolRow
+        label="Push notifications"
+        value={s.communication.push}
+        onChange={(push) => patch({ communication: { ...s.communication, push } })}
+      />
+      <View style={styles.gap12} />
+      <BoolRow
+        label="SMS"
+        value={s.communication.sms}
+        onChange={(sms) => patch({ communication: { ...s.communication, sms } })}
+      />
+      <Text style={styles.hint}>
+        Device toggles apply immediately on this phone. Account channels sync when you save.
+      </Text>
+    </>
   );
 }
 
@@ -252,28 +371,7 @@ function renderDetailBody(
         />
       );
     case "communication":
-      return (
-        <>
-          <BoolRow
-            label="Email"
-            value={s.communication.email}
-            onChange={(email) => patch({ communication: { ...s.communication, email } })}
-          />
-          <View style={styles.gap12} />
-          <BoolRow
-            label="Push (server)"
-            value={s.communication.push}
-            onChange={(push) => patch({ communication: { ...s.communication, push } })}
-          />
-          <View style={styles.gap12} />
-          <BoolRow
-            label="SMS"
-            value={s.communication.sms}
-            onChange={(sms) => patch({ communication: { ...s.communication, sms } })}
-          />
-          <Text style={styles.hint}>Profile quick toggle uses device storage; here syncs when API is wired.</Text>
-        </>
-      );
+      return null;
     case "sounds_voice":
       return (
         <>
@@ -288,6 +386,36 @@ function renderDetailBody(
             value={s.soundsVoice.voiceGuidance}
             onChange={(voiceGuidance) => patch({ soundsVoice: { ...s.soundsVoice, voiceGuidance } })}
           />
+        </>
+      );
+    case "connected_devices":
+      return (
+        <>
+          <Text style={styles.label}>Hardware</Text>
+          <Text style={styles.readOnly}>No devices paired yet</Text>
+          <Text style={styles.hint}>
+            Printers, kitchen displays, and POS terminals appear here when connected to your venue or account.
+          </Text>
+        </>
+      );
+    case "sessions":
+      return (
+        <>
+          <Text style={styles.label}>This device</Text>
+          <Text style={styles.readOnly}>Active now</Text>
+          <Text style={[styles.label, styles.mt]}>Other sessions</Text>
+          <Text style={styles.readOnly}>None detected</Text>
+          <Text style={styles.hint}>Session management will sync with your account when the API is connected.</Text>
+        </>
+      );
+    case "security":
+      return (
+        <>
+          <Text style={styles.label}>Password</Text>
+          <Text style={styles.readOnly}>Managed via sign-in provider</Text>
+          <Text style={[styles.label, styles.mt]}>Two-factor authentication</Text>
+          <Text style={styles.readOnly}>Coming soon</Text>
+          <Text style={styles.hint}>Use Session management to review devices signed in to ServeOS.</Text>
         </>
       );
     default:

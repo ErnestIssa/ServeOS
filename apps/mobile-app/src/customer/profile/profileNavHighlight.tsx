@@ -1,5 +1,5 @@
 import React from "react";
-import { Animated, StyleSheet, type StyleProp, type ViewStyle } from "react-native";
+import { Animated, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import { useAppTheme } from "../../theme/AppThemeContext";
 
 export type MeNavHighlightKey =
@@ -39,10 +39,13 @@ type Ctx = {
 
 const ProfileNavHighlightContext = React.createContext<Ctx | null>(null);
 
+const HIGHLIGHT_DELAY_MS = 120;
+
 export function ProfileNavHighlightProvider(props: { children: React.ReactNode }) {
   const [highlightKey, setHighlightKey] = React.useState<ProfileNavHighlightKey | null>(null);
   const pendingRef = React.useRef<ProfileNavHighlightKey | null>(null);
   const clearTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flashTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const armHighlight = React.useCallback((key: ProfileNavHighlightKey) => {
     pendingRef.current = key;
@@ -50,8 +53,11 @@ export function ProfileNavHighlightProvider(props: { children: React.ReactNode }
 
   const flash = React.useCallback((key: ProfileNavHighlightKey) => {
     if (clearTimer.current) clearTimeout(clearTimer.current);
-    setHighlightKey(key);
-    clearTimer.current = setTimeout(() => setHighlightKey(null), 2200);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => {
+      setHighlightKey(key);
+      clearTimer.current = setTimeout(() => setHighlightKey(null), 2200);
+    }, HIGHLIGHT_DELAY_MS);
   }, []);
 
   const navigate = React.useCallback(
@@ -90,6 +96,7 @@ export function ProfileNavHighlightProvider(props: { children: React.ReactNode }
   React.useEffect(
     () => () => {
       if (clearTimer.current) clearTimeout(clearTimer.current);
+      if (flashTimer.current) clearTimeout(flashTimer.current);
     },
     []
   );
@@ -138,8 +145,8 @@ export function NavHighlightWrap(props: {
       return;
     }
     const anim = Animated.sequence([
-      Animated.timing(pulse, { toValue: 1, duration: 520, useNativeDriver: false }),
-      Animated.timing(pulse, { toValue: 0, duration: 680, useNativeDriver: false })
+      Animated.timing(pulse, { toValue: 1, duration: 520, useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 0, duration: 680, useNativeDriver: true })
     ]);
     anim.start();
     return () => {
@@ -148,29 +155,44 @@ export function NavHighlightWrap(props: {
     };
   }, [props.active, pulse]);
 
-  const bg = pulse.interpolate({
+  const ringOpacity = pulse.interpolate({
     inputRange: [0, 1],
-    outputRange: ["transparent", "rgba(139, 92, 246, 0.2)"]
+    outputRange: [0, 1]
   });
 
-  const border = pulse.interpolate({
+  const fillOpacity = pulse.interpolate({
     inputRange: [0, 1],
-    outputRange: ["transparent", t.accentPurple]
+    outputRange: [0, 0.2]
   });
 
   return (
-    <Animated.View
-      style={[
-        styles.wrap,
-        props.style,
-        props.active && { backgroundColor: bg, borderColor: border, borderWidth: 2 }
-      ]}
-    >
+    <View style={[styles.wrap, props.style]}>
       {props.children}
-    </Animated.View>
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.highlightFill,
+          { backgroundColor: t.accentPurple, opacity: fillOpacity }
+        ]}
+      />
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.highlightRing, { borderColor: t.accentPurple, opacity: ringOpacity }]}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { borderRadius: 16, borderWidth: 0, borderColor: "transparent" }
+  wrap: {
+    position: "relative",
+    overflow: "hidden"
+  },
+  highlightFill: {
+    ...StyleSheet.absoluteFillObject
+  },
+  highlightRing: {
+    ...StyleSheet.absoluteFillObject,
+    borderWidth: 2
+  }
 });

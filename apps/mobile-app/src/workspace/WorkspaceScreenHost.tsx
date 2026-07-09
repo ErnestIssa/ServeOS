@@ -8,6 +8,7 @@ import {
 } from "react-native";
 import { formatDisplayMoney } from "../formatMoney";
 import { useAppTheme } from "../theme/AppThemeContext";
+import { reportBottomNavScroll, useBottomNavScrollReporter } from "../shell/BottomNavScrollReporter";
 import { fetchWorkspaceScreen, patchOrderStatus, type WorkspaceScreenResponse } from "../mobile/workspaceApi";
 import { ProfilePlaceholderScreen } from "../customer/profile/ProfilePlaceholderScreen";
 import { ProfileScreenContainer, SectionLabel } from "../customer/profile/ProfileUi";
@@ -41,6 +42,7 @@ const NEXT_STATUS: Record<string, string> = {
 
 export function WorkspaceScreenHost(props: Props) {
   const { colors: t } = useAppTheme();
+  const reportBottomNavScrollY = useBottomNavScrollReporter();
   const [loading, setLoading] = React.useState(true);
   const [data, setData] = React.useState<WorkspaceScreenResponse | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -236,7 +238,11 @@ export function WorkspaceScreenHost(props: Props) {
   if (props.screenKey === "admin.menu") {
     const categories = (payload.categories as Array<{ name: string; items: Array<{ name: string; priceCents: number }> }>) ?? [];
     return (
-      <ScrollView contentContainerStyle={{ paddingBottom: props.bottomInset + 24 }}>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: props.bottomInset + 24 }}
+        scrollEventThrottle={16}
+        onScroll={(e) => reportBottomNavScroll(reportBottomNavScrollY, e)}
+      >
         <ProfileScreenContainer topInset={props.topInset} bottomInset={0}>
           {categories.map((c) => (
             <View key={c.name} style={{ marginBottom: t.space.md }}>

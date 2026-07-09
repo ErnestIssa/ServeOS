@@ -4,8 +4,7 @@ import Animated, {
   Extrapolation,
   interpolate,
   type SharedValue,
-  useAnimatedStyle,
-  useSharedValue
+  useAnimatedStyle
 } from "react-native-reanimated";
 import Svg, { Path } from "react-native-svg";
 import { useAppTheme } from "../theme/AppThemeContext";
@@ -43,7 +42,6 @@ type Props =
   | {
       variant?: "default";
       topInset: number;
-      navFocusSV?: SharedValue<number>;
       leftLabel: string;
       leftSubLabel?: string;
       centerTitle: string;
@@ -54,7 +52,6 @@ type Props =
   | {
       variant: "customer";
       topInset: number;
-      navFocusSV?: SharedValue<number>;
       searchOpenSV?: SharedValue<number>;
       searchPlaceholder?: string;
       searchValue: string;
@@ -112,7 +109,6 @@ type CustomerChromeProps = Extract<Props, { variant: "customer" }> & {
   iconColor: string;
   searchTextColor: string;
   searchPlaceholderColor: string;
-  navFocusSV: SharedValue<number>;
   searchOpenSV?: SharedValue<number>;
   glass: ReturnType<typeof navDockGlassTokens>;
 };
@@ -123,7 +119,6 @@ function CustomerHomeTopBar({
   iconColor,
   searchTextColor,
   searchPlaceholderColor,
-  navFocusSV,
   glass,
   searchOpenSV,
   searchValue,
@@ -169,12 +164,11 @@ function CustomerHomeTopBar({
     onSearchFocusRequest
   ]);
 
-  const chipMotionStyle = useAnimatedStyle(() => {
-    const focus = navFocusSV.value;
-    const scale = interpolate(focus, [0, 1], [0.96, 1], Extrapolation.CLAMP);
-    const opacity = interpolate(focus, [0, 1], [0.88, 1], Extrapolation.CLAMP);
-    return { transform: [{ scale }], opacity };
-  });
+  /** Top chrome stays static — identity transform (no scroll reaction). */
+  const chipMotionStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: 1 }],
+    opacity: 1
+  }));
 
   const searchExpandStyle = useAnimatedStyle(() => {
     const open = searchOpenSV?.value ?? 0;
@@ -208,7 +202,6 @@ function CustomerHomeTopBar({
           tokens={glass}
           variant="shell"
           borderRadius={SEARCH_CHIP_RADIUS}
-          focusSV={navFocusSV}
         />
         <View
           pointerEvents="none"
@@ -261,7 +254,6 @@ function CustomerHomeTopBar({
           tokens={glass}
           variant="control"
           borderRadius={VENUE_CHIP_RADIUS}
-          focusSV={navFocusSV}
         />
         <View
           pointerEvents="none"
@@ -338,23 +330,9 @@ function BusinessTopBarChrome({
 export function FloatingTopBar(props: Props) {
   const { isDark, colors: theme } = useAppTheme();
   const glass = React.useMemo(() => navDockGlassTokens(isDark), [isDark]);
-  const fallbackFocusSV = useSharedValue(1);
-  const navFocusSV = props.navFocusSV ?? fallbackFocusSV;
   const isCustomer = props.variant === "customer";
   const dockTop = props.topInset + (isCustomer ? FLOAT_MARGIN_TOP_HOME : FLOAT_MARGIN_TOP);
-
-  const dockShellStyle = useAnimatedStyle(() => {
-    const focus = navFocusSV.value;
-    const scale = interpolate(focus, [0, 1], [0.94, 1], Extrapolation.CLAMP);
-    const opacity = interpolate(focus, [0, 1], [0.8, 1], Extrapolation.CLAMP);
-    const barHeight = isCustomer ? FLOATING_HOME_TOP_BAR_HEIGHT : FLOATING_TOP_BAR_HEIGHT;
-    const height = interpolate(focus, [0, 1], [barHeight - 6, barHeight], Extrapolation.CLAMP);
-    return {
-      transform: [{ scale }],
-      opacity,
-      height
-    };
-  });
+  const staffBarHeight = isCustomer ? FLOATING_HOME_TOP_BAR_HEIGHT : FLOATING_TOP_BAR_HEIGHT;
 
   const iconColor = theme.navIconIdle;
   const titleColor = theme.text;
@@ -395,7 +373,6 @@ export function FloatingTopBar(props: Props) {
               iconColor={iconColor}
               searchTextColor={searchTextColor}
               searchPlaceholderColor={searchPlaceholderColor}
-              navFocusSV={navFocusSV}
               glass={glass}
               variant="customer"
               topInset={props.topInset}
@@ -420,14 +397,14 @@ export function FloatingTopBar(props: Props) {
 
   return (
     <View pointerEvents="box-none" style={styles.screenAnchor}>
-      <Animated.View
+      <View
         style={[
           styles.chromeShell,
-          dockShellStyle,
           {
             top: dockTop,
             left: FLOAT_MARGIN_SIDE,
             right: FLOAT_MARGIN_SIDE,
+            height: staffBarHeight,
             shadowColor: glass.shadowColor,
             shadowOpacity: glass.shadowOpacity
           }
@@ -437,7 +414,6 @@ export function FloatingTopBar(props: Props) {
           tokens={glass}
           variant="shell"
           borderRadius={DOCK_RADIUS}
-          focusSV={navFocusSV}
         />
 
         <View style={styles.chromeBody}>
@@ -448,7 +424,7 @@ export function FloatingTopBar(props: Props) {
             {...props}
           />
         </View>
-      </Animated.View>
+      </View>
     </View>
   );
 }

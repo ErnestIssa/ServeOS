@@ -9,7 +9,6 @@ import type {
 } from "../../mobile/mobileExperienceTypes";
 import { useAppTheme } from "../../theme/AppThemeContext";
 import { loadAppSettingsForCustomer, saveAppSettingsForCustomer } from "./profilePrefsStorage";
-import { hapticSelect } from "./ProfileUi";
 import type { AppNavHighlightKey } from "./profileNavHighlight";
 import { FadeSection, ProfileCard, SectionLabel, SectionRow, TopChip } from "./ProfileUi";
 
@@ -17,6 +16,7 @@ export type AppControlCenterBodyProps = {
   user: AuthUser | null;
   authToken?: string | null;
   mobileExperience: MobileExperienceManifest;
+  hideChips?: boolean;
   onNavigateHelp: () => void;
   onNavigateSafety: () => void;
   onNavigateAppSettings: () => void;
@@ -100,7 +100,7 @@ export function AppControlCenterBody(props: AppControlCenterBodyProps) {
   );
 
   const hasContent =
-    controlCentre.chips.length > 0 ||
+    (!props.hideChips && controlCentre.chips.length > 0) ||
     controlCentre.sections.some((s) => s.rows.length > 0) ||
     controlCentre.showDarkModeToggle;
 
@@ -108,7 +108,7 @@ export function AppControlCenterBody(props: AppControlCenterBodyProps) {
 
   return (
     <>
-      {controlCentre.chips.length > 0 ? (
+      {!props.hideChips && controlCentre.chips.length > 0 ? (
         <FadeSection>
           <View style={{ flexDirection: "row", marginBottom: t.space.sm, marginHorizontal: -4 }}>
             {controlCentre.chips.map((chip) => (
@@ -151,7 +151,6 @@ export function AppControlCenterBody(props: AppControlCenterBodyProps) {
               <ThemedSwitch
                 value={scheme === "dark"}
                 onValueChange={(v) => {
-                  hapticSelect();
                   const mode = v ? "dark" : "light";
                   setScheme(mode);
                   void (async () => {

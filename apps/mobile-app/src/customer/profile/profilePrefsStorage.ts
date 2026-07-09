@@ -19,7 +19,11 @@ export type SettingsDetailKey =
   | "shortcuts"
   | "communication"
   | "navigation"
-  | "sounds_voice";
+  | "sounds_voice"
+  | "connected_devices"
+  | "sessions"
+  | "notifications"
+  | "security";
 
 export type AppSettings = {
   currency: SupportedCurrencyCode;

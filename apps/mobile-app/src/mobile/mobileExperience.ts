@@ -44,6 +44,13 @@ export function defaultNavTabKey(exp: MobileExperienceManifest | null | undefine
   return tabs[0]?.key ?? "home";
 }
 
+/** Prefer the Home tab when present; otherwise the first visible tab. */
+export function homeNavTabKey(exp: MobileExperienceManifest | null | undefined): string {
+  const tabs = navTabsFromExperience(exp);
+  const home = tabs.find((t) => t.key === "home");
+  return home?.key ?? tabs[0]?.key ?? "home";
+}
+
 export function hasPermission(user: AuthUser | null | undefined, perm: string): boolean {
   return !!mobileExperienceFromUser(user)?.permissions.includes(perm);
 }

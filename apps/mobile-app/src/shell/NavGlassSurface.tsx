@@ -21,7 +21,7 @@ type Props = {
 };
 
 /**
- * Same frosted glass as `TopNavContentDimmer` / `BottomNavContentDimmer` — blur + nav feather, no tint border.
+ * Reusable frosted nav glass — blur + optional top/bottom feather, no tint border.
  */
 export function NavGlassSurface({
   children,

@@ -15,11 +15,7 @@ import {
   View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import {
-  chatImmersiveComposerBottomInset,
-  chatImmersiveContentTop,
-  FLOAT_MARGIN_SIDE
-} from "../shell/navBottomMetrics";
+import { FLOAT_MARGIN_SIDE } from "../shell/navBottomMetrics";
 import { R } from "../theme";
 import {
   mergeThreadFeed,
@@ -29,25 +25,33 @@ import {
 } from "../data/customerDataCache";
 import {
   fetchCustomerChatHub,
+  postCustomerChatDocument,
   postCustomerChatImages,
   postCustomerChatMessage,
   type CustomerChatHubResponse,
   type CustomerChatQuickActionId,
   type ThreadFeedItem
 } from "./customerChatApi";
-import { ChatComposerBar } from "./chat/ChatComposerBar";
-import { ChatMessageBubble } from "./chat/ChatMessageBubble";
+import { MessageComposer } from "./chat/composer/MessageComposer";
+import { ChatMessage, DateSeparator } from "./chat/messages/ChatMessage";
+import { buildListRows, sameMessageGroup } from "./chat/messages/mapFeedItem";
+import { isChatMessage, isDateSeparator, type ChatMessageViewModel, type ListRow } from "./chat/messages/types";
+import { TypingIndicator } from "./chat/messages/TypingIndicator";
+import { MessageActionMenu } from "./chat/menu/MessageActionMenu";
 import { ChatVenueInfoModal } from "./chat/ChatVenueInfoModal";
-import { ChatCollapsingHeader, chatListTopInset } from "./chat/ChatCollapsingHeader";
+import { ChatThreadNavBar, chatThreadListTopInset } from "./chat/ChatThreadNavBar";
+import { AttachmentMenu, ATTACH_MENU_DISMISS_MS, type AttachmentChoice } from "./chat/composer/AttachmentMenu";
 import { playCartAddCue } from "./cartCueSound";
-import { confirmSendChatImages, pickChatImages, type PreparedChatImage } from "./chat/chatImageAttach";
-import { ChatTypingDots } from "./chat/ChatTypingDots";
+import { ChatCameraCapture } from "./chat/ChatCameraCapture";
+import { pickChatImagesFromLibrary, prepareChatImageFromUri, type PreparedChatImage } from "./chat/chatImageAttach";
+import { pickChatDocument, type PreparedChatDocument } from "./chat/chatDocumentAttach";
 import { OclTimelineStrip } from "./chat/OclTimelineStrip";
 import { isIncomingMessage, isMessageUnread } from "./chat/chatUnreadHelpers";
 import { joinChatRoom, sendChatRead, sendChatTyping, subscribeChatRelay } from "./chat/customerChatSocket";
 import { ChatVenueTypeRotator } from "./chat/ChatVenueTypeRotator";
 import { ScreenErrorState } from "../errors";
 import { SkeletonChatThread, SkeletonSyncDot } from "../components/skeleton/SkeletonUi";
+import { loadProfileAvatarUri } from "./profile/profileAvatarStorage";
 import { noMenuAtVenueMessage } from "./venueContentHelpers";
 
 const TYPING_EMIT_MS = 400;
@@ -103,9 +107,62 @@ function patchMyDeliveryStatus(
   });
 }
 
-function sameGroup(a: ThreadFeedItem, b: ThreadFeedItem | undefined): boolean {
-  if (!b || a.kind !== b.kind || b.kind !== "message" || a.kind !== "message") return false;
-  return a.senderRole === b.senderRole;
+const OPTIMISTIC_PREFIX = "opt-";
+
+function isOptimisticMessageId(id: string): boolean {
+  return id.startsWith(OPTIMISTIC_PREFIX);
+}
+
+function createOptimisticMessage(
+  content: string,
+  chatRoomId: string,
+  senderUserId: string | null | undefined
+): ThreadFeedItem {
+  return {
+    kind: "message",
+    id: `${OPTIMISTIC_PREFIX}${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    chatRoomId,
+    senderUserId: senderUserId ?? null,
+    senderRole: "CUSTOMER",
+    content,
+    type: "TEXT",
+    createdAt: new Date().toISOString(),
+    deliveryStatus: "sent",
+    isMine: true
+  };
+}
+
+function reconcileSentMessage(
+  prev: ThreadFeedItem[],
+  serverMsg: Extract<ThreadFeedItem, { kind: "message" }>,
+  optimisticId?: string
+): ThreadFeedItem[] {
+  const normalized: ThreadFeedItem = {
+    ...serverMsg,
+    kind: "message",
+    isMine: true,
+    deliveryStatus: serverMsg.deliveryStatus ?? "sent"
+  };
+
+  if (prev.some((x) => x.kind === "message" && x.id === serverMsg.id)) {
+    return prev.filter((x) => !(optimisticId && x.id === optimisticId));
+  }
+
+  let replaced = false;
+  const next = prev.map((item) => {
+    if (item.kind !== "message" || !item.isMine) return item;
+    if (optimisticId && item.id === optimisticId) {
+      replaced = true;
+      return normalized;
+    }
+    if (!replaced && isOptimisticMessageId(item.id) && item.content.trim() === serverMsg.content.trim()) {
+      replaced = true;
+      return normalized;
+    }
+    return item;
+  });
+
+  return replaced ? next : [...next, normalized];
 }
 
 export function CustomerChatScreen(props: Props) {
@@ -137,13 +194,16 @@ export function CustomerChatScreen(props: Props) {
   const [revalidating, setRevalidating] = React.useState(false);
   const [loadErr, setLoadErr] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState("");
-  const [sending, setSending] = React.useState(false);
   const [pickingImage, setPickingImage] = React.useState(false);
   const [venueTyping, setVenueTyping] = React.useState(false);
-  const [keyboardOpen, setKeyboardOpen] = React.useState(false);
   const [venueInfoOpen, setVenueInfoOpen] = React.useState(false);
+  const [venueInfoPanel, setVenueInfoPanel] = React.useState<"menu" | "call_staff" | "opening_hours">("menu");
+  const [attachOpen, setAttachOpen] = React.useState(false);
+  const [cameraOpen, setCameraOpen] = React.useState(false);
+  const pendingAttachRef = React.useRef<AttachmentChoice | null>(null);
+  const [menuMessage, setMenuMessage] = React.useState<ChatMessageViewModel | null>(null);
   const inputRef = React.useRef<TextInput>(null);
-  const listRef = React.useRef<FlatList<ThreadFeedItem>>(null);
+  const listRef = React.useRef<FlatList<ListRow>>(null);
   const typingStopRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingClearRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingEmitRef = React.useRef(0);
@@ -152,10 +212,30 @@ export function CustomerChatScreen(props: Props) {
   const dismissedNewRef = React.useRef<Set<string>>(new Set());
   const newDismissTimersRef = React.useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const [newDismissTick, setNewDismissTick] = React.useState(0);
+  const [customerAvatarUri, setCustomerAvatarUri] = React.useState<string | null>(null);
   const insets = useSafeAreaInsets();
   const loadGenRef = React.useRef(0);
 
   const hasVenueSelected = Boolean(restaurantId.trim());
+
+  const venueInitial = React.useMemo(() => {
+    const name = hub?.restaurant?.name?.trim() || venueDisplayName.trim() || "R";
+    return name.charAt(0).toUpperCase();
+  }, [hub?.restaurant?.name, venueDisplayName]);
+
+  const customerInitial = React.useMemo(() => "U", []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void loadProfileAvatarUri().then((uri) => {
+      if (!cancelled) setCustomerAvatarUri(uri);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const listRows = React.useMemo(() => buildListRows(feed), [feed]);
 
   const feedMessagesOnly = React.useCallback((items: ThreadFeedItem[]) => {
     return items.filter((x) => x.kind === "message");
@@ -336,8 +416,10 @@ export function CustomerChatScreen(props: Props) {
       if (!chatFocused) return;
       const readAt = customerLastReadAtRef.current;
       for (const v of viewableItems) {
-        const item = v.item as ThreadFeedItem | undefined;
-        if (!item || !isMessageUnread(item, readAt)) continue;
+        const row = v.item as ListRow | undefined;
+        if (!row || !isChatMessage(row)) continue;
+        const item = row.raw;
+        if (!isMessageUnread(item, readAt)) continue;
         scheduleNewDismiss(item.id);
       }
     },
@@ -376,7 +458,6 @@ export function CustomerChatScreen(props: Props) {
         h
           ? {
               ...h,
-              venueStatus: res.venueStatus ?? h.venueStatus,
               roomUnreadCount: res.roomUnreadCount ?? h.roomUnreadCount,
               customerLastReadAt: res.customerLastReadAt ?? h.customerLastReadAt
             }
@@ -397,16 +478,10 @@ export function CustomerChatScreen(props: Props) {
 
   React.useEffect(() => {
     const showEv = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEv = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
     const showSub = Keyboard.addListener(showEv, () => {
-      setKeyboardOpen(true);
       setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
     });
-    const hideSub = Keyboard.addListener(hideEv, () => setKeyboardOpen(false));
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
+    return () => showSub.remove();
   }, []);
 
   React.useEffect(() => {
@@ -424,7 +499,7 @@ export function CustomerChatScreen(props: Props) {
       if (payload.type === "new_message" && payload.message.chatRoomId === roomId) {
         setFeed((prev) => {
           if (prev.some((x) => x.kind === "message" && x.id === payload.message.id)) return prev;
-          const msg: ThreadFeedItem = {
+          const incoming: ThreadFeedItem = {
             ...payload.message,
             kind: "message",
             deliveryStatus:
@@ -432,7 +507,10 @@ export function CustomerChatScreen(props: Props) {
                 ? payload.message.deliveryStatus ?? "sent"
                 : undefined
           };
-          return [...prev, msg];
+          if (payload.message.senderRole === "CUSTOMER") {
+            return reconcileSentMessage(prev, incoming as Extract<ThreadFeedItem, { kind: "message" }>);
+          }
+          return [...prev, incoming];
         });
         if (payload.message.senderRole !== "CUSTOMER") {
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -554,58 +632,145 @@ export function CustomerChatScreen(props: Props) {
 
   function pickAndSendImages() {
     const rid = hub?.restaurant?.id ?? restaurantId.trim();
-    if (!rid || pickingImage || sending) return;
+    if (!rid || pickingImage) return;
     const quota = hub?.chatImageQuota ?? { used: 0, max: 10, perSend: 3 };
     const remaining = Math.max(0, quota.max - quota.used);
     void (async () => {
-      setPickingImage(true);
-      const picked = await pickChatImages(remaining);
-      setPickingImage(false);
+      const picked = await pickChatImagesFromLibrary(remaining);
       if (!picked?.length) return;
-      const venue = hub?.restaurant?.name ?? "Restaurant";
-      confirmSendChatImages(picked.length, venue, remaining - picked.length, () => {
-        void uploadChatImages(picked);
-      });
+      void uploadChatImages(picked);
     })();
   }
 
-  async function sendMessage() {
+  function sendCapturedImage(uri: string) {
     const rid = hub?.restaurant?.id ?? restaurantId.trim();
-    if (!rid || !draft.trim() || sending) return;
-    const roomId = roomIdRef.current;
-    if (roomId) sendChatTyping(roomId, false);
-    setSending(true);
-    const res = await postCustomerChatMessage(token, {
+    if (!rid || pickingImage) return;
+    void (async () => {
+      setPickingImage(true);
+      const prepared = await prepareChatImageFromUri(uri);
+      setPickingImage(false);
+      if (!prepared) {
+        Alert.alert("Could not use photo", "Try taking another picture.");
+        return;
+      }
+      void uploadChatImages([prepared]);
+    })();
+  }
+
+  function openVenueInfo(panel: "menu" | "call_staff" | "opening_hours") {
+    setVenueInfoPanel(panel);
+    setVenueInfoOpen(true);
+  }
+
+  function pickAndSendDocument() {
+    const rid = hub?.restaurant?.id ?? restaurantId.trim();
+    if (!rid || pickingImage) return;
+    void (async () => {
+      const picked = await pickChatDocument();
+      if (!picked) return;
+      void uploadChatDocument(picked);
+    })();
+  }
+
+  async function uploadChatDocument(doc: PreparedChatDocument) {
+    const rid = hub?.restaurant?.id ?? restaurantId.trim();
+    if (!rid) return;
+    setPickingImage(true);
+    const res = await postCustomerChatDocument(token, {
       restaurantId: rid,
-      content: draft.trim(),
-      orderId: hub?.activeOrder?.id
+      orderId: hub?.activeOrder?.id,
+      fileName: doc.fileName,
+      mimeType: doc.mimeType,
+      dataBase64: doc.dataBase64
     });
-    setSending(false);
+    setPickingImage(false);
     if (!res.ok) {
-      Alert.alert("Message not sent", typeof res.error === "string" ? res.error : "Try again.");
+      Alert.alert(
+        "Document not sent",
+        typeof res.error === "string" ? res.error : "Could not send document."
+      );
       return;
     }
     void playCartAddCue();
     if (res.message) {
       setFeed((prev) => {
         if (prev.some((x) => x.kind === "message" && x.id === res.message!.id)) return prev;
-        return [
-          ...prev,
-          {
-            ...res.message!,
-            kind: "message",
-            isMine: true,
-            deliveryStatus: res.message!.deliveryStatus ?? "sent"
-          }
-        ];
+        const added: ThreadFeedItem = {
+          ...res.message!,
+          kind: "message",
+          isMine: true,
+          deliveryStatus: res.message!.deliveryStatus ?? "sent"
+        };
+        return [...prev, added];
       });
     }
+    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
+  }
+
+  function handleAttachChoice(choice: AttachmentChoice) {
+    pendingAttachRef.current = choice;
+  }
+
+  React.useEffect(() => {
+    if (attachOpen) return;
+    const choice = pendingAttachRef.current;
+    if (!choice) return;
+    pendingAttachRef.current = null;
+    const timer = setTimeout(() => {
+      if (choice === "camera") {
+        setCameraOpen(true);
+        return;
+      }
+      if (choice === "photos") {
+        pickAndSendImages();
+        return;
+      }
+      if (choice === "document") {
+        pickAndSendDocument();
+      }
+    }, ATTACH_MENU_DISMISS_MS);
+    return () => clearTimeout(timer);
+  }, [attachOpen]);
+
+  function handleCallVenue() {
+    openVenueInfo("call_staff");
+  }
+
+  async function sendMessage() {
+    const rid = hub?.restaurant?.id ?? restaurantId.trim();
+    const content = draft.trim();
+    if (!rid || !content) return;
+    const roomId = roomIdRef.current;
+    if (roomId) sendChatTyping(roomId, false);
+
+    const optimistic = createOptimisticMessage(content, roomId ?? "", userId);
+    const optimisticId = optimistic.id;
+
     setDraft("");
+    setFeed((prev) => [...prev, optimistic]);
+    void playCartAddCue();
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setTimeout(() => {
       listRef.current?.scrollToEnd({ animated: true });
       inputRef.current?.focus();
-    }, 60);
+    }, 40);
+
+    const res = await postCustomerChatMessage(token, {
+      restaurantId: rid,
+      content,
+      orderId: hub?.activeOrder?.id
+    });
+
+    if (!res.ok) {
+      setFeed((prev) => prev.filter((x) => x.id !== optimisticId));
+      setDraft(content);
+      Alert.alert("Message not sent", typeof res.error === "string" ? res.error : "Try again.");
+      return;
+    }
+
+    if (res.message) {
+      setFeed((prev) => reconcileSentMessage(prev, res.message!, optimisticId));
+    }
   }
 
   const needsVenue = !hasVenueSelected || hub?.needsVenue === true;
@@ -616,24 +781,15 @@ export function CustomerChatScreen(props: Props) {
       <OclTimelineStrip rows={hub.timeline ?? []} />
     ) : null;
 
-  const listFooter = venueTyping ? (
-    <View style={styles.footerPad}>
-      <View style={styles.typingRow}>
-        <ChatTypingDots />
-        <Text style={styles.typingLabel}>Restaurant is typing</Text>
-      </View>
-    </View>
-  ) : null;
+  const listFooter = venueTyping ? <TypingIndicator /> : null;
 
-  /** Immersive chat — no app top/bottom chrome. */
-  const chatContentTop = chatImmersiveContentTop(insets.top);
+  /** Immersive chat — sticky thread nav below safe area. */
+  const listTopInset = chatThreadListTopInset(insets.top);
   const chatScrollBottom = Math.max(insets.bottom, 8) + 16;
-
-  /** Just above home indicator when keyboard closed; flush when open. */
-  const composerBottomPad = keyboardOpen ? 0 : chatImmersiveComposerBottomInset(insets.bottom);
-
-  const listTopInset = chatListTopInset(chatContentTop);
-  const showVenueStatus = Boolean(hub?.ok && !needsVenue);
+  const composerBottomPad = Math.max(2, insets.bottom);
+  const showVenueCall = Boolean(hub?.ok && !needsVenue);
+  const showVenueStatus = showVenueCall;
+  const threadVenueName = hub?.restaurant?.name?.trim() || venueDisplayName.trim() || "Venue";
 
   return (
     <KeyboardAvoidingView
@@ -641,19 +797,51 @@ export function CustomerChatScreen(props: Props) {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={0}
     >
-      <ChatCollapsingHeader
-        scrollY={scrollY}
-        topInset={chatContentTop}
+      <ChatThreadNavBar
         safeAreaTop={insets.top}
-        immersive
+        venueName={threadVenueName}
+        showStatus={showVenueStatus}
+        restaurantOnline={hub?.restaurantOnline ?? false}
         onBack={() => {
           void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           onBack();
         }}
-        showStatus={showVenueStatus}
-        openingHours={hub?.restaurant?.openingHours}
-        venueStatus={hub?.venueStatus}
-        onInfoPress={showVenueStatus ? () => setVenueInfoOpen(true) : undefined}
+        onCallPress={
+          showVenueCall
+            ? () => {
+                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                handleCallVenue();
+              }
+            : undefined
+        }
+      />
+
+      <MessageActionMenu
+        visible={!!menuMessage}
+        message={menuMessage}
+        onClose={() => setMenuMessage(null)}
+        onCopy={
+          menuMessage?.content
+            ? () => Alert.alert("Copied", "Message copied to clipboard.")
+            : undefined
+        }
+        onReply={() => Alert.alert("Reply", "Reply threading is coming soon.")}
+        onDelete={() => Alert.alert("Delete", "Delete is not available yet.")}
+      />
+
+      <AttachmentMenu
+        visible={attachOpen}
+        onClose={() => setAttachOpen(false)}
+        onChoose={handleAttachChoice}
+      />
+
+      <ChatCameraCapture
+        visible={cameraOpen}
+        onClose={() => setCameraOpen(false)}
+        onSend={(uri) => {
+          setCameraOpen(false);
+          sendCapturedImage(uri);
+        }}
       />
 
       <ChatVenueInfoModal
@@ -662,18 +850,18 @@ export function CustomerChatScreen(props: Props) {
         venueName={hub?.restaurant?.name ?? "Restaurant"}
         openingHours={hub?.restaurant?.openingHours}
         onAddItems={() => runQuickAction("view_menu")}
+        initialPanel={venueInfoPanel}
       />
 
       {loading && !hub?.ok && !needsVenue && !needsMenu ? (
         <View style={[styles.threadColumn, { paddingTop: listTopInset }]}>
           <SkeletonChatThread count={7} style={{ flex: 1 }} />
           <View style={[styles.composerDock, { paddingBottom: composerBottomPad, opacity: 0.55 }]}>
-            <ChatComposerBar
+            <MessageComposer
               value=""
               onChange={() => {}}
               onSend={() => {}}
-              onPickImages={() => {}}
-              sending={false}
+              onOpenAttach={() => {}}
               pickingImage={false}
               inputRef={inputRef}
             />
@@ -731,8 +919,8 @@ export function CustomerChatScreen(props: Props) {
       {!needsVenue && !needsMenu && !loading && hub?.ok && !loadErr ? (
         <View style={styles.threadColumn}>
           <Animated.FlatList
-            ref={listRef as React.RefObject<FlatList<ThreadFeedItem>>}
-            data={feed}
+            ref={listRef as React.RefObject<FlatList<ListRow>>}
+            data={listRows}
             keyExtractor={(item) => item.id}
             style={styles.list}
             contentContainerStyle={[styles.listContent, { paddingTop: listTopInset }]}
@@ -748,27 +936,42 @@ export function CustomerChatScreen(props: Props) {
             onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
             onViewableItemsChanged={onViewableItemsChanged}
             viewabilityConfig={viewabilityConfig}
+            initialNumToRender={14}
+            maxToRenderPerBatch={12}
+            windowSize={9}
+            removeClippedSubviews={Platform.OS === "android"}
             renderItem={({ item, index }) => {
-              const prev = feed[index - 1];
-              const next = feed[index + 1];
+              if (isDateSeparator(item)) {
+                return <DateSeparator label={item.label} />;
+              }
+              const prev = listRows[index - 1];
+              const next = listRows[index + 1];
               void newDismissTick;
               const readAt = customerLastReadAtRef.current;
+              const raw = item.raw;
               const itemUnread =
-                isMessageUnread(item, readAt) && !dismissedNewRef.current.has(item.id);
+                raw.kind === "message" && isMessageUnread(raw, readAt) && !dismissedNewRef.current.has(item.id);
               const prevUnreadIncoming =
-                !!prev &&
-                isIncomingMessage(prev) &&
-                isMessageUnread(prev, readAt) &&
+                prev &&
+                isChatMessage(prev) &&
+                isIncomingMessage(prev.raw) &&
+                isMessageUnread(prev.raw, readAt) &&
                 !dismissedNewRef.current.has(prev.id);
-              const incomingUnread = itemUnread && isIncomingMessage(item);
+              const incomingUnread = itemUnread && isIncomingMessage(raw);
               const showNew = incomingUnread && !prevUnreadIncoming;
+              const groupWithPrev = sameMessageGroup(item, prev);
+              const groupWithNext = sameMessageGroup(item, next);
               return (
-                <ChatMessageBubble
-                  item={item}
-                  groupWithPrev={sameGroup(item, prev)}
-                  groupWithNext={sameGroup(item, next)}
+                <ChatMessage
+                  message={item}
+                  groupWithPrev={groupWithPrev}
+                  groupWithNext={groupWithNext}
+                  showAvatar={!groupWithNext}
                   showNewLabel={showNew}
                   timeUnread={incomingUnread}
+                  authorAvatarUri={item.mine ? customerAvatarUri : null}
+                  authorInitial={item.mine ? customerInitial : venueInitial}
+                  onLongPress={setMenuMessage}
                 />
               );
             }}
@@ -782,12 +985,11 @@ export function CustomerChatScreen(props: Props) {
           />
 
           <View style={[styles.composerDock, { paddingBottom: composerBottomPad }]}>
-            <ChatComposerBar
+            <MessageComposer
               value={draft}
               onChange={onDraftChange}
               onSend={() => void sendMessage()}
-              onPickImages={pickAndSendImages}
-              sending={sending}
+              onOpenAttach={() => setAttachOpen(true)}
               pickingImage={pickingImage}
               inputRef={inputRef}
             />
@@ -802,12 +1004,12 @@ const styles = StyleSheet.create({
   root: { flex: 1, zIndex: 1, backgroundColor: "transparent" },
   threadColumn: { flex: 1, minHeight: 0 },
   composerDock: {
-    paddingTop: 2,
+    paddingTop: 6,
     paddingHorizontal: FLOAT_MARGIN_SIDE,
     backgroundColor: "transparent"
   },
   list: { flex: 1 },
-  listContent: { paddingBottom: 12, flexGrow: 1 },
+  listContent: { paddingBottom: 8, flexGrow: 1 },
   loadingRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 24 },
   syncDotRow: { position: "absolute", right: 16, zIndex: 14 },
   loadingText: { fontSize: R.type.label, color: R.textSecondary, fontWeight: "600" },

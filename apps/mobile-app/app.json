@@ -37,6 +37,12 @@
           "photosPermission": "Allow ServeOS to attach photos in chat with the restaurant.",
           "cameraPermission": "Allow ServeOS to take photos to send in chat."
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow ServeOS to take photos to send in chat."
+        }
       ]
     ],
     "web": {

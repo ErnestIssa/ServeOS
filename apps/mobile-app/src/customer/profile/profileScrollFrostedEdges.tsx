@@ -236,7 +236,7 @@ const styles = StyleSheet.create({
   },
   /**
    * Lower half of home tab bar: side margins match `FLOATING_TAB_BAR_MARGIN_SIDE`;
-   * bottom corners match shell (28); top corners scoop upward like `BottomNavContentDimmer`.
+   * bottom corners match shell (28); top corners scoop upward like bottom nav glass.
    */
   bottomGlass: {
     position: "absolute",

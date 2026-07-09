@@ -39,9 +39,17 @@ type Props = {
   venueName: string;
   openingHours?: string | null;
   onAddItems: () => void;
+  initialPanel?: Panel;
 };
 
-export function ChatVenueInfoModal({ visible, onClose, venueName, openingHours, onAddItems }: Props) {
+export function ChatVenueInfoModal({
+  visible,
+  onClose,
+  venueName,
+  openingHours,
+  onAddItems,
+  initialPanel = "menu"
+}: Props) {
   const progress = useSharedValue(0);
   const [mounted, setMounted] = React.useState(visible);
   const [panel, setPanel] = React.useState<Panel>("menu");
@@ -59,7 +67,7 @@ export function ChatVenueInfoModal({ visible, onClose, venueName, openingHours, 
   React.useEffect(() => {
     if (visible) {
       setMounted(true);
-      setPanel("menu");
+      setPanel(initialPanel);
       progress.value = withTiming(1, {
         duration: SHEET_OPEN_MS,
         easing: Easing.out(Easing.cubic)
@@ -74,7 +82,7 @@ export function ChatVenueInfoModal({ visible, onClose, venueName, openingHours, 
         if (finished) runOnJS(finishClose)();
       }
     );
-  }, [visible, mounted, progress, finishClose]);
+  }, [visible, mounted, progress, finishClose, initialPanel]);
 
   const requestClose = React.useCallback(() => {
     onClose();

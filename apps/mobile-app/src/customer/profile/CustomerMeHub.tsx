@@ -1,31 +1,22 @@
 import React from "react";
-import { StyleSheet, Text, View } from "react-native";
 import type { AuthUser } from "../../api";
-import { ThemedSwitch } from "../../components/ThemedSwitch";
-import type { MobileExperienceManifest, MeHubRowManifest } from "../../mobile/mobileExperienceTypes";
-import { SkeletonBlock } from "../../components/skeleton/SkeletonUi";
+import type { MobileExperienceManifest, MeHubRowManifest, MeHubSectionManifest, ControlCentreChipManifest } from "../../mobile/mobileExperienceTypes";
 import { useAppTheme } from "../../theme/AppThemeContext";
 import { ProfileAvatarModal } from "./ProfileAvatarModal";
 import type { MeNavHighlightKey } from "./profileNavHighlight";
 import { loadProfileAvatarUri, saveProfileAvatarUri } from "./profileAvatarStorage";
 import { fetchCustomerPreferences } from "../customerAppApi";
-import {
-  loadProfileQuickPrefsForCustomer,
-  saveProfileAvatarForCustomer,
-  saveProfileLocationForCustomer,
-  saveProfilePushForCustomer
-} from "./profilePrefsStorage";
+import { saveProfileAvatarForCustomer } from "./profilePrefsStorage";
 import {
   BlurModalScrim,
   FadeSection,
   ProfileCard,
   ProfileHeader,
+  ProfileQuickActionChips,
   ProfileScreenContainer,
   SectionLabel,
   SectionRow
 } from "./ProfileUi";
-import { MeHubMoreSection } from "./MeHubMoreSection";
-import type { AppNavHighlightKey } from "./profileNavHighlight";
 
 type Props = {
   user: AuthUser | null;
@@ -40,14 +31,11 @@ type Props = {
   onNavigateReview: () => void;
   onOpenBookings: () => void;
   onOpenOrders: () => void;
-  onOpenSupport: () => void;
   onSignOut: () => void;
   onChooseExperience?: () => void;
   onNavigateHelp?: () => void;
   onNavigateSafety?: () => void;
   onNavigateAppSettings?: () => void;
-  onNavigateAppSection?: (title: string, subtitle: string | undefined, key: AppNavHighlightKey) => void;
-  onNavigateAppScreen?: (screenKey: string, title: string, subtitle?: string) => void;
   onAvatarSaved?: (uri: string) => void;
   scrollRefExternal?: React.RefObject<import("react-native").ScrollView | null>;
   scrollEnabled?: boolean;
@@ -63,27 +51,35 @@ function rowSubtitle(row: MeHubRowManifest, activeOrderCount: number): string {
   return row.subtitle;
 }
 
+/** Help & support rows live under the Help card — never on profile scroll. */
+function profileMeHubSections(sections: MeHubSectionManifest[]): MeHubSectionManifest[] {
+  return sections
+    .filter((section) => section.id !== "help")
+    .map((section) => ({
+      ...section,
+      rows: section.rows.filter(
+        (row) => row.action !== "open_support" && row.id !== "me:support" && row.id !== "app:chip:help"
+      )
+    }))
+    .filter((section) => section.rows.length > 0);
+}
+
 export function CustomerMeHub(props: Props) {
-  const { colors: t } = useAppTheme();
-  const { meHub } = props.mobileExperience;
+  const { meHub, controlCentre } = props.mobileExperience;
   const isCustomerExperience = props.mobileExperience.roleType === "CUSTOMER";
-  const [prefsReady, setPrefsReady] = React.useState(false);
-  const [pushOn, setPushOn] = React.useState(true);
-  const [locationOn, setLocationOn] = React.useState(false);
   const [signOutOpen, setSignOutOpen] = React.useState(false);
   const [avatarUri, setAvatarUri] = React.useState<string | null>(null);
   const [avatarOpen, setAvatarOpen] = React.useState(false);
 
+  const visibleSections = React.useMemo(
+    () => profileMeHubSections(meHub.sections),
+    [meHub.sections]
+  );
+
   React.useEffect(() => {
-    if (!meHub.showNotificationToggles) return;
     let cancelled = false;
     void (async () => {
-      const [localUri, q] = await Promise.all([
-        loadProfileAvatarUri(),
-        loadProfileQuickPrefsForCustomer(props.authToken)
-      ]);
-      if (cancelled) return;
-      let uri = localUri;
+      let uri = await loadProfileAvatarUri();
       const tok = props.authToken?.trim();
       if (tok && isCustomerExperience) {
         try {
@@ -96,26 +92,12 @@ export function CustomerMeHub(props: Props) {
           /* keep local */
         }
       }
-      setAvatarUri(uri);
-      setPushOn(q.push);
-      setLocationOn(q.location);
-      setPrefsReady(true);
+      if (!cancelled) setAvatarUri(uri);
     })();
     return () => {
       cancelled = true;
     };
-  }, [props.authToken, isCustomerExperience, meHub.showNotificationToggles]);
-
-  React.useEffect(() => {
-    if (isCustomerExperience) return;
-    let cancelled = false;
-    void loadProfileAvatarUri().then((uri) => {
-      if (!cancelled) setAvatarUri(uri);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [isCustomerExperience]);
+  }, [props.authToken, isCustomerExperience]);
 
   const email = props.user?.email?.trim() || "—";
 
@@ -130,9 +112,6 @@ export function CustomerMeHub(props: Props) {
           break;
         case "open_review":
           props.onNavigateReview();
-          break;
-        case "open_support":
-          props.onOpenSupport();
           break;
         case "choose_venue":
           props.onChooseExperience?.();
@@ -157,22 +136,26 @@ export function CustomerMeHub(props: Props) {
     [props]
   );
 
-  const switchStyles = React.useMemo(
-    () =>
-      StyleSheet.create({
-        switchRow: {
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          paddingVertical: 10,
-          borderBottomWidth: StyleSheet.hairlineWidth,
-          borderBottomColor: t.border
-        },
-        switchRowLast: { borderBottomWidth: 0 },
-        switchLabel: { fontSize: 16, fontWeight: "700", color: t.text, flex: 1, paddingRight: 12 }
-      }),
-    [t]
+  const onChipPress = React.useCallback(
+    (chip: ControlCentreChipManifest) => {
+      switch (chip.action) {
+        case "navigate_help":
+          props.onNavigateHelp?.();
+          break;
+        case "navigate_safety":
+          props.onNavigateSafety?.();
+          break;
+        case "navigate_settings":
+          props.onNavigateAppSettings?.();
+          break;
+      }
+    },
+    [props.onNavigateHelp, props.onNavigateSafety, props.onNavigateAppSettings]
   );
+
+  const showQuickChips =
+    controlCentre.chips.length > 0 &&
+    Boolean(props.onNavigateHelp && props.onNavigateSafety && props.onNavigateAppSettings);
 
   return (
     <>
@@ -186,18 +169,18 @@ export function CustomerMeHub(props: Props) {
         <FadeSection>
           <ProfileHeader
             user={props.user}
+            venueName={meHub.showVenueLine ? props.venueName : undefined}
             showStreak={props.mobileExperience.roleType === "CUSTOMER"}
             avatarUri={avatarUri}
             onAvatarPress={() => setAvatarOpen(true)}
+            onSwitchAccount={props.onChooseExperience}
           />
-          {meHub.showVenueLine ? (
-            <Text style={{ fontSize: 13, fontWeight: "700", color: t.accentBlue, marginBottom: t.space.sm }}>
-              {props.venueName}
-            </Text>
+          {showQuickChips ? (
+            <ProfileQuickActionChips chips={controlCentre.chips} onChipPress={onChipPress} />
           ) : null}
         </FadeSection>
 
-        {meHub.sections.map((section) => (
+        {visibleSections.map((section) => (
           <FadeSection key={section.id}>
             <SectionLabel variant="me">{section.label}</SectionLabel>
             <ProfileCard noPad={section.rows.some((r) => r.action !== "sign_out")}>
@@ -216,62 +199,6 @@ export function CustomerMeHub(props: Props) {
             </ProfileCard>
           </FadeSection>
         ))}
-
-        {meHub.showNotificationToggles ? (
-          <FadeSection>
-            <SectionLabel variant="me">Notifications</SectionLabel>
-            <ProfileCard>
-              {!prefsReady ? (
-                <SkeletonBlock lines={2} style={{ paddingVertical: 6 }} />
-              ) : (
-                <>
-                  <View style={[switchStyles.switchRow, !isCustomerExperience && switchStyles.switchRowLast]}>
-                    <Text style={switchStyles.switchLabel}>
-                      {isCustomerExperience ? "Order & chat push" : "Operational push alerts"}
-                    </Text>
-                    <ThemedSwitch
-                      value={pushOn}
-                      onValueChange={(v) => {
-                        setPushOn(v);
-                        void saveProfilePushForCustomer(v, props.authToken);
-                      }}
-                    />
-                  </View>
-                  {isCustomerExperience ? (
-                  <View style={[switchStyles.switchRow, switchStyles.switchRowLast]}>
-                    <Text style={switchStyles.switchLabel}>Location for venues</Text>
-                    <ThemedSwitch
-                      value={locationOn}
-                      onValueChange={(v) => {
-                        setLocationOn(v);
-                        void saveProfileLocationForCustomer(v, props.authToken);
-                      }}
-                    />
-                  </View>
-                  ) : null}
-                </>
-              )}
-            </ProfileCard>
-          </FadeSection>
-        ) : null}
-
-        {props.onNavigateHelp &&
-        props.onNavigateSafety &&
-        props.onNavigateAppSettings &&
-        props.onNavigateAppSection &&
-        props.onNavigateAppScreen ? (
-          <MeHubMoreSection
-            user={props.user}
-            authToken={props.authToken}
-            mobileExperience={props.mobileExperience}
-            onNavigateHelp={props.onNavigateHelp}
-            onNavigateSafety={props.onNavigateSafety}
-            onNavigateAppSettings={props.onNavigateAppSettings}
-            onNavigateSection={props.onNavigateAppSection}
-            onNavigateScreen={props.onNavigateAppScreen}
-            onChooseVenue={() => props.onChooseExperience?.()}
-          />
-        ) : null}
       </ProfileScreenContainer>
 
       <ProfileAvatarModal

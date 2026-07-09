@@ -42,10 +42,14 @@ export function meStackOverlayTitle(route: MeStackRoute): string | null {
         privacy: "Privacy",
         address: "Delivery address",
         accessibility: "Accessibility",
+        night_mode: "Appearance",
         shortcuts: "Shortcuts",
         communication: "Communication",
         navigation: "Navigation",
-        sounds_voice: "Sounds & voice"
+        sounds_voice: "Sounds & voice",
+        connected_devices: "Connected devices",
+        sessions: "Session management",
+        security: "Security"
       };
       return titles[route.key] ?? "App settings";
     }
@@ -91,10 +95,14 @@ export function appStackOverlayTitle(route: AppStackRoute): string | null {
         privacy: "Privacy",
         address: "Delivery address",
         accessibility: "Accessibility",
+        night_mode: "Appearance",
         shortcuts: "Shortcuts",
         communication: "Communication",
         navigation: "Navigation",
-        sounds_voice: "Sounds & voice"
+        sounds_voice: "Sounds & voice",
+        connected_devices: "Connected devices",
+        sessions: "Session management",
+        security: "Security"
       };
       return titles[route.key] ?? "App settings";
     }

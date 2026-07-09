@@ -1,6 +1,5 @@
-import * as Haptics from "expo-haptics";
-import { StatusBar } from "expo-status-bar";
 import React from "react";
+import { StatusBar } from "expo-status-bar";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { ProfileReviewInfoIcon } from "./profileMenuChipIcons";
@@ -52,7 +51,6 @@ export function ProfileReviewScreen(props: Props) {
   }, [props.onClose]);
 
   const onLeadPress = React.useCallback(() => {
-    void Haptics.selectionAsync();
     if (composeActive) {
       feedbackRef.current?.collapseCompose();
       return;
@@ -80,7 +78,7 @@ export function ProfileReviewScreen(props: Props) {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Review information"
-          onPress={() => void Haptics.selectionAsync()}
+          onPress={() => {}}
           hitSlop={14}
           style={({ pressed }) => [styles.iconBtn, styles.iconBtnOnColor, pressed && styles.pressed]}
         >

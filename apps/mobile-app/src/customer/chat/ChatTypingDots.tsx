@@ -9,9 +9,10 @@ import Animated, {
   withSequence,
   withTiming
 } from "react-native-reanimated";
-import { CHAT } from "./chatTheme";
+import { useChatTheme } from "./useChatTheme";
 
 function Dot({ delay }: { delay: number }) {
+  const { tokens } = useChatTheme();
   const y = useSharedValue(0);
   React.useEffect(() => {
     y.value = withDelay(
@@ -28,7 +29,7 @@ function Dot({ delay }: { delay: number }) {
   }, [delay, y]);
 
   const style = useAnimatedStyle(() => ({ transform: [{ translateY: y.value }] }));
-  return <Animated.View style={[styles.dot, style]} />;
+  return <Animated.View style={[styles.dot, { backgroundColor: tokens.brand }, style]} />;
 }
 
 export function ChatTypingDots() {
@@ -43,5 +44,5 @@ export function ChatTypingDots() {
 
 const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: 5, paddingVertical: 4 },
-  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: CHAT.brand }
+  dot: { width: 7, height: 7, borderRadius: 4 }
 });
