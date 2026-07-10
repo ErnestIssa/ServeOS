@@ -180,7 +180,11 @@ export function buildFilteredMenuPool(categories: MenuCategoryLite[], filterQuer
         description: item.description,
         priceCents: item.priceCents ?? 0,
         categoryId: c.id,
-        categoryName: c.name
+        categoryName: c.name,
+        coverUrl: item.coverUrl,
+        imageKey: item.imageKey,
+        media: item.media,
+        modifierGroups: item.modifierGroups
       }))
     )
   );

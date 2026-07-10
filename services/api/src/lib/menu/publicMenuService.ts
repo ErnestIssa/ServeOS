@@ -1,5 +1,10 @@
-import type { Prisma, PrismaClient } from "@prisma/client";
-import { publicUrlForKey } from "../integrations/objectStorage.js";
+import type { Prisma, PrismaClient, StoredMediaVisibility } from "@prisma/client";
+import {
+  createPresignedGetUrl,
+  isObjectStorageConfigured,
+  parseStoredContentRef,
+  publicUrlForKey
+} from "../integrations/objectStorage.js";
 import { fetchMenuTree } from "../menu.js";
 
 export type PublicMenuMedia = {
@@ -52,78 +57,161 @@ export type PublicMenuPayload = {
   categories: PublicMenuCategory[];
 };
 
-function urlForObjectKey(key: string | null | undefined): string | null {
-  if (!key?.trim()) return null;
-  try {
-    return publicUrlForKey(key);
-  } catch {
-    return null;
-  }
+function normalizeObjectKey(key: string): string {
+  return parseStoredContentRef(key.trim()) ?? key.trim();
 }
 
-async function loadMediaByItemIds(prisma: PrismaClient, itemIds: string[]) {
-  const map = new Map<string, PublicMenuMedia[]>();
-  if (!itemIds.length) return map;
+function isHttpUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value);
+}
 
-  const rows = await prisma.storedMedia.findMany({
-    where: { menuItemId: { in: itemIds }, scope: { in: ["MENU_IMAGE", "VIDEO"] } },
-    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }]
-  });
+function cdnConfigured(): boolean {
+  return Boolean(process.env.CLOUDFLARE_CDN_URL?.trim() || process.env.AWS_S3_PUBLIC_URL?.trim());
+}
 
-  for (const row of rows) {
+type MediaUrlResolver = {
+  resolveKey: (key: string | null | undefined) => Promise<string | null>;
+};
+
+async function createMediaUrlResolver(
+  prisma: PrismaClient,
+  keys: Array<string | null | undefined>
+): Promise<MediaUrlResolver> {
+  const normalized = [
+    ...new Set(
+      keys
+        .map((k) => (typeof k === "string" && k.trim() ? normalizeObjectKey(k.trim()) : ""))
+        .filter(Boolean)
+    )
+  ];
+  const visRows = normalized.length
+    ? await prisma.storedMedia.findMany({
+        where: { objectKey: { in: normalized } },
+        select: { objectKey: true, visibility: true }
+      })
+    : [];
+  const visByKey = new Map<string, StoredMediaVisibility>(
+    visRows.map((r) => [r.objectKey, r.visibility])
+  );
+  const hasCdn = cdnConfigured();
+
+  async function resolveKey(key: string | null | undefined): Promise<string | null> {
+    if (!key?.trim()) return null;
+    const raw = key.trim();
+    if (isHttpUrl(raw)) return raw;
+    const objectKey = normalizeObjectKey(raw);
+    const visibility = visByKey.get(objectKey) ?? "PUBLIC";
+    const needsPresigned = visibility === "PRIVATE" || !hasCdn;
+    if (needsPresigned) {
+      if (!isObjectStorageConfigured()) return null;
+      try {
+        return await createPresignedGetUrl(objectKey, { expiresInSeconds: 86_400 });
+      } catch {
+        return null;
+      }
+    }
+    try {
+      return publicUrlForKey(objectKey);
+    } catch {
+      return null;
+    }
+  }
+
+  return { resolveKey };
+}
+
+async function hydrateMenuCategoryUrls(
+  prisma: PrismaClient,
+  categories: PublicMenuCategory[]
+): Promise<PublicMenuCategory[]> {
+  const itemIds = categories.flatMap((c) => c.items.map((i) => i.id));
+  const mediaRows = itemIds.length
+    ? await prisma.storedMedia.findMany({
+        where: { menuItemId: { in: itemIds }, scope: { in: ["MENU_IMAGE", "VIDEO"] } },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        select: {
+          id: true,
+          menuItemId: true,
+          scope: true,
+          objectKey: true,
+          sortOrder: true,
+          durationMs: true
+        }
+      })
+    : [];
+
+  const imageKeys = categories.flatMap((c) => c.items.map((i) => i.imageKey));
+  const resolver = await createMediaUrlResolver(prisma, [
+    ...imageKeys,
+    ...mediaRows.map((r) => r.objectKey)
+  ]);
+
+  const mediaByItem = new Map<string, PublicMenuMedia[]>();
+  for (const row of mediaRows) {
+    if (!row.menuItemId) continue;
     const kind = row.scope === "MENU_IMAGE" ? "image" : "video";
     const entry: PublicMenuMedia = {
       id: row.id,
       kind,
-      url: urlForObjectKey(row.objectKey),
+      url: await resolver.resolveKey(row.objectKey),
       sortOrder: row.sortOrder,
       durationMs: row.durationMs
     };
-    const list = map.get(row.menuItemId!) ?? [];
+    const list = mediaByItem.get(row.menuItemId) ?? [];
     list.push(entry);
-    map.set(row.menuItemId!, list);
+    mediaByItem.set(row.menuItemId, list);
   }
-  return map;
+
+  return Promise.all(
+    categories.map(async (cat) => ({
+      ...cat,
+      items: await Promise.all(
+        cat.items.map(async (item) => {
+          const media = mediaByItem.get(item.id) ?? [];
+          const coverUrl =
+            (await resolver.resolveKey(item.imageKey)) ??
+            media.find((m) => m.kind === "image" && m.url)?.url ??
+            (item.coverUrl && isHttpUrl(item.coverUrl) ? item.coverUrl : null);
+          return { ...item, media, coverUrl };
+        })
+      )
+    }))
+  );
 }
 
 function serializeLiveTree(
-  categories: Awaited<ReturnType<typeof fetchMenuTree>>,
-  mediaByItem: Map<string, PublicMenuMedia[]>
+  categories: Awaited<ReturnType<typeof fetchMenuTree>>
 ): PublicMenuCategory[] {
   return categories.map((cat) => ({
     id: cat.id,
     name: cat.name,
     sortOrder: cat.sortOrder,
     isActive: cat.isActive,
-    items: cat.items.map((item) => {
-      const media = mediaByItem.get(item.id) ?? [];
-      const coverUrl = urlForObjectKey(item.imageKey) ?? media.find((m) => m.kind === "image")?.url ?? null;
-      return {
-        id: item.id,
-        name: item.name,
-        description: item.description,
-        priceCents: item.priceCents,
-        sortOrder: item.sortOrder,
-        isActive: item.isActive,
-        imageKey: item.imageKey,
-        coverUrl,
-        media,
-        modifierGroups: item.modifierGroups.map((g) => ({
-          id: g.id,
-          name: g.name,
-          minSelect: g.minSelect,
-          maxSelect: g.maxSelect,
-          sortOrder: g.sortOrder,
-          options: g.options.map((o) => ({
-            id: o.id,
-            name: o.name,
-            priceDeltaCents: o.priceDeltaCents,
-            sortOrder: o.sortOrder,
-            isActive: o.isActive
-          }))
+    items: cat.items.map((item) => ({
+      id: item.id,
+      name: item.name,
+      description: item.description,
+      priceCents: item.priceCents,
+      sortOrder: item.sortOrder,
+      isActive: item.isActive,
+      imageKey: item.imageKey,
+      coverUrl: null,
+      media: [],
+      modifierGroups: item.modifierGroups.map((g) => ({
+        id: g.id,
+        name: g.name,
+        minSelect: g.minSelect,
+        maxSelect: g.maxSelect,
+        sortOrder: g.sortOrder,
+        options: g.options.map((o) => ({
+          id: o.id,
+          name: o.name,
+          priceDeltaCents: o.priceDeltaCents,
+          sortOrder: o.sortOrder,
+          isActive: o.isActive
         }))
-      };
-    })
+      }))
+    }))
   }));
 }
 
@@ -150,14 +238,11 @@ function filterActiveLiveCategories<T extends { isActive: boolean; items: Array<
 }
 
 async function serializeActiveLiveTree(
-  prisma: PrismaClient,
   categories: Awaited<ReturnType<typeof fetchMenuTree>>
 ): Promise<PublicMenuCategory[]> {
   const activeLive = filterActiveLiveCategories(categories);
   if (!activeLive.length) return [];
-  const itemIds = activeLive.flatMap((c) => c.items.map((i) => i.id));
-  const mediaByItem = await loadMediaByItemIds(prisma, itemIds);
-  return serializeLiveTree(activeLive, mediaByItem);
+  return serializeLiveTree(activeLive);
 }
 
 async function fetchTreeForMenuSurface(prisma: PrismaClient, restaurantId: string, menuId: string | null) {
@@ -187,10 +272,10 @@ async function buildBrowsableLiveCategories(
   restaurantId: string,
   menuId: string | null
 ): Promise<PublicMenuCategory[]> {
-  const surfaced = await serializeActiveLiveTree(prisma, await fetchTreeForMenuSurface(prisma, restaurantId, menuId));
+  const surfaced = await serializeActiveLiveTree(await fetchTreeForMenuSurface(prisma, restaurantId, menuId));
   if (surfaced.length) return surfaced;
   const fallback = await fetchMenuTree(prisma, restaurantId, { onlyActive: true });
-  return serializeActiveLiveTree(prisma, fallback);
+  return serializeActiveLiveTree(fallback);
 }
 
 export async function buildPublishedPublicMenu(
@@ -237,7 +322,7 @@ export async function buildPublishedPublicMenu(
           .filter((i) => i.isActive !== false)
           .map((i) => ({
             ...i,
-            coverUrl: i.coverUrl ?? urlForObjectKey(i.imageKey) ?? null,
+            coverUrl: null,
             media: i.media ?? []
           }))
       }))
@@ -251,16 +336,7 @@ export async function buildPublishedPublicMenu(
 
   if (!categories.length) return null;
 
-  const itemIds = categories.flatMap((c) => c.items.map((i) => i.id));
-  const freshMedia = await loadMediaByItemIds(prisma, itemIds);
-  categories = categories.map((cat) => ({
-    ...cat,
-    items: cat.items.map((item) => {
-      const media = freshMedia.get(item.id) ?? item.media ?? [];
-      const coverUrl = item.coverUrl ?? urlForObjectKey(item.imageKey) ?? media.find((m) => m.kind === "image")?.url ?? null;
-      return { ...item, media, coverUrl };
-    })
-  }));
+  categories = await hydrateMenuCategoryUrls(prisma, categories);
 
   return {
     restaurant,
@@ -273,8 +349,7 @@ export async function buildPublishedPublicMenu(
 
 export async function buildMenuSnapshotForPublish(prisma: PrismaClient, restaurantId: string, menuId: string) {
   const tree = await fetchTreeForMenuSurface(prisma, restaurantId, menuId);
-  const itemIds = tree.flatMap((c) => c.items.map((i) => i.id));
-  const mediaByItem = await loadMediaByItemIds(prisma, itemIds);
-  const categories = serializeLiveTree(tree, mediaByItem);
+  const activeLive = filterActiveLiveCategories(tree);
+  const categories = serializeLiveTree(activeLive);
   return { categories } satisfies Prisma.InputJsonValue;
 }
