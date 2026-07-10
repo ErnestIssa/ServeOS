@@ -3,7 +3,6 @@ import React from "react";
 import {
   LayoutAnimation,
   Linking,
-  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -397,8 +396,13 @@ export function CustomerVenueDirectorySection(props: CustomerVenueDirectorySecti
         setConfirmLoading(false);
         return;
       }
-      await onVenueHydrated(patched.preferredRestaurantId);
+      const restaurantId = patched.preferredRestaurantId;
       setPendingSwitch(null);
+      try {
+        await onVenueHydrated(restaurantId);
+      } catch {
+        onSwitchError?.("Venue saved, but we couldn't finish loading. Pull to refresh.");
+      }
     } catch {
       onSwitchError?.("Could not switch venue. Try again.");
     } finally {
@@ -443,7 +447,7 @@ export function CustomerVenueDirectorySection(props: CustomerVenueDirectorySecti
 
   React.useEffect(() => {
     const notify = onConfirmOverlayChangeRef.current;
-    if (!notify || isSheet || isModal) return;
+    if (!notify) return;
 
     if (!pendingSwitch) {
       if (overlaySignatureRef.current !== null) {
@@ -460,22 +464,19 @@ export function CustomerVenueDirectorySection(props: CustomerVenueDirectorySecti
 
     notify(
       <VenueChangeRestartConfirmOverlay
-        userFirstName={userDisplayName}
-        currentVenueName={currentName}
         nextVenueName={pendingSwitch.name}
         onCancel={() => cancelRestartRef.current()}
         onConfirm={() => void confirmSwitchRef.current()}
         loading={confirmLoading}
+        hapticOnConfirm={isModal}
       />
     );
-  }, [pendingSwitch, confirmLoading, userDisplayName, currentVenueLabel, activeId, isSheet, isModal]);
+  }, [pendingSwitch, confirmLoading, isModal]);
 
   function renderConfirmOverlay() {
     if (!pendingSwitch) return null;
     return (
       <VenueChangeRestartConfirmOverlay
-        userFirstName={userDisplayName}
-        currentVenueName={activeId ? currentVenueLabel : "No venue selected"}
         nextVenueName={pendingSwitch.name}
         onCancel={cancelRestart}
         onConfirm={confirmSwitch}
@@ -487,13 +488,6 @@ export function CustomerVenueDirectorySection(props: CustomerVenueDirectorySecti
 
   function renderConfirmHost() {
     if (!pendingSwitch) return null;
-    if (isSheet || isModal) {
-      return (
-        <Modal transparent visible animationType="fade" statusBarTranslucent onRequestClose={cancelRestart}>
-          {renderConfirmOverlay()}
-        </Modal>
-      );
-    }
     if (onConfirmOverlayChange) return null;
     return (
       <View style={styles.confirmHost} pointerEvents="box-none">

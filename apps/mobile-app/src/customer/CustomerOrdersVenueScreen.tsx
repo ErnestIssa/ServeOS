@@ -17,15 +17,9 @@ import { isVenueOpenNow, useVenueClockTick } from "./venueOpenNow";
 type Props = {
   token: string;
   userId?: string | null;
-  userDisplayName: string;
   /** Venue currently driving menus & cart across the app. */
   activeId: string;
   activeName: string;
-  /** When true, venue switching in the modal is disabled. */
-  venueSwitchLocked: boolean;
-  /** Persist new venue everywhere (menus, cart, profile). Caller may bump keys / reload shell. */
-  onVenueHydrated: (restaurantId: string) => Promise<void>;
-  onVenueSwitchError?: (message: string) => void;
   /** Opens the global restaurant picker (store icon sheet). */
   onChooseVenue?: () => void;
   /** Venue selected but public menu has no browsable items. */
@@ -53,12 +47,8 @@ export function CustomerOrdersVenueScreen(props: Props) {
   const {
     token,
     userId,
-    userDisplayName,
     activeId,
     activeName,
-    venueSwitchLocked,
-    onVenueHydrated,
-    onVenueSwitchError,
     onChooseVenue,
     hasBrowsableMenu = true,
     onSwitchVenue,
@@ -126,19 +116,9 @@ export function CustomerOrdersVenueScreen(props: Props) {
   const hoursSource = currentRow?.openingHours ?? null;
   const cardBusy = rows === null && directoryLoading;
   const openNow = aid ? isVenueOpenNow(hoursSource, clock) : null;
-  const cardDisabled = venueSwitchLocked;
-
-  const modalActive = React.useMemo(
-    () => ({
-      id: aid,
-      name: displayVenueName,
-      openingHours: currentRow?.openingHours ?? null
-    }),
-    [aid, displayVenueName, currentRow?.openingHours]
-  );
 
   function openVenueModal() {
-    if (venueSwitchLocked) return;
+    if (!aid) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setVenueModalOpen(true);
   }
@@ -153,16 +133,16 @@ export function CustomerOrdersVenueScreen(props: Props) {
     <View style={styles.venueBarWrap}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={cardDisabled ? undefined : `${displayVenueName}, venue and hours`}
-        accessibilityHint={cardDisabled ? undefined : "Opens venue options"}
-        android_ripple={cardDisabled ? undefined : { color: "rgba(15, 23, 42, 0.06)" }}
+        accessibilityLabel={`${displayVenueName}, opening hours`}
+        accessibilityHint="Opens opening hours"
+        android_ripple={aid ? { color: "rgba(15, 23, 42, 0.06)" } : undefined}
         onPress={openVenueModal}
-        disabled={cardDisabled}
+        disabled={!aid}
         style={({ pressed }) => [
           styles.venueBar,
           cardBusy && styles.cardBusy,
-          cardDisabled && styles.cardDisabled,
-          pressed && !cardDisabled && styles.pressed
+          !aid && styles.cardDisabled,
+          pressed && aid && styles.pressed
         ]}
       >
         <View style={styles.venueBarInner}>
@@ -175,7 +155,7 @@ export function CustomerOrdersVenueScreen(props: Props) {
                 {openNow ? "Open" : "Closed"}
               </Text>
             ) : null}
-            {!cardDisabled ? <Text style={styles.venueBarCue}>›</Text> : null}
+            {aid ? <Text style={styles.venueBarCue}>›</Text> : null}
           </View>
         </View>
       </Pressable>
@@ -194,20 +174,16 @@ export function CustomerOrdersVenueScreen(props: Props) {
     />
   ) : null;
 
-  const venueModal = (
+  const venueModal = aid ? (
     <CustomerVenueActionsModal
       visible={venueModalOpen}
       onDismiss={() => setVenueModalOpen(false)}
-      userDisplayName={userDisplayName}
-      active={modalActive}
-      restaurants={rows ?? []}
-      directoryLoading={directoryLoading}
       token={token}
-      onVenueHydrated={onVenueHydrated}
-      changeDisabled={venueSwitchLocked}
-      onSwitchError={onVenueSwitchError}
+      restaurantId={aid}
+      fallbackName={displayVenueName}
+      fallbackOpeningHours={currentRow?.openingHours ?? null}
     />
-  );
+  ) : null;
 
   if (!activeOrderForPage) {
     if (!aid) {

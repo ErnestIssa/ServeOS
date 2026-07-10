@@ -247,6 +247,13 @@ export default function App() {
   const [customerHomeHeroH, setCustomerHomeHeroH] = React.useState(248);
   const [orderingSessionId, setOrderingSessionId] = React.useState<string | null>(null);
   const [orderingSessionVenueId, setOrderingSessionVenueId] = React.useState<string | null>(null);
+  const orderingSessionIdRef = React.useRef<string | null>(null);
+  const orderingSessionVenueIdRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    orderingSessionIdRef.current = orderingSessionId;
+    orderingSessionVenueIdRef.current = orderingSessionVenueId;
+  }, [orderingSessionId, orderingSessionVenueId]);
   const [menuDetailItem, setMenuDetailItem] = React.useState<MenuItemFlat | null>(null);
   const [localCart, setLocalCart] = React.useState<Array<{ menuItemId: string; quantity: number; modifierOptionIds: string[] }>>(
     []
@@ -1064,17 +1071,28 @@ export default function App() {
   async function ensureOrderingSession(restaurantId: string) {
     const rid = restaurantId.trim();
     if (!rid) return null;
-    if (orderingSessionId && orderingSessionVenueId === rid) {
-      void touchOrderingSession(orderingSessionId);
-      return orderingSessionId;
+    const activeSessionId = orderingSessionIdRef.current;
+    const activeVenueId = orderingSessionVenueIdRef.current;
+    if (activeSessionId && activeVenueId === rid) {
+      void touchOrderingSession(activeSessionId);
+      return activeSessionId;
     }
     const res = await createGuestOrderingSession(rid, { paymentMode: "PAY_AT_VENUE" });
     if (res.ok && res.session?.id) {
+      orderingSessionIdRef.current = res.session.id;
+      orderingSessionVenueIdRef.current = rid;
       setOrderingSessionId(res.session.id);
       setOrderingSessionVenueId(rid);
       return res.session.id;
     }
     return null;
+  }
+
+  function clearOrderingSessionForVenueSwitch() {
+    orderingSessionIdRef.current = null;
+    orderingSessionVenueIdRef.current = null;
+    setOrderingSessionId(null);
+    setOrderingSessionVenueId(null);
   }
 
   async function fetchPublicMenuForRestaurant(restaurantId: string) {
@@ -1171,13 +1189,13 @@ export default function App() {
     async (restaurantId: string) => {
       const rid = restaurantId.trim();
       if (!rid || !token) return;
+      setSessionUser((u) => (u ? { ...u, preferredRestaurantId: rid } : u));
       setCustomerMenuLoadState("loading");
       await AsyncStorage.setItem(CUSTOMER_VENUE_KEY, rid);
       setMenuRid(rid);
       setTrackResult(null);
       setMenuPrefsSeq((x) => x + 1);
-      setOrderingSessionId(null);
-      setOrderingSessionVenueId(null);
+      clearOrderingSessionForVenueSwitch();
       const res = await fetchPublicMenuForRestaurant(rid);
       if (res.ok) {
         setMenuPreview(res);
@@ -1187,9 +1205,8 @@ export default function App() {
         setCustomerMenuLoadState("ready");
       } else {
         setMenuPreview({ ok: false, error: res.error ?? "menu_failed" });
-        setStatus(formatApiError(res.error));
+        setStatus(formatApiError(res.error ?? "menu_failed"));
         setCustomerMenuLoadState("error");
-        throw new Error(res.error ?? "menu_failed");
       }
       await refreshCustomerCart(rid);
       await invalidateRestaurantDirectory(sessionUser?.id);
@@ -1201,18 +1218,36 @@ export default function App() {
 
   const onExperienceVenueHydrated = React.useCallback(
     async (restaurantId: string) => {
-      await applyCustomerVenueChange(restaurantId);
+      setExperienceSwitchBusy(true);
       setExperienceSwitcherOpen(false);
+      releaseExperienceSwitcherChromeHold();
+      appChromeDismissSV.value = withTiming(1, {
+        duration: APP_CHROME_RESTORE_MS,
+        easing: APP_CHROME_EASE
+      });
       closeNavSheetFully();
       setCustomerSearchQuery("");
       setHomeNavSheetCartEligible(false);
       Keyboard.dismiss();
       restoreBottomNavFocus();
       navigateTab("home");
-      setVenueDirectoryRefreshKey((n) => n + 1);
-      void refreshExperienceSwitcher();
+      try {
+        await applyCustomerVenueChange(restaurantId);
+        setVenueDirectoryRefreshKey((n) => n + 1);
+        void refreshExperienceSwitcher();
+      } finally {
+        setExperienceSwitchBusy(false);
+      }
     },
-    [applyCustomerVenueChange, closeNavSheetFully, restoreBottomNavFocus, refreshExperienceSwitcher, navigateTab]
+    [
+      applyCustomerVenueChange,
+      closeNavSheetFully,
+      restoreBottomNavFocus,
+      refreshExperienceSwitcher,
+      navigateTab,
+      releaseExperienceSwitcherChromeHold,
+      appChromeDismissSV
+    ]
   );
 
   async function addFirstMenuItemToCart() {
@@ -2186,7 +2221,6 @@ export default function App() {
                     <CustomerOrdersVenueScreen
                       token={token}
                       userId={sessionUser?.id}
-                      userDisplayName={customerDisplayName(sessionUser?.signupProfile, sessionUser?.email ?? undefined)}
                       activeId={activeRestaurantId()}
                       activeName={
                         menuPreview?.ok &&
@@ -2195,9 +2229,6 @@ export default function App() {
                           ? String(menuPreview.restaurant.name ?? "")
                           : ""
                       }
-                      venueSwitchLocked={false}
-                      onVenueHydrated={applyCustomerVenueChange}
-                      onVenueSwitchError={(message) => setStatus(message)}
                       onChooseVenue={openExperienceSwitcher}
                       hasBrowsableMenu={!customerVenueNoMenu}
                       onSwitchVenue={openExperienceSwitcher}
@@ -2235,7 +2266,6 @@ export default function App() {
                     <CustomerOrdersVenueScreen
                       token={token}
                       userId={sessionUser?.id}
-                      userDisplayName={customerDisplayName(sessionUser?.signupProfile, sessionUser?.email ?? undefined)}
                       activeId={activeRestaurantId()}
                       activeName={
                         menuPreview?.ok &&
@@ -2244,9 +2274,6 @@ export default function App() {
                           ? String(menuPreview.restaurant.name ?? "")
                           : ""
                       }
-                      venueSwitchLocked={false}
-                      onVenueHydrated={applyCustomerVenueChange}
-                      onVenueSwitchError={(message) => setStatus(message)}
                       onChooseVenue={openExperienceSwitcher}
                       hasBrowsableMenu={!customerVenueNoMenu}
                       onSwitchVenue={openExperienceSwitcher}

@@ -4,6 +4,7 @@ const FRIENDLY: Record<string, string> = {
   failed_to_list_restaurants: "We couldn't load your restaurants. Try again in a moment.",
   failed_to_fetch_orders: "We couldn't load your orders. Pull to refresh or try again.",
   menu_failed: "This menu couldn't be loaded. Try another venue or retry.",
+  menu_not_published: "This menu couldn't be loaded. Try another venue or retry.",
   order_failed: "Your order wasn't placed. Nothing was charged — try again.",
   cart_remove_failed: "We couldn't update your cart. Try again.",
   failed_to_connect: "We couldn't reach ServeOS. Check your internet and try again."

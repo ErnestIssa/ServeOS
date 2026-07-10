@@ -47,6 +47,7 @@ import { isRestaurantStaffOnline } from "../lib/restaurantPresence.js";
 import { countCustomerChatImagesInRoom, ensureChatMessageImageEnum } from "../lib/chatImageEnum.js";
 import { countCustomerChatUnread, countRoomUnreadForCustomer } from "../lib/chatUnread.js";
 import { buildCustomerChatOverview } from "../lib/customerChatOverview.js";
+import { resolveVenueCallLine } from "../lib/venueCallLineService.js";
 
 function bearerToken(headers: { authorization?: string }): string | null {
   const auth = headers.authorization;
@@ -56,6 +57,10 @@ function bearerToken(headers: { authorization?: string }): string | null {
 
 const hubQuerySchema = z.object({
   restaurantId: z.string().min(1).optional()
+});
+
+const venueCallLineQuerySchema = z.object({
+  restaurantId: z.string().min(1)
 });
 
 const postMessageSchema = z.object({
@@ -146,6 +151,46 @@ export function registerCustomerChatRoutes(
     }
     const overview = await buildCustomerChatOverview(prisma, pl.sub);
     return { ok: true, ...overview };
+  });
+
+  app.get("/customer/chat/venue-call-line", async (req, reply) => {
+    const tok = bearerToken(req.headers as { authorization?: string });
+    if (!tok) return reply.status(401).send({ ok: false, error: "missing_token" });
+    const pl = app.verifyJwt(tok);
+    if (pl.role !== "CUSTOMER") {
+      return reply.status(403).send({ ok: false, error: "customer_only" });
+    }
+
+    const parsed = venueCallLineQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return reply.status(400).send({ ok: false, error: "invalid_query" });
+    }
+
+    const restaurant = await prisma.restaurant.findUnique({
+      where: { id: parsed.data.restaurantId },
+      select: {
+        id: true,
+        name: true,
+        customerCallLine: true,
+        registeredPhone: true
+      }
+    });
+    if (!restaurant) {
+      return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
+    }
+
+    const resolved = resolveVenueCallLine(restaurant);
+    if (!resolved.ok) {
+      return reply.status(404).send({ ok: false, error: resolved.error });
+    }
+
+    return {
+      ok: true,
+      restaurantId: restaurant.id,
+      venueName: resolved.venueName,
+      dialUri: resolved.dialUri,
+      source: resolved.source
+    };
   });
 
   app.get("/customer/chat/hub", async (req, reply) => {

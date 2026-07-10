@@ -131,6 +131,30 @@ export type CustomerDirectoryResponse =
   | { ok: true; restaurants: CustomerRestaurantRow[] }
   | { ok: false; error?: string };
 
+export type CustomerVenueHoursPeer = {
+  id: string;
+  name: string;
+  openingHours?: string | null;
+};
+
+export type CustomerVenueHoursPeersResponse =
+  | {
+      ok: true;
+      current: CustomerVenueHoursPeer;
+      peers: CustomerVenueHoursPeer[];
+    }
+  | { ok: false; error?: string };
+
+export async function fetchCustomerVenueHoursPeers(
+  token: string,
+  restaurantId: string
+): Promise<CustomerVenueHoursPeersResponse> {
+  const id = encodeURIComponent(restaurantId.trim());
+  return apiFetch<CustomerVenueHoursPeersResponse>(`/customer/restaurants/${id}/hours-peers`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
 export async function fetchCustomerRestaurantDirectory(token: string): Promise<CustomerDirectoryResponse> {
   return apiFetch<CustomerDirectoryResponse>("/customer/restaurant-directory", {
     headers: { Authorization: `Bearer ${token}` }

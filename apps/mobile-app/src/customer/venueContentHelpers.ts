@@ -29,6 +29,7 @@ export function noMenuAtVenueMessage(venueName: string): string {
 export function formatApiError(error?: string): string {
   if (!error?.trim()) return "Something went wrong. Try again.";
   if (error === "restaurant_not_found") return "This restaurant is no longer available.";
+  if (error === "menu_not_published" || error === "menu_failed") return "This menu couldn't be loaded right now.";
   if (error === "missing_token") return "Sign in to continue.";
   return error;
 }

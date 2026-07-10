@@ -134,6 +134,32 @@ function parseSnapshotCategories(snapshot: unknown): PublicMenuCategory[] | null
   return root.categories as PublicMenuCategory[];
 }
 
+function hasBrowsableLiveItems(
+  categories: Array<{ isActive: boolean; items: Array<{ isActive: boolean }> }>
+): boolean {
+  return categories.some((c) => c.isActive && c.items.some((i) => i.isActive));
+}
+
+function filterActiveLiveCategories<T extends { isActive: boolean; items: Array<{ isActive: boolean }> }>(
+  categories: T[]
+): T[] {
+  return categories
+    .filter((c) => c.isActive)
+    .map((c) => ({ ...c, items: c.items.filter((i) => i.isActive) }))
+    .filter((c) => c.items.length > 0);
+}
+
+async function serializeActiveLiveTree(
+  prisma: PrismaClient,
+  categories: Awaited<ReturnType<typeof fetchMenuTree>>
+): Promise<PublicMenuCategory[]> {
+  const activeLive = filterActiveLiveCategories(categories);
+  if (!activeLive.length) return [];
+  const itemIds = activeLive.flatMap((c) => c.items.map((i) => i.id));
+  const mediaByItem = await loadMediaByItemIds(prisma, itemIds);
+  return serializeLiveTree(activeLive, mediaByItem);
+}
+
 async function fetchTreeForMenuSurface(prisma: PrismaClient, restaurantId: string, menuId: string | null) {
   if (menuId) {
     const linked = await prisma.menuCategory.findMany({
@@ -151,9 +177,20 @@ async function fetchTreeForMenuSurface(prisma: PrismaClient, restaurantId: strin
         }
       }
     });
-    if (linked.length > 0) return linked;
+    if (linked.length > 0 && hasBrowsableLiveItems(linked)) return linked;
   }
   return fetchMenuTree(prisma, restaurantId, { onlyActive: false });
+}
+
+async function buildBrowsableLiveCategories(
+  prisma: PrismaClient,
+  restaurantId: string,
+  menuId: string | null
+): Promise<PublicMenuCategory[]> {
+  const surfaced = await serializeActiveLiveTree(prisma, await fetchTreeForMenuSurface(prisma, restaurantId, menuId));
+  if (surfaced.length) return surfaced;
+  const fallback = await fetchMenuTree(prisma, restaurantId, { onlyActive: true });
+  return serializeActiveLiveTree(prisma, fallback);
 }
 
 export async function buildPublishedPublicMenu(
@@ -205,15 +242,11 @@ export async function buildPublishedPublicMenu(
           }))
       }))
       .filter((c) => c.items.length > 0);
+    if (!categories.length) {
+      categories = await buildBrowsableLiveCategories(prisma, restaurantId, menu?.id ?? null);
+    }
   } else {
-    const live = await fetchTreeForMenuSurface(prisma, restaurantId, menu?.id ?? null);
-    const activeLive = live
-      .filter((c) => c.isActive)
-      .map((c) => ({ ...c, items: c.items.filter((i) => i.isActive) }))
-      .filter((c) => c.items.length > 0);
-    const itemIds = activeLive.flatMap((c) => c.items.map((i) => i.id));
-    const mediaByItem = await loadMediaByItemIds(prisma, itemIds);
-    categories = serializeLiveTree(activeLive, mediaByItem);
+    categories = await buildBrowsableLiveCategories(prisma, restaurantId, menu?.id ?? null);
   }
 
   if (!categories.length) return null;

@@ -1,26 +1,24 @@
 import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { useAppTheme } from "../theme/AppThemeContext";
 
 export type VenueChangeRestartConfirmOverlayProps = {
-  userFirstName: string;
-  currentVenueName: string;
   nextVenueName: string;
   onCancel: () => void;
   onConfirm: () => void | Promise<void>;
   loading?: boolean;
-  /** Subtle haptic when the user confirms (experience switcher modal only). */
   hapticOnConfirm?: boolean;
 };
 
-/**
- * In-Modal overlay (not a separate Modal) so it always stacks above the venue sheet and rest of the app tree inside the same Modal.
- */
+const BLUR_IOS = 22;
+const BLUR_ANDROID = 18;
+
+/** Full-screen frosted blur with a compact confirmation card in focus. */
 export function VenueChangeRestartConfirmOverlay(props: VenueChangeRestartConfirmOverlayProps) {
-  const { userFirstName, currentVenueName, nextVenueName, onCancel, onConfirm, loading, hapticOnConfirm } = props;
+  const { nextVenueName, onCancel, onConfirm, loading, hapticOnConfirm } = props;
   const { colors: t, isDark } = useAppTheme();
   const p = useSharedValue(0);
 
@@ -28,106 +26,125 @@ export function VenueChangeRestartConfirmOverlay(props: VenueChangeRestartConfir
     () =>
       StyleSheet.create({
         root: { ...StyleSheet.absoluteFillObject, zIndex: 99999, elevation: 100 },
-        backdrop: {
+        blurLayer: { ...StyleSheet.absoluteFillObject },
+        blurTint: {
           ...StyleSheet.absoluteFillObject,
-          backgroundColor: isDark ? "rgba(0,0,0,0.72)" : "rgba(2,6,23,0.55)"
+          backgroundColor: isDark ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.06)"
         },
         centerWrap: {
           ...StyleSheet.absoluteFillObject,
           justifyContent: "center",
           alignItems: "center",
-          padding: 22
+          paddingHorizontal: 28
         },
         card: {
           width: "100%",
-          maxWidth: 380,
-          borderRadius: 22,
-          backgroundColor: t.bg,
-          borderWidth: 2,
-          borderColor: isDark ? t.danger : "rgba(239,68,68,0.55)",
-          padding: 20,
-          shadowColor: "#000",
-          shadowOffset: { width: 0, height: 12 },
-          shadowOpacity: 0.2,
-          shadowRadius: 24,
-          elevation: 24
+          maxWidth: 300,
+          borderRadius: 20,
+          backgroundColor: isDark ? "rgba(24,24,30,0.98)" : "rgba(255,255,255,0.98)",
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: isDark ? "rgba(255,255,255,0.14)" : "rgba(15,23,42,0.1)",
+          paddingHorizontal: 18,
+          paddingTop: 18,
+          paddingBottom: 16,
+          ...Platform.select({
+            ios: {
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 10 },
+              shadowOpacity: 0.2,
+              shadowRadius: 28
+            },
+            android: { elevation: 16 }
+          })
         },
-        badge: {
-          alignSelf: "flex-start",
-          fontSize: 11,
-          fontWeight: "900",
-          color: t.danger,
-          textTransform: "uppercase",
-          letterSpacing: 0.8,
-          marginBottom: 8
+        title: {
+          fontSize: 18,
+          fontWeight: "800",
+          color: t.text,
+          letterSpacing: -0.3,
+          textAlign: "center",
+          lineHeight: 24
         },
-        title: { fontSize: 20, fontWeight: "900", color: t.text, letterSpacing: -0.35 },
-        body: { marginTop: 12, fontSize: 15, lineHeight: 22, color: t.textSecondary, fontWeight: "600" },
-        emphasis: { fontWeight: "900", color: t.text },
-        subtle: { marginTop: 12, fontSize: 13, lineHeight: 19, color: t.textMuted, fontWeight: "600" },
-        actions: { marginTop: 20, flexDirection: "row", alignItems: "stretch" },
+        venueName: { fontWeight: "900", color: t.text },
+        hint: {
+          marginTop: 6,
+          fontSize: 13,
+          lineHeight: 18,
+          fontWeight: "600",
+          color: t.textMuted,
+          textAlign: "center"
+        },
+        actions: { marginTop: 16, flexDirection: "row", alignItems: "stretch", gap: 8 },
         cancelBtn: {
           flex: 1,
-          borderRadius: 16,
-          paddingVertical: 14,
+          borderRadius: 12,
+          paddingVertical: 11,
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: t.bgElevated,
-          borderWidth: 1,
-          borderColor: t.border
+          backgroundColor: isDark ? "rgba(255,255,255,0.07)" : "rgba(15,23,42,0.05)",
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(15,23,42,0.08)"
         },
-        cancelText: { fontSize: 15, fontWeight: "800", color: t.text },
+        cancelText: { fontSize: 14, fontWeight: "700", color: t.textSecondary },
         confirmBtn: {
           flex: 1,
-          marginLeft: 10,
-          borderRadius: 16,
-          paddingVertical: 14,
+          borderRadius: 12,
+          paddingVertical: 11,
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: t.danger
+          backgroundColor: t.accentBlue
         },
-        confirmText: { fontSize: 15, fontWeight: "900", color: "#fff" },
-        pressed: { opacity: 0.88 }
+        confirmText: { fontSize: 14, fontWeight: "800", color: "#fff" },
+        pressed: { opacity: 0.86 }
       }),
     [t, isDark]
   );
 
   React.useEffect(() => {
-    p.value = withTiming(1, { duration: 220, easing: Easing.out(Easing.cubic) });
+    p.value = withTiming(1, { duration: 200, easing: Easing.out(Easing.cubic) });
   }, [p]);
 
-  const backdropStyle = useAnimatedStyle(() => ({ opacity: p.value }));
+  const blurStyle = useAnimatedStyle(() => ({ opacity: p.value }));
   const cardStyle = useAnimatedStyle(() => ({
     opacity: p.value,
-    transform: [{ scale: 0.94 + p.value * 0.06 }]
+    transform: [{ scale: 0.96 + p.value * 0.04 }]
   }));
 
-  const first = userFirstName.trim() || "there";
+  const venue = nextVenueName.trim() || "this venue";
 
   const handleConfirm = React.useCallback(() => {
     if (hapticOnConfirm) void Haptics.selectionAsync();
     void onConfirm();
   }, [hapticOnConfirm, onConfirm]);
 
+  const blurProps =
+    Platform.OS === "android" ? ({ experimentalBlurMethod: "dimezisBlurView" } as const) : {};
+
   return (
-    <View style={styles.root} pointerEvents="auto">
-      <Animated.View style={[styles.backdrop, backdropStyle]}>
-        <BlurView intensity={78} tint="dark" style={StyleSheet.absoluteFill} />
-        <Pressable style={StyleSheet.absoluteFill} onPress={onCancel} accessibilityRole="button" accessibilityLabel="Dismiss" />
+    <View style={styles.root} pointerEvents="box-none" accessibilityViewIsModal>
+      <Animated.View style={[styles.blurLayer, blurStyle]} pointerEvents="auto">
+        <BlurView
+          intensity={Platform.OS === "ios" ? BLUR_IOS : BLUR_ANDROID}
+          tint={isDark ? "dark" : "light"}
+          style={StyleSheet.absoluteFill}
+          {...blurProps}
+        />
+        <View style={styles.blurTint} pointerEvents="none" />
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={onCancel}
+          disabled={loading}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss venue switch"
+        />
       </Animated.View>
 
       <View style={styles.centerWrap} pointerEvents="box-none">
         <Animated.View style={[styles.card, cardStyle]} accessibilityRole="alert">
-          <Text style={styles.badge}>Switch venue</Text>
-          <Text style={styles.title}>Hi {first}, confirm your venue</Text>
-          <Text style={styles.body}>
-            You are about to leave{" "}
-            <Text style={styles.emphasis}>{currentVenueName}</Text>
-            {" "}and order from{" "}
-            <Text style={styles.emphasis}>{nextVenueName}</Text>
-            . Your menu, cart, and orders will update to match the venue you choose.
+          <Text style={styles.title} numberOfLines={2}>
+            Switch to <Text style={styles.venueName}>{venue}</Text>?
           </Text>
-          <Text style={styles.subtle}>If you are not ready yet, tap Cancel and nothing will change.</Text>
+          <Text style={styles.hint}>Menu and cart will update.</Text>
 
           <View style={styles.actions}>
             <Pressable
@@ -142,7 +159,7 @@ export function VenueChangeRestartConfirmOverlay(props: VenueChangeRestartConfir
               disabled={loading}
               style={({ pressed }) => [styles.confirmBtn, (pressed || loading) && styles.pressed]}
             >
-              <Text style={[styles.confirmText, loading && { opacity: 0.58 }]}>Confirm switch</Text>
+              <Text style={[styles.confirmText, loading && { opacity: 0.58 }]}>Switch</Text>
             </Pressable>
           </View>
         </Animated.View>

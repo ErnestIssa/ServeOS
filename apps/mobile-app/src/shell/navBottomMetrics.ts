@@ -88,6 +88,15 @@ export const CHAT_IMMERSIVE_BACK_ROW = 44;
 
 /** Sticky thread nav (back + venue + online status). */
 export const CHAT_THREAD_NAV_HEIGHT = 50;
+/** Gap below safe area before the chat thread nav capsule. */
+export const CHAT_THREAD_NAV_TOP_MARGIN = 4;
+/** Scroll gap below the chat thread nav capsule. */
+export const CHAT_THREAD_GAP_BELOW_NAV = 10;
+
+/** Bottom edge of chat thread top chrome (safe area + margin + bar + gap). */
+export function chatThreadNavChromeBottom(topInset: number): number {
+  return topInset + CHAT_THREAD_NAV_TOP_MARGIN + CHAT_THREAD_NAV_HEIGHT + CHAT_THREAD_GAP_BELOW_NAV;
+}
 
 export function chatImmersiveContentTop(safeTop: number): number {
   return safeTop + CHAT_IMMERSIVE_BACK_ROW;

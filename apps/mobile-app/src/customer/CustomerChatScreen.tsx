@@ -7,6 +7,7 @@ import {
   type ViewToken,
   Keyboard,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   StyleSheet,
@@ -25,6 +26,7 @@ import {
 } from "../data/customerDataCache";
 import {
   fetchCustomerChatHub,
+  fetchCustomerChatVenueCallLine,
   postCustomerChatDocument,
   postCustomerChatImages,
   postCustomerChatMessage,
@@ -32,6 +34,7 @@ import {
   type CustomerChatQuickActionId,
   type ThreadFeedItem
 } from "./customerChatApi";
+import { ChatVenueCallModal } from "./chat/ChatVenueCallModal";
 import { MessageComposer } from "./chat/composer/MessageComposer";
 import { ChatMessage, DateSeparator } from "./chat/messages/ChatMessage";
 import { buildListRows, sameMessageGroup } from "./chat/messages/mapFeedItem";
@@ -40,6 +43,7 @@ import { TypingIndicator } from "./chat/messages/TypingIndicator";
 import { MessageActionMenu } from "./chat/menu/MessageActionMenu";
 import { ChatVenueInfoModal } from "./chat/ChatVenueInfoModal";
 import { ChatThreadNavBar, chatThreadListTopInset } from "./chat/ChatThreadNavBar";
+import { NavTopScrim } from "../shell/NavTopScrim";
 import { AttachmentMenu, ATTACH_MENU_DISMISS_MS, type AttachmentChoice } from "./chat/composer/AttachmentMenu";
 import { playCartAddCue } from "./cartCueSound";
 import { ChatCameraCapture } from "./chat/ChatCameraCapture";
@@ -197,7 +201,9 @@ export function CustomerChatScreen(props: Props) {
   const [pickingImage, setPickingImage] = React.useState(false);
   const [venueTyping, setVenueTyping] = React.useState(false);
   const [venueInfoOpen, setVenueInfoOpen] = React.useState(false);
-  const [venueInfoPanel, setVenueInfoPanel] = React.useState<"menu" | "call_staff" | "opening_hours">("menu");
+  const [venueInfoPanel, setVenueInfoPanel] = React.useState<"menu" | "opening_hours">("menu");
+  const [venueCallOpen, setVenueCallOpen] = React.useState(false);
+  const [callingVenue, setCallingVenue] = React.useState(false);
   const [attachOpen, setAttachOpen] = React.useState(false);
   const [cameraOpen, setCameraOpen] = React.useState(false);
   const pendingAttachRef = React.useRef<AttachmentChoice | null>(null);
@@ -564,7 +570,10 @@ export function CustomerChatScreen(props: Props) {
         onPopularItems();
         break;
       case "opening_hours":
+        openVenueInfo("opening_hours");
+        break;
       case "call_staff":
+        setVenueCallOpen(true);
         break;
       case "ask_ingredients":
         focusComposer("Hi — can you confirm ingredients for ");
@@ -657,9 +666,39 @@ export function CustomerChatScreen(props: Props) {
     })();
   }
 
-  function openVenueInfo(panel: "menu" | "call_staff" | "opening_hours") {
+  function openVenueInfo(panel: "menu" | "opening_hours") {
     setVenueInfoPanel(panel);
     setVenueInfoOpen(true);
+  }
+
+  async function confirmVenueCall() {
+    const rid = hub?.restaurant?.id ?? restaurantId.trim();
+    if (!rid || callingVenue) return;
+    setCallingVenue(true);
+    try {
+      const res = await fetchCustomerChatVenueCallLine(token, rid);
+      if (!res.ok || !res.dialUri) {
+        Alert.alert(
+          "Cannot call venue",
+          res.error === "no_call_line_configured"
+            ? "This venue has not set up a phone number yet."
+            : "Could not start a call right now. Try again later."
+        );
+        return;
+      }
+      const telUrl = `tel:${res.dialUri}`;
+      const canOpen = await Linking.canOpenURL(telUrl);
+      if (!canOpen) {
+        Alert.alert("Cannot call", "Phone calls are not available on this device.");
+        return;
+      }
+      await Linking.openURL(telUrl);
+      setVenueCallOpen(false);
+    } catch {
+      Alert.alert("Cannot call", "Could not start a call right now. Try again later.");
+    } finally {
+      setCallingVenue(false);
+    }
   }
 
   function pickAndSendDocument() {
@@ -733,7 +772,7 @@ export function CustomerChatScreen(props: Props) {
   }, [attachOpen]);
 
   function handleCallVenue() {
-    openVenueInfo("call_staff");
+    setVenueCallOpen(true);
   }
 
   async function sendMessage() {
@@ -797,6 +836,7 @@ export function CustomerChatScreen(props: Props) {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={0}
     >
+      <NavTopScrim topInset={insets.top} chatThread />
       <ChatThreadNavBar
         safeAreaTop={insets.top}
         venueName={threadVenueName}
@@ -842,6 +882,17 @@ export function CustomerChatScreen(props: Props) {
           setCameraOpen(false);
           sendCapturedImage(uri);
         }}
+      />
+
+      <ChatVenueCallModal
+        visible={venueCallOpen}
+        venueName={threadVenueName}
+        calling={callingVenue}
+        onClose={() => {
+          if (callingVenue) return;
+          setVenueCallOpen(false);
+        }}
+        onCall={() => void confirmVenueCall()}
       />
 
       <ChatVenueInfoModal

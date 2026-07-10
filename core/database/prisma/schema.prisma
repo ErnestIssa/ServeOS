@@ -278,6 +278,10 @@ model Restaurant {
   id           String   @id @default(cuid())
   name         String
   openingHours String?  // later: structured JSON
+  /// Customer-facing call line (primary when customers tap Call in chat).
+  customerCallLine String?
+  /// Registered venue phone (fallback when customer call line is unset).
+  registeredPhone  String?
   logoImageKey  String?
   coverImageKey String?
 

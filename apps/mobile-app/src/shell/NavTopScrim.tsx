@@ -15,6 +15,9 @@ import {
 } from "./navGlassChrome";
 import {
   CONTENT_GAP_BELOW_TOP_NAV,
+  CHAT_THREAD_GAP_BELOW_NAV,
+  CHAT_THREAD_NAV_HEIGHT,
+  CHAT_THREAD_NAV_TOP_MARGIN,
   FLOAT_MARGIN_TOP,
   FLOAT_MARGIN_TOP_HOME,
   FLOATING_HOME_TOP_BAR_HEIGHT,
@@ -94,25 +97,51 @@ type Props = {
   topInset: number;
   /** Customer home uses the thinner split top row metrics. */
   customerHome?: boolean;
+  /** Immersive chat thread — matches `ChatThreadNavBar` layout. */
+  chatThread?: boolean;
 };
+
+function topChromeMetrics(
+  topInset: number,
+  opts: { customerHome?: boolean; chatThread?: boolean }
+): { topMargin: number; barHeight: number; gapBelow: number } {
+  if (opts.chatThread) {
+    return {
+      topMargin: CHAT_THREAD_NAV_TOP_MARGIN,
+      barHeight: CHAT_THREAD_NAV_HEIGHT,
+      gapBelow: CHAT_THREAD_GAP_BELOW_NAV
+    };
+  }
+  if (opts.customerHome) {
+    return {
+      topMargin: FLOAT_MARGIN_TOP_HOME,
+      barHeight: FLOATING_HOME_TOP_BAR_HEIGHT,
+      gapBelow: CONTENT_GAP_BELOW_TOP_NAV
+    };
+  }
+  return {
+    topMargin: FLOAT_MARGIN_TOP,
+    barHeight: FLOATING_TOP_BAR_HEIGHT,
+    gapBelow: CONTENT_GAP_BELOW_TOP_NAV
+  };
+}
 
 /**
  * Fixed top depth field + frosted glass band — mirrors the bottom nav scrim stack.
  * Bleeds from the physical screen top through the floating top nav and fades below.
  * Top chrome never reacts to scroll direction.
  */
-export function NavTopScrim({ topInset, customerHome = false }: Props) {
+export function NavTopScrim({ topInset, customerHome = false, chatThread = false }: Props) {
   const { isDark } = useAppTheme();
   const { height: screenH } = useWindowDimensions();
 
-  const topMargin = customerHome ? FLOAT_MARGIN_TOP_HOME : FLOAT_MARGIN_TOP;
-  const topBarHeight = customerHome ? FLOATING_HOME_TOP_BAR_HEIGHT : FLOATING_TOP_BAR_HEIGHT;
+  const { topMargin, barHeight, gapBelow } = topChromeMetrics(topInset, { customerHome, chatThread });
 
   const ambientStops = React.useMemo(() => navTopAmbientStops(isDark), [isDark]);
   const localStops = React.useMemo(() => navTopLocalStops(isDark), [isDark]);
   const glassFeather = React.useMemo(() => navGlassGradientFeather(isDark), [isDark]);
 
-  const navChromeBottom = topInset + topMargin + topBarHeight + CONTENT_GAP_BELOW_TOP_NAV;
+  const navChromeBottom = topInset + topMargin + barHeight + gapBelow;
 
   const glassBandHeight = navChromeBottom + NAV_GLASS_SCOOP_RADIUS;
   const localHeight = Math.max(180, navChromeBottom + 56);

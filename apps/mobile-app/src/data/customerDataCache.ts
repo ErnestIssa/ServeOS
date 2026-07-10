@@ -16,7 +16,7 @@ import {
   myOrdersKey,
   restaurantDirectoryKey
 } from "./cache/cacheKeys";
-import { cacheRead, cacheWrite, fetchWithCache, revalidateInBackground } from "./cache/appCache";
+import { cacheRead, cacheWrite, fetchWithCache, revalidateInBackground, cacheInvalidate } from "./cache/appCache";
 
 /** Default TTLs — tune per resource volatility. */
 export const TTL = {

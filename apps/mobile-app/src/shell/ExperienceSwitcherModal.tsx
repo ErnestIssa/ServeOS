@@ -53,6 +53,17 @@ export function ExperienceSwitcherModal(props: Props) {
   const { height: screenH } = useWindowDimensions();
   const { isDark } = useAppTheme();
 
+  const [venueConfirmOverlay, setVenueConfirmOverlay] = React.useState<React.ReactNode>(null);
+  const venueConfirmOpen = venueConfirmOverlay != null;
+
+  const reportVenueConfirmOverlay = React.useCallback((node: React.ReactNode) => {
+    setVenueConfirmOverlay(node);
+  }, []);
+
+  React.useEffect(() => {
+    if (!visible) setVenueConfirmOverlay(null);
+  }, [visible]);
+
   const modalTop = floatingTopBarBottomY(insets.top);
   const modalHeight = Math.max(280, screenH - modalTop);
 
@@ -78,9 +89,9 @@ export function ExperienceSwitcherModal(props: Props) {
   }, [onDismiss]);
 
   const requestBackdropDismiss = React.useCallback(() => {
-    if (busy) return;
+    if (busy || venueConfirmOpen) return;
     onDismiss();
-  }, [busy, onDismiss]);
+  }, [busy, venueConfirmOpen, onDismiss]);
 
   React.useEffect(() => {
     if (visible) {
@@ -108,16 +119,17 @@ export function ExperienceSwitcherModal(props: Props) {
     if (!mounted || !visible) return;
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       if (busy) return true;
+      if (venueConfirmOpen) return true;
       onDismiss();
       return true;
     });
     return () => sub.remove();
-  }, [mounted, visible, busy, onDismiss]);
+  }, [mounted, visible, busy, venueConfirmOpen, onDismiss]);
 
   const handlePan = React.useMemo(
     () =>
       Gesture.Pan()
-        .enabled(!busy)
+        .enabled(!busy && !venueConfirmOpen)
         .maxPointers(1)
         .activeOffsetY(2)
         .failOffsetX([-48, 48])
@@ -166,7 +178,7 @@ export function ExperienceSwitcherModal(props: Props) {
             velocity: vy
           });
         }),
-    [busy, dragOffsetSV, dragStartOffsetSV, modalHeightSV, openProgress, requestDismissFromDrag]
+    [busy, venueConfirmOpen, dragOffsetSV, dragStartOffsetSV, modalHeightSV, openProgress, requestDismissFromDrag]
   );
 
   const backdropStyle = useAnimatedStyle(() => ({
@@ -197,7 +209,11 @@ export function ExperienceSwitcherModal(props: Props) {
   const handleColor = isDark ? "rgba(255,255,255,0.32)" : "rgba(60,60,67,0.38)";
 
   return (
-    <View style={styles.host} pointerEvents="box-none" accessibilityViewIsModal>
+    <View
+      style={styles.host}
+      pointerEvents={visible ? "box-none" : "none"}
+      accessibilityViewIsModal
+    >
       <Pressable
         style={styles.backdropPress}
         onPress={requestBackdropDismiss}
@@ -272,11 +288,18 @@ export function ExperienceSwitcherModal(props: Props) {
                 onSelectCustomer={props.onSelectCustomer}
                 onSelectWorkspace={props.onSelectWorkspace}
                 onJoined={props.onJoined}
+                onVenueConfirmOverlayChange={reportVenueConfirmOverlay}
               />
             </View>
           </View>
         </GestureDetector>
       </Animated.View>
+
+      {venueConfirmOverlay ? (
+        <View style={styles.venueConfirmHost} pointerEvents="box-none">
+          {venueConfirmOverlay}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -354,5 +377,10 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
     marginTop: -10
+  },
+  venueConfirmHost: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 120,
+    elevation: 120
   }
 });

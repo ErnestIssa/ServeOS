@@ -60,6 +60,7 @@ type Props = {
   onSelectCustomer: () => void;
   onSelectWorkspace: (restaurantId: string) => void;
   onJoined?: () => void;
+  onVenueConfirmOverlayChange?: (node: React.ReactNode) => void;
 };
 
 export function ExperienceSwitcherPanel(props: Props) {
@@ -85,11 +86,12 @@ export function ExperienceSwitcherPanel(props: Props) {
 
   const resetModalUiState = React.useCallback(() => {
     setExperienceConfirmOpen(false);
+    props.onVenueConfirmOverlayChange?.(null);
     setJoinOpen(false);
     setInviteInput("");
     setJoinError(null);
     setJoinBusy(false);
-  }, []);
+  }, [props.onVenueConfirmOverlayChange]);
 
   React.useEffect(() => {
     if (!isModal) return;
@@ -410,6 +412,7 @@ export function ExperienceSwitcherPanel(props: Props) {
             onVenueHydrated={props.onVenueHydrated}
             changeDisabled={props.venueSwitchLocked}
             onSwitchError={props.onVenueSwitchError}
+            onConfirmOverlayChange={props.onVenueConfirmOverlayChange}
           />
         )}
       </View>

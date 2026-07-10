@@ -170,6 +170,25 @@ export async function postCustomerChatImages(
   });
 }
 
+export type CustomerChatVenueCallLineResponse = {
+  ok: boolean;
+  error?: string;
+  restaurantId?: string;
+  venueName?: string;
+  dialUri?: string;
+  source?: "customer_call_line" | "registered_phone";
+};
+
+export async function fetchCustomerChatVenueCallLine(
+  token: string,
+  restaurantId: string
+): Promise<CustomerChatVenueCallLineResponse> {
+  const q = encodeURIComponent(restaurantId.trim());
+  return apiFetch<CustomerChatVenueCallLineResponse>(`/customer/chat/venue-call-line?restaurantId=${q}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
 export async function postCustomerChatDocument(
   token: string,
   body: {

@@ -1,8 +1,13 @@
-import { BlurView } from "expo-blur";
-import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
-import { CHAT_THREAD_NAV_HEIGHT, FLOAT_MARGIN_SIDE } from "../../shell/navBottomMetrics";
+import { LiquidGlassChrome } from "../../shell/LiquidGlassChrome";
+import { NAV_BOTTOM_DOCK_SHELL_BG, navDockGlassTokens } from "../../shell/navDockGlass";
+import {
+  CHAT_THREAD_NAV_HEIGHT,
+  CHAT_THREAD_NAV_TOP_MARGIN,
+  FLOAT_MARGIN_SIDE,
+  chatThreadNavChromeBottom
+} from "../../shell/navBottomMetrics";
 import { useAppTheme } from "../../theme/AppThemeContext";
 import { ChatIconPhone } from "./ChatIconPhone";
 import { ChatVenueStatusRow } from "./ChatVenueStatusRow";
@@ -16,6 +21,8 @@ type Props = {
   onCallPress?: () => void;
 };
 
+const CHAT_NAV_RADIUS = CHAT_THREAD_NAV_HEIGHT / 2;
+
 export function ChatThreadNavBar({
   safeAreaTop,
   venueName,
@@ -25,30 +32,28 @@ export function ChatThreadNavBar({
   onCallPress
 }: Props) {
   const { colors: theme, isDark } = useAppTheme();
+  const glass = React.useMemo(() => navDockGlassTokens(isDark), [isDark]);
   const titleColor = theme.ordersNavPurpleBright;
   const phoneColor = theme.ordersNavPurpleBright;
-  const pillBorder = isDark ? theme.border : theme.borderStrong;
-  const androidGlass = isDark ? theme.bgElevated : theme.bg;
-  const barShadow = theme.shadow;
 
   return (
-    <View style={[styles.wrap, { paddingTop: safeAreaTop + 4 }]} pointerEvents="box-none">
-      <View style={[styles.bar, { borderColor: pillBorder, shadowColor: barShadow }]}>
-        {Platform.OS === "ios" ? (
-          <BlurView intensity={38} tint={isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} />
-        ) : (
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: androidGlass, opacity: 0.94 }]} />
-        )}
-        <LinearGradient
-          colors={
-            isDark
-              ? [theme.bgSubtle, theme.bgElevated]
-              : [theme.menuGradient[0], theme.menuGradient[2]]
+    <View
+      style={[styles.wrap, { paddingTop: safeAreaTop + CHAT_THREAD_NAV_TOP_MARGIN }]}
+      pointerEvents="box-none"
+    >
+      <View
+        style={[
+          styles.bar,
+          {
+            shadowColor: glass.shadowColor,
+            shadowOpacity: glass.shadowOpacity
           }
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[StyleSheet.absoluteFill, { opacity: 0.55 }]}
+        ]}
+      >
+        <LiquidGlassChrome tokens={glass} variant="shell" borderRadius={CHAT_NAV_RADIUS} />
+        <View
           pointerEvents="none"
+          style={[StyleSheet.absoluteFill, styles.chipSolidFill, { borderRadius: CHAT_NAV_RADIUS }]}
         />
 
         <Pressable
@@ -89,7 +94,7 @@ export function ChatThreadNavBar({
 }
 
 export function chatThreadListTopInset(safeAreaTop: number): number {
-  return safeAreaTop + CHAT_THREAD_NAV_HEIGHT + 14;
+  return chatThreadNavChromeBottom(safeAreaTop);
 }
 
 const styles = StyleSheet.create({
@@ -98,13 +103,12 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     top: 0,
-    zIndex: 12,
+    zIndex: 30,
     paddingHorizontal: FLOAT_MARGIN_SIDE
   },
   bar: {
     minHeight: CHAT_THREAD_NAV_HEIGHT,
-    borderRadius: 18,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: CHAT_NAV_RADIUS,
     overflow: "hidden",
     flexDirection: "row",
     alignItems: "center",
@@ -113,12 +117,15 @@ const styles = StyleSheet.create({
     gap: 4,
     ...Platform.select({
       ios: {
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.12,
-        shadowRadius: 10
+        shadowOffset: { width: 0, height: 8 },
+        shadowRadius: 16
       },
-      android: { elevation: 4 }
+      android: { elevation: 10 },
+      default: {}
     })
+  },
+  chipSolidFill: {
+    backgroundColor: NAV_BOTTOM_DOCK_SHELL_BG
   },
   backBtn: {
     width: 36,

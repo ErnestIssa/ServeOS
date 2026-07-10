@@ -14,6 +14,7 @@ import {
   isCustomerBrowsableRestaurant,
   listCustomerBrowsableRestaurants
 } from "../lib/customerRestaurantDirectory.js";
+import { listVenueHoursPeers } from "../lib/venueHoursPeersService.js";
 import {
   DEFAULT_CUSTOMER_APP_SETTINGS,
   mergeAppSettingsIntoProfile,
@@ -52,6 +53,32 @@ export function registerCustomerRoutes(app: FastifyInstance, prisma: PrismaClien
 
     const restaurants = await listCustomerBrowsableRestaurants(prisma);
     return { ok: true, restaurants };
+  });
+
+  app.get("/customer/restaurants/:restaurantId/hours-peers", async (req, reply) => {
+    const tok = bearerToken(req.headers as { authorization?: string });
+    if (!tok) return reply.status(401).send({ ok: false, error: "missing_token" });
+    const pl = app.verifyJwt(tok);
+    if (pl.role !== "CUSTOMER") {
+      return reply.status(403).send({ ok: false, error: "customer_only" });
+    }
+
+    const restaurantId = String((req.params as { restaurantId?: string }).restaurantId ?? "").trim();
+    if (!restaurantId) {
+      return reply.status(400).send({ ok: false, error: "validation_error" });
+    }
+
+    const browsable = await isCustomerBrowsableRestaurant(prisma, restaurantId);
+    if (!browsable) {
+      return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
+    }
+
+    const result = await listVenueHoursPeers(prisma, restaurantId);
+    if (!result.ok) {
+      return reply.status(404).send({ ok: false, error: result.error });
+    }
+
+    return { ok: true, current: result.current, peers: result.peers };
   });
 
   /** Central SST snapshot for home, nav badges, cart, booking draft, and control-centre prefs. */
