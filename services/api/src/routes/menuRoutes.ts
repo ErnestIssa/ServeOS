@@ -53,8 +53,17 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
       return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
     }
 
-    const menus = await listMenusForRestaurant(prisma, restaurantId, userId);
-    return { ok: true, menus };
+    try {
+      const menus = await listMenusForRestaurant(prisma, restaurantId, userId);
+      return { ok: true, menus };
+    } catch (err) {
+      req.log.error({ err, restaurantId }, "menu_surface_list_failed");
+      return reply.status(500).send({
+        ok: false,
+        error: "menu_list_failed",
+        message: "Could not load menus for this venue. If this continues, contact support."
+      });
+    }
   });
 
   const createSchema = z.object({
