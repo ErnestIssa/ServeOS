@@ -14,7 +14,15 @@ export function initSentryFromConfig(config: PublicClientConfig | null) {
     release: sentry.release ?? undefined,
     tracesSampleRate: sentry.tracesSampleRate,
     sendDefaultPii: false,
-    integrations: [Sentry.browserTracingIntegration(), Sentry.replayIntegration()]
+    integrations: [
+      Sentry.browserTracingIntegration(),
+      Sentry.replayIntegration({
+        maskAllText: true,
+        blockAllMedia: true
+      })
+    ],
+    replaysSessionSampleRate: 0,
+    replaysOnErrorSampleRate: 0.1
   });
   initialized = true;
   return true;

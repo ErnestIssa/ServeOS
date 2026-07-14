@@ -57,7 +57,7 @@ export function filterUserCreatedWindows(windows: MenuAvailabilityWindows | null
 export function listAvailabilityCards(menus: MenuSurfaceRow[]): AvailabilityCard[] {
   const cards: AvailabilityCard[] = [];
   for (const menu of menus) {
-    const windows = filterUserCreatedWindows(menu.availabilityWindows);
+    const windows = filterUserCreatedWindows(menu.availabilityWindows ?? null);
     for (const [key, window] of Object.entries(windows)) {
       cards.push({ key, menuId: menu.id, menuName: menu.name, window });
     }

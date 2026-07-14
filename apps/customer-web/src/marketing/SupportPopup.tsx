@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { SupportAgentThread } from "@serveos/agents";
 import { readAdminTheme } from "../admin/adminNavContent";
 import { FOOTER_SUPPORT_EMAIL } from "./footerContent";
@@ -619,6 +619,7 @@ export function SupportPopup({
   const [panelPresent, setPanelPresent] = useState(false);
   const [panelAnimated, setPanelAnimated] = useState(false);
   const [adminTheme, setAdminTheme] = useState(readAdminTheme);
+  const overlayRef = useRef<HTMLDivElement>(null);
   const scrollLightFab = useSupportFabTone(!isVisible && !adminWorkspaceChrome);
   const adminFabTone = useAdminWorkspaceFabTone(adminWorkspaceChrome);
   const fabTone = adminWorkspaceChrome
@@ -760,6 +761,15 @@ export function SupportPopup({
 
   const fabDismiss = isVisible;
   const panelOpen = panelAnimated || wideOpen;
+
+  useEffect(() => {
+    if (panelOpen) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && overlayRef.current?.contains(active)) {
+      active.blur();
+    }
+  }, [panelOpen]);
+
   const compactHomeTab = !wideOpen && compactTab === "home";
   const compactMessagesTab = !wideOpen && compactTab === "messages";
   const compactMessagesThread = compactMessagesTab && messagesThreadOpen;
@@ -797,11 +807,12 @@ export function SupportPopup({
     <>
       {panelPresent ? (
       <div
+        ref={overlayRef}
         className={`support-popup-overlay${wideOpen ? " support-popup-overlay--wide" : ""}${
           panelOpen ? " is-visible" : ""
         }`}
         role="presentation"
-        aria-hidden={!panelOpen}
+        inert={!panelOpen ? true : undefined}
       >
         <button
           type="button"

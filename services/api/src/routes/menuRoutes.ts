@@ -21,9 +21,9 @@ import {
   archiveMenuSurface,
   duplicateMenuSurface,
   mapMenuOpsError,
-  scheduleMenuSurface,
-  type MenuAvailabilityWindows
+  scheduleMenuSurface
 } from "../lib/menu/menuSurfaceOpsService.js";
+import { sanitizeAvailabilityWindows } from "../lib/menu/menuAvailability.js";
 import { mapPublishMenuError, publishMenuSurface } from "../lib/menu/menuPublishService.js";
 
 const surfaceKeySchema = z
@@ -38,8 +38,8 @@ const availabilityWindowSchema = z.object({
   start: z.string(),
   end: z.string(),
   days: z.array(z.number().int()),
-  label: z.string().trim().min(1).max(48),
-  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/)
+  label: z.string().trim().min(1).max(48).optional(),
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional()
 });
 
 export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
@@ -112,19 +112,28 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
     const { userId, membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
     assertMenuEntityPermission("menu", "publish", membership);
 
-    const result = await publishMenuSurface(prisma, {
-      restaurantId: params.restaurantId,
-      menuId: params.menuId,
-      publishedByUserId: userId
-    });
-    if (!result.ok) {
-      return reply.status(400).send({
+    try {
+      const result = await publishMenuSurface(prisma, {
+        restaurantId: params.restaurantId,
+        menuId: params.menuId,
+        publishedByUserId: userId
+      });
+      if (!result.ok) {
+        return reply.status(400).send({
+          ok: false,
+          error: result.error,
+          message: mapPublishMenuError(result.error)
+        });
+      }
+      return { ok: true, menu: result.menu };
+    } catch (err) {
+      req.log.error({ err, menuId: params.menuId, restaurantId: params.restaurantId }, "menu_publish_failed");
+      return reply.status(500).send({
         ok: false,
-        error: result.error,
-        message: mapPublishMenuError(result.error)
+        error: "menu_publish_failed",
+        message: "Could not publish menu. Check that categories and items are valid, then try again."
       });
     }
-    return { ok: true, menu: result.menu };
   });
 
   app.post("/restaurants/:restaurantId/menus/:menuId/archive", async (req, reply) => {
@@ -173,7 +182,7 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
     const result = await scheduleMenuSurface(prisma, params.restaurantId, params.menuId, {
       ...(body.scheduledPublishAt !== undefined ? { scheduledPublishAt: body.scheduledPublishAt } : {}),
       ...(body.availabilityWindows !== undefined
-        ? { availabilityWindows: body.availabilityWindows as MenuAvailabilityWindows }
+        ? { availabilityWindows: sanitizeAvailabilityWindows(body.availabilityWindows) ?? {} }
         : {})
     });
     if (!result.ok) {

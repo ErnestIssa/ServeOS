@@ -167,14 +167,36 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
     return { ok: true, ...menu };
   });
 
-  app.get("/restaurants/:restaurantId/menu", async (req) => {
+  app.get("/restaurants/:restaurantId/menu", async (req, reply) => {
     const { restaurantId } = req.params as { restaurantId: string };
     const { membership } = await requireStaff(req, restaurantId);
     assertMenuEntityPermission("menu", "view", membership);
     const r = await prisma.restaurant.findUnique({ where: { id: restaurantId } });
     if (!r) throw Object.assign(new Error("restaurant_not_found"), { statusCode: 404 });
-    const categories = await fetchMenuTree(prisma, restaurantId, { onlyActive: false });
-    return { ok: true, restaurant: { id: r.id, name: r.name }, categories };
+    try {
+      const categories = await fetchMenuTree(prisma, restaurantId, { onlyActive: false });
+      return {
+        ok: true,
+        restaurant: { id: r.id, name: r.name },
+        categories: categories.map((cat) => ({
+          ...cat,
+          description: cat.description ?? null,
+          items: cat.items.map((item) => ({
+            ...item,
+            description: item.description ?? null,
+            ingredients: item.ingredients ?? null,
+            specialNotes: item.specialNotes ?? null
+          }))
+        }))
+      };
+    } catch (err) {
+      req.log.error({ err, restaurantId }, "menu_admin_load_failed");
+      return reply.status(500).send({
+        ok: false,
+        error: "menu_load_failed",
+        message: "Could not load menu for this venue. If this continues, contact support."
+      });
+    }
   });
 
   const createCategorySchema = z.object({

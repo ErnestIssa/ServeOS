@@ -1,16 +1,11 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { menuListInclude, serializeMenu } from "./menuService.js";
+import {
+  sanitizeAvailabilityWindows,
+  type MenuAvailabilityWindows
+} from "./menuAvailability.js";
 
-export type AvailabilityWindow = {
-  enabled: boolean;
-  start: string;
-  end: string;
-  days: number[];
-  label: string;
-  color: string;
-};
-
-export type MenuAvailabilityWindows = Record<string, AvailabilityWindow>;
+export type { AvailabilityWindow, MenuAvailabilityWindows } from "./menuAvailability.js";
 
 async function loadMenuForOps(prisma: PrismaClient, restaurantId: string, menuId: string) {
   return prisma.menu.findFirst({
@@ -164,7 +159,8 @@ export async function scheduleMenuSurface(
   }
 
   if (input.availabilityWindows !== undefined) {
-    data.availabilityWindows = input.availabilityWindows as unknown as Prisma.InputJsonValue;
+    const windows = sanitizeAvailabilityWindows(input.availabilityWindows) ?? {};
+    data.availabilityWindows = windows as unknown as Prisma.InputJsonValue;
   }
 
   const updated = await prisma.menu.update({
@@ -178,7 +174,7 @@ export async function scheduleMenuSurface(
     menu: {
       ...serializeMenu(updated),
       scheduledPublishAt: updated.scheduledPublishAt?.toISOString() ?? null,
-      availabilityWindows: (updated.availabilityWindows as MenuAvailabilityWindows | null) ?? null
+      availabilityWindows: sanitizeAvailabilityWindows(updated.availabilityWindows),
     }
   };
 }
