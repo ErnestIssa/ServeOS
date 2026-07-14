@@ -3,6 +3,7 @@ import type { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import {
   attachMenuItemMedia,
+  attachMenuSurfaceCoverMedia,
   listMenuItemMedia,
   mapMenuItemMediaError,
   removeMenuItemMedia,
@@ -25,13 +26,20 @@ import {
 } from "../lib/menu/menuSurfaceOpsService.js";
 import { mapPublishMenuError, publishMenuSurface } from "../lib/menu/menuPublishService.js";
 
-const SURFACE_KEYS = ["main", "lunch", "dinner", "drinks", "seasonal", "custom"] as const;
+const surfaceKeySchema = z
+  .string()
+  .trim()
+  .min(2)
+  .max(48)
+  .regex(/^[a-z0-9][a-z0-9_-]*$/i);
 
 const availabilityWindowSchema = z.object({
   enabled: z.boolean(),
   start: z.string(),
   end: z.string(),
-  days: z.array(z.number().int())
+  days: z.array(z.number().int()),
+  label: z.string().trim().min(1).max(48),
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/)
 });
 
 export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
@@ -52,7 +60,7 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
   const createSchema = z.object({
     name: z.string().trim().min(2).max(80),
     description: z.string().trim().max(280).optional(),
-    surfaceKey: z.enum(SURFACE_KEYS).optional()
+    surfaceKey: surfaceKeySchema.optional()
   });
 
   app.post("/restaurants/:restaurantId/menus", async (req, reply) => {
@@ -163,8 +171,10 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
     assertMenuEntityPermission("menu", "edit", membership);
 
     const result = await scheduleMenuSurface(prisma, params.restaurantId, params.menuId, {
-      scheduledPublishAt: body.scheduledPublishAt ?? null,
-      availabilityWindows: body.availabilityWindows as MenuAvailabilityWindows | undefined
+      ...(body.scheduledPublishAt !== undefined ? { scheduledPublishAt: body.scheduledPublishAt } : {}),
+      ...(body.availabilityWindows !== undefined
+        ? { availabilityWindows: body.availabilityWindows as MenuAvailabilityWindows }
+        : {})
     });
     if (!result.ok) {
       return reply.status(400).send({
@@ -174,6 +184,27 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
       });
     }
     return { ok: true, menu: result.menu };
+  });
+
+  app.post("/restaurants/:restaurantId/menus/:menuId/cover-media", async (req, reply) => {
+    const params = z.object({ restaurantId: z.string().min(1), menuId: z.string().min(1) }).parse(req.params);
+    const body = z.object({ mediaId: z.string().min(1) }).parse(req.body);
+    const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("media", "upload", membership);
+
+    const result = await attachMenuSurfaceCoverMedia(prisma, {
+      restaurantId: params.restaurantId,
+      menuId: params.menuId,
+      mediaId: body.mediaId
+    });
+    if (!result.ok) {
+      return reply.status(400).send({
+        ok: false,
+        error: result.error,
+        message: mapMenuItemMediaError(result.error)
+      });
+    }
+    return { ok: true, coverMediaKey: result.coverMediaKey };
   });
 
   app.get("/restaurants/:restaurantId/menu/export.csv", async (req, reply) => {

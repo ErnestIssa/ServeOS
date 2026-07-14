@@ -128,6 +128,9 @@ export function AdminConfigMenuPage({ token, restaurantId, venueName, initialTab
                   initialLoading={api.meta.initialLoading}
                   capabilities={menuCaps.capabilities}
                   can={menuCaps.can}
+                  menus={menusApi.menus}
+                  onNavigateTab={setTab}
+                  onMenusRefresh={() => void menusApi.refresh()}
                 />
               )}
             </div>

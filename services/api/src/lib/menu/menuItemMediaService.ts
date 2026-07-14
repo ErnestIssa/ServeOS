@@ -273,3 +273,30 @@ export async function attachMenuItemCoverImage(
 ) {
   return attachMenuItemMedia(prisma, { ...params, setAsCover: true });
 }
+
+export async function attachMenuSurfaceCoverMedia(
+  prisma: PrismaClient,
+  params: { restaurantId: string; menuId: string; mediaId: string }
+) {
+  const menu = await prisma.menu.findFirst({
+    where: { id: params.menuId, restaurantId: params.restaurantId, status: { not: "ARCHIVED" } },
+    select: { id: true }
+  });
+  if (!menu) return { ok: false as const, error: "menu_not_found" };
+
+  const media = await prisma.storedMedia.findFirst({
+    where: { id: params.mediaId, restaurantId: params.restaurantId },
+    select: { id: true, objectKey: true, scope: true }
+  });
+  if (!media) return { ok: false as const, error: "media_not_found" };
+  if (media.scope !== "MENU_IMAGE" && media.scope !== "VIDEO") {
+    return { ok: false as const, error: "invalid_media_scope" };
+  }
+
+  await prisma.menu.update({
+    where: { id: params.menuId },
+    data: { coverMediaKey: media.objectKey }
+  });
+
+  return { ok: true as const, coverMediaKey: media.objectKey };
+}

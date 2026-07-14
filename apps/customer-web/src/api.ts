@@ -225,6 +225,7 @@ export async function listRestaurants(token: string) {
       role: string;
       status?: string;
       companyId?: string | null;
+      establishmentLocation?: string | null;
     }>;
     error?: string;
   }>("/restaurants/restaurants", { headers: { Authorization: `Bearer ${token}` } });
@@ -242,13 +243,17 @@ export type MenuTree = {
   restaurant: { id: string; name: string };
   categories: Array<{
     id: string;
+    menuId: string | null;
     name: string;
+    description: string | null;
     sortOrder: number;
     isActive: boolean;
     items: Array<{
       id: string;
       name: string;
       description: string | null;
+      ingredients: string | null;
+      specialNotes: string | null;
       priceCents: number;
       sortOrder: number;
       isActive: boolean;
@@ -270,6 +275,17 @@ export type MenuTree = {
   }>;
 };
 
+export type MenuAvailabilityWindow = {
+  enabled: boolean;
+  start: string;
+  end: string;
+  days: number[];
+  label: string;
+  color: string;
+};
+
+export type MenuAvailabilityWindows = Record<string, MenuAvailabilityWindow>;
+
 export type MenuSurfaceRow = {
   id: string;
   name: string;
@@ -279,8 +295,10 @@ export type MenuSurfaceRow = {
   sortOrder: number;
   categoryCount: number;
   itemCount: number;
+  coverMediaKey: string | null;
   activeVersionNumber: number | null;
   publishedAt: string | null;
+  availabilityWindows: MenuAvailabilityWindows | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -322,8 +340,12 @@ export async function getMenuAdmin(token: string, restaurantId: string) {
   );
 }
 
-export async function createCategory(token: string, restaurantId: string, body: { name: string; sortOrder?: number }) {
-  return apiFetch<{ ok: boolean; error?: string; category?: { id: string } }>(
+export async function createCategory(
+  token: string,
+  restaurantId: string,
+  body: { name: string; menuId?: string; description?: string; sortOrder?: number }
+) {
+  return apiFetch<{ ok: boolean; error?: string; message?: string; category?: { id: string; name: string } }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menu/categories`,
     { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body) }
   );
@@ -332,11 +354,52 @@ export async function createCategory(token: string, restaurantId: string, body: 
 export async function createMenuItem(
   token: string,
   restaurantId: string,
-  body: { categoryId: string; name: string; description?: string; priceCents: number; sortOrder?: number }
+  body: {
+    categoryId: string;
+    name: string;
+    description?: string;
+    ingredients?: string;
+    specialNotes?: string;
+    priceCents: number;
+    sortOrder?: number;
+  }
 ) {
   return apiFetch<{ ok: boolean; error?: string; item?: { id: string } }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menu/items`,
     { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body) }
+  );
+}
+
+export async function updateMenuItem(
+  token: string,
+  restaurantId: string,
+  itemId: string,
+  body: {
+    categoryId?: string;
+    name?: string;
+    description?: string | null;
+    ingredients?: string | null;
+    specialNotes?: string | null;
+    priceCents?: number;
+    sortOrder?: number;
+    isActive?: boolean;
+  }
+) {
+  return apiFetch<{ ok: boolean; error?: string; item?: { id: string } }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menu/items/${encodeURIComponent(itemId)}`,
+    { method: "PATCH", headers: authJsonHeaders(token), body: JSON.stringify(body) }
+  );
+}
+
+export async function attachMenuSurfaceCoverMedia(
+  token: string,
+  restaurantId: string,
+  menuId: string,
+  mediaId: string
+) {
+  return apiFetch<{ ok: boolean; coverMediaKey?: string; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}/cover-media`,
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify({ mediaId }) }
   );
 }
 
@@ -361,6 +424,44 @@ export async function createModifierOption(
   return apiFetch<{ ok: boolean; error?: string; option?: { id: string } }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menu/modifier-groups/${encodeURIComponent(groupId)}/options`,
     { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body) }
+  );
+}
+
+export async function updateModifierGroup(
+  token: string,
+  restaurantId: string,
+  groupId: string,
+  body: { name?: string; minSelect?: number; maxSelect?: number; sortOrder?: number }
+) {
+  return apiFetch<{ ok: boolean; error?: string; group?: { id: string } }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menu/modifier-groups/${encodeURIComponent(groupId)}`,
+    { method: "PATCH", headers: authJsonHeaders(token), body: JSON.stringify(body) }
+  );
+}
+
+export async function deleteModifierGroup(token: string, restaurantId: string, groupId: string) {
+  return apiFetch<{ ok: boolean; error?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menu/modifier-groups/${encodeURIComponent(groupId)}`,
+    { method: "DELETE", headers: authJsonHeaders(token) }
+  );
+}
+
+export async function updateModifierOption(
+  token: string,
+  restaurantId: string,
+  optionId: string,
+  body: { name?: string; priceDeltaCents?: number; sortOrder?: number; isActive?: boolean }
+) {
+  return apiFetch<{ ok: boolean; error?: string; option?: { id: string } }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menu/modifier-options/${encodeURIComponent(optionId)}`,
+    { method: "PATCH", headers: authJsonHeaders(token), body: JSON.stringify(body) }
+  );
+}
+
+export async function deleteModifierOption(token: string, restaurantId: string, optionId: string) {
+  return apiFetch<{ ok: boolean; error?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menu/modifier-options/${encodeURIComponent(optionId)}`,
+    { method: "DELETE", headers: authJsonHeaders(token) }
   );
 }
 
@@ -642,7 +743,7 @@ export async function scheduleRestaurantMenu(
   token: string,
   restaurantId: string,
   menuId: string,
-  body: { scheduledPublishAt: string | null; availabilityWindows?: Record<string, unknown> }
+  body: { scheduledPublishAt?: string | null; availabilityWindows?: MenuAvailabilityWindows }
 ) {
   return apiFetch<{ ok: boolean; menu?: MenuSurfaceRow & { scheduledPublishAt?: string | null }; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}/schedule`,

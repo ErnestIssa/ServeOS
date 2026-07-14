@@ -464,6 +464,7 @@ model MenuCategory {
   restaurantId String
   menuId       String?
   name         String
+  description  String?
   sortOrder    Int      @default(0)
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
@@ -496,6 +497,7 @@ model Menu {
   sortOrder            Int        @default(0)
   scheduledPublishAt   DateTime?
   availabilityWindows  Json?
+  coverMediaKey        String?
   createdAt            DateTime   @default(now())
   updatedAt            DateTime   @updatedAt
 
@@ -597,9 +599,11 @@ model SessionCartLine {
 model MenuItem {
   id          String   @id @default(cuid())
   categoryId  String
-  name        String
-  description String?
-  priceCents  Int
+  name          String
+  description   String?
+  ingredients   String?
+  specialNotes  String?
+  priceCents    Int
   imageKey    String?
   sortOrder   Int      @default(0)
   isActive    Boolean  @default(true)

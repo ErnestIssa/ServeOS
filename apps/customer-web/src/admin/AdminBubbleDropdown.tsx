@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AdminNavChevron } from "./AdminNavChevron";
 import { useAdminPopoverMount } from "./useAdminPopoverMount";
 
@@ -25,6 +25,7 @@ type Props = {
 const PANEL_HEADER_PX = 48;
 const PANEL_MIN_BODY_PX = 72;
 const PANEL_MAX_BODY_PX = 224;
+const HOVER_CLOSE_DELAY_MS = 400;
 
 export function AdminBubbleDropdown({
   label,
@@ -42,6 +43,7 @@ export function AdminBubbleDropdown({
   dropInline = false
 }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const closeTimerRef = useRef<number | null>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [placement, setPlacement] = useState({ above: false, maxBodyHeight: PANEL_MAX_BODY_PX });
@@ -58,10 +60,59 @@ export function AdminBubbleDropdown({
   }, [options, query, searchable]);
 
   function close() {
+    if (closeTimerRef.current) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
     setOpen(false);
     setQuery("");
     onBlur?.();
   }
+
+  function scheduleHoverClose() {
+    cancelHoverClose();
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null;
+      close();
+    }, HOVER_CLOSE_DELAY_MS);
+  }
+
+  function cancelHoverClose() {
+    if (closeTimerRef.current) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !dropInline) return;
+
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (target && rootRef.current?.contains(target)) return;
+      close();
+    };
+
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [open, dropInline]);
 
   const updatePlacement = () => {
     if (!containWithinModal || dropInline || !rootRef.current) return;
@@ -107,8 +158,11 @@ export function AdminBubbleDropdown({
     <div
       ref={rootRef}
       className={`admin-bubble-dropdown${open ? " is-open" : ""}${containWithinModal ? " admin-bubble-dropdown--contained" : ""}${dropInline ? " admin-bubble-dropdown--inline" : ""} ${className}`.trim()}
+      onMouseEnter={() => {
+        cancelHoverClose();
+      }}
       onMouseLeave={() => {
-        if (open) close();
+        if (open) scheduleHoverClose();
       }}
     >
       <span className="admin-bubble-dropdown-label">
@@ -130,7 +184,10 @@ export function AdminBubbleDropdown({
       {mounted ? (
         <div
           className={`admin-bubble-dropdown-anchor${visible ? " is-visible" : ""}${placement.above && !dropInline ? " admin-bubble-dropdown-anchor--above" : ""}${dropInline ? " admin-bubble-dropdown-anchor--inline" : ""}`}
-          onMouseEnter={() => setOpen(true)}
+          onMouseEnter={() => {
+            cancelHoverClose();
+            setOpen(true);
+          }}
         >
           <div
             className={`admin-top-bubble admin-top-bubble--arrow-${dropInline || placement.above ? "none" : bubbleArrow} admin-bubble-dropdown-panel`}

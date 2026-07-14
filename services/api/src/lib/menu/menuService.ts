@@ -1,6 +1,7 @@
 import type { MenuStatus, Prisma, PrismaClient } from "@prisma/client";
 import { fetchMenuTree } from "../menu.js";
 import { buildMenuSnapshotForPublish } from "./publicMenuService.js";
+import type { MenuAvailabilityWindows } from "./menuSurfaceOpsService.js";
 
 export type MenuListItem = {
   id: string;
@@ -11,8 +12,10 @@ export type MenuListItem = {
   sortOrder: number;
   categoryCount: number;
   itemCount: number;
+  coverMediaKey: string | null;
   activeVersionNumber: number | null;
   publishedAt: string | null;
+  availabilityWindows: MenuAvailabilityWindows | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -25,6 +28,8 @@ export function serializeMenu(
     surfaceKey: string | null;
     status: MenuStatus;
     sortOrder: number;
+    coverMediaKey?: string | null;
+    availabilityWindows?: unknown;
     createdAt: Date;
     updatedAt: Date;
     categories: Array<{ _count: { items: number } }>;
@@ -42,8 +47,10 @@ export function serializeMenu(
     sortOrder: row.sortOrder,
     categoryCount,
     itemCount,
+    coverMediaKey: row.coverMediaKey ?? null,
     activeVersionNumber: row.activeVersion?.versionNumber ?? null,
     publishedAt: row.activeVersion?.publishedAt?.toISOString() ?? null,
+    availabilityWindows: (row.availabilityWindows as MenuAvailabilityWindows | null) ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString()
   };

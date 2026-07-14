@@ -1,16 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  attachMenuItemMedia,
-  completeMenuMediaUpload,
-  createMenuMediaUploadSession,
-  listMenuItemMedia,
-  removeMenuItemMedia,
-  uploadMenuMediaBase64,
-  type MenuCapabilitiesPayload,
-  type MenuItemMediaRow
-} from "../../../api";
+import { listMenuItemMedia, removeMenuItemMedia, type MenuCapabilitiesPayload, type MenuItemMediaRow } from "../../../api";
 import { AdminBtnSecondary } from "../../AdminUi";
 import { useAdminToast } from "../../AdminToast";
+import { attachUploadedMediaToItem, readVideoDurationMs, uploadMenuMediaFile } from "./menuMediaUpload";
 import { MenuChip, MenuSection, MenuToolbarButton } from "./MenuPageUi";
 
 type Props = {
@@ -22,78 +14,6 @@ type Props = {
   canRemove: boolean;
   limits: MenuCapabilitiesPayload["limits"] | null;
 };
-
-function readFileAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error("read_failed"));
-    reader.readAsDataURL(file);
-  });
-}
-
-function readVideoDurationMs(file: File) {
-  return new Promise<number>((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const video = document.createElement("video");
-    video.preload = "metadata";
-    video.onloadedmetadata = () => {
-      const ms = Math.round(video.duration * 1000);
-      URL.revokeObjectURL(url);
-      resolve(ms);
-    };
-    video.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error("video_metadata_failed"));
-    };
-    video.src = url;
-  });
-}
-
-async function uploadMenuItemFile(
-  token: string,
-  restaurantId: string,
-  menuItemId: string,
-  file: File,
-  kind: "image" | "video"
-) {
-  const scope = kind === "image" ? "menu" : "video";
-  const contentType = file.type || (kind === "image" ? "image/jpeg" : "video/mp4");
-  const session = await createMenuMediaUploadSession(token, {
-    scope,
-    contentType,
-    restaurantId,
-    menuItemId,
-    originalName: file.name
-  });
-  if (!session.ok || !session.upload) {
-    return { ok: false as const, error: session.error ?? "upload_session_failed" };
-  }
-
-  const dataBase64 = await readFileAsDataUrl(file);
-  const uploaded = await uploadMenuMediaBase64(token, {
-    scope,
-    objectKey: session.upload.objectKey,
-    contentType,
-    dataBase64,
-    restaurantId,
-    originalName: file.name
-  });
-  if (!uploaded.ok || !uploaded.media?.id) {
-    const completed = await completeMenuMediaUpload(token, {
-      scope,
-      objectKey: session.upload.objectKey,
-      contentType,
-      restaurantId,
-      originalName: file.name
-    });
-    if (!completed.ok || !completed.media?.id) {
-      return { ok: false as const, error: uploaded.error ?? completed.error ?? "upload_failed" };
-    }
-    return { ok: true as const, mediaId: completed.media.id };
-  }
-  return { ok: true as const, mediaId: uploaded.media.id };
-}
 
 export function MenuItemMediaGallery({
   token,
@@ -154,13 +74,18 @@ export function MenuItemMediaGallery({
     }
 
     setBusy(true);
-    const uploaded = await uploadMenuItemFile(token, restaurantId, menuItemId, file, kind);
+    const uploaded = await uploadMenuMediaFile(token, {
+      restaurantId,
+      file,
+      kind,
+      menuItemId
+    });
     if (!uploaded.ok) {
       setBusy(false);
       return pushToast(uploaded.error ?? "Upload failed", "error");
     }
 
-    const attached = await attachMenuItemMedia(token, restaurantId, menuItemId, {
+    const attached = await attachUploadedMediaToItem(token, restaurantId, menuItemId, {
       mediaId: uploaded.mediaId,
       setAsCover: kind === "image" && counts.images === 0,
       durationMs

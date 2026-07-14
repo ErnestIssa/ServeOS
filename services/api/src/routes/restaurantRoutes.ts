@@ -73,7 +73,7 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
       where: { userId: user.sub },
       include: { restaurant: true }
     });
-    type RestaurantRow = { id: string; name: string; companyId: string | null };
+    type RestaurantRow = { id: string; name: string; companyId: string | null; establishmentLocation: string | null };
     return {
       ok: true,
       restaurants: memberships.map((m) => {
@@ -83,7 +83,8 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
           name: r.name,
           role: m.role,
           status: m.status,
-          companyId: r.companyId
+          companyId: r.companyId,
+          establishmentLocation: r.establishmentLocation?.trim() || null
         };
       })
     };
@@ -177,21 +178,57 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
   });
 
   const createCategorySchema = z.object({
-    name: z.string().min(1),
+    name: z.string().trim().min(2).max(80),
+    description: z.string().trim().max(280).optional(),
+    menuId: z.string().min(1).optional(),
     sortOrder: z.number().int().optional(),
     isActive: z.boolean().optional()
   });
 
-  app.post("/restaurants/:restaurantId/menu/categories", async (req) => {
+  app.post("/restaurants/:restaurantId/menu/categories", async (req, reply) => {
     const { restaurantId } = req.params as { restaurantId: string };
     const { membership } = await requireStaff(req, restaurantId);
     assertMenuEntityPermission("category", "create", membership);
     const body = createCategorySchema.parse(req.body);
+
+    let menuId = body.menuId ?? null;
+    if (menuId) {
+      const menu = await prisma.menu.findFirst({
+        where: { id: menuId, restaurantId, status: { not: "ARCHIVED" } },
+        select: { id: true }
+      });
+      if (!menu) {
+        return reply.status(404).send({ ok: false, error: "menu_not_found", message: "Menu not found for this venue." });
+      }
+    } else {
+      const fallbackMenu = await prisma.menu.findFirst({
+        where: { restaurantId, status: { not: "ARCHIVED" } },
+        orderBy: { sortOrder: "asc" },
+        select: { id: true }
+      });
+      if (!fallbackMenu) {
+        return reply.status(400).send({
+          ok: false,
+          error: "category_requires_menu",
+          message: "Create a menu before adding categories."
+        });
+      }
+      menuId = fallbackMenu.id;
+    }
+
+    const sortOrder =
+      body.sortOrder ??
+      (await prisma.menuCategory.count({
+        where: { restaurantId, menuId }
+      }));
+
     const category = await prisma.menuCategory.create({
       data: {
         restaurantId,
-        name: body.name,
-        sortOrder: body.sortOrder ?? 0,
+        menuId,
+        name: body.name.trim(),
+        description: body.description?.trim() || null,
+        sortOrder,
         isActive: body.isActive ?? true
       }
     });
@@ -200,6 +237,7 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
 
   const patchCategorySchema = z.object({
     name: z.string().min(1).optional(),
+    description: z.string().trim().max(280).nullable().optional(),
     sortOrder: z.number().int().optional(),
     isActive: z.boolean().optional()
   });
@@ -230,6 +268,8 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
     categoryId: z.string(),
     name: z.string().min(1),
     description: z.string().optional(),
+    ingredients: z.string().optional(),
+    specialNotes: z.string().optional(),
     priceCents: z.number().int().nonnegative(),
     sortOrder: z.number().int().optional(),
     isActive: z.boolean().optional()
@@ -246,6 +286,8 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
         categoryId: body.categoryId,
         name: body.name,
         description: body.description,
+        ingredients: body.ingredients,
+        specialNotes: body.specialNotes,
         priceCents: body.priceCents,
         sortOrder: body.sortOrder ?? 0,
         isActive: body.isActive ?? true
@@ -258,6 +300,8 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
     categoryId: z.string().optional(),
     name: z.string().min(1).optional(),
     description: z.string().nullable().optional(),
+    ingredients: z.string().nullable().optional(),
+    specialNotes: z.string().nullable().optional(),
     priceCents: z.number().int().nonnegative().optional(),
     sortOrder: z.number().int().optional(),
     isActive: z.boolean().optional()

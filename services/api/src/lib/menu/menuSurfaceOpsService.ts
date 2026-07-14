@@ -6,6 +6,8 @@ export type AvailabilityWindow = {
   start: string;
   end: string;
   days: number[];
+  label: string;
+  color: string;
 };
 
 export type MenuAvailabilityWindows = Record<string, AvailabilityWindow>;
@@ -146,22 +148,24 @@ export async function scheduleMenuSurface(
   prisma: PrismaClient,
   restaurantId: string,
   menuId: string,
-  input: { scheduledPublishAt: string | null; availabilityWindows?: MenuAvailabilityWindows }
+  input: { scheduledPublishAt?: string | null; availabilityWindows?: MenuAvailabilityWindows }
 ) {
   const menu = await loadMenuForOps(prisma, restaurantId, menuId);
   if (!menu) return { ok: false as const, error: "menu_not_found" };
 
-  const scheduledPublishAt = input.scheduledPublishAt ? new Date(input.scheduledPublishAt) : null;
-  if (scheduledPublishAt && Number.isNaN(scheduledPublishAt.getTime())) {
-    return { ok: false as const, error: "invalid_schedule_date" };
+  const data: Prisma.MenuUpdateInput = {};
+
+  if (input.scheduledPublishAt !== undefined) {
+    const scheduledPublishAt = input.scheduledPublishAt ? new Date(input.scheduledPublishAt) : null;
+    if (scheduledPublishAt && Number.isNaN(scheduledPublishAt.getTime())) {
+      return { ok: false as const, error: "invalid_schedule_date" };
+    }
+    data.scheduledPublishAt = scheduledPublishAt;
   }
 
-  const data: Prisma.MenuUpdateInput = {
-    scheduledPublishAt,
-    ...(input.availabilityWindows
-      ? { availabilityWindows: input.availabilityWindows as unknown as Prisma.InputJsonValue }
-      : {})
-  };
+  if (input.availabilityWindows !== undefined) {
+    data.availabilityWindows = input.availabilityWindows as unknown as Prisma.InputJsonValue;
+  }
 
   const updated = await prisma.menu.update({
     where: { id: menuId },

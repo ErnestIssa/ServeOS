@@ -59,10 +59,13 @@ export function useAdminMenu(token: string | null, restaurantId: string | null) 
       name: string;
       categoryName: string;
       categoryId: string;
+      menuId: string | null;
       priceCents: number;
       isActive: boolean;
       modifierCount: number;
       description: string | null;
+      ingredients: string | null;
+      specialNotes: string | null;
       sortOrder: number;
     }> = [];
     for (const cat of menu?.categories ?? []) {
@@ -72,10 +75,13 @@ export function useAdminMenu(token: string | null, restaurantId: string | null) 
           name: item.name,
           categoryName: cat.name,
           categoryId: cat.id,
+          menuId: cat.menuId ?? null,
           priceCents: item.priceCents,
           isActive: item.isActive,
           modifierCount: item.modifierGroups.length,
           description: item.description,
+          ingredients: item.ingredients ?? null,
+          specialNotes: item.specialNotes ?? null,
           sortOrder: item.sortOrder
         });
       }
@@ -88,6 +94,7 @@ export function useAdminMenu(token: string | null, restaurantId: string | null) 
       id: string;
       name: string;
       itemName: string;
+      groupId: string;
       groupName: string;
       priceDeltaCents: number;
       isActive: boolean;
@@ -100,6 +107,7 @@ export function useAdminMenu(token: string | null, restaurantId: string | null) 
               id: opt.id,
               name: opt.name,
               itemName: item.name,
+              groupId: group.id,
               groupName: group.name,
               priceDeltaCents: opt.priceDeltaCents,
               isActive: opt.isActive
