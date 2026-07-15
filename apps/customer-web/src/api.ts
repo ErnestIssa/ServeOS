@@ -299,13 +299,53 @@ export type MenuSurfaceRow = {
   activeVersionNumber: number | null;
   publishedAt: string | null;
   availabilityWindows: MenuAvailabilityWindows | null;
+  scopeTone: "live" | "draft" | "problem";
+  scopeLabel: string;
+  rowActions?: Array<{ id: string; label: string; danger?: boolean }>;
   createdAt: string;
   updatedAt: string;
 };
 
-export async function listRestaurantMenus(token: string, restaurantId: string) {
+export type MenuManageActionDescriptor = {
+  id: string;
+  label: string;
+  description: string;
+  danger?: boolean;
+};
+
+export type MenuManageContextPayload = {
+  multiLocation: boolean;
+  targets: MenuSurfaceRow[];
+  draftTargetIds: string[];
+  actions: MenuManageActionDescriptor[];
+  moveDestinations: Array<{ id: string; name: string }>;
+};
+
+export type MenuListStatusFilter = "active" | "DRAFT" | "PUBLISHED" | "ARCHIVED";
+
+export async function listRestaurantMenus(
+  token: string,
+  restaurantId: string,
+  status: MenuListStatusFilter = "active"
+) {
+  const query = status === "active" ? "" : `?status=${encodeURIComponent(status)}`;
   return apiFetch<{ ok: boolean; menus?: MenuSurfaceRow[]; error?: string; message?: string }>(
-    `/restaurants/${encodeURIComponent(restaurantId)}/menus`,
+    `/restaurants/${encodeURIComponent(restaurantId)}/menus${query}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function getMenuManageContext(
+  token: string,
+  restaurantId: string,
+  params: { variant: "active" | "live" | "archived"; menuIds?: string[] }
+) {
+  const search = new URLSearchParams({ variant: params.variant });
+  if (params.menuIds && params.menuIds.length > 0) {
+    search.set("menuIds", params.menuIds.join(","));
+  }
+  return apiFetch<{ ok: boolean; context?: MenuManageContextPayload; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menus/manage-context?${search.toString()}`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
 }
@@ -729,6 +769,39 @@ export async function archiveRestaurantMenu(token: string, restaurantId: string,
   return apiFetch<{ ok: boolean; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}/archive`,
     { method: "POST", headers: authHeaders(token) }
+  );
+}
+
+export async function deleteDraftRestaurantMenu(token: string, restaurantId: string, menuId: string) {
+  return apiFetch<{ ok: boolean; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}/draft`,
+    { method: "DELETE", headers: authHeaders(token) }
+  );
+}
+
+export async function deleteRestaurantMenu(token: string, restaurantId: string, menuId: string) {
+  return apiFetch<{ ok: boolean; mode?: "deleted" | "archived"; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}`,
+    { method: "DELETE", headers: authHeaders(token) }
+  );
+}
+
+export async function unpublishRestaurantMenu(token: string, restaurantId: string, menuId: string) {
+  return apiFetch<{ ok: boolean; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}/unpublish`,
+    { method: "POST", headers: authHeaders(token) }
+  );
+}
+
+export async function moveRestaurantMenu(
+  token: string,
+  restaurantId: string,
+  menuId: string,
+  targetRestaurantId: string
+) {
+  return apiFetch<{ ok: boolean; menu?: MenuSurfaceRow; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}/move`,
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify({ targetRestaurantId }) }
   );
 }
 

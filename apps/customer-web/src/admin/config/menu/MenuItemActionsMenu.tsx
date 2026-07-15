@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useModalScrollLock } from "../../../lib/modalScrollLock";
 
 export type ItemMenuAction = "details" | "media";
 
@@ -93,6 +94,8 @@ export function MenuItemActionsMenu({
   }, [open, onToggle]);
 
   useEffect(() => () => cancelClose(), []);
+
+  useModalScrollLock(open);
 
   return (
     <>

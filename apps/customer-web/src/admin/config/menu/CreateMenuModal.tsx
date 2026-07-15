@@ -6,8 +6,8 @@ import {
   ProfileModalAlert,
   ProfileModalFooter,
   ProfileModalNote,
-  ProfileModalShell
-} from "../../profile/ProfileModalShell";
+  MenuPageModalShell
+} from "./menuPageModalShell";
 
 export type CreateMenuForm = {
   name: string;
@@ -125,7 +125,7 @@ function CreateMenuConfirmModal({
   onConfirm: () => void;
 }) {
   return (
-    <ProfileModalShell
+    <MenuPageModalShell
       open={open}
       onClose={busy ? () => undefined : onCancel}
       title="Create draft menu?"
@@ -157,7 +157,7 @@ function CreateMenuConfirmModal({
         cancelLabel="Go back"
         busy={busy}
       />
-    </ProfileModalShell>
+    </MenuPageModalShell>
   );
 }
 
@@ -353,7 +353,7 @@ export function CreateMenuModal({ open, venueName, token, restaurantId, onClose,
 
   return (
     <>
-      <ProfileModalShell
+      <MenuPageModalShell
         open={open && !confirmOpen}
         onClose={attemptClose}
         title="Create menu"
@@ -457,7 +457,7 @@ export function CreateMenuModal({ open, venueName, token, restaurantId, onClose,
             Review & create
           </button>
         </div>
-      </ProfileModalShell>
+      </MenuPageModalShell>
 
       <CreateMenuConfirmModal
         open={confirmOpen}
@@ -470,7 +470,7 @@ export function CreateMenuModal({ open, venueName, token, restaurantId, onClose,
         onConfirm={() => void handleCreate()}
       />
 
-      <ProfileModalShell
+      <MenuPageModalShell
         open={discardOpen}
         onClose={() => setDiscardOpen(false)}
         title="Discard menu draft?"
@@ -488,7 +488,7 @@ export function CreateMenuModal({ open, venueName, token, restaurantId, onClose,
           cancelLabel="Keep editing"
           danger
         />
-      </ProfileModalShell>
+      </MenuPageModalShell>
     </>
   );
 }

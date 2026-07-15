@@ -29,6 +29,7 @@ import { AdminGlobalSearchModal } from "./AdminGlobalSearchModal";
 import { AdminRestaurantSelector, AdminTypingSearch } from "./adminTopChrome";
 import { useAdminHash } from "./useAdminHash";
 import { useAdminPopoverMount } from "./useAdminPopoverMount";
+import { useModalScrollLock } from "../lib/modalScrollLock";
 
 export function useAdminTheme() {
   const [theme, setTheme] = useState<AdminTheme>(readAdminTheme);
@@ -161,6 +162,8 @@ function AdminSideNav({
   const isMobile = variant === "mobile";
   const lockPageScroll = isMobile ? mobileOpen : hovered;
 
+  useModalScrollLock(isMobile && mobileOpen);
+
   expandedRef.current = expanded;
 
   const persistNavScroll = useCallback(() => {
@@ -198,13 +201,14 @@ function AdminSideNav({
 
   useEffect(() => {
     const root = document.documentElement;
-    if (!lockPageScroll) {
+    const useLegacySideScrollLock = !isMobile && lockPageScroll;
+    if (!useLegacySideScrollLock) {
       root.classList.remove("admin-side-scroll-lock");
       return;
     }
     root.classList.add("admin-side-scroll-lock");
     return () => root.classList.remove("admin-side-scroll-lock");
-  }, [lockPageScroll]);
+  }, [isMobile, lockPageScroll]);
 
   useEffect(() => {
     const node = navRef.current;

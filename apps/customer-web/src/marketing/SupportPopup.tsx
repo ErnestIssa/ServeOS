@@ -761,6 +761,7 @@ export function SupportPopup({
 
   const fabDismiss = isVisible;
   const panelOpen = panelAnimated || wideOpen;
+  const backdropActive = isVisible && panelOpen;
 
   useEffect(() => {
     if (panelOpen) return;
@@ -809,14 +810,14 @@ export function SupportPopup({
       <div
         ref={overlayRef}
         className={`support-popup-overlay${wideOpen ? " support-popup-overlay--wide" : ""}${
-          panelOpen ? " is-visible" : ""
+          panelPresent ? " is-present" : ""
         }`}
         role="presentation"
         inert={!panelOpen ? true : undefined}
       >
         <button
           type="button"
-          className="support-popup-backdrop"
+          className={`support-popup-backdrop${backdropActive ? " is-active" : ""}`}
           aria-label="Close support"
           tabIndex={isVisible && !wideOpen ? 0 : -1}
           onClick={() => {

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
+import { useModalScrollLock } from "../../lib/modalScrollLock";
 import { AdminBtnPrimary, AdminBtnSecondary } from "../AdminUi";
 import {
   formatCurrency,
@@ -48,18 +49,15 @@ export function OrderDetailsDrawer({
   onOrderRefresh,
   onToast
 }: Props) {
+  useModalScrollLock(open);
+
   useEffect(() => {
     if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.overflow = prev;
-      window.removeEventListener("keydown", onKey);
-    };
+    return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
   if (typeof document === "undefined") return null;

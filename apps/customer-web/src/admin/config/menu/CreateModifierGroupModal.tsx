@@ -7,8 +7,8 @@ import {
   ProfileModalAlert,
   ProfileModalFooter,
   ProfileModalNote,
-  ProfileModalShell
-} from "../../profile/ProfileModalShell";
+  MenuPageModalShell
+} from "./menuPageModalShell";
 
 export type CreateModifierGroupForm = {
   itemId: string;
@@ -81,7 +81,7 @@ function CreateModifierGroupConfirmModal({
   onConfirm: () => void;
 }) {
   return (
-    <ProfileModalShell
+    <MenuPageModalShell
       open={open}
       onClose={busy ? () => undefined : onCancel}
       title="Create modifier group?"
@@ -105,7 +105,7 @@ function CreateModifierGroupConfirmModal({
         cancelLabel="Go back"
         busy={busy}
       />
-    </ProfileModalShell>
+    </MenuPageModalShell>
   );
 }
 
@@ -231,7 +231,7 @@ export function CreateModifierGroupModal({
 
   return (
     <>
-      <ProfileModalShell
+      <MenuPageModalShell
         open={open && !confirmOpen}
         onClose={attemptClose}
         title="Create modifier group"
@@ -322,7 +322,7 @@ export function CreateModifierGroupModal({
             Review & create
           </button>
         </div>
-      </ProfileModalShell>
+      </MenuPageModalShell>
 
       <CreateModifierGroupConfirmModal
         open={confirmOpen}
@@ -335,7 +335,7 @@ export function CreateModifierGroupModal({
         onConfirm={() => void handleCreate()}
       />
 
-      <ProfileModalShell
+      <MenuPageModalShell
         open={discardOpen}
         onClose={() => setDiscardOpen(false)}
         title="Discard modifier group?"
@@ -353,7 +353,7 @@ export function CreateModifierGroupModal({
           cancelLabel="Keep editing"
           danger
         />
-      </ProfileModalShell>
+      </MenuPageModalShell>
     </>
   );
 }

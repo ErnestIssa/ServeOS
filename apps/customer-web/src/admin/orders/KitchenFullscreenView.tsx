@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
+import { useModalScrollLock } from "../../lib/modalScrollLock";
 import { readAdminTheme } from "../adminNavContent";
 import { KitchenLiveClock } from "./KitchenLiveClock";
 
@@ -37,6 +38,8 @@ export function KitchenFullscreenView({ open, onClose, venueName, children }: Pr
     setTheme(readAdminTheme());
   }, [open]);
 
+  useModalScrollLock(open);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -45,17 +48,6 @@ export function KitchenFullscreenView({ open, onClose, venueName, children }: Pr
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
-
-  useEffect(() => {
-    if (open) {
-      const prev = document.body.style.overflow;
-      document.body.style.overflow = "hidden";
-      return () => {
-        document.body.style.overflow = prev;
-      };
-    }
-    return undefined;
-  }, [open]);
 
   if (typeof document === "undefined") return null;
 

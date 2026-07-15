@@ -2,6 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { formatMoneyCents } from "@serveos/core-shared/currency";
 import { listMenuItemMedia, type MenuCapabilitiesPayload, type MenuItemMediaRow } from "../../../api";
+import { useModalScrollLock } from "../../../lib/modalScrollLock";
+import {
+  MENU_PAGE_DRAWER_BACKDROP_CLASS,
+  MENU_PAGE_DRAWER_SHELL_CLASS
+} from "./menuPageModalShell";
 import { SkeletonBone } from "../../AdminSkeleton";
 import { AdminBtnPrimary } from "../../AdminUi";
 import type { MenuSectionTab } from "../configRouting";
@@ -164,17 +169,7 @@ export function MenuItemProfileDrawer({
     if (visible && activeItem) void reloadMedia();
   }, [visible, activeItem, reloadMedia]);
 
-  useEffect(() => {
-    if (!visible) return;
-    const prevBody = document.body.style.overflow;
-    const prevHtml = document.documentElement.style.overflow;
-    document.body.style.overflow = "hidden";
-    document.documentElement.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prevBody;
-      document.documentElement.style.overflow = prevHtml;
-    };
-  }, [visible]);
+  useModalScrollLock(mounted);
 
   useEffect(() => {
     if (!visible) return;
@@ -197,13 +192,13 @@ export function MenuItemProfileDrawer({
 
   return createPortal(
     <div
-      className={`admin-staff-profile-shell admin-menu-item-profile-shell ${visible ? "admin-staff-profile-shell--open" : ""}`}
+      className={`admin-staff-profile-shell ${MENU_PAGE_DRAWER_SHELL_CLASS} ${visible ? "admin-staff-profile-shell--open" : ""}`}
       role="presentation"
       aria-hidden={!visible}
     >
       <button
         type="button"
-        className="admin-staff-profile-backdrop admin-menu-item-profile-backdrop"
+        className={`${MENU_PAGE_DRAWER_BACKDROP_CLASS}${visible ? " is-active" : ""}`}
         aria-label="Close item profile"
         tabIndex={visible ? 0 : -1}
         onClick={onClose}

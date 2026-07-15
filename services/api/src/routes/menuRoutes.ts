@@ -15,13 +15,29 @@ import {
   assertMenuPermission,
   getMenuCapabilities
 } from "../lib/menu/menuPermissions.js";
-import { createDraftMenu, listMenusForRestaurant, mapMenuApiError } from "../lib/menu/menuService.js";
+import {
+  createDraftMenu,
+  listMenusForRestaurant,
+  mapMenuApiError,
+  type MenuListItem,
+  type MenuListStatusFilter
+} from "../lib/menu/menuService.js";
+import {
+  buildMenuManageContext,
+  buildMenuRowActions,
+  statusFilterToPanelVariant,
+  type MenuPanelVariant
+} from "../lib/menu/menuManageService.js";
 import { exportMenuCsv, importMenuCsv, mapImportExportError } from "../lib/menu/menuImportExportService.js";
 import {
   archiveMenuSurface,
+  deleteDraftMenuSurface,
+  deleteMenuSurface,
   duplicateMenuSurface,
   mapMenuOpsError,
-  scheduleMenuSurface
+  moveMenuSurface,
+  scheduleMenuSurface,
+  unpublishMenuSurface
 } from "../lib/menu/menuSurfaceOpsService.js";
 import { sanitizeAvailabilityWindows } from "../lib/menu/menuAvailability.js";
 import { mapPublishMenuError, publishMenuSurface } from "../lib/menu/menuPublishService.js";
@@ -45,6 +61,10 @@ const availabilityWindowSchema = z.object({
 export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
   app.get("/restaurants/:restaurantId/menus", async (req, reply) => {
     const { restaurantId } = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
+    const status = z
+      .enum(["active", "DRAFT", "PUBLISHED", "ARCHIVED"])
+      .optional()
+      .parse((req.query as { status?: string } | undefined)?.status ?? "active") as MenuListStatusFilter;
     const { userId, membership } = await requireMenuVenueMembership(prisma, req, restaurantId);
     assertMenuPermission("view", membership);
 
@@ -54,8 +74,13 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
     }
 
     try {
-      const menus = await listMenusForRestaurant(prisma, restaurantId, userId);
-      return { ok: true, menus };
+      const menus = await listMenusForRestaurant(prisma, restaurantId, userId, status);
+      const panelVariant = statusFilterToPanelVariant(status);
+      const menusWithActions = menus.map((menu: MenuListItem) => ({
+        ...menu,
+        rowActions: buildMenuRowActions(menu, panelVariant, membership)
+      }));
+      return { ok: true, menus: menusWithActions };
     } catch (err) {
       req.log.error({ err, restaurantId }, "menu_surface_list_failed");
       return reply.status(500).send({
@@ -116,6 +141,64 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
     return { ok: true, capabilities: getMenuCapabilities(membership) };
   });
 
+  app.get("/restaurants/:restaurantId/menus/manage-context", async (req, reply) => {
+    const { restaurantId } = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
+    const query = z
+      .object({
+        variant: z.enum(["active", "live", "archived"]).default("active"),
+        menuIds: z.string().optional()
+      })
+      .parse(req.query);
+
+    const { userId, membership } = await requireMenuVenueMembership(prisma, req, restaurantId);
+    assertMenuPermission("view", membership);
+
+    const restaurant = await prisma.restaurant.findUnique({ where: { id: restaurantId }, select: { id: true } });
+    if (!restaurant) {
+      return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
+    }
+
+    const statusMap: Record<MenuPanelVariant, MenuListStatusFilter> = {
+      active: "active",
+      live: "PUBLISHED",
+      archived: "ARCHIVED"
+    };
+    const status = statusMap[query.variant];
+    const menuIds = query.menuIds
+      ? query.menuIds.split(",").map((id) => id.trim()).filter(Boolean)
+      : undefined;
+
+    try {
+      const menus = await listMenusForRestaurant(prisma, restaurantId, userId, status);
+      const userMemberships = await prisma.membership.findMany({
+        where: { userId },
+        include: { restaurant: { select: { id: true, name: true } } }
+      });
+      const multiLocation = userMemberships.length > 1;
+      const moveDestinations = userMemberships
+        .filter((m) => m.restaurantId !== restaurantId)
+        .map((m) => ({ id: m.restaurant.id, name: m.restaurant.name }));
+
+      const context = buildMenuManageContext({
+        menus,
+        menuIds,
+        panelVariant: query.variant,
+        membership,
+        multiLocation,
+        moveDestinations
+      });
+
+      return { ok: true, context };
+    } catch (err) {
+      req.log.error({ err, restaurantId }, "menu_manage_context_failed");
+      return reply.status(500).send({
+        ok: false,
+        error: "menu_manage_context_failed",
+        message: "Could not load menu management context."
+      });
+    }
+  });
+
   app.post("/restaurants/:restaurantId/menus/:menuId/publish", async (req, reply) => {
     const params = z.object({ restaurantId: z.string().min(1), menuId: z.string().min(1) }).parse(req.params);
     const { userId, membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
@@ -159,6 +242,77 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
       });
     }
     return { ok: true };
+  });
+
+  app.delete("/restaurants/:restaurantId/menus/:menuId/draft", async (req, reply) => {
+    const params = z.object({ restaurantId: z.string().min(1), menuId: z.string().min(1) }).parse(req.params);
+    const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("menu", "delete", membership);
+
+    const result = await deleteDraftMenuSurface(prisma, params.restaurantId, params.menuId);
+    if (!result.ok) {
+      return reply.status(400).send({
+        ok: false,
+        error: result.error,
+        message: mapMenuOpsError(result.error)
+      });
+    }
+    return { ok: true };
+  });
+
+  app.delete("/restaurants/:restaurantId/menus/:menuId", async (req, reply) => {
+    const params = z.object({ restaurantId: z.string().min(1), menuId: z.string().min(1) }).parse(req.params);
+    const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("menu", "delete", membership);
+
+    const result = await deleteMenuSurface(prisma, params.restaurantId, params.menuId);
+    if (!result.ok) {
+      return reply.status(400).send({
+        ok: false,
+        error: result.error,
+        message: mapMenuOpsError(result.error)
+      });
+    }
+    return { ok: true, mode: result.mode };
+  });
+
+  app.post("/restaurants/:restaurantId/menus/:menuId/unpublish", async (req, reply) => {
+    const params = z.object({ restaurantId: z.string().min(1), menuId: z.string().min(1) }).parse(req.params);
+    const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("menu", "publish", membership);
+
+    const result = await unpublishMenuSurface(prisma, params.restaurantId, params.menuId);
+    if (!result.ok) {
+      return reply.status(400).send({
+        ok: false,
+        error: result.error,
+        message: mapMenuOpsError(result.error)
+      });
+    }
+    return { ok: true };
+  });
+
+  app.post("/restaurants/:restaurantId/menus/:menuId/move", async (req, reply) => {
+    const params = z.object({ restaurantId: z.string().min(1), menuId: z.string().min(1) }).parse(req.params);
+    const body = z.object({ targetRestaurantId: z.string().min(1) }).parse(req.body);
+    const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("menu", "edit", membership);
+    await requireMenuVenueMembership(prisma, req, body.targetRestaurantId);
+
+    const result = await moveMenuSurface(
+      prisma,
+      params.restaurantId,
+      params.menuId,
+      body.targetRestaurantId
+    );
+    if (!result.ok) {
+      return reply.status(400).send({
+        ok: false,
+        error: result.error,
+        message: mapMenuOpsError(result.error)
+      });
+    }
+    return { ok: true, menu: result.menu };
   });
 
   app.post("/restaurants/:restaurantId/menus/:menuId/duplicate", async (req, reply) => {

@@ -11,6 +11,7 @@ import { AdminSkeletonStatGrid, AdminStaleContent } from "../AdminSkeleton";
 import { CONFIG_PRESET_DESCRIPTIONS, MENU_TAB_LABELS, MENU_TABS, type MenuSectionTab } from "./configRouting";
 import { AdminMenuTabContent } from "./menu/AdminMenuTabContent";
 import { AdminMenusTabPanel } from "./menu/AdminMenusTabPanel";
+import { MenuQrCodesPanel } from "./menu/MenuQrCodesPanel";
 import { useAdminMenu } from "./useAdminMenu";
 import { useAdminMenus } from "./useAdminMenus";
 import { useMenuCapabilities } from "./useMenuCapabilities";
@@ -37,7 +38,9 @@ function StatTile({ label, value, hint }: { label: string; value: string; hint?:
 export function AdminConfigMenuPage({ token, restaurantId, venueName, initialTab = null }: Props) {
   const [tab, setTab] = useState<MenuSectionTab>(initialTab ?? "menus");
   const api = useAdminMenu(token, restaurantId);
-  const menusApi = useAdminMenus(token, restaurantId);
+  const menusApi = useAdminMenus(token, restaurantId, "active");
+  const liveMenusApi = useAdminMenus(token, restaurantId, "PUBLISHED", tab === "live");
+  const archivedMenusApi = useAdminMenus(token, restaurantId, "ARCHIVED", tab === "archived");
   const menuCaps = useMenuCapabilities(token, restaurantId);
 
   useEffect(() => {
@@ -107,17 +110,39 @@ export function AdminConfigMenuPage({ token, restaurantId, venueName, initialTab
             exit={{ opacity: 0, y: -8 }}
             transition={TAB_TRANSITION}
           >
-            <div className={`${subPanelCls} admin-config-section admin-menu-tab-panel overflow-hidden p-4 sm:p-5`}>
+            <div className="admin-menu-tab-panel admin-menu-tab-panel--bare">
               {tab === "menus" ? (
                 <AdminMenusTabPanel
                   menusApi={menusApi}
+                  variant="active"
                   token={token}
                   restaurantId={restaurantId}
                   venueName={venueName}
                   initialLoading={api.meta.initialLoading}
-                  canCreateMenu={menuCaps.can("menu", "create")}
-                  canPublishMenu={menuCaps.can("menu", "publish")}
+                  can={menuCaps.can}
                 />
+              ) : tab === "live" ? (
+                <AdminMenusTabPanel
+                  menusApi={liveMenusApi}
+                  variant="live"
+                  token={token}
+                  restaurantId={restaurantId}
+                  venueName={venueName}
+                  initialLoading={liveMenusApi.meta.initialLoading}
+                  can={menuCaps.can}
+                />
+              ) : tab === "archived" ? (
+                <AdminMenusTabPanel
+                  menusApi={archivedMenusApi}
+                  variant="archived"
+                  token={token}
+                  restaurantId={restaurantId}
+                  venueName={venueName}
+                  initialLoading={archivedMenusApi.meta.initialLoading}
+                  can={menuCaps.can}
+                />
+              ) : tab === "qr-codes" ? (
+                <MenuQrCodesPanel token={token} restaurantId={restaurantId} />
               ) : (
                 <AdminMenuTabContent
                   tab={tab}

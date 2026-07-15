@@ -344,6 +344,26 @@ body {
   transform: translateY(0) scale(1);
 }
 
+html.modal-scroll-locked {
+  overflow: hidden !important;
+  overscroll-behavior: none;
+}
+
+html.modal-scroll-locked body {
+  overscroll-behavior: none;
+}
+
+html.modal-scroll-locked .admin-shell,
+html.modal-scroll-locked .admin-workspace-main,
+html.modal-scroll-locked .admin-side-nav-scroll {
+  overflow: hidden !important;
+  overscroll-behavior: none;
+}
+
+.signup-modal-panel {
+  overscroll-behavior: contain;
+}
+
 .workspace-launch-backdrop {
   opacity: 0;
   transition: opacity 0.35s ease;
@@ -4279,6 +4299,10 @@ html[data-admin-theme="dark"] .admin-staff-danger-btn {
   color: transparent;
 }
 
+.admin-menu-item-actions-bubble--compact .admin-bubble-body--menu {
+  padding-top: 0.35rem;
+}
+
 .admin-menu-item-row {
   cursor: pointer;
   transition:
@@ -4574,6 +4598,280 @@ html[data-admin-theme="dark"] .admin-menu-create-confirm-modal,
   width: 100%;
 }
 
+.admin-menu-tab-panel--bare {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.admin-menu-surface-board {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  width: 100%;
+}
+
+.admin-menu-surface-board-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+}
+
+.admin-menu-surface-board-title {
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--admin-text);
+}
+
+.admin-menu-surface-board-desc {
+  margin: 0.25rem 0 0;
+  max-width: 52rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--admin-config-muted, var(--admin-text-muted));
+}
+
+.admin-menu-surface-board-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.admin-menu-surface-search-wrap {
+  width: 100%;
+  margin-top: 0.15rem;
+}
+
+.admin-menu-surface-search {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  padding: 0.38rem 0.65rem 0.38rem 1.85rem;
+  border: 1px solid var(--admin-border);
+  border-radius: 999px;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.25' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M20 20l-3.5-3.5'/%3E%3C/svg%3E")
+    no-repeat 0.62rem center,
+    color-mix(in srgb, var(--admin-panel-bg) 92%, transparent);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--admin-text);
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background-color 0.18s ease;
+}
+
+.admin-menu-surface-search::placeholder {
+  color: var(--admin-config-muted, var(--admin-text-muted));
+  opacity: 0.85;
+}
+
+.admin-menu-surface-search:hover {
+  border-color: color-mix(in srgb, #7c3aed 22%, var(--admin-border));
+}
+
+.admin-menu-surface-search:focus {
+  outline: none;
+  border-color: color-mix(in srgb, #7c3aed 45%, var(--admin-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, #7c3aed 14%, transparent);
+}
+
+.admin-menu-surface-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.55rem 0 0.35rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.admin-menu-surface-select-all-label {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--admin-config-muted, var(--admin-text-muted));
+}
+
+@keyframes admin-menu-surface-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.admin-menu-manage-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.admin-menu-manage-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--admin-border);
+  border-radius: 0.65rem;
+  background: color-mix(in srgb, var(--admin-panel-bg) 94%, transparent);
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.admin-menu-manage-action:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--admin-accent) 35%, var(--admin-border));
+  background: color-mix(in srgb, var(--admin-accent) 6%, var(--admin-panel-bg));
+}
+
+.admin-menu-manage-action:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.admin-menu-manage-action-label {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--admin-text);
+}
+
+.admin-menu-manage-action-desc {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--admin-config-muted, var(--admin-text-muted));
+}
+
+.admin-menu-manage-action--danger .admin-menu-manage-action-label {
+  color: #dc2626;
+}
+
+html[data-admin-theme="dark"] .admin-menu-manage-action--danger .admin-menu-manage-action-label {
+  color: #f87171;
+}
+
+.admin-menu-manage-scope-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.admin-menu-manage-scope-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 0.18rem 0.42rem;
+  border-radius: 0.375rem;
+  border: 1px solid transparent;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-menu-manage-scope-chip--live {
+  border-color: #059669;
+  background: color-mix(in srgb, #059669 16%, #ecfdf5);
+  color: #047857;
+}
+
+.admin-menu-manage-scope-chip--draft {
+  border-color: #d97706;
+  background: color-mix(in srgb, #d97706 16%, #fffbeb);
+  color: #b45309;
+}
+
+.admin-menu-manage-scope-chip--problem {
+  border-color: #dc2626;
+  background: color-mix(in srgb, #dc2626 14%, #fef2f2);
+  color: #b91c1c;
+}
+
+html[data-admin-theme="dark"] .admin-menu-manage-scope-chip--live {
+  border-color: #34d399;
+  background: color-mix(in srgb, #34d399 18%, #052e24);
+  color: #6ee7b7;
+}
+
+html[data-admin-theme="dark"] .admin-menu-manage-scope-chip--draft {
+  border-color: #fbbf24;
+  background: color-mix(in srgb, #fbbf24 16%, #422006);
+  color: #fcd34d;
+}
+
+html[data-admin-theme="dark"] .admin-menu-manage-scope-chip--problem {
+  border-color: #f87171;
+  background: color-mix(in srgb, #f87171 16%, #450a0a);
+  color: #fca5a5;
+}
+
+/* Menu page overlays — backdrop matches support popup */
+.admin-menu-page-drawer-shell,
+.admin-staff-profile-shell.admin-menu-manage-shell {
+  opacity: 1;
+  transition: none;
+}
+
+.admin-menu-page-drawer-shell:not(.admin-staff-profile-shell--open),
+.admin-staff-profile-shell.admin-menu-manage-shell:not(.admin-staff-profile-shell--open) {
+  pointer-events: none;
+}
+
+.admin-menu-page-drawer-backdrop,
+.admin-menu-manage-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgb(2 6 23 / 0.28);
+  backdrop-filter: blur(0.5px);
+  -webkit-backdrop-filter: blur(0.5px);
+  opacity: 0;
+  pointer-events: none;
+  transition: none;
+  cursor: default;
+}
+
+.admin-menu-page-drawer-backdrop.is-active,
+.admin-menu-manage-backdrop.is-active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.admin-menu-page-modal-backdrop {
+  border: 0;
+  background: rgb(2 6 23 / 0.28);
+  backdrop-filter: blur(0.5px);
+  -webkit-backdrop-filter: blur(0.5px);
+  opacity: 0;
+  pointer-events: none;
+  transition: none !important;
+}
+
+.admin-menu-page-modal-backdrop.is-active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .admin-menu-tab-stack {
   display: flex;
   flex-direction: column;
@@ -4587,6 +4885,30 @@ html[data-admin-theme="dark"] .admin-menu-create-confirm-modal,
   border-radius: 0.875rem;
   background: color-mix(in srgb, var(--admin-panel-bg) 96%, transparent);
   overflow: hidden;
+}
+
+.admin-menu-page .admin-menu-section {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+
+.admin-menu-page .admin-menu-section-head {
+  padding: 0;
+  border-bottom: none;
+}
+
+.admin-menu-page .admin-menu-section-body {
+  padding: 0;
+}
+
+.admin-menu-page .admin-menu-section-title {
+  font-size: 1rem;
+}
+
+.admin-menu-page .admin-menu-tab-stack {
+  gap: 1.5rem;
 }
 
 .admin-menu-section--full {
@@ -4730,6 +5052,202 @@ html[data-admin-theme="dark"] .admin-menu-create-confirm-modal,
   font-size: 0.875rem;
   font-weight: 600;
   color: var(--admin-text);
+}
+
+.admin-menu-surface-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-menu-surface-list-item {
+  animation: admin-menu-surface-item-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.admin-menu-surface-card {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  min-height: 2.65rem;
+  padding: 0.45rem 0.65rem 0.45rem 0.55rem;
+  border: 1px solid var(--admin-border);
+  border-radius: 0.7rem;
+  background: color-mix(in srgb, var(--admin-stat-bg) 96%, transparent);
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.12s ease;
+}
+
+.admin-menu-surface-card:hover {
+  border-color: color-mix(in srgb, #7c3aed 28%, var(--admin-border));
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, #7c3aed 7%, var(--admin-stat-bg)),
+    color-mix(in srgb, #2563eb 4%, var(--admin-stat-bg))
+  );
+  box-shadow:
+    inset 3px 0 0 color-mix(in srgb, #7c3aed 55%, transparent),
+    0 1px 0 color-mix(in srgb, #fff 40%, transparent);
+}
+
+.admin-menu-surface-card.is-selected {
+  border-color: color-mix(in srgb, #7c3aed 42%, var(--admin-border));
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, #7c3aed 14%, var(--admin-stat-bg)),
+    color-mix(in srgb, #2563eb 8%, var(--admin-stat-bg))
+  );
+  box-shadow: inset 3px 0 0 #7c3aed;
+}
+
+.admin-menu-surface-card:active {
+  transform: none;
+}
+
+.admin-shell[data-theme="dark"] .admin-menu-surface-card:hover {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, #7c3aed 16%, var(--admin-stat-bg)),
+    color-mix(in srgb, #2563eb 9%, var(--admin-stat-bg))
+  );
+}
+
+.admin-shell[data-theme="dark"] .admin-menu-surface-card.is-selected {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, #7c3aed 22%, var(--admin-stat-bg)),
+    color-mix(in srgb, #2563eb 12%, var(--admin-stat-bg))
+  );
+}
+
+.admin-menu-surface-checkbox-wrap {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin: 0;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.admin-menu-surface-checkbox {
+  width: 0.95rem;
+  height: 0.95rem;
+  margin: 0;
+  accent-color: #7c3aed;
+  cursor: pointer;
+}
+
+.admin-menu-surface-status {
+  flex-shrink: 0;
+  min-width: 3.35rem;
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-menu-surface-status--live {
+  color: #059669;
+}
+
+.admin-menu-surface-status--draft {
+  color: #d97706;
+}
+
+.admin-menu-surface-status--archived {
+  color: #94a3b8;
+}
+
+.admin-shell[data-theme="dark"] .admin-menu-surface-status--live {
+  color: #34d399;
+}
+
+.admin-shell[data-theme="dark"] .admin-menu-surface-status--draft {
+  color: #fbbf24;
+}
+
+.admin-shell[data-theme="dark"] .admin-menu-surface-status--archived {
+  color: #64748b;
+}
+
+.admin-menu-surface-main {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: default;
+  color: inherit;
+  pointer-events: none;
+}
+
+.admin-menu-surface-actions {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  margin-left: 0.15rem;
+  pointer-events: auto;
+  position: relative;
+  z-index: 2;
+}
+
+.admin-menu-surface-name {
+  flex-shrink: 0;
+  max-width: 14rem;
+  font-family: var(--font-display, inherit);
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--admin-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-menu-surface-desc,
+.admin-menu-surface-meta {
+  min-width: 0;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-menu-surface-desc {
+  flex: 1 1 8rem;
+  color: var(--admin-config-muted, var(--admin-text-muted));
+}
+
+.admin-menu-surface-meta {
+  flex-shrink: 0;
+  color: var(--admin-config-subtle, var(--admin-text-muted));
+}
+
+.admin-menu-surface-sep {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: color-mix(in srgb, var(--admin-text-muted) 70%, transparent);
+}
+
+@media (max-width: 768px) {
+  .admin-menu-surface-main {
+    flex-wrap: wrap;
+    row-gap: 0.15rem;
+  }
+
+  .admin-menu-surface-desc {
+    flex-basis: 100%;
+    padding-left: calc(0.95rem + 0.65rem + 3.35rem);
+  }
 }
 
 .admin-menu-surface-row {
@@ -10486,13 +11004,10 @@ html[data-admin-theme="dark"] .admin-menu-create-confirm-modal,
   inset: 0;
   z-index: 9999;
   pointer-events: none;
-  opacity: 0;
-  transition: opacity var(--support-shell-duration) var(--support-shell-ease);
 }
 
-.support-popup-overlay.is-visible {
+.support-popup-overlay.is-present {
   pointer-events: auto;
-  opacity: 1;
 }
 
 .support-popup-backdrop {
@@ -10500,9 +11015,16 @@ html[data-admin-theme="dark"] .admin-menu-create-confirm-modal,
   inset: 0;
   border: 0;
   background: rgb(2 6 23 / 0.28);
-  backdrop-filter: blur(1px);
-  -webkit-backdrop-filter: blur(1px);
-  transition: opacity var(--support-shell-duration, 0.78s) var(--support-shell-ease, cubic-bezier(0.16, 1, 0.3, 1));
+  backdrop-filter: blur(0.5px);
+  -webkit-backdrop-filter: blur(0.5px);
+  opacity: 0;
+  pointer-events: none;
+  transition: none;
+}
+
+.support-popup-backdrop.is-active {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .support-popup-overlay--wide .support-popup-backdrop {

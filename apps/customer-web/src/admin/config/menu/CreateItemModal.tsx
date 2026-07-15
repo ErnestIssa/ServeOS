@@ -9,8 +9,8 @@ import {
   ProfileModalAlert,
   ProfileModalFooter,
   ProfileModalNote,
-  ProfileModalShell
-} from "../../profile/ProfileModalShell";
+  MenuPageModalShell
+} from "./menuPageModalShell";
 import {
   detailsFromItem,
   detailsPatchPayload,
@@ -155,7 +155,7 @@ function CreateItemConfirmModal({
   onConfirm: () => void;
 }) {
   return (
-    <ProfileModalShell
+    <MenuPageModalShell
       open={open}
       onClose={busy ? () => undefined : onCancel}
       title="Create item?"
@@ -187,7 +187,7 @@ function CreateItemConfirmModal({
         cancelLabel="Go back"
         busy={busy}
       />
-    </ProfileModalShell>
+    </MenuPageModalShell>
   );
 }
 
@@ -361,7 +361,7 @@ export function CreateItemModal({
 
   return (
     <>
-      <ProfileModalShell
+      <MenuPageModalShell
         open={open && !confirmOpen}
         onClose={attemptClose}
         title={isEdit ? "Description & ingredients" : "Create item"}
@@ -494,7 +494,7 @@ export function CreateItemModal({
             </button>
           )}
         </div>
-      </ProfileModalShell>
+      </MenuPageModalShell>
 
       {!isEdit ? (
         <CreateItemConfirmModal
@@ -511,7 +511,7 @@ export function CreateItemModal({
         />
       ) : null}
 
-      <ProfileModalShell
+      <MenuPageModalShell
         open={discardOpen}
         onClose={() => setDiscardOpen(false)}
         title={isEdit ? "Discard changes?" : "Discard item?"}
@@ -529,7 +529,7 @@ export function CreateItemModal({
           cancelLabel="Keep editing"
           danger
         />
-      </ProfileModalShell>
+      </MenuPageModalShell>
     </>
   );
 }

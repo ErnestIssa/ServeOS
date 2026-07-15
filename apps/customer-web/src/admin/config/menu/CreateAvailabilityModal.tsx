@@ -7,8 +7,8 @@ import {
   ProfileModalAlert,
   ProfileModalFooter,
   ProfileModalNote,
-  ProfileModalShell
-} from "../../profile/ProfileModalShell";
+  MenuPageModalShell
+} from "./menuPageModalShell";
 import { AvailabilityColorPicker } from "./AvailabilityColorPicker";
 import { AvailabilityPreviewCard } from "./AvailabilityPreviewCard";
 import {
@@ -112,7 +112,7 @@ function CreateAvailabilityConfirmModal({
   const color = resolveAvailabilityColor(form.color);
 
   return (
-    <ProfileModalShell
+    <MenuPageModalShell
       open={open}
       onClose={busy ? () => undefined : onCancel}
       title="Create availability window?"
@@ -154,7 +154,7 @@ function CreateAvailabilityConfirmModal({
         cancelLabel="Go back"
         busy={busy}
       />
-    </ProfileModalShell>
+    </MenuPageModalShell>
   );
 }
 
@@ -300,7 +300,7 @@ export function CreateAvailabilityModal({
 
   return (
     <>
-      <ProfileModalShell
+      <MenuPageModalShell
         open={open && !confirmOpen}
         onClose={attemptClose}
         title="Create availability window"
@@ -480,7 +480,7 @@ export function CreateAvailabilityModal({
             Review & create
           </button>
         </div>
-      </ProfileModalShell>
+      </MenuPageModalShell>
 
       <CreateAvailabilityConfirmModal
         open={confirmOpen}
@@ -493,7 +493,7 @@ export function CreateAvailabilityModal({
         onConfirm={() => void handleCreate()}
       />
 
-      <ProfileModalShell
+      <MenuPageModalShell
         open={discardOpen}
         onClose={() => setDiscardOpen(false)}
         title="Discard availability window?"
@@ -511,7 +511,7 @@ export function CreateAvailabilityModal({
           cancelLabel="Keep editing"
           danger
         />
-      </ProfileModalShell>
+      </MenuPageModalShell>
     </>
   );
 }

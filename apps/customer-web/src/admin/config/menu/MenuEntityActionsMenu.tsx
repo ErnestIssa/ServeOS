@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useModalScrollLock } from "../../../lib/modalScrollLock";
 
 export type EntityMenuAction = {
   id: string;
@@ -9,7 +10,8 @@ export type EntityMenuAction = {
 
 type Props = {
   entityName: string;
-  subtitle: string;
+  subtitle?: string;
+  hideHeader?: boolean;
   open: boolean;
   actions: EntityMenuAction[];
   titleGradient?: boolean;
@@ -20,6 +22,7 @@ type Props = {
 export function MenuEntityActionsMenu({
   entityName,
   subtitle,
+  hideHeader = false,
   open,
   actions,
   titleGradient = true,
@@ -83,6 +86,8 @@ export function MenuEntityActionsMenu({
 
   useEffect(() => () => cancelClose(), []);
 
+  useModalScrollLock(open);
+
   return (
     <>
       <div className="admin-staff-actions" onMouseEnter={cancelClose} onMouseLeave={scheduleClose}>
@@ -112,14 +117,16 @@ export function MenuEntityActionsMenu({
               onMouseLeave={scheduleClose}
             >
               <div
-                className={`admin-top-bubble admin-top-bubble--arrow-end admin-staff-actions-bubble${titleGradient ? " admin-menu-item-actions-bubble" : ""}`}
+                className={`admin-top-bubble admin-top-bubble--arrow-end admin-staff-actions-bubble${titleGradient ? " admin-menu-item-actions-bubble" : ""}${hideHeader ? " admin-menu-item-actions-bubble--compact" : ""}`}
                 role="menu"
                 aria-label={`Actions for ${entityName}`}
               >
-                <div className="admin-bubble-header">
-                  <p className="admin-bubble-title">{entityName}</p>
-                  <p className="admin-bubble-desc">{subtitle}</p>
-                </div>
+                {!hideHeader ? (
+                  <div className="admin-bubble-header">
+                    <p className="admin-bubble-title">{entityName}</p>
+                    {subtitle ? <p className="admin-bubble-desc">{subtitle}</p> : null}
+                  </div>
+                ) : null}
                 <div className="admin-bubble-body admin-bubble-body--menu">
                   {actions.map((action) => (
                     <button

@@ -14,6 +14,7 @@ import {
 import { AdminSkeletonStaffTable, AdminSkeletonStatGrid, AdminStaleContent } from "./AdminSkeleton";
 import { ADMIN_TOP_HASHES } from "./adminTopHashes";
 import { ProfileModalShell } from "./profile/ProfileModalShell";
+import { useModalScrollLock } from "../lib/modalScrollLock";
 import { useAdminToast } from "./AdminToast";
 import { AdminBubbleDropdown } from "./AdminBubbleDropdown";
 import { AdminNavChevron } from "./AdminNavChevron";
@@ -429,6 +430,8 @@ function ActionsMenu({
     return () => cancelClose();
   }, []);
 
+  useModalScrollLock(open);
+
   return (
     <>
       <div
@@ -704,17 +707,7 @@ function StaffProfileDrawer({
     if (open && member) setActiveMember(member);
   }, [open, member]);
 
-  useEffect(() => {
-    if (!visible) return;
-    const prevBody = document.body.style.overflow;
-    const prevHtml = document.documentElement.style.overflow;
-    document.body.style.overflow = "hidden";
-    document.documentElement.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prevBody;
-      document.documentElement.style.overflow = prevHtml;
-    };
-  }, [visible]);
+  useModalScrollLock(mounted);
 
   useEffect(() => {
     if (!visible) return;

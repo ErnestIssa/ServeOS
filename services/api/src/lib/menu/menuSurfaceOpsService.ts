@@ -189,7 +189,114 @@ export function mapMenuOpsError(code: string): string {
       return "Cannot archive the only published menu — publish another menu first.";
     case "invalid_schedule_date":
       return "Invalid schedule date.";
+    case "menu_not_draft":
+      return "Only draft menus can be deleted this way.";
+    case "cannot_unpublish_last_published":
+      return "Cannot unpublish the only live menu — publish another menu first.";
+    case "menu_not_published":
+      return "This menu is not live.";
+    case "target_restaurant_not_found":
+      return "Target location not found.";
+    case "cannot_move_to_same_restaurant":
+      return "Choose a different location.";
     default:
       return "Menu operation failed.";
   }
+}
+
+export async function deleteDraftMenuSurface(prisma: PrismaClient, restaurantId: string, menuId: string) {
+  const menu = await prisma.menu.findFirst({
+    where: { id: menuId, restaurantId, status: "DRAFT" }
+  });
+  if (!menu) return { ok: false as const, error: "menu_not_draft" };
+
+  await prisma.menu.delete({ where: { id: menuId } });
+  return { ok: true as const };
+}
+
+export async function deleteMenuSurface(prisma: PrismaClient, restaurantId: string, menuId: string) {
+  const menu = await prisma.menu.findFirst({
+    where: { id: menuId, restaurantId, status: { not: "ARCHIVED" } }
+  });
+  if (!menu) return { ok: false as const, error: "menu_not_found" };
+
+  if (menu.status === "DRAFT") {
+    await prisma.menu.delete({ where: { id: menuId } });
+    return { ok: true as const, mode: "deleted" as const };
+  }
+
+  if (menu.status === "PUBLISHED") {
+    const publishedCount = await prisma.menu.count({
+      where: { restaurantId, status: "PUBLISHED", id: { not: menuId } }
+    });
+    if (publishedCount === 0) {
+      return { ok: false as const, error: "cannot_archive_last_published" };
+    }
+    await prisma.menu.update({
+      where: { id: menuId },
+      data: { status: "ARCHIVED", activeVersionId: null }
+    });
+    return { ok: true as const, mode: "archived" as const };
+  }
+
+  return { ok: false as const, error: "menu_not_found" };
+}
+
+export async function unpublishMenuSurface(prisma: PrismaClient, restaurantId: string, menuId: string) {
+  const menu = await loadMenuForOps(prisma, restaurantId, menuId);
+  if (!menu) return { ok: false as const, error: "menu_not_found" };
+  if (menu.status !== "PUBLISHED") return { ok: false as const, error: "menu_not_published" };
+
+  const publishedCount = await prisma.menu.count({
+    where: { restaurantId, status: "PUBLISHED", id: { not: menuId } }
+  });
+  if (publishedCount === 0) {
+    return { ok: false as const, error: "cannot_unpublish_last_published" };
+  }
+
+  await prisma.menu.update({
+    where: { id: menuId },
+    data: { status: "DRAFT", activeVersionId: null }
+  });
+
+  return { ok: true as const };
+}
+
+export async function moveMenuSurface(
+  prisma: PrismaClient,
+  restaurantId: string,
+  menuId: string,
+  targetRestaurantId: string
+) {
+  if (targetRestaurantId === restaurantId) {
+    return { ok: false as const, error: "cannot_move_to_same_restaurant" };
+  }
+
+  const menu = await loadMenuForOps(prisma, restaurantId, menuId);
+  if (!menu) return { ok: false as const, error: "menu_not_found" };
+
+  const target = await prisma.restaurant.findUnique({ where: { id: targetRestaurantId }, select: { id: true } });
+  if (!target) return { ok: false as const, error: "target_restaurant_not_found" };
+
+  const sortOrder = await prisma.menu.count({
+    where: { restaurantId: targetRestaurantId, status: { not: "ARCHIVED" } }
+  });
+
+  await prisma.$transaction([
+    prisma.menu.update({
+      where: { id: menuId },
+      data: { restaurantId: targetRestaurantId, sortOrder }
+    }),
+    prisma.menuCategory.updateMany({
+      where: { menuId },
+      data: { restaurantId: targetRestaurantId }
+    })
+  ]);
+
+  const row = await prisma.menu.findUniqueOrThrow({
+    where: { id: menuId },
+    include: menuListInclude
+  });
+
+  return { ok: true as const, menu: serializeMenu(row) };
 }

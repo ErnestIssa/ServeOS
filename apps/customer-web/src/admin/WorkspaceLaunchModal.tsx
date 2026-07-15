@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useModalScrollLock } from "../lib/modalScrollLock";
 import {
   cloneHardwareConfig,
   confirmWorkspaceDeployment,
@@ -287,31 +288,7 @@ export function WorkspaceLaunchModal({ open, token, onConfirmed }: Props) {
     return () => clearTimeout(timer);
   }, [open, loadCatalog]);
 
-  useEffect(() => {
-    if (!mounted) return;
-    const scrollY = window.scrollY;
-    const html = document.documentElement;
-    const prevBodyOverflow = document.body.style.overflow;
-    const prevBodyPosition = document.body.style.position;
-    const prevBodyTop = document.body.style.top;
-    const prevBodyWidth = document.body.style.width;
-    const prevHtmlOverflow = html.style.overflow;
-
-    document.body.style.overflow = "hidden";
-    document.body.style.position = "fixed";
-    document.body.style.top = `-${scrollY}px`;
-    document.body.style.width = "100%";
-    html.style.overflow = "hidden";
-
-    return () => {
-      document.body.style.overflow = prevBodyOverflow;
-      document.body.style.position = prevBodyPosition;
-      document.body.style.top = prevBodyTop;
-      document.body.style.width = prevBodyWidth;
-      html.style.overflow = prevHtmlOverflow;
-      window.scrollTo(0, scrollY);
-    };
-  }, [mounted]);
+  useModalScrollLock(mounted);
 
   useEffect(() => {
     if (step !== "configure-hardware" || !deploymentInput) return;

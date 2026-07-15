@@ -9,7 +9,10 @@ export type MenuSectionTab =
   | "availability"
   | "images"
   | "preview"
-  | "import-export";
+  | "import-export"
+  | "qr-codes"
+  | "archived"
+  | "live";
 
 const LEGACY_CONFIG_PRESET_MAP: Record<string, ConfigPresetId> = {
   "menu-builder": "menu",
@@ -39,6 +42,9 @@ export function menuTabFromLegacyPreset(presetId: string): MenuSectionTab | null
   if (presetId === "images" || presetId === "menu-images") return "images";
   if (presetId === "preview" || presetId === "menu-preview") return "preview";
   if (presetId === "import-export") return "import-export";
+  if (presetId === "qr-codes" || presetId === "qr") return "qr-codes";
+  if (presetId === "archived") return "archived";
+  if (presetId === "live") return "live";
   if (presetId === "menu-builder" || presetId === "menus") return "menus";
   return null;
 }
@@ -57,7 +63,10 @@ export const MENU_TAB_LABELS: Record<MenuSectionTab, string> = {
   availability: "Availability",
   images: "Menu images",
   preview: "Preview",
-  "import-export": "Import / export"
+  "import-export": "Import / export",
+  "qr-codes": "QR codes",
+  archived: "Archived",
+  live: "Live"
 };
 
 export const MENU_TABS: MenuSectionTab[] = [
@@ -69,5 +78,8 @@ export const MENU_TABS: MenuSectionTab[] = [
   "availability",
   "images",
   "preview",
-  "import-export"
+  "import-export",
+  "qr-codes",
+  "archived",
+  "live"
 ];

@@ -6,8 +6,8 @@ import {
   ProfileModalAlert,
   ProfileModalFooter,
   ProfileModalNote,
-  ProfileModalShell
-} from "../../profile/ProfileModalShell";
+  MenuPageModalShell
+} from "./menuPageModalShell";
 import { AvailabilityColorPicker } from "./AvailabilityColorPicker";
 import { AvailabilityPreviewCard } from "./AvailabilityPreviewCard";
 import {
@@ -199,7 +199,7 @@ export function EditAvailabilityModal({ open, target, canEdit, token, restaurant
 
   return (
     <>
-      <ProfileModalShell
+      <MenuPageModalShell
         open={open && !confirmOpen}
         onClose={sending ? () => undefined : onClose}
         title="Edit availability window"
@@ -332,9 +332,9 @@ export function EditAvailabilityModal({ open, target, canEdit, token, restaurant
             </button>
           ) : null}
         </div>
-      </ProfileModalShell>
+      </MenuPageModalShell>
 
-      <ProfileModalShell
+      <MenuPageModalShell
         open={confirmOpen}
         onClose={sending ? () => undefined : () => setConfirmOpen(false)}
         title="Save availability window?"
@@ -360,7 +360,7 @@ export function EditAvailabilityModal({ open, target, canEdit, token, restaurant
           cancelLabel="Go back"
           busy={sending}
         />
-      </ProfileModalShell>
+      </MenuPageModalShell>
     </>
   );
 }

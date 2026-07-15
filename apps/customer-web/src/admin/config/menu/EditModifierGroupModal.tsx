@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { updateModifierGroup } from "../../../api";
 import { AdminBtnSecondary, AdminInput, AdminLabel } from "../../AdminUi";
-import { ProfileModalAlert, ProfileModalShell } from "../../profile/ProfileModalShell";
+import { ProfileModalAlert, MenuPageModalShell } from "./menuPageModalShell";
 
 export type EditModifierGroupTarget = {
   id: string;
@@ -135,7 +135,7 @@ export function EditModifierGroupModal({ open, target, canEdit, token, restauran
 
   return (
     <>
-      <ProfileModalShell
+      <MenuPageModalShell
         open={open && !discardOpen}
         onClose={attemptClose}
         title="Edit modifier group"
@@ -220,9 +220,9 @@ export function EditModifierGroupModal({ open, target, canEdit, token, restauran
             {sending ? "Saving…" : "Save changes"}
           </button>
         </div>
-      </ProfileModalShell>
+      </MenuPageModalShell>
 
-      <ProfileModalShell
+      <MenuPageModalShell
         open={discardOpen}
         onClose={() => setDiscardOpen(false)}
         title="Discard changes?"
@@ -238,7 +238,7 @@ export function EditModifierGroupModal({ open, target, canEdit, token, restauran
             Discard
           </button>
         </div>
-      </ProfileModalShell>
+      </MenuPageModalShell>
     </>
   );
 }

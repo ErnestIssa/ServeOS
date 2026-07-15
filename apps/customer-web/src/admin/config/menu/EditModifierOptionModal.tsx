@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { updateModifierOption } from "../../../api";
 import { AdminBtnSecondary, AdminInput, AdminLabel } from "../../AdminUi";
-import { ProfileModalAlert, ProfileModalShell } from "../../profile/ProfileModalShell";
+import { ProfileModalAlert, MenuPageModalShell } from "./menuPageModalShell";
 
 export type EditModifierOptionTarget = {
   id: string;
@@ -137,7 +137,7 @@ export function EditModifierOptionModal({ open, target, canEdit, token, restaura
 
   return (
     <>
-      <ProfileModalShell
+      <MenuPageModalShell
         open={open && !discardOpen}
         onClose={attemptClose}
         title="Edit modifier option"
@@ -213,9 +213,9 @@ export function EditModifierOptionModal({ open, target, canEdit, token, restaura
             {sending ? "Saving…" : "Save changes"}
           </button>
         </div>
-      </ProfileModalShell>
+      </MenuPageModalShell>
 
-      <ProfileModalShell
+      <MenuPageModalShell
         open={discardOpen}
         onClose={() => setDiscardOpen(false)}
         title="Discard changes?"
@@ -231,7 +231,7 @@ export function EditModifierOptionModal({ open, target, canEdit, token, restaura
             Discard
           </button>
         </div>
-      </ProfileModalShell>
+      </MenuPageModalShell>
     </>
   );
 }

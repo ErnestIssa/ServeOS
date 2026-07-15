@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { MenuSurfaceRow } from "../../../api";
-import { ProfileModalAlert, ProfileModalFooter, ProfileModalShell } from "../../profile/ProfileModalShell";
+import { ProfileModalAlert, ProfileModalFooter, MenuPageModalShell } from "./menuPageModalShell";
 import { removeMenuAvailabilityWindow } from "./availabilityHelpers";
 
 type Props = {
@@ -50,7 +50,7 @@ export function DeleteAvailabilityModal({
   };
 
   return (
-    <ProfileModalShell
+    <MenuPageModalShell
       open={open}
       onClose={busy ? () => undefined : onClose}
       title="Delete availability window?"
@@ -69,6 +69,6 @@ export function DeleteAvailabilityModal({
         confirmDisabled={!windowKey || !menuId}
         danger
       />
-    </ProfileModalShell>
+    </MenuPageModalShell>
   );
 }

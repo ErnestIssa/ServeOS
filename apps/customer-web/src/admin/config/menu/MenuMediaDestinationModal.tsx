@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SignupModalShell } from "../../../signup/SignupModalShell";
+import { MENU_PAGE_MODAL_BACKDROP } from "./menuPageModalShell";
 import type { MenuCapabilitiesPayload, MenuSurfaceRow } from "../../../api";
 import { AdminBtnPrimary, AdminBtnSecondary } from "../../AdminUi";
 import { useAdminToast } from "../../AdminToast";
@@ -244,6 +245,7 @@ export function MenuMediaDestinationModal({
         onClose={closeAll}
         labelledBy="menu-media-dest-title"
         backdropLabel="Close media destination picker"
+        backdropClassName={MENU_PAGE_MODAL_BACKDROP}
         shellClassName="admin-search-modal-shell fixed inset-0 z-[110] flex items-center justify-center overflow-hidden p-4 sm:p-6"
         panelClassName="admin-search-modal-panel relative z-[1] flex w-full max-w-[min(94vw,52rem)] flex-col overflow-hidden rounded-[1.5rem] border shadow-[0_32px_100px_rgba(15,23,42,0.32)] backdrop-blur-xl"
       >

@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { AdminBtnPrimary, AdminBtnSecondary, AdminInput, AdminLabel, AdminSelect } from "../AdminUi";
+import { useModalScrollLock } from "../../lib/modalScrollLock";
 import { ProfileModalShell, ProfileModalFooter } from "../profile/ProfileModalShell";
 import type { SpecialSchedule } from "./venueProfileModel";
 
@@ -179,6 +180,8 @@ export function VenueProfileSheet({
   children: ReactNode;
   footer?: React.ReactNode;
 }) {
+  useModalScrollLock(open);
+
   if (!open) return null;
   return (
     <>

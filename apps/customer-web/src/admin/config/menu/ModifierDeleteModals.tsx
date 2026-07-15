@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { deleteModifierGroup, deleteModifierOption } from "../../../api";
-import { ProfileModalAlert, ProfileModalFooter, ProfileModalShell } from "../../profile/ProfileModalShell";
+import { ProfileModalAlert, ProfileModalFooter, MenuPageModalShell } from "./menuPageModalShell";
 
 type DeleteGroupProps = {
   open: boolean;
@@ -31,7 +31,7 @@ export function DeleteModifierGroupModal({ open, groupName, token, restaurantId,
   };
 
   return (
-    <ProfileModalShell
+    <MenuPageModalShell
       open={open}
       onClose={busy ? () => undefined : onClose}
       title="Delete modifier group?"
@@ -50,7 +50,7 @@ export function DeleteModifierGroupModal({ open, groupName, token, restaurantId,
         confirmDisabled={!groupId}
         danger
       />
-    </ProfileModalShell>
+    </MenuPageModalShell>
   );
 }
 
@@ -83,7 +83,7 @@ export function DeleteModifierOptionModal({ open, optionName, token, restaurantI
   };
 
   return (
-    <ProfileModalShell
+    <MenuPageModalShell
       open={open}
       onClose={busy ? () => undefined : onClose}
       title="Delete modifier option?"
@@ -102,6 +102,6 @@ export function DeleteModifierOptionModal({ open, optionName, token, restaurantI
         confirmDisabled={!optionId}
         danger
       />
-    </ProfileModalShell>
+    </MenuPageModalShell>
   );
 }

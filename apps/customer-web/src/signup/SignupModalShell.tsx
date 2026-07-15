@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useModalScrollLock } from "../lib/modalScrollLock";
 
 export const SIGNUP_MODAL_EXIT_MS = 300;
 
@@ -15,6 +16,7 @@ type Props = {
   backdropLabel?: string;
   portal?: boolean;
   shellClassName?: string;
+  backdropClassName?: string;
 };
 
 export function SignupModalShell({
@@ -25,10 +27,13 @@ export function SignupModalShell({
   panelClassName = defaultPanelCls,
   backdropLabel = "Close dialog",
   portal = true,
-  shellClassName = "fixed inset-0 z-[100] flex items-center justify-center p-5"
+  shellClassName = "fixed inset-0 z-[100] flex items-center justify-center overflow-hidden overscroll-none p-5",
+  backdropClassName
 }: Props) {
   const [mounted, setMounted] = useState(open);
   const [visible, setVisible] = useState(false);
+
+  useModalScrollLock(open || mounted);
 
   useEffect(() => {
     if (open) {
@@ -44,15 +49,6 @@ export function SignupModalShell({
   }, [open]);
 
   useEffect(() => {
-    if (!mounted) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [mounted]);
-
-  useEffect(() => {
     if (!mounted || !open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -63,11 +59,15 @@ export function SignupModalShell({
 
   if (!mounted) return null;
 
+  const backdropClass = backdropClassName
+    ? `absolute inset-0 ${backdropClassName}`
+    : "signup-modal-backdrop absolute inset-0 bg-slate-950/35 backdrop-blur-md";
+
   const shell = (
     <div className={shellClassName} role="presentation">
       <button
         type="button"
-        className={`signup-modal-backdrop absolute inset-0 bg-slate-950/35 backdrop-blur-md ${visible ? "is-active" : ""}`}
+        className={`${backdropClass} ${visible ? "is-active" : ""}`}
         aria-label={backdropLabel}
         onClick={onClose}
       />

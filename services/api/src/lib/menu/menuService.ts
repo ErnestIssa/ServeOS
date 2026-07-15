@@ -2,6 +2,7 @@ import type { MenuStatus, Prisma, PrismaClient } from "@prisma/client";
 import { fetchMenuTree } from "../menu.js";
 import { buildMenuSnapshotForPublish } from "./publicMenuService.js";
 import { sanitizeAvailabilityWindows, type MenuAvailabilityWindows } from "./menuAvailability.js";
+import { deriveMenuScopeHealth, type MenuScopeTone } from "./menuManageService.js";
 
 export type MenuListItem = {
   id: string;
@@ -16,6 +17,8 @@ export type MenuListItem = {
   activeVersionNumber: number | null;
   publishedAt: string | null;
   availabilityWindows: MenuAvailabilityWindows | null;
+  scopeTone: MenuScopeTone;
+  scopeLabel: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -38,6 +41,7 @@ export function serializeMenu(
 ): MenuListItem {
   const categoryCount = row.categories.length;
   const itemCount = row.categories.reduce((sum, c) => sum + c._count.items, 0);
+  const { scopeTone, scopeLabel } = deriveMenuScopeHealth({ status: row.status, itemCount });
   return {
     id: row.id,
     name: row.name,
@@ -51,6 +55,8 @@ export function serializeMenu(
     activeVersionNumber: row.activeVersion?.versionNumber ?? null,
     publishedAt: row.activeVersion?.publishedAt?.toISOString() ?? null,
     availabilityWindows: sanitizeAvailabilityWindows(row.availabilityWindows),
+    scopeTone,
+    scopeLabel,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString()
   };
@@ -108,11 +114,25 @@ export async function ensureVenueMenusBootstrapped(
   ]);
 }
 
-export async function listMenusForRestaurant(prisma: PrismaClient, restaurantId: string, userId: string) {
-  await ensureVenueMenusBootstrapped(prisma, restaurantId, userId);
+export type MenuListStatusFilter = "active" | "DRAFT" | "PUBLISHED" | "ARCHIVED";
+
+function menuListStatusWhere(status: MenuListStatusFilter): Prisma.MenuWhereInput["status"] {
+  if (status === "active") return { not: "ARCHIVED" };
+  return status;
+}
+
+export async function listMenusForRestaurant(
+  prisma: PrismaClient,
+  restaurantId: string,
+  userId: string,
+  status: MenuListStatusFilter = "active"
+) {
+  if (status === "active" || status === "DRAFT" || status === "PUBLISHED") {
+    await ensureVenueMenusBootstrapped(prisma, restaurantId, userId);
+  }
 
   const rows = await prisma.menu.findMany({
-    where: { restaurantId, status: { not: "ARCHIVED" } },
+    where: { restaurantId, status: menuListStatusWhere(status) },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     include: menuListInclude
   });

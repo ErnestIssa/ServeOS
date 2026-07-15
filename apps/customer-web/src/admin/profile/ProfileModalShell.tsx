@@ -20,11 +20,14 @@ type ShellProps = {
   maxHeightClass?: string;
   /** When false, modal body does not scroll — use for forms with in-panel dropdowns. */
   bodyScroll?: boolean;
+  backdropClassName?: string;
 };
 
 const PROFILE_MODAL_SHELL_CLASS = {
-  default: "admin-profile-modal-shell fixed inset-0 z-[10000] flex items-center justify-center p-4 sm:p-6",
-  overlay: "admin-profile-modal-shell fixed inset-0 z-[10050] flex items-center justify-center p-4 sm:p-6"
+  default:
+    "admin-profile-modal-shell fixed inset-0 z-[10000] flex items-center justify-center overflow-hidden overscroll-none p-4 sm:p-6",
+  overlay:
+    "admin-profile-modal-shell fixed inset-0 z-[10050] flex items-center justify-center overflow-hidden overscroll-none p-4 sm:p-6"
 } as const;
 
 export function ProfileModalShell({
@@ -41,7 +44,8 @@ export function ProfileModalShell({
   panelClassName = "",
   bodyClassName = "",
   maxHeightClass = "max-h-[min(90dvh,44rem)]",
-  bodyScroll = true
+  bodyScroll = true,
+  backdropClassName
 }: ShellProps) {
   return (
     <SignupModalShell
@@ -50,6 +54,7 @@ export function ProfileModalShell({
       labelledBy={titleId}
       backdropLabel={backdropLabel}
       shellClassName={PROFILE_MODAL_SHELL_CLASS[stackLevel]}
+      backdropClassName={backdropClassName}
       panelClassName={`${PROFILE_MODAL_PANEL} ${maxWidthClass} flex ${maxHeightClass} flex-col ${panelClassName}`.trim()}
     >
       <div className="shrink-0">

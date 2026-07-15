@@ -7,8 +7,8 @@ import {
   ProfileModalAlert,
   ProfileModalFooter,
   ProfileModalNote,
-  ProfileModalShell
-} from "../../profile/ProfileModalShell";
+  MenuPageModalShell
+} from "./menuPageModalShell";
 
 export type CreateCategoryForm = {
   name: string;
@@ -86,7 +86,7 @@ function CreateCategoryConfirmModal({
   onConfirm: () => void;
 }) {
   return (
-    <ProfileModalShell
+    <MenuPageModalShell
       open={open}
       onClose={busy ? () => undefined : onCancel}
       title="Create category?"
@@ -118,7 +118,7 @@ function CreateCategoryConfirmModal({
         cancelLabel="Go back"
         busy={busy}
       />
-    </ProfileModalShell>
+    </MenuPageModalShell>
   );
 }
 
@@ -248,7 +248,7 @@ export function CreateCategoryModal({
 
   return (
     <>
-      <ProfileModalShell
+      <MenuPageModalShell
         open={open && !confirmOpen}
         onClose={attemptClose}
         title="Create category"
@@ -350,7 +350,7 @@ export function CreateCategoryModal({
             Review & create
           </button>
         </div>
-      </ProfileModalShell>
+      </MenuPageModalShell>
 
       <CreateCategoryConfirmModal
         open={confirmOpen}
@@ -363,7 +363,7 @@ export function CreateCategoryModal({
         onConfirm={() => void handleCreate()}
       />
 
-      <ProfileModalShell
+      <MenuPageModalShell
         open={discardOpen}
         onClose={() => setDiscardOpen(false)}
         title="Discard category?"
@@ -381,7 +381,7 @@ export function CreateCategoryModal({
           cancelLabel="Keep editing"
           danger
         />
-      </ProfileModalShell>
+      </MenuPageModalShell>
     </>
   );
 }

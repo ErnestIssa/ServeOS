@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useModalScrollLock } from "../lib/modalScrollLock";
 
 export const ADMIN_POPOVER_EXIT_MS = 220;
 
@@ -6,6 +7,8 @@ export const ADMIN_POPOVER_EXIT_MS = 220;
 export function useAdminPopoverMount(open: boolean, exitMs = ADMIN_POPOVER_EXIT_MS) {
   const [mounted, setMounted] = useState(open);
   const [visible, setVisible] = useState(false);
+
+  useModalScrollLock(mounted);
 
   useEffect(() => {
     if (open) {
