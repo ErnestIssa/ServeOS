@@ -19,6 +19,7 @@ import {
   createDraftMenu,
   listMenusForRestaurant,
   mapMenuApiError,
+  updateMenuSurface,
   type MenuListItem,
   type MenuListStatusFilter
 } from "../lib/menu/menuService.js";
@@ -120,6 +121,40 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
     } catch (err) {
       const e = err as { message?: string; statusCode?: number };
       const code = e.message ?? "menu_create_failed";
+      const status = e.statusCode ?? 400;
+      return reply.status(status).send({
+        ok: false,
+        error: code,
+        message: mapMenuApiError(code)
+      });
+    }
+  });
+
+  app.patch("/restaurants/:restaurantId/menus/:menuId", async (req, reply) => {
+    const { restaurantId, menuId } = z
+      .object({ restaurantId: z.string().min(1), menuId: z.string().min(1) })
+      .parse(req.params);
+    const body = createSchema.parse(req.body);
+    const { membership } = await requireMenuVenueMembership(prisma, req, restaurantId);
+    assertMenuPermission("edit", membership);
+
+    const restaurant = await prisma.restaurant.findUnique({ where: { id: restaurantId }, select: { id: true } });
+    if (!restaurant) {
+      return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
+    }
+
+    try {
+      const menu = await updateMenuSurface(prisma, {
+        restaurantId,
+        menuId,
+        name: body.name,
+        description: body.description,
+        surfaceKey: body.surfaceKey
+      });
+      return { ok: true, menu };
+    } catch (err) {
+      const e = err as { message?: string; statusCode?: number };
+      const code = e.message ?? "menu_update_failed";
       const status = e.statusCode ?? 400;
       return reply.status(status).send({
         ok: false,

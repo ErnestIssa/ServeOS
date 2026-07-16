@@ -32,6 +32,7 @@ type Props = {
   onClose: () => void;
   onRefresh: () => void;
   onClearSelection: () => void;
+  onEditMenu: (menu: MenuSurfaceRow) => void;
 };
 
 function ScopeChip({ menu }: { menu: MenuSurfaceRow }) {
@@ -57,7 +58,8 @@ export function MenuManageDrawer({
   venueName,
   onClose,
   onRefresh,
-  onClearSelection
+  onClearSelection,
+  onEditMenu
 }: Props) {
   const { pushToast } = useAdminToast();
   const [mounted, setMounted] = useState(false);
@@ -72,6 +74,7 @@ export function MenuManageDrawer({
   const [deleteDraftOpen, setDeleteDraftOpen] = useState(false);
   const [deleteMenuOpen, setDeleteMenuOpen] = useState(false);
   const [qrPickerOpen, setQrPickerOpen] = useState(false);
+  const [editPickerOpen, setEditPickerOpen] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
   const [insightsOpen, setInsightsOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
@@ -192,7 +195,26 @@ export function MenuManageDrawer({
     onClose();
   };
 
+  const editableTargets = useMemo(
+    () => targets.filter((m) => m.status !== "ARCHIVED"),
+    [targets]
+  );
+
+  const openEditForMenu = (menu: MenuSurfaceRow) => {
+    setEditPickerOpen(false);
+    onClose();
+    onEditMenu(menu);
+  };
+
   const handleAction = (actionId: string) => {
+    if (actionId === "edit") {
+      if (editableTargets.length === 1) {
+        openEditForMenu(editableTargets[0]!);
+      } else if (editableTargets.length > 1) {
+        setEditPickerOpen(true);
+      }
+      return;
+    }
     if (actionId === "delete-draft") {
       setDeleteDraftOpen(true);
       return;
@@ -361,6 +383,16 @@ export function MenuManageDrawer({
         restaurantId={restaurantId}
         onClose={() => setDeleteMenuOpen(false)}
         onDone={(summary) => bulkDone("Delete menu", summary)}
+      />
+
+      <MenuSinglePickerModal
+        open={editPickerOpen}
+        title="Choose menu to edit"
+        description="Pick one menu from your selection to edit its details."
+        menus={editableTargets}
+        confirmLabel="Edit menu"
+        onClose={() => setEditPickerOpen(false)}
+        onPick={(menu) => openEditForMenu(menu)}
       />
 
       <MenuSinglePickerModal

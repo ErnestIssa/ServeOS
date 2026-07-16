@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { createRestaurantMenu, type MenuSurfaceRow } from "../../../api";
+import { createRestaurantMenu, updateRestaurantMenu, type MenuSurfaceRow } from "../../../api";
 import { AdminBtnSecondary, AdminInput, AdminLabel, inputBase } from "../../AdminUi";
 import { AdminBubbleDropdown, type BubbleDropdownOption } from "../../AdminBubbleDropdown";
 import {
@@ -62,6 +62,22 @@ function findPresetSurfaceMatch(text: string) {
   );
 }
 
+function formFromMenu(menu: MenuSurfaceRow): {
+  form: CreateMenuForm;
+  extra: BubbleDropdownOption[];
+} {
+  const key = (menu.surfaceKey ?? "main").trim() || "main";
+  const known = BASE_SURFACE_OPTIONS.some((o) => o.value === key && o.value !== "custom");
+  if (known) {
+    return { form: { name: menu.name, description: menu.description ?? "", surfaceKey: key }, extra: [] };
+  }
+  const label = key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  return {
+    form: { name: menu.name, description: menu.description ?? "", surfaceKey: key },
+    extra: [{ value: key, label }]
+  };
+}
+
 function validateForm(form: CreateMenuForm, customSurfaceInput: string) {
   const errors: Partial<Record<keyof CreateMenuForm | "customSurface", string>> = {};
   const name = form.name.trim();
@@ -73,21 +89,39 @@ function validateForm(form: CreateMenuForm, customSurfaceInput: string) {
   return errors;
 }
 
-function friendlyMenuCreateError(message?: string, error?: string) {
+function friendlyMenuSaveError(message?: string, error?: string, editing?: boolean) {
   const raw = `${error ?? ""} ${message ?? ""}`.toLowerCase();
   if (raw.includes("menu_name_taken") || raw.includes("already exists")) {
     return "A menu with this name already exists at this venue. Try a different name.";
   }
   if (raw.includes("permission") || raw.includes("forbidden")) {
-    return "You don't have permission to create a menu for this venue.";
+    return editing
+      ? "You don't have permission to edit this menu."
+      : "You don't have permission to create a menu for this venue.";
   }
   if (raw.includes("not found")) {
-    return "We couldn't find that venue. Refresh the page and try again.";
+    return editing
+      ? "We couldn't find that menu. Refresh the page and try again."
+      : "We couldn't find that venue. Refresh the page and try again.";
   }
-  return "We couldn't create the menu right now. Please try again.";
+  return editing
+    ? "We couldn't save the menu right now. Please try again."
+    : "We couldn't create the menu right now. Please try again.";
 }
 
-function isDirty(form: CreateMenuForm, customSurfaceInput: string) {
+function isDirty(
+  form: CreateMenuForm,
+  customSurfaceInput: string,
+  baseline: CreateMenuForm | null
+) {
+  if (baseline) {
+    return (
+      form.name.trim() !== baseline.name.trim() ||
+      form.description.trim() !== baseline.description.trim() ||
+      form.surfaceKey !== baseline.surfaceKey ||
+      customSurfaceInput.trim() !== ""
+    );
+  }
   return (
     form.name.trim() !== "" ||
     form.description.trim() !== "" ||
@@ -101,12 +135,16 @@ type Props = {
   venueName: string;
   token: string;
   restaurantId: string;
+  /** When set, modal opens in edit mode with these details prefilled. */
+  editMenu?: MenuSurfaceRow | null;
   onClose: () => void;
   onCreated: (menu: MenuSurfaceRow) => void;
+  onSaved?: (menu: MenuSurfaceRow) => void;
 };
 
 function CreateMenuConfirmModal({
   open,
+  editing,
   venueLabel,
   form,
   surfaceLabel,
@@ -116,6 +154,7 @@ function CreateMenuConfirmModal({
   onConfirm
 }: {
   open: boolean;
+  editing: boolean;
   venueLabel: string;
   form: CreateMenuForm;
   surfaceLabel: string;
@@ -128,8 +167,12 @@ function CreateMenuConfirmModal({
     <MenuPageModalShell
       open={open}
       onClose={busy ? () => undefined : onCancel}
-      title="Create draft menu?"
-      description={`A new draft menu will be added to ${venueLabel}. Guests will not see it until you publish.`}
+      title={editing ? "Save menu changes?" : "Create draft menu?"}
+      description={
+        editing
+          ? `Update “${form.name.trim()}” at ${venueLabel}. Guests see published menus with the new details after the next publish if needed.`
+          : `A new draft menu will be added to ${venueLabel}. Guests will not see it until you publish.`
+      }
       titleId="create-menu-confirm-title"
       stackLevel="overlay"
       maxWidthClass="max-w-lg"
@@ -146,14 +189,18 @@ function CreateMenuConfirmModal({
         ) : null}
         <br />
         Type: <strong>{surfaceLabel}</strong>
-        <br />
-        Status: <strong>Draft</strong> — you can add categories, items, images, and videos before publishing.
+        {editing ? null : (
+          <>
+            <br />
+            Status: <strong>Draft</strong> — you can add categories, items, images, and videos before publishing.
+          </>
+        )}
       </ProfileModalNote>
       {error ? <ProfileModalAlert tone="error">{error}</ProfileModalAlert> : null}
       <ProfileModalFooter
         onCancel={onCancel}
         onConfirm={onConfirm}
-        confirmLabel="Create draft menu"
+        confirmLabel={editing ? "Save changes" : "Create draft menu"}
         cancelLabel="Go back"
         busy={busy}
       />
@@ -161,8 +208,19 @@ function CreateMenuConfirmModal({
   );
 }
 
-export function CreateMenuModal({ open, venueName, token, restaurantId, onClose, onCreated }: Props) {
+export function CreateMenuModal({
+  open,
+  venueName,
+  token,
+  restaurantId,
+  editMenu = null,
+  onClose,
+  onCreated,
+  onSaved
+}: Props) {
+  const editing = Boolean(editMenu);
   const [form, setForm] = useState<CreateMenuForm>(EMPTY_FORM);
+  const [baseline, setBaseline] = useState<CreateMenuForm | null>(null);
   const [customSurfaceInput, setCustomSurfaceInput] = useState("");
   const [extraSurfaceOptions, setExtraSurfaceOptions] = useState<BubbleDropdownOption[]>([]);
   const [submitAttempted, setSubmitAttempted] = useState(false);
@@ -175,7 +233,11 @@ export function CreateMenuModal({ open, venueName, token, restaurantId, onClose,
   const surfaceOptions = useMemo(() => {
     const seen = new Set<string>();
     const out: BubbleDropdownOption[] = [];
-    for (const opt of [...BASE_SURFACE_OPTIONS.filter((o) => o.value !== "custom"), ...extraSurfaceOptions, ...BASE_SURFACE_OPTIONS.filter((o) => o.value === "custom")]) {
+    for (const opt of [
+      ...BASE_SURFACE_OPTIONS.filter((o) => o.value !== "custom"),
+      ...extraSurfaceOptions,
+      ...BASE_SURFACE_OPTIONS.filter((o) => o.value === "custom")
+    ]) {
       if (seen.has(opt.value)) continue;
       seen.add(opt.value);
       out.push(opt);
@@ -185,11 +247,12 @@ export function CreateMenuModal({ open, venueName, token, restaurantId, onClose,
 
   const errors = useMemo(() => validateForm(form, customSurfaceInput), [form, customSurfaceInput]);
   const hasErrors = Object.keys(errors).length > 0;
-  const dirty = isDirty(form, customSurfaceInput);
+  const dirty = isDirty(form, customSurfaceInput, baseline);
 
   useEffect(() => {
     if (!open) {
       setForm(EMPTY_FORM);
+      setBaseline(null);
       setCustomSurfaceInput("");
       setExtraSurfaceOptions([]);
       setSubmitAttempted(false);
@@ -198,8 +261,28 @@ export function CreateMenuModal({ open, venueName, token, restaurantId, onClose,
       setDiscardOpen(false);
       setShakeSubmit(false);
       setSubmitError(null);
+      return;
     }
-  }, [open]);
+
+    if (editMenu) {
+      const seeded = formFromMenu(editMenu);
+      setForm(seeded.form);
+      setBaseline(seeded.form);
+      setExtraSurfaceOptions(seeded.extra);
+      setCustomSurfaceInput("");
+    } else {
+      setForm(EMPTY_FORM);
+      setBaseline(null);
+      setExtraSurfaceOptions([]);
+      setCustomSurfaceInput("");
+    }
+    setSubmitAttempted(false);
+    setSending(false);
+    setConfirmOpen(false);
+    setDiscardOpen(false);
+    setShakeSubmit(false);
+    setSubmitError(null);
+  }, [open, editMenu]);
 
   const patch = <K extends keyof CreateMenuForm>(key: K, value: CreateMenuForm[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -218,6 +301,7 @@ export function CreateMenuModal({ open, venueName, token, restaurantId, onClose,
     setDiscardOpen(false);
     setConfirmOpen(false);
     setForm(EMPTY_FORM);
+    setBaseline(null);
     setCustomSurfaceInput("");
     setExtraSurfaceOptions([]);
     setSubmitAttempted(false);
@@ -329,23 +413,33 @@ export function CreateMenuModal({ open, venueName, token, restaurantId, onClose,
     setConfirmOpen(true);
   };
 
-  const handleCreate = async () => {
+  const handleSave = async () => {
     setSending(true);
     setSubmitError(null);
     const surfaceKey = resolveSurfaceKeyForSubmit();
-    const res = await createRestaurantMenu(token, restaurantId, {
+    const body = {
       name: form.name.trim(),
       description: form.description.trim() || undefined,
       surfaceKey
-    });
+    };
+
+    const res =
+      editing && editMenu
+        ? await updateRestaurantMenu(token, restaurantId, editMenu.id, body)
+        : await createRestaurantMenu(token, restaurantId, body);
+
     setSending(false);
 
     if (!res.ok || !res.menu) {
-      setSubmitError(friendlyMenuCreateError(res.message, res.error));
+      setSubmitError(friendlyMenuSaveError(res.message, res.error, editing));
       return;
     }
 
-    onCreated(res.menu);
+    if (editing) {
+      onSaved?.(res.menu);
+    } else {
+      onCreated(res.menu);
+    }
     finishClose();
   };
 
@@ -356,8 +450,12 @@ export function CreateMenuModal({ open, venueName, token, restaurantId, onClose,
       <MenuPageModalShell
         open={open && !confirmOpen}
         onClose={attemptClose}
-        title="Create menu"
-        description="Create a new menu that guests can browse and order from. You'll add categories, items, photos, and availability after it's created."
+        title={editing ? "Edit menu" : "Create menu"}
+        description={
+          editing
+            ? "Update this menu’s name, description, and type. Categories and items stay as they are."
+            : "Create a new menu that guests can browse and order from. You'll add categories, items, photos, and availability after it's created."
+        }
         titleId="create-menu-title"
         maxWidthClass="max-w-none"
         maxHeightClass="admin-staff-invite-modal-max-h"
@@ -369,7 +467,9 @@ export function CreateMenuModal({ open, venueName, token, restaurantId, onClose,
         <div className="admin-menu-create-hero" aria-hidden>
           <div className="admin-menu-create-hero__icon">☰</div>
           <p className="admin-menu-create-hero__text">
-            New menus are private by default. Nothing is visible to guests until you publish the menu.
+            {editing
+              ? "Editing updates how this menu is labeled in your workspace. Publishing still controls guest visibility."
+              : "New menus are private by default. Nothing is visible to guests until you publish the menu."}
           </p>
         </div>
 
@@ -454,33 +554,42 @@ export function CreateMenuModal({ open, venueName, token, restaurantId, onClose,
             onClick={openConfirm}
             className={`admin-staff-invite-submit admin-menu-create-submit ${submitTone} ${shakeSubmit ? "admin-staff-invite-submit--shake" : ""}`}
           >
-            Review & create
+            {editing ? "Review & save" : "Review & create"}
           </button>
         </div>
       </MenuPageModalShell>
 
       <CreateMenuConfirmModal
         open={confirmOpen}
+        editing={editing}
         venueLabel={venueName}
         form={form}
         surfaceLabel={surfaceLabel}
         busy={sending}
         error={submitError}
         onCancel={() => setConfirmOpen(false)}
-        onConfirm={() => void handleCreate()}
+        onConfirm={() => void handleSave()}
       />
 
       <MenuPageModalShell
         open={discardOpen}
         onClose={() => setDiscardOpen(false)}
-        title="Discard menu draft?"
-        description="Your menu details will be lost if you close now."
+        title={editing ? "Discard changes?" : "Discard menu draft?"}
+        description={
+          editing
+            ? "Your edits will be lost if you close now."
+            : "Your menu details will be lost if you close now."
+        }
         titleId="discard-menu-title"
         maxWidthClass="max-w-md"
         stackLevel="overlay"
         panelClassName="admin-menu-create-confirm-modal"
       >
-        <ProfileModalNote>You have unsaved menu details. This cannot be undone.</ProfileModalNote>
+        <ProfileModalNote>
+          {editing
+            ? "You have unsaved edits. This cannot be undone."
+            : "You have unsaved menu details. This cannot be undone."}
+        </ProfileModalNote>
         <ProfileModalFooter
           onCancel={() => setDiscardOpen(false)}
           onConfirm={finishClose}

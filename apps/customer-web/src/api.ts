@@ -361,6 +361,18 @@ export async function createRestaurantMenu(
   );
 }
 
+export async function updateRestaurantMenu(
+  token: string,
+  restaurantId: string,
+  menuId: string,
+  body: { name: string; description?: string; surfaceKey?: string }
+) {
+  return apiFetch<{ ok: boolean; menu?: MenuSurfaceRow; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}`,
+    { method: "PATCH", headers: authJsonHeaders(token), body: JSON.stringify(body) }
+  );
+}
+
 export async function publishRestaurantMenu(token: string, restaurantId: string, menuId: string) {
   return apiFetch<{
     ok: boolean;

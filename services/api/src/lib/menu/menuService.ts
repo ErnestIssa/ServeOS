@@ -182,10 +182,55 @@ export async function createDraftMenu(
   return serializeMenu(menu);
 }
 
+export async function updateMenuSurface(
+  prisma: PrismaClient,
+  input: {
+    restaurantId: string;
+    menuId: string;
+    name: string;
+    description?: string | null;
+    surfaceKey?: string | null;
+  }
+) {
+  const existing = await prisma.menu.findFirst({
+    where: { id: input.menuId, restaurantId: input.restaurantId, status: { not: "ARCHIVED" } }
+  });
+  if (!existing) {
+    throw Object.assign(new Error("menu_not_found"), { statusCode: 404 });
+  }
+
+  const name = input.name.trim();
+  const duplicate = await prisma.menu.findFirst({
+    where: {
+      restaurantId: input.restaurantId,
+      id: { not: input.menuId },
+      status: { not: "ARCHIVED" },
+      name: { equals: name, mode: "insensitive" }
+    }
+  });
+  if (duplicate) {
+    throw Object.assign(new Error("menu_name_taken"), { statusCode: 409 });
+  }
+
+  const menu = await prisma.menu.update({
+    where: { id: input.menuId },
+    data: {
+      name,
+      description: input.description?.trim() || null,
+      surfaceKey: input.surfaceKey?.trim() || null
+    },
+    include: menuListInclude
+  });
+
+  return serializeMenu(menu);
+}
+
 export function mapMenuApiError(code: string): string {
   switch (code) {
     case "menu_name_taken":
       return "A menu with this name already exists for this venue.";
+    case "menu_not_found":
+      return "That menu could not be found.";
     case "menu_permission_denied":
       return "You do not have permission to manage menus.";
     case "restaurant_not_found":

@@ -8,6 +8,7 @@ export type MenuScopeTone = "live" | "draft" | "problem";
 export type MenuPanelVariant = "active" | "live" | "archived";
 
 export type MenuManageActionId =
+  | "edit"
   | "delete-draft"
   | "delete-menu"
   | "share"
@@ -97,7 +98,19 @@ export function buildMenuManageActions(input: {
   const draftCount = targets.filter((m) => m.status === "DRAFT").length;
   const publishedCount = targets.filter((m) => m.status === "PUBLISHED").length;
   const archivableCount = targets.filter((m) => m.status !== "ARCHIVED").length;
+  const editableCount = targets.filter((m) => m.status !== "ARCHIVED").length;
   const allPublished = targets.length > 0 && publishedCount === targets.length;
+
+  if (panelVariant !== "archived" && editableCount > 0 && canEdit) {
+    actions.push({
+      id: "edit",
+      label: editableCount === 1 ? "Edit menu" : "Edit a menu",
+      description:
+        editableCount === 1
+          ? "Update this menu’s name, description, and type."
+          : "Choose one menu to edit its name, description, and type."
+    });
+  }
 
   if (panelVariant !== "archived" && draftCount > 0 && canDelete) {
     actions.push({

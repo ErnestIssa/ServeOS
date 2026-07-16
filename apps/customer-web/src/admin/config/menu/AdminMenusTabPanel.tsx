@@ -140,6 +140,7 @@ export function AdminMenusTabPanel({
   const copy = sectionCopy(variant);
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [editMenu, setEditMenu] = useState<MenuSurfaceRow | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMenuIds, setSelectedMenuIds] = useState<Set<string>>(() => new Set());
   const selectAllRef = useRef<HTMLInputElement>(null);
@@ -246,7 +247,13 @@ export function AdminMenusTabPanel({
                 </MenuToolbarButton>
               ) : null}
               {can("menu", "create") ? (
-                <MenuToolbarButton primary onClick={() => setCreateOpen(true)}>
+                <MenuToolbarButton
+                  primary
+                  onClick={() => {
+                    setEditMenu(null);
+                    setCreateOpen(true);
+                  }}
+                >
                   Create
                 </MenuToolbarButton>
               ) : null}
@@ -374,6 +381,10 @@ export function AdminMenusTabPanel({
         onClose={() => setManageOpen(false)}
         onRefresh={() => void menusApi.refresh()}
         onClearSelection={() => setSelectedMenuIds(new Set())}
+        onEditMenu={(menu) => {
+          setEditMenu(menu);
+          setCreateOpen(true);
+        }}
       />
 
       <CreateMenuModal
@@ -381,10 +392,19 @@ export function AdminMenusTabPanel({
         venueName={venueName}
         token={token}
         restaurantId={restaurantId}
-        onClose={() => setCreateOpen(false)}
+        editMenu={editMenu}
+        onClose={() => {
+          setCreateOpen(false);
+          setEditMenu(null);
+        }}
         onCreated={(menu) => {
           menusApi.upsertMenu(menu);
           pushToast(`“${menu.name}” draft created.`, "success");
+          void menusApi.refresh();
+        }}
+        onSaved={(menu) => {
+          menusApi.upsertMenu(menu);
+          pushToast(`“${menu.name}” updated.`, "success");
           void menusApi.refresh();
         }}
       />
