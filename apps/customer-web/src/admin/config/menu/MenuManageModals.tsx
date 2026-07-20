@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type ClipboardEvent } from "react";
 import type { MenuSurfaceRow } from "../../../api";
 import {
   archiveRestaurantMenu,
@@ -7,7 +7,7 @@ import {
   moveRestaurantMenu,
   unpublishRestaurantMenu
 } from "../../../api";
-import { AdminBtnSecondary, AdminLabel, AdminSelect } from "../../AdminUi";
+import { AdminBtnSecondary, AdminInput, AdminLabel, AdminSelect } from "../../AdminUi";
 import {
   ProfileModalAlert,
   ProfileModalFooter,
@@ -30,24 +30,131 @@ function menuNames(menus: MenuSurfaceRow[]) {
   return `${menus.length} menus`;
 }
 
+/** Exact confirmation string the user must type (UI gate). Backend still verifies each menu name. */
+export function expectedDangerConfirmText(menus: MenuSurfaceRow[]) {
+  return menus.map((m) => m.name).join(", ");
+}
+
+function useDangerNameConfirm(open: boolean, menus: MenuSurfaceRow[]) {
+  const [typed, setTyped] = useState("");
+  const expected = useMemo(() => expectedDangerConfirmText(menus), [menus]);
+  const matches = typed === expected && expected.length > 0;
+
+  const reset = () => setTyped("");
+
+  useEffect(() => {
+    if (!open) {
+      reset();
+      return;
+    }
+    reset();
+  }, [open, expected]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const clearOnLeave = () => reset();
+
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") clearOnLeave();
+    };
+
+    window.addEventListener("blur", clearOnLeave);
+    window.addEventListener("pagehide", clearOnLeave);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("blur", clearOnLeave);
+      window.removeEventListener("pagehide", clearOnLeave);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [open]);
+
+  const onPaste = (e: ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+  };
+
+  return { typed, setTyped, expected, matches, onPaste, reset };
+}
+
+function DangerNameConfirmField({
+  open,
+  menus,
+  typed,
+  setTyped,
+  expected,
+  onPaste,
+  disabled
+}: {
+  open: boolean;
+  menus: MenuSurfaceRow[];
+  typed: string;
+  setTyped: (v: string) => void;
+  expected: string;
+  onPaste: (e: ClipboardEvent<HTMLInputElement>) => void;
+  disabled?: boolean;
+}) {
+  if (!open || menus.length === 0) return null;
+
+  return (
+    <div className="admin-menu-danger-confirm">
+      <p className="admin-menu-danger-confirm-hint">
+        {menus.length === 1 ? (
+          <>
+            Type <strong>{expected}</strong> to confirm. Pasting is disabled.
+          </>
+        ) : (
+          <>
+            Type every menu name exactly, separated by commas, to confirm:
+            <br />
+            <strong>{expected}</strong>
+            <br />
+            Pasting is disabled.
+          </>
+        )}
+      </p>
+      <AdminLabel>
+        <span className="text-xs admin-config-text-muted">Confirm by typing</span>
+        <AdminInput
+          className="mt-1 admin-menu-danger-confirm-input"
+          value={typed}
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+          disabled={disabled}
+          placeholder={expected}
+          onChange={(e) => setTyped(e.target.value)}
+          onPaste={onPaste}
+          onDrop={(e) => e.preventDefault()}
+        />
+      </AdminLabel>
+    </div>
+  );
+}
+
 export function BulkArchiveConfirmModal({ open, menus, venueName, token, restaurantId, onClose, onDone }: BulkProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const confirmGate = useDangerNameConfirm(open, menus);
 
   const confirm = async () => {
+    if (!confirmGate.matches) return;
     setBusy(true);
     setError(null);
     let ok = 0;
     let failed = 0;
+    let firstError: string | null = null;
     for (const menu of menus) {
       if (menu.status === "ARCHIVED") continue;
-      const res = await archiveRestaurantMenu(token, restaurantId, menu.id);
+      const res = await archiveRestaurantMenu(token, restaurantId, menu.id, menu.name);
       if (res.ok) ok += 1;
-      else failed += 1;
+      else {
+        failed += 1;
+        if (!firstError) firstError = res.message ?? res.error ?? "Could not archive the selected menus.";
+      }
     }
     setBusy(false);
     if (failed > 0 && ok === 0) {
-      setError("Could not archive the selected menus.");
+      setError(firstError ?? "Could not archive the selected menus.");
       return;
     }
     onDone({ ok, failed });
@@ -63,13 +170,22 @@ export function BulkArchiveConfirmModal({ open, menus, venueName, token, restaur
       titleId="bulk-archive-menu-title"
       stackLevel="overlay"
     >
+      <DangerNameConfirmField
+        open={open}
+        menus={menus}
+        typed={confirmGate.typed}
+        setTyped={confirmGate.setTyped}
+        expected={confirmGate.expected}
+        onPaste={confirmGate.onPaste}
+        disabled={busy}
+      />
       {error ? <ProfileModalAlert tone="error">{error}</ProfileModalAlert> : null}
       <ProfileModalFooter
         onCancel={onClose}
         onConfirm={() => void confirm()}
         confirmLabel={busy ? "Archiving…" : "Archive"}
         busy={busy}
-        confirmDisabled={menus.length === 0}
+        confirmDisabled={menus.length === 0 || !confirmGate.matches}
         danger
       />
     </MenuPageModalShell>
@@ -79,21 +195,27 @@ export function BulkArchiveConfirmModal({ open, menus, venueName, token, restaur
 export function BulkUnpublishConfirmModal({ open, menus, venueName, token, restaurantId, onClose, onDone }: BulkProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const confirmGate = useDangerNameConfirm(open, menus);
 
   const confirm = async () => {
+    if (!confirmGate.matches) return;
     setBusy(true);
     setError(null);
     let ok = 0;
     let failed = 0;
+    let firstError: string | null = null;
     for (const menu of menus) {
       if (menu.status !== "PUBLISHED") continue;
-      const res = await unpublishRestaurantMenu(token, restaurantId, menu.id);
+      const res = await unpublishRestaurantMenu(token, restaurantId, menu.id, menu.name);
       if (res.ok) ok += 1;
-      else failed += 1;
+      else {
+        failed += 1;
+        if (!firstError) firstError = res.message ?? res.error ?? "Could not unpublish the selected menus.";
+      }
     }
     setBusy(false);
     if (failed > 0 && ok === 0) {
-      setError("Could not unpublish the selected menus.");
+      setError(firstError ?? "Could not unpublish the selected menus.");
       return;
     }
     onDone({ ok, failed });
@@ -109,13 +231,22 @@ export function BulkUnpublishConfirmModal({ open, menus, venueName, token, resta
       titleId="bulk-unpublish-menu-title"
       stackLevel="overlay"
     >
+      <DangerNameConfirmField
+        open={open}
+        menus={menus}
+        typed={confirmGate.typed}
+        setTyped={confirmGate.setTyped}
+        expected={confirmGate.expected}
+        onPaste={confirmGate.onPaste}
+        disabled={busy}
+      />
       {error ? <ProfileModalAlert tone="error">{error}</ProfileModalAlert> : null}
       <ProfileModalFooter
         onCancel={onClose}
         onConfirm={() => void confirm()}
         confirmLabel={busy ? "Unpublishing…" : "Unpublish"}
         busy={busy}
-        confirmDisabled={menus.length === 0}
+        confirmDisabled={menus.length === 0 || !confirmGate.matches}
         danger
       />
     </MenuPageModalShell>
@@ -126,20 +257,26 @@ export function BulkDeleteDraftConfirmModal({ open, menus, token, restaurantId, 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const drafts = menus.filter((m) => m.status === "DRAFT");
+  const confirmGate = useDangerNameConfirm(open, drafts);
 
   const confirm = async () => {
+    if (!confirmGate.matches) return;
     setBusy(true);
     setError(null);
     let ok = 0;
     let failed = 0;
+    let firstError: string | null = null;
     for (const menu of drafts) {
-      const res = await deleteDraftRestaurantMenu(token, restaurantId, menu.id);
+      const res = await deleteDraftRestaurantMenu(token, restaurantId, menu.id, menu.name);
       if (res.ok) ok += 1;
-      else failed += 1;
+      else {
+        failed += 1;
+        if (!firstError) firstError = res.message ?? res.error ?? "Could not delete the selected drafts.";
+      }
     }
     setBusy(false);
     if (failed > 0 && ok === 0) {
-      setError("Could not delete the selected drafts.");
+      setError(firstError ?? "Could not delete the selected drafts.");
       return;
     }
     onDone({ ok, failed });
@@ -155,13 +292,22 @@ export function BulkDeleteDraftConfirmModal({ open, menus, token, restaurantId, 
       titleId="bulk-delete-draft-title"
       stackLevel="overlay"
     >
+      <DangerNameConfirmField
+        open={open}
+        menus={drafts}
+        typed={confirmGate.typed}
+        setTyped={confirmGate.setTyped}
+        expected={confirmGate.expected}
+        onPaste={confirmGate.onPaste}
+        disabled={busy}
+      />
       {error ? <ProfileModalAlert tone="error">{error}</ProfileModalAlert> : null}
       <ProfileModalFooter
         onCancel={onClose}
         onConfirm={() => void confirm()}
         confirmLabel={busy ? "Deleting…" : "Delete drafts"}
         busy={busy}
-        confirmDisabled={drafts.length === 0}
+        confirmDisabled={drafts.length === 0 || !confirmGate.matches}
         danger
       />
     </MenuPageModalShell>
@@ -172,20 +318,26 @@ export function BulkDeleteMenuConfirmModal({ open, menus, token, restaurantId, o
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const targets = menus.filter((m) => m.status !== "ARCHIVED");
+  const confirmGate = useDangerNameConfirm(open, targets);
 
   const confirm = async () => {
+    if (!confirmGate.matches) return;
     setBusy(true);
     setError(null);
     let ok = 0;
     let failed = 0;
+    let firstError: string | null = null;
     for (const menu of targets) {
-      const res = await deleteRestaurantMenu(token, restaurantId, menu.id);
+      const res = await deleteRestaurantMenu(token, restaurantId, menu.id, menu.name);
       if (res.ok) ok += 1;
-      else failed += 1;
+      else {
+        failed += 1;
+        if (!firstError) firstError = res.message ?? res.error ?? "Could not delete the selected menus.";
+      }
     }
     setBusy(false);
     if (failed > 0 && ok === 0) {
-      setError("Could not delete the selected menus.");
+      setError(firstError ?? "Could not delete the selected menus.");
       return;
     }
     onDone({ ok, failed });
@@ -201,13 +353,22 @@ export function BulkDeleteMenuConfirmModal({ open, menus, token, restaurantId, o
       titleId="bulk-delete-menu-title"
       stackLevel="overlay"
     >
+      <DangerNameConfirmField
+        open={open}
+        menus={targets}
+        typed={confirmGate.typed}
+        setTyped={confirmGate.setTyped}
+        expected={confirmGate.expected}
+        onPaste={confirmGate.onPaste}
+        disabled={busy}
+      />
       {error ? <ProfileModalAlert tone="error">{error}</ProfileModalAlert> : null}
       <ProfileModalFooter
         onCancel={onClose}
         onConfirm={() => void confirm()}
         confirmLabel={busy ? "Deleting…" : "Delete menus"}
         busy={busy}
-        confirmDisabled={targets.length === 0}
+        confirmDisabled={targets.length === 0 || !confirmGate.matches}
         danger
       />
     </MenuPageModalShell>

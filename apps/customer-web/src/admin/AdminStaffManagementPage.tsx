@@ -553,7 +553,6 @@ function PermissionToggle({
   return (
     <label
       className={`admin-staff-perm-row${disabled ? " admin-staff-perm-row--readonly admin-staff-perm-row--locked" : ""}`}
-      title={disabled ? disabledReason ?? undefined : undefined}
       aria-disabled={disabled || undefined}
     >
       <span className="admin-staff-perm-label">{label}</span>
@@ -749,7 +748,6 @@ function StaffProfileDrawer({
           type="button"
           className="admin-staff-danger-btn"
           disabled={!allowed}
-          title={!allowed ? cap?.reason ?? undefined : undefined}
           onClick={onClick}
         >
           {label}
@@ -757,7 +755,7 @@ function StaffProfileDrawer({
       );
     }
     return (
-      <AdminBtnSecondary disabled={!allowed} title={!allowed ? cap?.reason ?? undefined : undefined} onClick={onClick}>
+      <AdminBtnSecondary disabled={!allowed} onClick={onClick}>
         {label}
       </AdminBtnSecondary>
     );

@@ -170,6 +170,7 @@ export function AdminSelect({ className = "", children, ...props }: SelectHTMLAt
 export function AdminBtnPrimary({
   children,
   className = "",
+  title: _forbiddenTitle,
   ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
@@ -182,6 +183,7 @@ export function AdminBtnPrimary({
 export function AdminBtnSecondary({
   children,
   className = "",
+  title: _forbiddenTitle,
   ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
@@ -272,6 +274,7 @@ export function AdminRefreshButton({
 export function AdminBtnPrimaryLg({
   children,
   className = "",
+  title: _forbiddenTitle,
   ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
@@ -284,6 +287,7 @@ export function AdminBtnPrimaryLg({
 export function AdminBtnSecondaryLg({
   children,
   className = "",
+  title: _forbiddenTitle,
   ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return (

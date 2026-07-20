@@ -261,20 +261,109 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
     name: z.string().min(1).optional(),
     description: z.string().trim().max(280).nullable().optional(),
     sortOrder: z.number().int().optional(),
-    isActive: z.boolean().optional()
+    isActive: z.boolean().optional(),
+    menuId: z.string().min(1).nullable().optional()
   });
 
-  app.patch("/restaurants/:restaurantId/menu/categories/:categoryId", async (req) => {
+  app.patch("/restaurants/:restaurantId/menu/categories/:categoryId", async (req, reply) => {
     const { restaurantId, categoryId } = req.params as { restaurantId: string; categoryId: string };
     const { membership } = await requireStaff(req, restaurantId);
     assertMenuEntityPermission("category", "edit", membership);
     await assertCategoryRestaurant(categoryId, restaurantId);
     const body = patchCategorySchema.parse(req.body);
+
+    if (body.menuId) {
+      const menu = await prisma.menu.findFirst({
+        where: { id: body.menuId, restaurantId, status: { not: "ARCHIVED" } },
+        select: { id: true }
+      });
+      if (!menu) {
+        return reply.status(404).send({ ok: false, error: "menu_not_found", message: "Menu not found for this venue." });
+      }
+    }
+
     const category = await prisma.menuCategory.update({
       where: { id: categoryId },
-      data: body
+      data: {
+        ...(body.name !== undefined ? { name: body.name } : {}),
+        ...(body.description !== undefined ? { description: body.description } : {}),
+        ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
+        ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+        ...(body.menuId !== undefined ? { menuId: body.menuId } : {})
+      }
     });
     return { ok: true, category };
+  });
+
+  app.post("/restaurants/:restaurantId/menu/categories/:categoryId/duplicate", async (req, reply) => {
+    const { restaurantId, categoryId } = req.params as { restaurantId: string; categoryId: string };
+    const { membership } = await requireStaff(req, restaurantId);
+    assertMenuEntityPermission("category", "create", membership);
+    await assertCategoryRestaurant(categoryId, restaurantId);
+
+    const source = await prisma.menuCategory.findFirst({
+      where: { id: categoryId, restaurantId },
+      include: { items: { include: { modifierGroups: { include: { options: true } } } } }
+    });
+    if (!source) {
+      return reply.status(404).send({ ok: false, error: "category_not_found", message: "Category not found." });
+    }
+
+    const sortOrder = await prisma.menuCategory.count({
+      where: { restaurantId, menuId: source.menuId }
+    });
+
+    const category = await prisma.$transaction(async (tx) => {
+      const created = await tx.menuCategory.create({
+        data: {
+          restaurantId,
+          menuId: source.menuId,
+          name: `${source.name} (copy)`,
+          description: source.description,
+          sortOrder,
+          isActive: false
+        }
+      });
+      for (const item of source.items) {
+        const newItem = await tx.menuItem.create({
+          data: {
+            categoryId: created.id,
+            name: item.name,
+            description: item.description,
+            ingredients: item.ingredients,
+            specialNotes: item.specialNotes,
+            priceCents: item.priceCents,
+            sortOrder: item.sortOrder,
+            isActive: item.isActive
+          }
+        });
+        for (const group of item.modifierGroups) {
+          const newGroup = await tx.modifierGroup.create({
+            data: {
+              menuItemId: newItem.id,
+              name: group.name,
+              minSelect: group.minSelect,
+              maxSelect: group.maxSelect,
+              sortOrder: group.sortOrder
+            }
+          });
+          for (const opt of group.options) {
+            await tx.modifierOption.create({
+              data: {
+                modifierGroupId: newGroup.id,
+                name: opt.name,
+                priceDeltaCents: opt.priceDeltaCents,
+                sortOrder: opt.sortOrder,
+                isActive: opt.isActive
+              }
+            });
+          }
+        }
+      }
+      return created;
+    });
+
+    return reply.status(201).send({ ok: true, category: { id: category.id, name: category.name } });
   });
 
   app.delete("/restaurants/:restaurantId/menu/categories/:categoryId", async (req) => {
@@ -326,7 +415,9 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
     specialNotes: z.string().nullable().optional(),
     priceCents: z.number().int().nonnegative().optional(),
     sortOrder: z.number().int().optional(),
-    isActive: z.boolean().optional()
+    isActive: z.boolean().optional(),
+    isSoldOut: z.boolean().optional(),
+    lifecycle: z.enum(["DRAFT", "ACTIVE", "ARCHIVED"]).optional()
   });
 
   app.patch("/restaurants/:restaurantId/menu/items/:itemId", async (req) => {
@@ -341,6 +432,124 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
       data: body
     });
     return { ok: true, item };
+  });
+
+  app.post("/restaurants/:restaurantId/menu/items/:itemId/duplicate", async (req, reply) => {
+    const { restaurantId, itemId } = req.params as { restaurantId: string; itemId: string };
+    const { membership } = await requireStaff(req, restaurantId);
+    assertMenuEntityPermission("item", "create", membership);
+    await assertItemRestaurant(itemId, restaurantId);
+
+    const source = await prisma.menuItem.findFirst({
+      where: { id: itemId },
+      include: { modifierGroups: { include: { options: true } }, category: { select: { restaurantId: true } } }
+    });
+    if (!source || source.category.restaurantId !== restaurantId) {
+      return reply.status(404).send({ ok: false, error: "item_not_found", message: "Item not found." });
+    }
+
+    const sortOrder = await prisma.menuItem.count({ where: { categoryId: source.categoryId } });
+    const created = await prisma.$transaction(async (tx) => {
+      const item = await tx.menuItem.create({
+        data: {
+          categoryId: source.categoryId,
+          name: `${source.name} (copy)`,
+          description: source.description,
+          ingredients: source.ingredients,
+          specialNotes: source.specialNotes,
+          priceCents: source.priceCents,
+          sortOrder,
+          isActive: false,
+          isSoldOut: false,
+          lifecycle: "DRAFT"
+        }
+      });
+      for (const group of source.modifierGroups) {
+        const newGroup = await tx.modifierGroup.create({
+          data: {
+            menuItemId: item.id,
+            name: group.name,
+            minSelect: group.minSelect,
+            maxSelect: group.maxSelect,
+            sortOrder: group.sortOrder
+          }
+        });
+        for (const opt of group.options) {
+          await tx.modifierOption.create({
+            data: {
+              modifierGroupId: newGroup.id,
+              name: opt.name,
+              priceDeltaCents: opt.priceDeltaCents,
+              sortOrder: opt.sortOrder,
+              isActive: opt.isActive
+            }
+          });
+        }
+      }
+      return item;
+    });
+
+    return reply.status(201).send({ ok: true, item: { id: created.id, name: created.name } });
+  });
+
+  app.post("/restaurants/:restaurantId/menu/items/:itemId/copy", async (req, reply) => {
+    const { restaurantId, itemId } = req.params as { restaurantId: string; itemId: string };
+    const body = z.object({ categoryId: z.string().min(1) }).parse(req.body ?? {});
+    const { membership } = await requireStaff(req, restaurantId);
+    assertMenuEntityPermission("item", "create", membership);
+    await assertItemRestaurant(itemId, restaurantId);
+    await assertCategoryRestaurant(body.categoryId, restaurantId);
+
+    const source = await prisma.menuItem.findFirst({
+      where: { id: itemId },
+      include: { modifierGroups: { include: { options: true } }, category: { select: { restaurantId: true } } }
+    });
+    if (!source || source.category.restaurantId !== restaurantId) {
+      return reply.status(404).send({ ok: false, error: "item_not_found", message: "Item not found." });
+    }
+
+    const sortOrder = await prisma.menuItem.count({ where: { categoryId: body.categoryId } });
+    const created = await prisma.$transaction(async (tx) => {
+      const item = await tx.menuItem.create({
+        data: {
+          categoryId: body.categoryId,
+          name: source.name,
+          description: source.description,
+          ingredients: source.ingredients,
+          specialNotes: source.specialNotes,
+          priceCents: source.priceCents,
+          sortOrder,
+          isActive: source.isActive,
+          isSoldOut: source.isSoldOut,
+          lifecycle: source.lifecycle
+        }
+      });
+      for (const group of source.modifierGroups) {
+        const newGroup = await tx.modifierGroup.create({
+          data: {
+            menuItemId: item.id,
+            name: group.name,
+            minSelect: group.minSelect,
+            maxSelect: group.maxSelect,
+            sortOrder: group.sortOrder
+          }
+        });
+        for (const opt of group.options) {
+          await tx.modifierOption.create({
+            data: {
+              modifierGroupId: newGroup.id,
+              name: opt.name,
+              priceDeltaCents: opt.priceDeltaCents,
+              sortOrder: opt.sortOrder,
+              isActive: opt.isActive
+            }
+          });
+        }
+      }
+      return item;
+    });
+
+    return reply.status(201).send({ ok: true, item: { id: created.id, name: created.name } });
   });
 
   app.delete("/restaurants/:restaurantId/menu/items/:itemId", async (req) => {

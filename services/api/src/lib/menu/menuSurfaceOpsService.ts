@@ -143,7 +143,11 @@ export async function scheduleMenuSurface(
   prisma: PrismaClient,
   restaurantId: string,
   menuId: string,
-  input: { scheduledPublishAt?: string | null; availabilityWindows?: MenuAvailabilityWindows }
+  input: {
+    scheduledPublishAt?: string | null;
+    scheduledUnpublishAt?: string | null;
+    availabilityWindows?: MenuAvailabilityWindows;
+  }
 ) {
   const menu = await loadMenuForOps(prisma, restaurantId, menuId);
   if (!menu) return { ok: false as const, error: "menu_not_found" };
@@ -156,6 +160,14 @@ export async function scheduleMenuSurface(
       return { ok: false as const, error: "invalid_schedule_date" };
     }
     data.scheduledPublishAt = scheduledPublishAt;
+  }
+
+  if (input.scheduledUnpublishAt !== undefined) {
+    const scheduledUnpublishAt = input.scheduledUnpublishAt ? new Date(input.scheduledUnpublishAt) : null;
+    if (scheduledUnpublishAt && Number.isNaN(scheduledUnpublishAt.getTime())) {
+      return { ok: false as const, error: "invalid_schedule_date" };
+    }
+    data.scheduledUnpublishAt = scheduledUnpublishAt;
   }
 
   if (input.availabilityWindows !== undefined) {
@@ -174,6 +186,7 @@ export async function scheduleMenuSurface(
     menu: {
       ...serializeMenu(updated),
       scheduledPublishAt: updated.scheduledPublishAt?.toISOString() ?? null,
+      scheduledUnpublishAt: updated.scheduledUnpublishAt?.toISOString() ?? null,
       availabilityWindows: sanitizeAvailabilityWindows(updated.availabilityWindows),
     }
   };
@@ -199,9 +212,38 @@ export function mapMenuOpsError(code: string): string {
       return "Target location not found.";
     case "cannot_move_to_same_restaurant":
       return "Choose a different location.";
+    case "confirmation_required":
+      return "Type the menu name exactly to confirm this action.";
+    case "confirmation_mismatch":
+      return "The name you typed does not match this menu. Confirmation failed.";
     default:
       return "Menu operation failed.";
   }
+}
+
+/** SSOT gate for destructive menu ops — confirmName must match the menu’s exact name. */
+export async function assertDangerMenuNameConfirmation(
+  prisma: PrismaClient,
+  restaurantId: string,
+  menuId: string,
+  confirmName: string | undefined | null
+): Promise<{ ok: true; name: string } | { ok: false; error: "confirmation_required" | "confirmation_mismatch" | "menu_not_found" }> {
+  const typed = typeof confirmName === "string" ? confirmName : "";
+  if (!typed.trim()) {
+    return { ok: false, error: "confirmation_required" };
+  }
+
+  const menu = await prisma.menu.findFirst({
+    where: { id: menuId, restaurantId },
+    select: { id: true, name: true }
+  });
+  if (!menu) return { ok: false, error: "menu_not_found" };
+
+  if (typed !== menu.name) {
+    return { ok: false, error: "confirmation_mismatch" };
+  }
+
+  return { ok: true, name: menu.name };
 }
 
 export async function deleteDraftMenuSurface(prisma: PrismaClient, restaurantId: string, menuId: string) {

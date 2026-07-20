@@ -257,6 +257,8 @@ export type MenuTree = {
       priceCents: number;
       sortOrder: number;
       isActive: boolean;
+      isSoldOut?: boolean;
+      lifecycle?: "DRAFT" | "ACTIVE" | "ARCHIVED";
       modifierGroups: Array<{
         id: string;
         name: string;
@@ -323,16 +325,35 @@ export type MenuManageContextPayload = {
 
 export type MenuListStatusFilter = "active" | "DRAFT" | "PUBLISHED" | "ARCHIVED";
 
+export type MenuListPagination = {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
+};
+
 export async function listRestaurantMenus(
   token: string,
   restaurantId: string,
-  status: MenuListStatusFilter = "active"
+  status: MenuListStatusFilter = "active",
+  params?: { page?: number; pageSize?: number }
 ) {
-  const query = status === "active" ? "" : `?status=${encodeURIComponent(status)}`;
-  return apiFetch<{ ok: boolean; menus?: MenuSurfaceRow[]; error?: string; message?: string }>(
-    `/restaurants/${encodeURIComponent(restaurantId)}/menus${query}`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
+  const search = new URLSearchParams();
+  if (status !== "active") search.set("status", status);
+  if (params?.page != null) search.set("page", String(params.page));
+  if (params?.pageSize != null) search.set("pageSize", String(params.pageSize));
+  const query = search.toString() ? `?${search.toString()}` : "";
+  return apiFetch<{
+    ok: boolean;
+    menus?: MenuSurfaceRow[];
+    pagination?: MenuListPagination;
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/menus${query}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
 }
 
 export async function getMenuManageContext(
@@ -403,6 +424,38 @@ export async function createCategory(
   );
 }
 
+export async function updateCategory(
+  token: string,
+  restaurantId: string,
+  categoryId: string,
+  body: {
+    name?: string;
+    description?: string | null;
+    sortOrder?: number;
+    isActive?: boolean;
+    menuId?: string | null;
+  }
+) {
+  return apiFetch<{ ok: boolean; error?: string; message?: string; category?: { id: string; name: string } }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menu/categories/${encodeURIComponent(categoryId)}`,
+    { method: "PATCH", headers: authJsonHeaders(token), body: JSON.stringify(body) }
+  );
+}
+
+export async function deleteCategory(token: string, restaurantId: string, categoryId: string) {
+  return apiFetch<{ ok: boolean; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menu/categories/${encodeURIComponent(categoryId)}`,
+    { method: "DELETE", headers: authJsonHeaders(token) }
+  );
+}
+
+export async function duplicateCategory(token: string, restaurantId: string, categoryId: string) {
+  return apiFetch<{ ok: boolean; error?: string; message?: string; category?: { id: string; name: string } }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menu/categories/${encodeURIComponent(categoryId)}/duplicate`,
+    { method: "POST", headers: authJsonHeaders(token) }
+  );
+}
+
 export async function createMenuItem(
   token: string,
   restaurantId: string,
@@ -435,11 +488,39 @@ export async function updateMenuItem(
     priceCents?: number;
     sortOrder?: number;
     isActive?: boolean;
+    isSoldOut?: boolean;
+    lifecycle?: "DRAFT" | "ACTIVE" | "ARCHIVED";
   }
 ) {
-  return apiFetch<{ ok: boolean; error?: string; item?: { id: string } }>(
+  return apiFetch<{ ok: boolean; error?: string; message?: string; item?: { id: string } }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menu/items/${encodeURIComponent(itemId)}`,
     { method: "PATCH", headers: authJsonHeaders(token), body: JSON.stringify(body) }
+  );
+}
+
+export async function deleteMenuItem(token: string, restaurantId: string, itemId: string) {
+  return apiFetch<{ ok: boolean; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menu/items/${encodeURIComponent(itemId)}`,
+    { method: "DELETE", headers: authJsonHeaders(token) }
+  );
+}
+
+export async function duplicateMenuItem(token: string, restaurantId: string, itemId: string) {
+  return apiFetch<{ ok: boolean; error?: string; message?: string; item?: { id: string; name: string } }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menu/items/${encodeURIComponent(itemId)}/duplicate`,
+    { method: "POST", headers: authJsonHeaders(token) }
+  );
+}
+
+export async function copyMenuItem(
+  token: string,
+  restaurantId: string,
+  itemId: string,
+  body: { categoryId: string }
+) {
+  return apiFetch<{ ok: boolean; error?: string; message?: string; item?: { id: string; name: string } }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menu/items/${encodeURIComponent(itemId)}/copy`,
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body) }
   );
 }
 
@@ -777,31 +858,51 @@ export async function disconnectVenuePaymentProvider(
   );
 }
 
-export async function archiveRestaurantMenu(token: string, restaurantId: string, menuId: string) {
+export async function archiveRestaurantMenu(
+  token: string,
+  restaurantId: string,
+  menuId: string,
+  confirmName: string
+) {
   return apiFetch<{ ok: boolean; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}/archive`,
-    { method: "POST", headers: authHeaders(token) }
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify({ confirmName }) }
   );
 }
 
-export async function deleteDraftRestaurantMenu(token: string, restaurantId: string, menuId: string) {
+export async function deleteDraftRestaurantMenu(
+  token: string,
+  restaurantId: string,
+  menuId: string,
+  confirmName: string
+) {
   return apiFetch<{ ok: boolean; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}/draft`,
-    { method: "DELETE", headers: authHeaders(token) }
+    { method: "DELETE", headers: authJsonHeaders(token), body: JSON.stringify({ confirmName }) }
   );
 }
 
-export async function deleteRestaurantMenu(token: string, restaurantId: string, menuId: string) {
+export async function deleteRestaurantMenu(
+  token: string,
+  restaurantId: string,
+  menuId: string,
+  confirmName: string
+) {
   return apiFetch<{ ok: boolean; mode?: "deleted" | "archived"; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}`,
-    { method: "DELETE", headers: authHeaders(token) }
+    { method: "DELETE", headers: authJsonHeaders(token), body: JSON.stringify({ confirmName }) }
   );
 }
 
-export async function unpublishRestaurantMenu(token: string, restaurantId: string, menuId: string) {
+export async function unpublishRestaurantMenu(
+  token: string,
+  restaurantId: string,
+  menuId: string,
+  confirmName: string
+) {
   return apiFetch<{ ok: boolean; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}/unpublish`,
-    { method: "POST", headers: authHeaders(token) }
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify({ confirmName }) }
   );
 }
 
@@ -828,9 +929,21 @@ export async function scheduleRestaurantMenu(
   token: string,
   restaurantId: string,
   menuId: string,
-  body: { scheduledPublishAt?: string | null; availabilityWindows?: MenuAvailabilityWindows }
+  body: {
+    scheduledPublishAt?: string | null;
+    scheduledUnpublishAt?: string | null;
+    availabilityWindows?: MenuAvailabilityWindows;
+  }
 ) {
-  return apiFetch<{ ok: boolean; menu?: MenuSurfaceRow & { scheduledPublishAt?: string | null }; error?: string; message?: string }>(
+  return apiFetch<{
+    ok: boolean;
+    menu?: MenuSurfaceRow & {
+      scheduledPublishAt?: string | null;
+      scheduledUnpublishAt?: string | null;
+    };
+    error?: string;
+    message?: string;
+  }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}/schedule`,
     { method: "PATCH", headers: authJsonHeaders(token), body: JSON.stringify(body) }
   );

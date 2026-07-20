@@ -56,6 +56,8 @@ type Props = {
   token: string;
   restaurantId: string;
   items: ItemOption[];
+  /** When set and the modal opens, pre-select this item in the form. */
+  initialItemId?: string | null;
   onClose: () => void;
   onCreated: () => void;
   onNavigateTab: (tab: MenuSectionTab) => void;
@@ -115,12 +117,15 @@ export function CreateModifierGroupModal({
   token,
   restaurantId,
   items,
+  initialItemId = null,
   onClose,
   onCreated,
   onNavigateTab
 }: Props) {
   const defaultItemId = items[0]?.id ?? "";
-  const [form, setForm] = useState<CreateModifierGroupForm>(() => emptyForm(defaultItemId));
+  const seededItemId =
+    initialItemId && items.some((i) => i.id === initialItemId) ? initialItemId : defaultItemId;
+  const [form, setForm] = useState<CreateModifierGroupForm>(() => emptyForm(seededItemId));
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [sending, setSending] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -143,7 +148,7 @@ export function CreateModifierGroupModal({
 
   const errors = useMemo(() => validateForm(form), [form]);
   const hasErrors = Object.keys(errors).length > 0;
-  const dirty = isDirty(form, defaultItemId);
+  const dirty = isDirty(form, seededItemId);
 
   useEffect(() => {
     if (!open) {
@@ -157,11 +162,18 @@ export function CreateModifierGroupModal({
       return;
     }
 
+    const seed =
+      initialItemId && items.some((i) => i.id === initialItemId) ? initialItemId : null;
+
     setForm((prev) => ({
       ...prev,
-      itemId: prev.itemId && items.some((i) => i.id === prev.itemId) ? prev.itemId : defaultItemId
+      itemId: seed
+        ? seed
+        : prev.itemId && items.some((i) => i.id === prev.itemId)
+          ? prev.itemId
+          : defaultItemId
     }));
-  }, [open, defaultItemId, items]);
+  }, [open, defaultItemId, items, initialItemId]);
 
   const patch = <K extends keyof CreateModifierGroupForm>(key: K, value: CreateModifierGroupForm[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));

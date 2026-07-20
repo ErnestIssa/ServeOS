@@ -79,6 +79,31 @@ export function MenuToolbarButton({
   );
 }
 
+export function MenuListSearchField({
+  value,
+  onChange,
+  placeholder,
+  "aria-label": ariaLabel
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  "aria-label": string;
+}) {
+  return (
+    <div className="admin-menu-surface-search-wrap">
+      <input
+        type="search"
+        className="admin-menu-surface-search"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        aria-label={ariaLabel}
+      />
+    </div>
+  );
+}
+
 export function MenuPreviewFrame({
   label,
   aspect,

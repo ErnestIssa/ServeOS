@@ -33,12 +33,41 @@ export function ArchiveMenuConfirmModal({
 }: BaseProps & { onArchived: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [typed, setTyped] = useState("");
+
+  useEffect(() => {
+    if (!open) {
+      setTyped("");
+      setError(null);
+      return;
+    }
+    setTyped("");
+    setError(null);
+  }, [open, menu?.id]);
+
+  useEffect(() => {
+    if (!open) return;
+    const clear = () => setTyped("");
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") clear();
+    };
+    window.addEventListener("blur", clear);
+    window.addEventListener("pagehide", clear);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("blur", clear);
+      window.removeEventListener("pagehide", clear);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [open]);
+
+  const matches = Boolean(menu && typed === menu.name);
 
   const confirm = async () => {
-    if (!menu) return;
+    if (!menu || !matches) return;
     setBusy(true);
     setError(null);
-    const res = await archiveRestaurantMenu(token, restaurantId, menu.id);
+    const res = await archiveRestaurantMenu(token, restaurantId, menu.id, menu.name);
     setBusy(false);
     if (!res.ok) {
       setError(res.message ?? res.error ?? "Could not archive menu");
@@ -57,13 +86,31 @@ export function ArchiveMenuConfirmModal({
       titleId="archive-menu-title"
       stackLevel="overlay"
     >
+      {menu ? (
+        <AdminLabel>
+          <span className="text-xs admin-config-text-muted">
+            Type <strong>{menu.name}</strong> to confirm (paste disabled)
+          </span>
+          <AdminInput
+            className="mt-1 admin-menu-danger-confirm-input"
+            value={typed}
+            autoComplete="off"
+            spellCheck={false}
+            disabled={busy}
+            placeholder={menu.name}
+            onChange={(e) => setTyped(e.target.value)}
+            onPaste={(e) => e.preventDefault()}
+            onDrop={(e) => e.preventDefault()}
+          />
+        </AdminLabel>
+      ) : null}
       {error ? <ProfileModalAlert tone="error">{error}</ProfileModalAlert> : null}
       <ProfileModalFooter
         onCancel={onClose}
         onConfirm={() => void confirm()}
         confirmLabel={busy ? "Archiving…" : "Archive menu"}
         busy={busy}
-        confirmDisabled={!menu}
+        confirmDisabled={!menu || !matches}
         danger
       />
     </MenuPageModalShell>
@@ -122,12 +169,17 @@ export function ScheduleMenuModal({
   token,
   restaurantId,
   onClose,
-  onScheduled
-}: Omit<BaseProps, "venueName"> & { onScheduled: () => void }) {
+  onScheduled,
+  mode = "publish"
+}: Omit<BaseProps, "venueName"> & {
+  onScheduled: () => void;
+  mode?: "publish" | "unpublish";
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [date, setDate] = useState("");
   const [time, setTime] = useState("12:00");
+  const isUnpublish = mode === "unpublish";
 
   useEffect(() => {
     if (!open) return;
@@ -135,14 +187,19 @@ export function ScheduleMenuModal({
     setDate(d.toISOString().slice(0, 10));
     setTime("12:00");
     setError(null);
-  }, [open, menu?.id]);
+  }, [open, menu?.id, mode]);
 
   const confirm = async () => {
     if (!menu) return;
     setBusy(true);
     setError(null);
-    const scheduledPublishAt = date ? new Date(`${date}T${time}:00`).toISOString() : null;
-    const res = await scheduleRestaurantMenu(token, restaurantId, menu.id, { scheduledPublishAt });
+    const at = date ? new Date(`${date}T${time}:00`).toISOString() : null;
+    const res = await scheduleRestaurantMenu(
+      token,
+      restaurantId,
+      menu.id,
+      isUnpublish ? { scheduledUnpublishAt: at } : { scheduledPublishAt: at }
+    );
     setBusy(false);
     if (!res.ok) {
       setError(res.message ?? res.error ?? "Could not save schedule");
@@ -155,7 +212,12 @@ export function ScheduleMenuModal({
   const clearSchedule = async () => {
     if (!menu) return;
     setBusy(true);
-    const res = await scheduleRestaurantMenu(token, restaurantId, menu.id, { scheduledPublishAt: null });
+    const res = await scheduleRestaurantMenu(
+      token,
+      restaurantId,
+      menu.id,
+      isUnpublish ? { scheduledUnpublishAt: null } : { scheduledPublishAt: null }
+    );
     setBusy(false);
     if (!res.ok) {
       setError(res.message ?? res.error ?? "Could not clear schedule");
@@ -169,9 +231,13 @@ export function ScheduleMenuModal({
     <MenuPageModalShell
       open={open}
       onClose={busy ? () => undefined : onClose}
-      title="Schedule publish"
-      description={`Choose when “${menu?.name ?? "this menu"}” should go live automatically.`}
-      titleId="schedule-menu-title"
+      title={isUnpublish ? "Schedule unpublish" : "Schedule publish"}
+      description={
+        isUnpublish
+          ? `Choose when “${menu?.name ?? "this menu"}” should leave guest view automatically.`
+          : `Choose when “${menu?.name ?? "this menu"}” should go live automatically.`
+      }
+      titleId={isUnpublish ? "schedule-unpublish-menu-title" : "schedule-menu-title"}
       stackLevel="overlay"
     >
       <div className="grid gap-3 sm:grid-cols-2">

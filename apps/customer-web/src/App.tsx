@@ -27,8 +27,10 @@ import { useSupportPopup } from "./marketing/useSupportPopup";
 import { scrollToId } from "./marketing/ui";
 import { GuestOrderingPage } from "./guest/GuestOrderingPage";
 import { guestSessionIdFromPathname } from "./appNavigation";
+import { useForbidButtonTitleTooltips } from "./lib/forbidButtonTitleTooltips";
 
 export function App() {
+  useForbidButtonTitleTooltips();
   const [view, setView] = useState<AppView>(() => resolveAppViewForSession(window.location.pathname));
   const [legalSlug, setLegalSlug] = useState<LegalSlug>(() => legalSlugFromPath(window.location.pathname));
   const [adminSession, setAdminSession] = useState(() => hasActiveAdminSession());

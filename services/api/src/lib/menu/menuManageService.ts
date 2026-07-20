@@ -99,7 +99,6 @@ export function buildMenuManageActions(input: {
   const publishedCount = targets.filter((m) => m.status === "PUBLISHED").length;
   const archivableCount = targets.filter((m) => m.status !== "ARCHIVED").length;
   const editableCount = targets.filter((m) => m.status !== "ARCHIVED").length;
-  const allPublished = targets.length > 0 && publishedCount === targets.length;
 
   if (panelVariant !== "archived" && editableCount > 0 && canEdit) {
     actions.push({
@@ -112,47 +111,11 @@ export function buildMenuManageActions(input: {
     });
   }
 
-  if (panelVariant !== "archived" && draftCount > 0 && canDelete) {
-    actions.push({
-      id: "delete-draft",
-      label: draftCount === 1 ? "Delete draft" : `Delete ${draftCount} drafts`,
-      description: "Permanently remove draft menus that were never published.",
-      danger: true
-    });
-  }
-
-  if (panelVariant !== "archived" && archivableCount > 0 && canDelete) {
-    actions.push({
-      id: "delete-menu",
-      label: archivableCount === 1 ? "Delete menu" : `Delete ${archivableCount} menus`,
-      description: "Remove drafts permanently or archive live menus.",
-      danger: true
-    });
-  }
-
   actions.push({
     id: "share",
     label: targets.length === 1 ? "Share menu" : `Share ${targets.length} menus`,
     description: "Copy or share menu names and status."
   });
-
-  if (panelVariant !== "archived" && archivableCount > 0 && canArchive) {
-    actions.push({
-      id: "archive",
-      label: archivableCount === 1 ? "Archive menu" : `Archive ${archivableCount} menus`,
-      description: "Hide from guests and move to archived.",
-      danger: true
-    });
-  }
-
-  if (panelVariant !== "archived" && allPublished && canPublish) {
-    actions.push({
-      id: "unpublish",
-      label: targets.length === 1 ? "Unpublish menu" : `Unpublish ${targets.length} menus`,
-      description: "Return live menus to draft — guests will no longer see them.",
-      danger: true
-    });
-  }
 
   if (panelVariant !== "archived" && draftTargetIds.length > 0 && canPublish) {
     actions.push({
@@ -186,6 +149,43 @@ export function buildMenuManageActions(input: {
     });
   }
 
+  if (panelVariant !== "archived" && draftCount > 0 && canDelete) {
+    actions.push({
+      id: "delete-draft",
+      label: draftCount === 1 ? "Delete draft" : `Delete ${draftCount} drafts`,
+      description: "Permanently remove draft menus that were never published.",
+      danger: true
+    });
+  }
+
+  if (panelVariant !== "archived" && archivableCount > 0 && canDelete) {
+    actions.push({
+      id: "delete-menu",
+      label: archivableCount === 1 ? "Delete menu" : `Delete ${archivableCount} menus`,
+      description: "Remove drafts permanently or archive live menus.",
+      danger: true
+    });
+  }
+
+  if (panelVariant !== "archived" && archivableCount > 0 && canArchive) {
+    actions.push({
+      id: "archive",
+      label: archivableCount === 1 ? "Archive" : `Archive ${archivableCount}`,
+      description: "Hide from guests and move to archived.",
+      danger: true
+    });
+  }
+
+  /* Unpublish only for live menus — drafts use Delete draft instead. */
+  if (panelVariant !== "archived" && publishedCount > 0 && canPublish) {
+    actions.push({
+      id: "unpublish",
+      label: publishedCount === 1 ? "Unpublish" : `Unpublish ${publishedCount}`,
+      description: "Return live menus to draft — guests will no longer see them.",
+      danger: true
+    });
+  }
+
   return actions;
 }
 
@@ -208,13 +208,19 @@ export function buildMenuRowActions(
     actions.push({ id: "details", label: "Menu details" });
   }
   if (panelVariant !== "archived" && menu.status === "DRAFT" && caps.entities.menu.publish) {
-    actions.push({ id: "publish", label: "Publish menu" });
+    actions.push({ id: "publish", label: "Publish" });
+  }
+  if (panelVariant !== "archived" && menu.status === "PUBLISHED" && caps.entities.menu.publish) {
+    actions.push({ id: "update-publish", label: "Update publish" });
   }
   if (caps.entities.menu.create) {
     actions.push({ id: "duplicate", label: "Duplicate menu" });
   }
-  if (panelVariant !== "archived" && menu.status !== "ARCHIVED" && caps.entities.menu.edit) {
+  if (panelVariant !== "archived" && menu.status === "DRAFT" && caps.entities.menu.edit) {
     actions.push({ id: "schedule", label: "Schedule publish" });
+  }
+  if (panelVariant !== "archived" && menu.status === "PUBLISHED" && caps.entities.menu.edit) {
+    actions.push({ id: "schedule-unpublish", label: "Schedule unpublish" });
   }
 
   return actions;

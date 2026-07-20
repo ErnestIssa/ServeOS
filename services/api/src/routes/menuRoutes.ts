@@ -32,6 +32,7 @@ import {
 import { exportMenuCsv, importMenuCsv, mapImportExportError } from "../lib/menu/menuImportExportService.js";
 import {
   archiveMenuSurface,
+  assertDangerMenuNameConfirmation,
   deleteDraftMenuSurface,
   deleteMenuSurface,
   duplicateMenuSurface,
@@ -62,10 +63,14 @@ const availabilityWindowSchema = z.object({
 export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
   app.get("/restaurants/:restaurantId/menus", async (req, reply) => {
     const { restaurantId } = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
-    const status = z
-      .enum(["active", "DRAFT", "PUBLISHED", "ARCHIVED"])
-      .optional()
-      .parse((req.query as { status?: string } | undefined)?.status ?? "active") as MenuListStatusFilter;
+    const query = z
+      .object({
+        status: z.enum(["active", "DRAFT", "PUBLISHED", "ARCHIVED"]).optional().default("active"),
+        page: z.coerce.number().int().min(1).optional(),
+        pageSize: z.coerce.number().int().min(1).max(100).optional()
+      })
+      .parse(req.query);
+    const status = query.status as MenuListStatusFilter;
     const { userId, membership } = await requireMenuVenueMembership(prisma, req, restaurantId);
     assertMenuPermission("view", membership);
 
@@ -81,7 +86,30 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
         ...menu,
         rowActions: buildMenuRowActions(menu, panelVariant, membership)
       }));
-      return { ok: true, menus: menusWithActions };
+
+      const total = menusWithActions.length;
+      const pagingRequested = query.page != null || query.pageSize != null;
+      const pageSize = pagingRequested ? (query.pageSize ?? 15) : Math.max(total, 1);
+      const page = pagingRequested ? (query.page ?? 1) : 1;
+      const totalPages = Math.max(1, Math.ceil(total / pageSize) || 1);
+      const safePage = Math.min(page, totalPages);
+      const start = (safePage - 1) * pageSize;
+      const pageMenus = pagingRequested
+        ? menusWithActions.slice(start, start + pageSize)
+        : menusWithActions;
+
+      return {
+        ok: true,
+        menus: pageMenus,
+        pagination: {
+          page: safePage,
+          pageSize,
+          total,
+          totalPages,
+          hasNextPage: safePage < totalPages,
+          hasPrevPage: safePage > 1
+        }
+      };
     } catch (err) {
       req.log.error({ err, restaurantId }, "menu_surface_list_failed");
       return reply.status(500).send({
@@ -263,10 +291,29 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
     }
   });
 
+  const dangerConfirmSchema = z.object({
+    confirmName: z.string().min(1).max(120)
+  });
+
   app.post("/restaurants/:restaurantId/menus/:menuId/archive", async (req, reply) => {
     const params = z.object({ restaurantId: z.string().min(1), menuId: z.string().min(1) }).parse(req.params);
+    const body = dangerConfirmSchema.parse(req.body ?? {});
     const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
     assertMenuEntityPermission("menu", "archive", membership);
+
+    const confirmed = await assertDangerMenuNameConfirmation(
+      prisma,
+      params.restaurantId,
+      params.menuId,
+      body.confirmName
+    );
+    if (!confirmed.ok) {
+      return reply.status(confirmed.error === "menu_not_found" ? 404 : 400).send({
+        ok: false,
+        error: confirmed.error,
+        message: mapMenuOpsError(confirmed.error)
+      });
+    }
 
     const result = await archiveMenuSurface(prisma, params.restaurantId, params.menuId);
     if (!result.ok) {
@@ -281,8 +328,23 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
 
   app.delete("/restaurants/:restaurantId/menus/:menuId/draft", async (req, reply) => {
     const params = z.object({ restaurantId: z.string().min(1), menuId: z.string().min(1) }).parse(req.params);
+    const body = dangerConfirmSchema.parse(req.body ?? {});
     const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
     assertMenuEntityPermission("menu", "delete", membership);
+
+    const confirmed = await assertDangerMenuNameConfirmation(
+      prisma,
+      params.restaurantId,
+      params.menuId,
+      body.confirmName
+    );
+    if (!confirmed.ok) {
+      return reply.status(confirmed.error === "menu_not_found" ? 404 : 400).send({
+        ok: false,
+        error: confirmed.error,
+        message: mapMenuOpsError(confirmed.error)
+      });
+    }
 
     const result = await deleteDraftMenuSurface(prisma, params.restaurantId, params.menuId);
     if (!result.ok) {
@@ -297,8 +359,23 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
 
   app.delete("/restaurants/:restaurantId/menus/:menuId", async (req, reply) => {
     const params = z.object({ restaurantId: z.string().min(1), menuId: z.string().min(1) }).parse(req.params);
+    const body = dangerConfirmSchema.parse(req.body ?? {});
     const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
     assertMenuEntityPermission("menu", "delete", membership);
+
+    const confirmed = await assertDangerMenuNameConfirmation(
+      prisma,
+      params.restaurantId,
+      params.menuId,
+      body.confirmName
+    );
+    if (!confirmed.ok) {
+      return reply.status(confirmed.error === "menu_not_found" ? 404 : 400).send({
+        ok: false,
+        error: confirmed.error,
+        message: mapMenuOpsError(confirmed.error)
+      });
+    }
 
     const result = await deleteMenuSurface(prisma, params.restaurantId, params.menuId);
     if (!result.ok) {
@@ -313,8 +390,23 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
 
   app.post("/restaurants/:restaurantId/menus/:menuId/unpublish", async (req, reply) => {
     const params = z.object({ restaurantId: z.string().min(1), menuId: z.string().min(1) }).parse(req.params);
+    const body = dangerConfirmSchema.parse(req.body ?? {});
     const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
     assertMenuEntityPermission("menu", "publish", membership);
+
+    const confirmed = await assertDangerMenuNameConfirmation(
+      prisma,
+      params.restaurantId,
+      params.menuId,
+      body.confirmName
+    );
+    if (!confirmed.ok) {
+      return reply.status(confirmed.error === "menu_not_found" ? 404 : 400).send({
+        ok: false,
+        error: confirmed.error,
+        message: mapMenuOpsError(confirmed.error)
+      });
+    }
 
     const result = await unpublishMenuSurface(prisma, params.restaurantId, params.menuId);
     if (!result.ok) {
@@ -371,6 +463,7 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
     const body = z
       .object({
         scheduledPublishAt: z.string().datetime().nullable().optional(),
+        scheduledUnpublishAt: z.string().datetime().nullable().optional(),
         availabilityWindows: z.record(availabilityWindowSchema).optional()
       })
       .parse(req.body ?? {});
@@ -379,6 +472,7 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
 
     const result = await scheduleMenuSurface(prisma, params.restaurantId, params.menuId, {
       ...(body.scheduledPublishAt !== undefined ? { scheduledPublishAt: body.scheduledPublishAt } : {}),
+      ...(body.scheduledUnpublishAt !== undefined ? { scheduledUnpublishAt: body.scheduledUnpublishAt } : {}),
       ...(body.availabilityWindows !== undefined
         ? { availabilityWindows: sanitizeAvailabilityWindows(body.availabilityWindows) ?? {} }
         : {})

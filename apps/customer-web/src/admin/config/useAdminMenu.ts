@@ -62,6 +62,8 @@ export function useAdminMenu(token: string | null, restaurantId: string | null) 
       menuId: string | null;
       priceCents: number;
       isActive: boolean;
+      isSoldOut: boolean;
+      lifecycle: "DRAFT" | "ACTIVE" | "ARCHIVED";
       modifierCount: number;
       description: string | null;
       ingredients: string | null;
@@ -78,6 +80,8 @@ export function useAdminMenu(token: string | null, restaurantId: string | null) 
           menuId: cat.menuId ?? null,
           priceCents: item.priceCents,
           isActive: item.isActive,
+          isSoldOut: item.isSoldOut ?? false,
+          lifecycle: item.lifecycle ?? "ACTIVE",
           modifierCount: item.modifierGroups.length,
           description: item.description,
           ingredients: item.ingredients ?? null,

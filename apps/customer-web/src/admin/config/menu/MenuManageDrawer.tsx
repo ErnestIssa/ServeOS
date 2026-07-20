@@ -19,7 +19,11 @@ import {
   MenuSinglePickerModal,
   MoveMenusLocationModal
 } from "./MenuManageModals";
+import { MenuSurfacePagination } from "./MenuSurfacePagination";
+import { useMenuListPagination } from "./useMenuListPagination";
 import type { MenuPanelVariant } from "./menuManageHelpers";
+
+const SCOPE_PAGE_SIZE = 8;
 
 type Props = {
   open: boolean;
@@ -73,6 +77,7 @@ export function MenuManageDrawer({
   const [unpublishOpen, setUnpublishOpen] = useState(false);
   const [deleteDraftOpen, setDeleteDraftOpen] = useState(false);
   const [deleteMenuOpen, setDeleteMenuOpen] = useState(false);
+  const [dangerConfirmMenus, setDangerConfirmMenus] = useState<MenuSurfaceRow[]>([]);
   const [qrPickerOpen, setQrPickerOpen] = useState(false);
   const [editPickerOpen, setEditPickerOpen] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
@@ -82,10 +87,20 @@ export function MenuManageDrawer({
 
   const targets = context?.targets ?? [];
   const actions: MenuManageActionDescriptor[] = context?.actions ?? [];
+  const safeActions = useMemo(() => actions.filter((a) => !a.danger), [actions]);
+  const dangerActions = useMemo(() => actions.filter((a) => a.danger), [actions]);
+  const dangerConfirmOpen =
+    archiveOpen || unpublishOpen || deleteDraftOpen || deleteMenuOpen;
+  const showManageShell = mounted && !dangerConfirmOpen;
   const draftTargets = useMemo(() => {
     const draftIds = new Set(context?.draftTargetIds ?? []);
     return targets.filter((m) => draftIds.has(m.id));
   }, [context?.draftTargetIds, targets]);
+
+  const scopePager = useMenuListPagination(targets, {
+    pageSize: SCOPE_PAGE_SIZE,
+    resetKey: `${open ? "open" : "closed"}:${targets.map((m) => m.id).join(",")}`
+  });
 
   const selectionLabel =
     selectedMenuIds.size > 0
@@ -137,16 +152,16 @@ export function MenuManageDrawer({
     });
   }, [open, token, restaurantId, variant, selectedMenuIds]);
 
-  useModalScrollLock(mounted);
+  useModalScrollLock(mounted || dangerConfirmOpen);
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || dangerConfirmOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [visible, onClose]);
+  }, [visible, dangerConfirmOpen, onClose]);
 
   const shareMenus = async () => {
     if (targets.length === 0) return;
@@ -206,6 +221,26 @@ export function MenuManageDrawer({
     onEditMenu(menu);
   };
 
+  const openDangerConfirm = (
+    kind: "archive" | "unpublish" | "delete-draft" | "delete-menu",
+    menusForConfirm: MenuSurfaceRow[]
+  ) => {
+    setDangerConfirmMenus(menusForConfirm);
+    if (kind === "archive") setArchiveOpen(true);
+    else if (kind === "unpublish") setUnpublishOpen(true);
+    else if (kind === "delete-draft") setDeleteDraftOpen(true);
+    else setDeleteMenuOpen(true);
+  };
+
+  const dismissDangerConfirm = () => {
+    setArchiveOpen(false);
+    setUnpublishOpen(false);
+    setDeleteDraftOpen(false);
+    setDeleteMenuOpen(false);
+    setDangerConfirmMenus([]);
+    onClose();
+  };
+
   const handleAction = (actionId: string) => {
     if (actionId === "edit") {
       if (editableTargets.length === 1) {
@@ -216,11 +251,17 @@ export function MenuManageDrawer({
       return;
     }
     if (actionId === "delete-draft") {
-      setDeleteDraftOpen(true);
+      openDangerConfirm(
+        "delete-draft",
+        targets.filter((m) => m.status === "DRAFT")
+      );
       return;
     }
     if (actionId === "delete-menu") {
-      setDeleteMenuOpen(true);
+      openDangerConfirm(
+        "delete-menu",
+        targets.filter((m) => m.status !== "ARCHIVED")
+      );
       return;
     }
     if (actionId === "share") {
@@ -228,11 +269,17 @@ export function MenuManageDrawer({
       return;
     }
     if (actionId === "archive") {
-      setArchiveOpen(true);
+      openDangerConfirm(
+        "archive",
+        targets.filter((m) => m.status !== "ARCHIVED")
+      );
       return;
     }
     if (actionId === "unpublish") {
-      setUnpublishOpen(true);
+      openDangerConfirm(
+        "unpublish",
+        targets.filter((m) => m.status === "PUBLISHED")
+      );
       return;
     }
     if (actionId === "publish-drafts") {
@@ -265,12 +312,14 @@ export function MenuManageDrawer({
     if (summary.failed > 0) {
       pushToast(`${summary.failed} could not be updated.`, "error");
     }
+    dismissDangerConfirm();
   };
 
-  if (!mounted) return null;
+  if (!mounted && !dangerConfirmOpen) return null;
 
   return createPortal(
     <>
+      {showManageShell ? (
       <div
         className={`admin-staff-profile-shell ${MENU_PAGE_DRAWER_SHELL_CLASS} ${visible ? "admin-staff-profile-shell--open" : ""}`}
         role="presentation"
@@ -304,7 +353,7 @@ export function MenuManageDrawer({
             </button>
           </header>
 
-          <div className="admin-staff-profile-body admin-menu-item-profile-body">
+          <div className="admin-staff-profile-body admin-menu-item-profile-body admin-menu-manage-body">
             {contextLoading ? (
               <p className="admin-staff-drawer-hint">Loading manage options…</p>
             ) : targets.length === 0 ? (
@@ -313,21 +362,32 @@ export function MenuManageDrawer({
               <>
                 <section className="admin-staff-drawer-section">
                   <h4 className="admin-staff-drawer-section-title">In scope</h4>
-                  <ul className="admin-menu-manage-scope-list">
-                    {targets.map((m) => (
+                  <ul className={`admin-menu-manage-scope-list ${scopePager.pageClassName}`} key={scopePager.pageKey}>
+                    {scopePager.pagedItems.map((m) => (
                       <ScopeChip key={m.id} menu={m} />
                     ))}
                   </ul>
+                  {scopePager.showPagination ? (
+                    <MenuSurfacePagination
+                      page={scopePager.page}
+                      totalPages={scopePager.totalPages}
+                      totalItems={scopePager.totalItems}
+                      pageSize={scopePager.pageSize}
+                      onPageChange={scopePager.goToPage}
+                      label="In-scope menus pagination"
+                      size="compact"
+                    />
+                  ) : null}
                 </section>
 
                 <section className="admin-staff-drawer-section">
                   <h4 className="admin-staff-drawer-section-title">Actions</h4>
                   <div className="admin-menu-manage-actions">
-                    {actions.map((action) => (
+                    {safeActions.map((action) => (
                       <button
                         key={action.id}
                         type="button"
-                        className={`admin-menu-manage-action${action.danger ? " admin-menu-manage-action--danger" : ""}`}
+                        className="admin-menu-manage-action"
                         disabled={action.id === "publish-drafts" && publishBusy}
                         onClick={() => handleAction(action.id)}
                       >
@@ -341,50 +401,76 @@ export function MenuManageDrawer({
                     ))}
                   </div>
                 </section>
+
+                {dangerActions.length > 0 ? (
+                  <section className="admin-staff-drawer-section admin-menu-manage-danger-zone">
+                    <h4 className="admin-staff-drawer-section-title admin-menu-manage-danger-title">
+                      Danger Zone
+                    </h4>
+                    <div className="admin-menu-manage-danger-row" role="group" aria-label="Dangerous menu actions">
+                      {dangerActions.map((action) => (
+                        <button
+                          key={action.id}
+                          type="button"
+                          className="admin-menu-manage-danger-btn"
+                          onClick={() => handleAction(action.id)}
+                        >
+                          <span className="admin-menu-manage-danger-btn-label">{action.label}</span>
+                          {action.description ? (
+                            <span className="admin-menu-manage-danger-btn-desc">{action.description}</span>
+                          ) : null}
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
               </>
             )}
           </div>
         </div>
       </div>
+      ) : null}
 
       <BulkArchiveConfirmModal
         open={archiveOpen}
-        menus={targets.filter((m) => m.status !== "ARCHIVED")}
+        menus={dangerConfirmMenus}
         venueName={venueName}
         token={token}
         restaurantId={restaurantId}
-        onClose={() => setArchiveOpen(false)}
+        onClose={dismissDangerConfirm}
         onDone={(summary) => bulkDone("Archive", summary)}
       />
 
       <BulkUnpublishConfirmModal
         open={unpublishOpen}
-        menus={targets.filter((m) => m.status === "PUBLISHED")}
+        menus={dangerConfirmMenus}
         venueName={venueName}
         token={token}
         restaurantId={restaurantId}
-        onClose={() => setUnpublishOpen(false)}
+        onClose={dismissDangerConfirm}
         onDone={(summary) => bulkDone("Unpublish", summary)}
       />
 
       <BulkDeleteDraftConfirmModal
         open={deleteDraftOpen}
-        menus={targets}
+        menus={dangerConfirmMenus}
         token={token}
         restaurantId={restaurantId}
-        onClose={() => setDeleteDraftOpen(false)}
+        onClose={dismissDangerConfirm}
         onDone={(summary) => bulkDone("Delete draft", summary)}
       />
 
       <BulkDeleteMenuConfirmModal
         open={deleteMenuOpen}
-        menus={targets}
+        menus={dangerConfirmMenus}
         token={token}
         restaurantId={restaurantId}
-        onClose={() => setDeleteMenuOpen(false)}
+        onClose={dismissDangerConfirm}
         onDone={(summary) => bulkDone("Delete menu", summary)}
       />
 
+      {showManageShell ? (
+        <>
       <MenuSinglePickerModal
         open={editPickerOpen}
         title="Choose menu to edit"
@@ -425,7 +511,17 @@ export function MenuManageDrawer({
         restaurantId={restaurantId}
         restaurants={context?.moveDestinations ?? []}
         onClose={() => setMoveOpen(false)}
-        onMoved={(summary) => bulkDone("Move", summary)}
+        onMoved={(summary) => {
+          if (summary.ok > 0) {
+            pushToast(summary.ok === 1 ? "Move completed." : `${summary.ok} menus updated.`, "success");
+            onRefresh();
+            onClearSelection();
+          }
+          if (summary.failed > 0) {
+            pushToast(`${summary.failed} could not be updated.`, "error");
+          }
+          setMoveOpen(false);
+        }}
       />
 
       <MenuQrGeneratorModal
@@ -434,6 +530,8 @@ export function MenuManageDrawer({
         restaurantId={restaurantId}
         onClose={() => setQrOpen(false)}
       />
+        </>
+      ) : null}
     </>,
     document.body
   );

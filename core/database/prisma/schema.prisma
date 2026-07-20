@@ -484,6 +484,12 @@ enum MenuStatus {
   ARCHIVED
 }
 
+enum MenuItemLifecycle {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
 /// Versioned menu surface — draft → publish creates immutable MenuVersion snapshot.
 model Menu {
   id              String     @id @default(cuid())
@@ -496,6 +502,7 @@ model Menu {
   createdByUserId String
   sortOrder            Int        @default(0)
   scheduledPublishAt   DateTime?
+  scheduledUnpublishAt DateTime?
   availabilityWindows  Json?
   coverMediaKey        String?
   createdAt            DateTime   @default(now())
@@ -607,6 +614,9 @@ model MenuItem {
   imageKey    String?
   sortOrder   Int      @default(0)
   isActive    Boolean  @default(true)
+  /// Temporarily sold out — still on the menu but not orderable.
+  isSoldOut   Boolean  @default(false)
+  lifecycle   MenuItemLifecycle @default(ACTIVE)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -618,6 +628,7 @@ model MenuItem {
   storedMedia    StoredMedia[]
 
   @@index([categoryId])
+  @@index([lifecycle])
 }
 
 model ShoppingCart {

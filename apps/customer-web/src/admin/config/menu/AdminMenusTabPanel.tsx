@@ -10,10 +10,19 @@ import {
   DuplicateMenuConfirmModal,
   ScheduleMenuModal
 } from "./AdminMenuActionModals";
+import { MenuActionConfirmModal } from "./MenuActionConfirmModal";
 import { MenuEntityActionsMenu } from "./MenuEntityActionsMenu";
 import { MenuProfileDrawer } from "./MenuProfileDrawer";
 import { MenuManageDrawer } from "./MenuManageDrawer";
-import { MenuToolbarButton } from "./MenuPageUi";
+import { MenuListSearchField, MenuToolbarButton } from "./MenuPageUi";
+import { MenuSurfacePagination } from "./MenuSurfacePagination";
+import {
+  isUiOnlyListId,
+  UI_MOCK_ARCHIVED_MENUS,
+  UI_MOCK_LIVE_MENUS,
+  UI_MOCK_MENUS_EXTRA
+} from "./menuListUiMocks";
+import { MENU_LIST_PAGE_SIZE, useMenuListPagination } from "./useMenuListPagination";
 
 type MenusApi = ReturnType<typeof useAdminMenus>;
 type MenuPanelVariant = "active" | "live" | "archived";
@@ -115,17 +124,204 @@ function fallbackRowActions(
     actions.push({ id: "details", label: "Menu details" });
   }
   if (variant !== "archived" && menu.status === "DRAFT" && can("menu", "publish")) {
-    actions.push({ id: "publish", label: "Publish menu" });
+    actions.push({ id: "publish", label: "Publish" });
+  }
+  if (variant !== "archived" && menu.status === "PUBLISHED" && can("menu", "publish")) {
+    actions.push({ id: "update-publish", label: "Update publish" });
   }
   if (can("menu", "create")) {
     actions.push({ id: "duplicate", label: "Duplicate menu" });
   }
-  if (variant !== "archived" && menu.status !== "ARCHIVED" && can("menu", "edit")) {
+  if (variant !== "archived" && menu.status === "DRAFT" && can("menu", "edit")) {
     actions.push({ id: "schedule", label: "Schedule publish" });
+  }
+  if (variant !== "archived" && menu.status === "PUBLISHED" && can("menu", "edit")) {
+    actions.push({ id: "schedule-unpublish", label: "Schedule unpublish" });
   }
 
   return actions;
 }
+
+function isUiOnlyMenu(menu: MenuSurfaceRow | { id: string }) {
+  return isUiOnlyListId(menu.id);
+}
+
+/** Local preview rows for the Menus tab list — not persisted / not sent to the API. */
+function buildUiOnlyPreviewMenus(): MenuSurfaceRow[] {
+  const now = new Date().toISOString();
+  const seeds: Array<{
+    name: string;
+    description: string;
+    surfaceKey: string;
+    status: MenuSurfaceRow["status"];
+    scopeTone: MenuSurfaceRow["scopeTone"];
+    scopeLabel: string;
+    categoryCount: number;
+    itemCount: number;
+  }> = [
+    {
+      name: "Brunch board",
+      description: "Weekend brunch plates and bottomless coffee.",
+      surfaceKey: "brunch",
+      status: "DRAFT",
+      scopeTone: "draft",
+      scopeLabel: "Draft",
+      categoryCount: 4,
+      itemCount: 18
+    },
+    {
+      name: "Rooftop cocktails",
+      description: "Signature mixes and low-ABV spritzes.",
+      surfaceKey: "drinks",
+      status: "PUBLISHED",
+      scopeTone: "live",
+      scopeLabel: "Live",
+      categoryCount: 3,
+      itemCount: 22
+    },
+    {
+      name: "Kids menu",
+      description: "Smaller portions with allergen-friendly picks.",
+      surfaceKey: "kids",
+      status: "DRAFT",
+      scopeTone: "draft",
+      scopeLabel: "Draft",
+      categoryCount: 2,
+      itemCount: 9
+    },
+    {
+      name: "Late night bites",
+      description: "After-hours kitchen until midnight.",
+      surfaceKey: "late_night",
+      status: "PUBLISHED",
+      scopeTone: "live",
+      scopeLabel: "Live",
+      categoryCount: 5,
+      itemCount: 14
+    },
+    {
+      name: "Vegan tasting",
+      description: "Plant-forward tasting flight.",
+      surfaceKey: "seasonal",
+      status: "DRAFT",
+      scopeTone: "draft",
+      scopeLabel: "Draft",
+      categoryCount: 3,
+      itemCount: 0
+    },
+    {
+      name: "Chef’s counter",
+      description: "Omakase-style counter seating only.",
+      surfaceKey: "dinner",
+      status: "PUBLISHED",
+      scopeTone: "problem",
+      scopeLabel: "Needs attention",
+      categoryCount: 1,
+      itemCount: 0
+    },
+    {
+      name: "Breakfast express",
+      description: "Grab-and-go morning favorites.",
+      surfaceKey: "lunch",
+      status: "DRAFT",
+      scopeTone: "draft",
+      scopeLabel: "Draft",
+      categoryCount: 3,
+      itemCount: 11
+    },
+    {
+      name: "Wine list",
+      description: "By-the-glass and bottle selection.",
+      surfaceKey: "drinks",
+      status: "PUBLISHED",
+      scopeTone: "live",
+      scopeLabel: "Live",
+      categoryCount: 6,
+      itemCount: 40
+    },
+    {
+      name: "Holiday specials",
+      description: "Limited-time festive dishes.",
+      surfaceKey: "seasonal",
+      status: "DRAFT",
+      scopeTone: "draft",
+      scopeLabel: "Draft",
+      categoryCount: 2,
+      itemCount: 7
+    },
+    {
+      name: "Patio grill",
+      description: "Outdoor grill plates and sides.",
+      surfaceKey: "main",
+      status: "PUBLISHED",
+      scopeTone: "live",
+      scopeLabel: "Live",
+      categoryCount: 4,
+      itemCount: 16
+    },
+    {
+      name: "Coffee & pastry",
+      description: "Espresso bar and baked goods.",
+      surfaceKey: "custom",
+      status: "DRAFT",
+      scopeTone: "draft",
+      scopeLabel: "Draft",
+      categoryCount: 2,
+      itemCount: 12
+    },
+    {
+      name: "Shared plates",
+      description: "Family-style sharing menu.",
+      surfaceKey: "dinner",
+      status: "PUBLISHED",
+      scopeTone: "live",
+      scopeLabel: "Live",
+      categoryCount: 5,
+      itemCount: 19
+    },
+    {
+      name: "Gluten-free guide",
+      description: "Cross-contact safe GF options.",
+      surfaceKey: "main",
+      status: "DRAFT",
+      scopeTone: "draft",
+      scopeLabel: "Draft",
+      categoryCount: 3,
+      itemCount: 8
+    },
+    {
+      name: "Catering package",
+      description: "Office lunch and event trays.",
+      surfaceKey: "custom",
+      status: "PUBLISHED",
+      scopeTone: "live",
+      scopeLabel: "Live",
+      categoryCount: 4,
+      itemCount: 15
+    }
+  ];
+
+  return seeds.map((seed, index) => ({
+    id: `ui-mock-menu-${index + 1}`,
+    name: seed.name,
+    description: seed.description,
+    surfaceKey: seed.surfaceKey,
+    status: seed.status,
+    sortOrder: 1000 + index,
+    categoryCount: seed.categoryCount,
+    itemCount: seed.itemCount,
+    coverMediaKey: null,
+    activeVersionNumber: seed.status === "PUBLISHED" ? 1 : null,
+    publishedAt: seed.status === "PUBLISHED" ? now : null,
+    availabilityWindows: null,
+    scopeTone: seed.scopeTone,
+    scopeLabel: seed.scopeLabel,
+    createdAt: now,
+    updatedAt: now
+  }));
+}
+
+const UI_ONLY_PREVIEW_MENUS = [...buildUiOnlyPreviewMenus(), ...UI_MOCK_MENUS_EXTRA];
 
 export function AdminMenusTabPanel({
   menusApi,
@@ -148,20 +344,44 @@ export function AdminMenusTabPanel({
   const [actionMenu, setActionMenu] = useState<MenuSurfaceRow | null>(null);
   const [duplicateOpen, setDuplicateOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleMode, setScheduleMode] = useState<"publish" | "unpublish">("publish");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMenu, setDrawerMenu] = useState<MenuSurfaceRow | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
+  const [pendingRowAction, setPendingRowAction] = useState<{
+    menu: MenuSurfaceRow;
+    actionId: string;
+  } | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
 
-  const menus = menusApi.menus;
+  const menus = useMemo(() => {
+    if (variant === "live") return [...menusApi.menus, ...UI_MOCK_LIVE_MENUS];
+    if (variant === "archived") return [...menusApi.menus, ...UI_MOCK_ARCHIVED_MENUS];
+    return [...menusApi.menus, ...UI_ONLY_PREVIEW_MENUS];
+  }, [menusApi.menus, variant]);
+
+  const realMenus = useMemo(() => menus.filter((m) => !isUiOnlyMenu(m)), [menus]);
 
   const filteredMenus = useMemo(
     () => menus.filter((m) => matchesMenuSearch(m, searchQuery, venueName)),
     [menus, searchQuery, venueName]
   );
 
+  const pager = useMenuListPagination(filteredMenus, {
+    pageSize: MENU_LIST_PAGE_SIZE,
+    resetKey: `${variant}:${searchQuery.trim().toLowerCase()}:${menusApi.backendTotal}:${menus.length}`
+  });
+
+  const pagedMenus = pager.pagedItems;
+  const selectablePagedMenus = useMemo(
+    () => pagedMenus.filter((m) => !isUiOnlyMenu(m)),
+    [pagedMenus]
+  );
+
   const allFilteredSelected =
-    filteredMenus.length > 0 && filteredMenus.every((m) => selectedMenuIds.has(m.id));
-  const someFilteredSelected = filteredMenus.some((m) => selectedMenuIds.has(m.id));
+    selectablePagedMenus.length > 0 &&
+    selectablePagedMenus.every((m) => selectedMenuIds.has(m.id));
+  const someFilteredSelected = selectablePagedMenus.some((m) => selectedMenuIds.has(m.id));
 
   useEffect(() => {
     const el = selectAllRef.current;
@@ -170,6 +390,7 @@ export function AdminMenusTabPanel({
   }, [someFilteredSelected, allFilteredSelected]);
 
   const toggleMenuSelection = (menuId: string, nextChecked?: boolean) => {
+    if (isUiOnlyListId(menuId)) return;
     setSelectedMenuIds((prev) => {
       const next = new Set(prev);
       const shouldCheck = nextChecked ?? !next.has(menuId);
@@ -182,7 +403,7 @@ export function AdminMenusTabPanel({
   const toggleSelectAllFiltered = (checked: boolean) => {
     setSelectedMenuIds((prev) => {
       const next = new Set(prev);
-      for (const menu of filteredMenus) {
+      for (const menu of selectablePagedMenus) {
         if (checked) next.add(menu.id);
         else next.delete(menu.id);
       }
@@ -190,42 +411,148 @@ export function AdminMenusTabPanel({
     });
   };
 
-  const handlePublish = async (menu: MenuSurfaceRow) => {
+  const handlePublish = async (menu: MenuSurfaceRow, kind: "publish" | "update" = "publish") => {
+    if (isUiOnlyMenu(menu)) {
+      pushToast("Preview menu only — not connected to the backend.", "error");
+      return false;
+    }
     const res = await publishRestaurantMenu(token, restaurantId, menu.id);
     if (!res.ok) {
       pushToast(res.message ?? res.error ?? "Could not publish menu", "error");
-      return;
+      return false;
     }
-    pushToast(`“${menu.name}” is live for guests.`, "success");
+    pushToast(
+      kind === "update"
+        ? `“${menu.name}” publish snapshot updated.`
+        : `“${menu.name}” is live for guests.`,
+      "success"
+    );
     void menusApi.refresh();
+    return true;
   };
 
   const handleMenuAction = (menu: MenuSurfaceRow, actionId: string) => {
     setOpenMenuActionsId(null);
     setActionMenu(menu);
 
+    if (actionId !== "details" && isUiOnlyMenu(menu)) {
+      pushToast("Preview menu only — not connected to the backend.", "error");
+      return;
+    }
+
+    // Duplicate / schedule already open dedicated modals — still gate with confirm first.
+    setPendingRowAction({ menu, actionId });
+  };
+
+  const closeRowConfirm = () => {
+    if (confirmBusy) return;
+    setPendingRowAction(null);
+  };
+
+  const runConfirmedMenuAction = async () => {
+    if (!pendingRowAction) return;
+    const { menu, actionId } = pendingRowAction;
+
     if (actionId === "details") {
       setDrawerMenu(menu);
       setDrawerOpen(true);
+      setPendingRowAction(null);
       return;
     }
-    if (actionId === "publish") {
-      void handlePublish(menu);
+
+    if (isUiOnlyMenu(menu)) {
+      pushToast("Preview menu only — not connected to the backend.", "error");
+      setPendingRowAction(null);
       return;
     }
+
+    if (actionId === "publish" || actionId === "update-publish") {
+      setConfirmBusy(true);
+      const ok = await handlePublish(menu, actionId === "update-publish" ? "update" : "publish");
+      setConfirmBusy(false);
+      if (ok) setPendingRowAction(null);
+      return;
+    }
+
     if (actionId === "duplicate") {
+      setPendingRowAction(null);
       setDuplicateOpen(true);
       return;
     }
+
     if (actionId === "schedule") {
+      setPendingRowAction(null);
+      setScheduleMode("publish");
       setScheduleOpen(true);
       return;
     }
+
+    if (actionId === "schedule-unpublish") {
+      setPendingRowAction(null);
+      setScheduleMode("unpublish");
+      setScheduleOpen(true);
+    }
   };
 
-  const modalMenu = actionMenu;
+  const menuConfirmCopy = (() => {
+    if (!pendingRowAction) return null;
+    const name = pendingRowAction.menu.name;
+    switch (pendingRowAction.actionId) {
+      case "details":
+        return {
+          title: "Open menu details?",
+          description: `View details for “${name}”.`,
+          confirmLabel: "Open details",
+          danger: false
+        };
+      case "publish":
+        return {
+          title: "Publish menu?",
+          description: `“${name}” will go live for guests.`,
+          confirmLabel: "Publish",
+          danger: false
+        };
+      case "update-publish":
+        return {
+          title: "Update publish?",
+          description: `Publish a fresh snapshot of “${name}” for guests.`,
+          confirmLabel: "Update publish",
+          danger: false
+        };
+      case "duplicate":
+        return {
+          title: "Duplicate menu?",
+          description: `Create a draft copy of “${name}”.`,
+          confirmLabel: "Continue",
+          danger: false
+        };
+      case "schedule":
+        return {
+          title: "Schedule publish?",
+          description: `Choose when “${name}” should go live automatically.`,
+          confirmLabel: "Continue",
+          danger: false
+        };
+      case "schedule-unpublish":
+        return {
+          title: "Schedule unpublish?",
+          description: `Choose when “${name}” should leave guest view.`,
+          confirmLabel: "Continue",
+          danger: false
+        };
+      default:
+        return {
+          title: "Confirm action?",
+          description: `Continue with this action for “${name}”?`,
+          confirmLabel: "Confirm",
+          danger: false
+        };
+    }
+  })();
+
+  const modalMenu = actionMenu && !isUiOnlyMenu(actionMenu) ? actionMenu : null;
   const hasSelection = selectedMenuIds.size > 0;
-  const canManage = variant === "active" && menus.length > 0;
+  const canManage = variant === "active" && realMenus.length > 0;
 
   if (initialLoading || menusApi.meta.initialLoading) {
     return <AdminSkeletonTable rows={4} columns={4} />;
@@ -262,16 +589,12 @@ export function AdminMenusTabPanel({
         </div>
 
         {menus.length > 0 ? (
-          <div className="admin-menu-surface-search-wrap">
-            <input
-              type="search"
-              className="admin-menu-surface-search"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={copy.searchPlaceholder}
-              aria-label="Search menus"
-            />
-          </div>
+          <MenuListSearchField
+            value={searchQuery}
+            onChange={setSearchQuery}
+            placeholder={copy.searchPlaceholder}
+            aria-label="Search menus"
+          />
         ) : null}
 
         {menus.length === 0 ? (
@@ -286,19 +609,20 @@ export function AdminMenusTabPanel({
                 type="checkbox"
                 className="admin-menu-surface-checkbox"
                 checked={allFilteredSelected}
-                aria-label="Select all visible menus"
+                aria-label="Select all menus on this page"
                 onChange={(e) => toggleSelectAllFiltered(e.target.checked)}
               />
-              <span className="admin-menu-surface-select-all-label">Select all</span>
+              <span className="admin-menu-surface-select-all-label">Select all on page</span>
             </label>
 
-            <ul className="admin-menu-surface-list" key={searchQuery.trim().toLowerCase()}>
-              {filteredMenus.map((m, index) => {
-                const actions =
-                  m.rowActions && m.rowActions.length > 0
-                    ? m.rowActions
-                    : fallbackRowActions(m, variant, can);
+            <ul
+              className={`admin-menu-surface-list ${pager.pageClassName}`}
+              key={pager.pageKey}
+            >
+              {pagedMenus.map((m, index) => {
+                const actions = fallbackRowActions(m, variant, can);
                 const isSelected = selectedMenuIds.has(m.id);
+                const uiOnly = isUiOnlyMenu(m);
                 const stats = [
                   `${m.categoryCount} categories`,
                   `${m.itemCount} items`,
@@ -311,7 +635,7 @@ export function AdminMenusTabPanel({
                   <li
                     key={m.id}
                     className="admin-menu-surface-list-item"
-                    style={{ animationDelay: `${Math.min(index, 12) * 45}ms` }}
+                    style={{ animationDelay: `${Math.min(index, 12) * 40}ms` }}
                   >
                     <div className={`admin-menu-surface-card${isSelected ? " is-selected" : ""}`}>
                       <label className="admin-menu-surface-checkbox-wrap">
@@ -319,7 +643,8 @@ export function AdminMenusTabPanel({
                           type="checkbox"
                           className="admin-menu-surface-checkbox"
                           checked={isSelected}
-                          aria-label={`Select ${m.name}`}
+                          disabled={uiOnly}
+                          aria-label={uiOnly ? `${m.name} (preview only)` : `Select ${m.name}`}
                           onChange={(e) => toggleMenuSelection(m.id, e.target.checked)}
                         />
                       </label>
@@ -355,9 +680,31 @@ export function AdminMenusTabPanel({
                 );
               })}
             </ul>
+
+            {pager.showPagination ? (
+              <MenuSurfacePagination
+                page={pager.page}
+                totalPages={pager.totalPages}
+                totalItems={pager.totalItems}
+                pageSize={pager.pageSize}
+                onPageChange={pager.goToPage}
+                label="Menus pagination"
+              />
+            ) : null}
           </>
         )}
       </div>
+
+      <MenuActionConfirmModal
+        open={Boolean(pendingRowAction && menuConfirmCopy)}
+        title={menuConfirmCopy?.title ?? ""}
+        description={menuConfirmCopy?.description ?? ""}
+        confirmLabel={menuConfirmCopy?.confirmLabel}
+        danger={menuConfirmCopy?.danger}
+        busy={confirmBusy}
+        onClose={closeRowConfirm}
+        onConfirm={() => void runConfirmedMenuAction()}
+      />
 
       <MenuProfileDrawer
         menu={drawerMenu}
@@ -372,7 +719,7 @@ export function AdminMenusTabPanel({
 
       <MenuManageDrawer
         open={manageOpen}
-        menus={menus}
+        menus={realMenus}
         selectedMenuIds={selectedMenuIds}
         variant={variant}
         token={token}
@@ -427,9 +774,13 @@ export function AdminMenusTabPanel({
         menu={modalMenu}
         token={token}
         restaurantId={restaurantId}
+        mode={scheduleMode}
         onClose={() => setScheduleOpen(false)}
         onScheduled={() => {
-          pushToast("Menu schedule saved.", "success");
+          pushToast(
+            scheduleMode === "unpublish" ? "Unpublish schedule saved." : "Menu schedule saved.",
+            "success"
+          );
           void menusApi.refresh();
         }}
       />
