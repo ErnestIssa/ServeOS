@@ -39,12 +39,14 @@ export function categoryVisibilityLabel(isActive: boolean) {
 
 export function categoryPublishLabel(status: MenuSurfaceRow["status"]) {
   if (status === "PUBLISHED") return "On live menu";
+  if (status === "RETIRED") return "Menu retired";
   if (status === "ARCHIVED") return "Menu archived";
   return "In draft workspace";
 }
 
 export function categoryPublishClass(status: MenuSurfaceRow["status"]) {
   if (status === "PUBLISHED") return "admin-menu-surface-status--live";
+  if (status === "RETIRED") return "admin-menu-surface-status--retired";
   if (status === "ARCHIVED") return "admin-menu-surface-status--archived";
   return "admin-menu-surface-status--draft";
 }

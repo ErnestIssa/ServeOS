@@ -388,12 +388,16 @@ export type AvailabilityManageAction =
   | "export_rules"
   | "import_schedule";
 
+export type MenuReleaseState = "draft" | "scheduled" | "live" | "retired" | "archived";
+
 export type MenuSurfaceRow = {
   id: string;
   name: string;
   description: string | null;
   surfaceKey: string | null;
-  status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
+  status: "DRAFT" | "PUBLISHED" | "RETIRED" | "ARCHIVED";
+  releaseState?: MenuReleaseState;
+  releaseLabel?: string;
   sortOrder: number;
   categoryCount: number;
   itemCount: number;
@@ -401,10 +405,11 @@ export type MenuSurfaceRow = {
   activeVersionNumber: number | null;
   publishedAt: string | null;
   scheduledPublishAt?: string | null;
+  scheduledRetireAt?: string | null;
   hasUnpublishedChanges?: boolean;
   draftChangeCount?: number;
   availabilityWindows: MenuAvailabilityWindows | null;
-  scopeTone: "live" | "draft" | "problem";
+  scopeTone: "live" | "draft" | "problem" | "scheduled" | "retired";
   scopeLabel: string;
   rowActions?: Array<{ id: string; label: string; danger?: boolean }>;
   createdAt: string;
@@ -1217,6 +1222,7 @@ export async function scheduleRestaurantMenu(
   body: {
     scheduledPublishAt?: string | null;
     scheduledUnpublishAt?: string | null;
+    scheduledRetireAt?: string | null;
     availabilityWindows?: MenuAvailabilityWindows;
   }
 ) {
@@ -1224,6 +1230,7 @@ export async function scheduleRestaurantMenu(
     ok: boolean;
     menu?: MenuSurfaceRow & {
       scheduledPublishAt?: string | null;
+      scheduledRetireAt?: string | null;
       scheduledUnpublishAt?: string | null;
     };
     error?: string;

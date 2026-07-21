@@ -163,7 +163,7 @@ export async function publishMenuRelease(
   | { ok: false; error: string; validation?: MenuReleaseValidationResult }
 > {
   const menu = await prisma.menu.findFirst({
-    where: { id: params.menuId, restaurantId: params.restaurantId, status: { not: "ARCHIVED" } },
+    where: { id: params.menuId, restaurantId: params.restaurantId, status: { in: ["DRAFT", "PUBLISHED"] } },
     include: { activeVersion: { select: { versionNumber: true, snapshot: true } } }
   });
   if (!menu) return { ok: false, error: "menu_not_found" };
@@ -387,7 +387,7 @@ export async function processDueMenuReleases(prisma: PrismaClient, limit = 25) {
   const now = new Date();
   const due = await prisma.menu.findMany({
     where: {
-      status: { not: "ARCHIVED" },
+      status: { in: ["DRAFT", "PUBLISHED"] },
       scheduledPublishAt: { lte: now }
     },
     take: limit,
@@ -406,7 +406,6 @@ export async function processDueMenuReleases(prisma: PrismaClient, limit = 25) {
       requireChanges: false
     });
     if (!published.ok) {
-      // Clear stale schedule that cannot publish so it does not loop forever.
       if (published.error === "menu_validation_failed" || published.error === "menu_not_found") {
         await prisma.menu.update({
           where: { id: menu.id },
@@ -420,6 +419,71 @@ export async function processDueMenuReleases(prisma: PrismaClient, limit = 25) {
   }
 
   return results;
+}
+
+/** Process due retirements — Live → Retired. Keeps last published snapshot for history. */
+export async function processDueMenuRetirements(prisma: PrismaClient, limit = 25) {
+  const now = new Date();
+  const due = await prisma.menu.findMany({
+    where: {
+      status: "PUBLISHED",
+      scheduledUnpublishAt: { lte: now }
+    },
+    take: limit,
+    orderBy: { scheduledUnpublishAt: "asc" },
+    select: { id: true, restaurantId: true }
+  });
+
+  const results: Array<{ menuId: string; ok: boolean; error?: string }> = [];
+
+  for (const menu of due) {
+    const retired = await retireMenuSurface(prisma, menu.restaurantId, menu.id);
+    results.push(
+      retired.ok
+        ? { menuId: menu.id, ok: true }
+        : { menuId: menu.id, ok: false, error: retired.error }
+    );
+  }
+
+  return results;
+}
+
+export async function retireMenuSurface(prisma: PrismaClient, restaurantId: string, menuId: string) {
+  const menu = await prisma.menu.findFirst({
+    where: { id: menuId, restaurantId, status: { not: "ARCHIVED" } },
+    select: { id: true, status: true, activeVersionId: true }
+  });
+  if (!menu) return { ok: false as const, error: "menu_not_found" };
+  if (menu.status === "RETIRED") return { ok: true as const, already: true as const };
+  if (menu.status !== "PUBLISHED") {
+    return { ok: false as const, error: "menu_not_live" };
+  }
+
+  const otherLive = await prisma.menu.count({
+    where: { restaurantId, status: "PUBLISHED", id: { not: menuId } }
+  });
+  if (otherLive === 0) {
+    return { ok: false as const, error: "cannot_retire_last_live" };
+  }
+
+  await prisma.menu.update({
+    where: { id: menuId },
+    data: {
+      status: "RETIRED",
+      scheduledPublishAt: null,
+      scheduledUnpublishAt: null
+      // Keep activeVersionId — last guest snapshot preserved for history/rollback.
+    }
+  });
+
+  return { ok: true as const, already: false as const };
+}
+
+/** Combined catch-up for release + retirement workers. */
+export async function processDueMenuLifecycleJobs(prisma: PrismaClient, limit = 25) {
+  const releases = await processDueMenuReleases(prisma, limit);
+  const retirements = await processDueMenuRetirements(prisma, limit);
+  return { releases, retirements };
 }
 
 export function mapMenuReleaseError(code: string): string {
@@ -436,6 +500,10 @@ export function mapMenuReleaseError(code: string): string {
       return "That version is already live.";
     case "menu_permission_denied":
       return "You do not have permission to publish menus.";
+    case "menu_not_live":
+      return "Only live menus can be retired.";
+    case "cannot_retire_last_live":
+      return "Cannot retire the only live menu — publish or release another menu first.";
     default:
       return "Could not complete menu release.";
   }

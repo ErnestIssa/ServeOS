@@ -2,8 +2,9 @@ import type { MenuStatus } from "@prisma/client";
 import type { ActiveVenueMembership } from "../venueAccessGuard.js";
 import { getMenuCapabilities } from "./menuPermissions.js";
 import type { MenuListItem } from "./menuService.js";
+import type { MenuReleaseState } from "./menuReleaseLifecycle.js";
 
-export type MenuScopeTone = "live" | "draft" | "problem";
+export type MenuScopeTone = "live" | "draft" | "problem" | "scheduled" | "retired";
 
 export type MenuPanelVariant = "active" | "live" | "archived";
 
@@ -37,13 +38,22 @@ export type MenuManageContext = {
 
 /** Authoritative scope health for manage UI chips — computed server-side only. */
 export function deriveMenuScopeHealth(
-  menu: Pick<MenuListItem, "status" | "itemCount"> & { hasUnpublishedChanges?: boolean }
+  menu: Pick<MenuListItem, "status" | "itemCount"> & {
+    hasUnpublishedChanges?: boolean;
+    releaseState?: MenuReleaseState;
+  }
 ): {
   scopeTone: MenuScopeTone;
   scopeLabel: string;
 } {
-  if (menu.status === "ARCHIVED") {
+  if (menu.status === "ARCHIVED" || menu.releaseState === "archived") {
     return { scopeTone: "problem", scopeLabel: "Archived" };
+  }
+  if (menu.status === "RETIRED" || menu.releaseState === "retired") {
+    return { scopeTone: "retired", scopeLabel: "Retired" };
+  }
+  if (menu.releaseState === "scheduled") {
+    return { scopeTone: "scheduled", scopeLabel: "Scheduled" };
   }
   if (menu.status === "PUBLISHED" && menu.itemCount === 0) {
     return { scopeTone: "problem", scopeLabel: "Needs attention" };
@@ -229,16 +239,29 @@ export function buildMenuRowActions(
   if (
     panelVariant !== "archived" &&
     caps.entities.menu.publish &&
+    menu.status !== "RETIRED" &&
     (menu.status === "DRAFT" || menu.hasUnpublishedChanges)
   ) {
     actions.push({ id: "publish-changes", label: "Publish changes" });
   }
 
-  if (panelVariant !== "archived" && caps.entities.menu.edit && menu.status !== "ARCHIVED") {
+  if (
+    panelVariant !== "archived" &&
+    caps.entities.menu.edit &&
+    menu.status !== "ARCHIVED" &&
+    menu.status !== "RETIRED"
+  ) {
     actions.push({ id: "schedule-release", label: "Schedule release" });
   }
 
-  if (caps.entities.menu.view && (menu.activeVersionNumber != null || menu.status === "PUBLISHED")) {
+  if (panelVariant !== "archived" && caps.entities.menu.edit && menu.status === "PUBLISHED") {
+    actions.push({ id: "schedule-retirement", label: "Schedule retirement" });
+  }
+
+  if (
+    caps.entities.menu.view &&
+    (menu.activeVersionNumber != null || menu.status === "PUBLISHED" || menu.status === "RETIRED")
+  ) {
     actions.push({ id: "version-history", label: "Version history" });
   }
 
@@ -246,7 +269,8 @@ export function buildMenuRowActions(
     panelVariant !== "archived" &&
     caps.entities.menu.publish &&
     menu.activeVersionNumber != null &&
-    menu.activeVersionNumber >= 1
+    menu.activeVersionNumber >= 1 &&
+    menu.status !== "RETIRED"
   ) {
     actions.push({ id: "rollback", label: "Rollback" });
   }

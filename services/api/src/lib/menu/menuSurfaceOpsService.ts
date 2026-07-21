@@ -186,6 +186,7 @@ export async function scheduleMenuSurface(
     menu: {
       ...serializeMenu(updated),
       scheduledPublishAt: updated.scheduledPublishAt?.toISOString() ?? null,
+      scheduledRetireAt: updated.scheduledUnpublishAt?.toISOString() ?? null,
       scheduledUnpublishAt: updated.scheduledUnpublishAt?.toISOString() ?? null,
       availabilityWindows: sanitizeAvailabilityWindows(updated.availabilityWindows),
     }
@@ -205,9 +206,13 @@ export function mapMenuOpsError(code: string): string {
     case "menu_not_draft":
       return "Only draft menus can be deleted this way.";
     case "cannot_unpublish_last_published":
-      return "Cannot unpublish the only live menu — publish another menu first.";
+      return "Cannot retire the only live menu — release another menu first.";
     case "menu_not_published":
       return "This menu is not live.";
+    case "cannot_retire_last_live":
+      return "Cannot retire the only live menu — release another menu first.";
+    case "menu_not_live":
+      return "Only live menus can be retired.";
     case "target_restaurant_not_found":
       return "Target location not found.";
     case "cannot_move_to_same_restaurant":

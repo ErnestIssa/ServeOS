@@ -38,12 +38,14 @@ function menuDescription(menu: MenuSurfaceRow, venueName: string) {
 
 function statusLabel(status: MenuSurfaceRow["status"]) {
   if (status === "PUBLISHED") return "Live";
+  if (status === "RETIRED") return "Retired";
   if (status === "ARCHIVED") return "Archived";
   return "Draft";
 }
 
 function statusClass(status: MenuSurfaceRow["status"]) {
   if (status === "PUBLISHED") return "admin-menu-surface-status--live";
+  if (status === "RETIRED") return "admin-menu-surface-status--retired";
   if (status === "ARCHIVED") return "admin-menu-surface-status--archived";
   return "admin-menu-surface-status--draft";
 }
@@ -181,7 +183,16 @@ export function MenuProfileDrawer({ menu, open, venueName, variant, onClose }: P
           <section className="admin-staff-drawer-section">
             <h4 className="admin-staff-drawer-section-title">Release</h4>
             <div className="admin-staff-meta-grid">
+              <ReadonlyRow label="Release state" value={activeMenu.releaseLabel ?? activeMenu.status} />
               <ReadonlyRow label="Published at" value={formatWhen(activeMenu.publishedAt)} />
+              <ReadonlyRow
+                label="Scheduled release"
+                value={activeMenu.scheduledPublishAt ? formatWhen(activeMenu.scheduledPublishAt) : "—"}
+              />
+              <ReadonlyRow
+                label="Scheduled retirement"
+                value={activeMenu.scheduledRetireAt ? formatWhen(activeMenu.scheduledRetireAt) : "—"}
+              />
               <ReadonlyRow
                 label="Draft changes"
                 value={
@@ -195,7 +206,14 @@ export function MenuProfileDrawer({ menu, open, venueName, variant, onClose }: P
             </div>
             {variant === "active" && activeMenu.status === "DRAFT" ? (
               <p className="admin-staff-drawer-hint mt-3">
-                Edits stay in the draft workspace. Publish changes to create an immutable guest version.
+                Edits stay in the draft workspace. Schedule a release or publish changes to go live.
+              </p>
+            ) : null}
+            {activeMenu.releaseState === "scheduled" ? (
+              <p className="admin-staff-drawer-hint mt-3">
+                This menu is scheduled to release
+                {activeMenu.scheduledPublishAt ? ` on ${formatWhen(activeMenu.scheduledPublishAt)}` : ""}. Guests
+                cannot order until then.
               </p>
             ) : null}
             {activeMenu.status === "PUBLISHED" && activeMenu.hasUnpublishedChanges ? (
@@ -206,7 +224,15 @@ export function MenuProfileDrawer({ menu, open, venueName, variant, onClose }: P
             ) : null}
             {activeMenu.status === "PUBLISHED" && !activeMenu.hasUnpublishedChanges ? (
               <p className="admin-staff-drawer-hint mt-3">
-                This menu is live — guests order from the published snapshot.
+                Live — guests order from the published snapshot
+                {activeMenu.scheduledRetireAt
+                  ? `. Retirement scheduled for ${formatWhen(activeMenu.scheduledRetireAt)}.`
+                  : "."}
+              </p>
+            ) : null}
+            {activeMenu.status === "RETIRED" ? (
+              <p className="admin-staff-drawer-hint mt-3">
+                Retired — no longer visible to guests. Archive to store it, or duplicate to start a new draft.
               </p>
             ) : null}
             {activeMenu.status === "ARCHIVED" ? (

@@ -481,6 +481,7 @@ model MenuCategory {
 enum MenuStatus {
   DRAFT
   PUBLISHED
+  RETIRED
   ARCHIVED
 }
 

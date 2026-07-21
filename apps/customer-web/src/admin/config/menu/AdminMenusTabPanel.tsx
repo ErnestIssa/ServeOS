@@ -57,14 +57,20 @@ function menuDescription(menu: MenuSurfaceRow, venueName: string) {
 }
 
 function statusLabel(menu: MenuSurfaceRow) {
+  if (menu.releaseLabel) return menu.releaseLabel;
+  if (menu.releaseState === "scheduled") return "Scheduled";
+  if (menu.releaseState === "retired" || menu.status === "RETIRED") return "Retired";
   if (menu.status === "ARCHIVED") return "Archived";
-  if (menu.status === "PUBLISHED" && menu.hasUnpublishedChanges) return "Draft changes";
-  if (menu.status === "PUBLISHED") return "Published";
+  if (menu.status === "PUBLISHED" && menu.hasUnpublishedChanges) return "Live · draft changes";
+  if (menu.status === "PUBLISHED") return "Live";
   return "Draft";
 }
 
 function statusClass(menu: MenuSurfaceRow) {
-  if (menu.status === "ARCHIVED") return "admin-menu-surface-status--archived";
+  const state = menu.releaseState;
+  if (state === "archived" || menu.status === "ARCHIVED") return "admin-menu-surface-status--archived";
+  if (state === "retired" || menu.status === "RETIRED") return "admin-menu-surface-status--retired";
+  if (state === "scheduled") return "admin-menu-surface-status--scheduled";
   if (menu.status === "PUBLISHED" && menu.hasUnpublishedChanges) return "admin-menu-surface-status--draft";
   if (menu.status === "PUBLISHED") return "admin-menu-surface-status--live";
   return "admin-menu-surface-status--draft";
@@ -75,12 +81,21 @@ function formatPublishedAgo(iso: string | null | undefined) {
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return null;
   const mins = Math.round((Date.now() - then) / 60_000);
-  if (mins < 1) return "Published just now";
-  if (mins < 60) return `Published ${mins} min ago`;
+  if (mins < 1) return "Released just now";
+  if (mins < 60) return `Released ${mins} min ago`;
   const hours = Math.round(mins / 60);
-  if (hours < 48) return `Published ${hours} hour${hours === 1 ? "" : "s"} ago`;
+  if (hours < 48) return `Released ${hours} hour${hours === 1 ? "" : "s"} ago`;
   const days = Math.round(hours / 24);
-  return `Published ${days} day${days === 1 ? "" : "s"} ago`;
+  return `Released ${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+function formatScheduleWhen(iso: string | null | undefined) {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  } catch {
+    return iso;
+  }
 }
 
 function sectionCopy(variant: MenuPanelVariant) {
@@ -143,16 +158,19 @@ function resolveRowActions(
     actions.push({ id: "preview", label: "Preview" });
     actions.push({ id: "details", label: "Menu details" });
   }
-  if (variant !== "archived" && can("menu", "publish") && (menu.status === "DRAFT" || menu.hasUnpublishedChanges)) {
+  if (variant !== "archived" && can("menu", "publish") && menu.status !== "RETIRED" && (menu.status === "DRAFT" || menu.hasUnpublishedChanges)) {
     actions.push({ id: "publish-changes", label: "Publish changes" });
   }
-  if (variant !== "archived" && can("menu", "edit") && menu.status !== "ARCHIVED") {
+  if (variant !== "archived" && can("menu", "edit") && menu.status !== "ARCHIVED" && menu.status !== "RETIRED") {
     actions.push({ id: "schedule-release", label: "Schedule release" });
   }
-  if (can("menu", "view") && (menu.activeVersionNumber != null || menu.status === "PUBLISHED")) {
+  if (variant !== "archived" && can("menu", "edit") && menu.status === "PUBLISHED") {
+    actions.push({ id: "schedule-retirement", label: "Schedule retirement" });
+  }
+  if (can("menu", "view") && (menu.activeVersionNumber != null || menu.status === "PUBLISHED" || menu.status === "RETIRED")) {
     actions.push({ id: "version-history", label: "Version history" });
   }
-  if (variant !== "archived" && can("menu", "publish") && menu.activeVersionNumber != null) {
+  if (variant !== "archived" && can("menu", "publish") && menu.activeVersionNumber != null && menu.status !== "RETIRED") {
     actions.push({ id: "rollback", label: "Rollback" });
   }
   if (can("menu", "create")) {
@@ -366,6 +384,7 @@ export function AdminMenusTabPanel({
   const [actionMenu, setActionMenu] = useState<MenuSurfaceRow | null>(null);
   const [duplicateOpen, setDuplicateOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleMode, setScheduleMode] = useState<"release" | "retirement">("release");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMenu, setDrawerMenu] = useState<MenuSurfaceRow | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
@@ -450,6 +469,13 @@ export function AdminMenusTabPanel({
     }
 
     if (actionId === "schedule-release" || actionId === "schedule") {
+      setScheduleMode("release");
+      setScheduleOpen(true);
+      return;
+    }
+
+    if (actionId === "schedule-retirement" || actionId === "schedule-unpublish") {
+      setScheduleMode("retirement");
       setScheduleOpen(true);
       return;
     }
@@ -601,6 +627,8 @@ export function AdminMenusTabPanel({
                 const isSelected = selectedMenuIds.has(m.id);
                 const uiOnly = isUiOnlyMenu(m);
                 const publishedAgo = formatPublishedAgo(m.publishedAt);
+                const releaseWhen = formatScheduleWhen(m.scheduledPublishAt);
+                const retireWhen = formatScheduleWhen(m.scheduledRetireAt);
                 const draftBits =
                   m.draftChangeCount && m.draftChangeCount > 0
                     ? `${m.draftChangeCount} draft change${m.draftChangeCount === 1 ? "" : "s"}`
@@ -610,6 +638,8 @@ export function AdminMenusTabPanel({
                 const stats = [
                   m.activeVersionNumber ? `Version ${m.activeVersionNumber}` : null,
                   publishedAgo,
+                  m.releaseState === "scheduled" && releaseWhen ? `Releases ${releaseWhen}` : null,
+                  m.status === "PUBLISHED" && retireWhen ? `Retires ${retireWhen}` : null,
                   draftBits,
                   `${m.categoryCount} categories`,
                   `${m.itemCount} items`
@@ -768,10 +798,15 @@ export function AdminMenusTabPanel({
         menu={modalMenu}
         token={token}
         restaurantId={restaurantId}
-        mode="publish"
+        mode={scheduleMode}
         onClose={() => setScheduleOpen(false)}
         onScheduled={() => {
-          pushToast("Release scheduled. It will publish automatically when due.", "success");
+          pushToast(
+            scheduleMode === "retirement"
+              ? "Retirement scheduled. The menu will leave guest view automatically when due."
+              : "Release scheduled. It will go live automatically when due.",
+            "success"
+          );
           void menusApi.refresh();
         }}
       />

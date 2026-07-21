@@ -52,7 +52,7 @@ import {
   listMenuVersions,
   mapMenuReleaseError,
   previewMenuRelease,
-  processDueMenuReleases,
+  processDueMenuLifecycleJobs,
   publishMenuRelease,
   rollbackMenuVersion
 } from "../lib/menu/menuReleaseService.js";
@@ -431,7 +431,7 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
     const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
     assertMenuEntityPermission("menu", "publish", membership);
 
-    const results = await processDueMenuReleases(prisma);
+    const results = await processDueMenuLifecycleJobs(prisma);
     return { ok: true, results };
   });
 
@@ -608,15 +608,20 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
       .object({
         scheduledPublishAt: z.string().datetime().nullable().optional(),
         scheduledUnpublishAt: z.string().datetime().nullable().optional(),
+        /** Preferred alias — maps to scheduledUnpublishAt (retirement). */
+        scheduledRetireAt: z.string().datetime().nullable().optional(),
         availabilityWindows: z.record(availabilityWindowSchema).optional()
       })
       .parse(req.body ?? {});
     const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
     assertMenuEntityPermission("menu", "edit", membership);
 
+    const retireAt =
+      body.scheduledRetireAt !== undefined ? body.scheduledRetireAt : body.scheduledUnpublishAt;
+
     const result = await scheduleMenuSurface(prisma, params.restaurantId, params.menuId, {
       ...(body.scheduledPublishAt !== undefined ? { scheduledPublishAt: body.scheduledPublishAt } : {}),
-      ...(body.scheduledUnpublishAt !== undefined ? { scheduledUnpublishAt: body.scheduledUnpublishAt } : {}),
+      ...(retireAt !== undefined ? { scheduledUnpublishAt: retireAt } : {}),
       ...(body.availabilityWindows !== undefined
         ? { availabilityWindows: sanitizeAvailabilityWindows(body.availabilityWindows) ?? {} }
         : {})

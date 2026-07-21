@@ -37,7 +37,7 @@ export type AvailabilityEvalContext = {
   timezone?: string;
   openingHours?: string | null;
   restaurantOpen?: boolean;
-  menuStatus: "DRAFT" | "PUBLISHED" | "ARCHIVED";
+  menuStatus: "DRAFT" | "PUBLISHED" | "RETIRED" | "ARCHIVED";
   scheduledPublishAt?: Date | string | null;
   scheduledUnpublishAt?: Date | string | null;
   categoryActive?: boolean;
@@ -298,21 +298,25 @@ export function evaluateAvailability(ctx: AvailabilityEvalContext): Availability
     push(reasons, false, "menu_archived", "Menu archived");
     return { orderable: false, status: "UNAVAILABLE", reasons, matchedWindowKey: null };
   }
+  if (ctx.menuStatus === "RETIRED") {
+    push(reasons, false, "menu_retired", "Menu retired");
+    return { orderable: false, status: "UNAVAILABLE", reasons, matchedWindowKey: null };
+  }
   if (ctx.menuStatus !== "PUBLISHED") {
     const publishAt = toDate(ctx.scheduledPublishAt);
     if (publishAt && publishAt.getTime() > now.getTime()) {
-      push(reasons, false, "menu_scheduled_publish", "Menu scheduled to publish");
+      push(reasons, false, "menu_scheduled_release", "Menu scheduled for release");
       return { orderable: false, status: "SCHEDULED", reasons, matchedWindowKey: null };
     }
-    push(reasons, false, "menu_unpublished", "Menu unpublished");
+    push(reasons, false, "menu_not_live", "Menu not live");
     return { orderable: false, status: "UNAVAILABLE", reasons, matchedWindowKey: null };
   }
-  const unpublishAt = toDate(ctx.scheduledUnpublishAt);
-  if (unpublishAt && unpublishAt.getTime() <= now.getTime()) {
-    push(reasons, false, "menu_unpublished_schedule", "Menu past scheduled unpublish");
+  const retireAt = toDate(ctx.scheduledUnpublishAt);
+  if (retireAt && retireAt.getTime() <= now.getTime()) {
+    push(reasons, false, "menu_past_retirement", "Menu past scheduled retirement");
     return { orderable: false, status: "EXPIRED", reasons, matchedWindowKey: null };
   }
-  push(reasons, true, "menu_published", "Menu published");
+  push(reasons, true, "menu_live", "Menu live");
 
   if (ctx.categoryActive === false) {
     push(reasons, false, "category_hidden", "Category hidden");

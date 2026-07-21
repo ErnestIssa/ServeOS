@@ -3,7 +3,11 @@ import { fetchMenuTree } from "../menu.js";
 import { buildMenuSnapshotForPublish } from "./publicMenuService.js";
 import { sanitizeAvailabilityWindows, type MenuAvailabilityWindows } from "./menuAvailability.js";
 import { deriveMenuScopeHealth, type MenuScopeTone } from "./menuManageService.js";
-import { getMenuDraftReleaseState, processDueMenuReleases } from "./menuReleaseService.js";
+import {
+  deriveMenuReleaseState,
+  type MenuReleaseState
+} from "./menuReleaseLifecycle.js";
+import { getMenuDraftReleaseState, processDueMenuLifecycleJobs } from "./menuReleaseService.js";
 
 export type MenuListItem = {
   id: string;
@@ -11,6 +15,9 @@ export type MenuListItem = {
   description: string | null;
   surfaceKey: string | null;
   status: MenuStatus;
+  /** Derived release lifecycle badge — independent from availability. */
+  releaseState: MenuReleaseState;
+  releaseLabel: string;
   sortOrder: number;
   categoryCount: number;
   itemCount: number;
@@ -18,6 +25,8 @@ export type MenuListItem = {
   activeVersionNumber: number | null;
   publishedAt: string | null;
   scheduledPublishAt: string | null;
+  /** Scheduled retirement (DB: scheduledUnpublishAt). */
+  scheduledRetireAt: string | null;
   hasUnpublishedChanges: boolean;
   draftChangeCount: number;
   availabilityWindows: MenuAvailabilityWindows | null;
@@ -38,6 +47,7 @@ export function serializeMenu(
     coverMediaKey?: string | null;
     availabilityWindows?: unknown;
     scheduledPublishAt?: Date | null;
+    scheduledUnpublishAt?: Date | null;
     createdAt: Date;
     updatedAt: Date;
     categories: Array<{ _count: { items: number } }>;
@@ -47,10 +57,18 @@ export function serializeMenu(
 ): MenuListItem {
   const categoryCount = row.categories.length;
   const itemCount = row.categories.reduce((sum, c) => sum + c._count.items, 0);
+  const hasUnpublishedChanges = release?.hasUnpublishedChanges ?? false;
+  const lifecycle = deriveMenuReleaseState({
+    status: row.status,
+    scheduledPublishAt: row.scheduledPublishAt,
+    scheduledUnpublishAt: row.scheduledUnpublishAt,
+    hasUnpublishedChanges
+  });
   const { scopeTone, scopeLabel } = deriveMenuScopeHealth({
     status: row.status,
     itemCount,
-    hasUnpublishedChanges: release?.hasUnpublishedChanges
+    hasUnpublishedChanges,
+    releaseState: lifecycle.releaseState
   });
   return {
     id: row.id,
@@ -58,14 +76,17 @@ export function serializeMenu(
     description: row.description,
     surfaceKey: row.surfaceKey,
     status: row.status,
+    releaseState: lifecycle.releaseState,
+    releaseLabel: lifecycle.releaseLabel,
     sortOrder: row.sortOrder,
     categoryCount,
     itemCount,
     coverMediaKey: row.coverMediaKey ?? null,
     activeVersionNumber: row.activeVersion?.versionNumber ?? null,
     publishedAt: row.activeVersion?.publishedAt?.toISOString() ?? null,
-    scheduledPublishAt: row.scheduledPublishAt?.toISOString() ?? null,
-    hasUnpublishedChanges: release?.hasUnpublishedChanges ?? false,
+    scheduledPublishAt: lifecycle.scheduledPublishAt,
+    scheduledRetireAt: lifecycle.scheduledRetireAt,
+    hasUnpublishedChanges,
     draftChangeCount: release?.draftChangeCount ?? 0,
     availabilityWindows: sanitizeAvailabilityWindows(row.availabilityWindows),
     scopeTone,
@@ -130,7 +151,7 @@ export async function ensureVenueMenusBootstrapped(
 export type MenuListStatusFilter = "active" | "DRAFT" | "PUBLISHED" | "ARCHIVED";
 
 function menuListStatusWhere(status: MenuListStatusFilter): Prisma.MenuWhereInput["status"] {
-  if (status === "active") return { not: "ARCHIVED" };
+  if (status === "active") return { notIn: ["ARCHIVED"] };
   return status;
 }
 
@@ -144,8 +165,8 @@ export async function listMenusForRestaurant(
     await ensureVenueMenusBootstrapped(prisma, restaurantId, userId);
   }
 
-  // Release scheduler: apply due publishes before listing so admin UI stays accurate.
-  await processDueMenuReleases(prisma);
+  // Release/retire scheduler runs on a background interval; list still triggers a catch-up pass.
+  await processDueMenuLifecycleJobs(prisma);
 
   const rows = await prisma.menu.findMany({
     where: { restaurantId, status: menuListStatusWhere(status) },

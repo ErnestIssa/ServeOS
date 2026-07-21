@@ -46,6 +46,7 @@ import { registerWorkspaceProvisioningRoutes } from "./routes/workspaceProvision
 import { registerTrustRoutes } from "./routes/trustRoutes.js";
 import { startOrderOutboxProcessor } from "./lib/orders/orderOutboxProcessor.js";
 import { startOrderRecoveryProcessor } from "./lib/orders/orderRecoveryService.js";
+import { startMenuReleaseScheduler } from "./lib/menu/menuReleaseScheduler.js";
 
 const port = Number(process.env.PORT ?? process.env.API_GATEWAY_PORT ?? 3000);
 /** Render / Docker: set `HOST=0.0.0.0` so the service accepts external connections. */
@@ -236,6 +237,7 @@ async function main() {
   await registerOrderRoutes(app, prisma, orderBus, chatBus, domainEventBus);
   startOrderOutboxProcessor(prisma, { domainEventBus, orderBus }, app.log);
   startOrderRecoveryProcessor(prisma, { domainEventBus, orderBus }, app.log);
+  startMenuReleaseScheduler(prisma, app.log);
   registerTrustRoutes(app, prisma, domainEventBus);
   registerCustomerChatRealtime(app, prisma, chatBus);
   registerRestaurantChatRealtime(app, prisma, chatBus);

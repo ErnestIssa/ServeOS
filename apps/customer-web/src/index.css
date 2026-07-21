@@ -4979,6 +4979,18 @@ html[data-admin-theme="dark"] .admin-menu-manage-danger-btn:focus-visible .admin
   color: #b45309;
 }
 
+.admin-menu-manage-scope-chip--scheduled {
+  border-color: #2563eb;
+  background: color-mix(in srgb, #2563eb 14%, #eff6ff);
+  color: #1d4ed8;
+}
+
+.admin-menu-manage-scope-chip--retired {
+  border-color: #7c3aed;
+  background: color-mix(in srgb, #7c3aed 14%, #f5f3ff);
+  color: #6d28d9;
+}
+
 .admin-menu-manage-scope-chip--problem {
   border-color: #dc2626;
   background: color-mix(in srgb, #dc2626 14%, #fef2f2);
@@ -4995,6 +5007,18 @@ html[data-admin-theme="dark"] .admin-menu-manage-scope-chip--draft {
   border-color: #fbbf24;
   background: color-mix(in srgb, #fbbf24 16%, #422006);
   color: #fcd34d;
+}
+
+html[data-admin-theme="dark"] .admin-menu-manage-scope-chip--scheduled {
+  border-color: #60a5fa;
+  background: color-mix(in srgb, #60a5fa 16%, #0b1e3a);
+  color: #93c5fd;
+}
+
+html[data-admin-theme="dark"] .admin-menu-manage-scope-chip--retired {
+  border-color: #c4b5fd;
+  background: color-mix(in srgb, #c4b5fd 16%, #2e1065);
+  color: #ddd6fe;
 }
 
 html[data-admin-theme="dark"] .admin-menu-manage-scope-chip--problem {
@@ -5550,6 +5574,14 @@ html[data-admin-theme="dark"] .admin-menu-manage-scope-chip--problem {
   color: #d97706;
 }
 
+.admin-menu-surface-status--scheduled {
+  color: #2563eb;
+}
+
+.admin-menu-surface-status--retired {
+  color: #7c3aed;
+}
+
 .admin-menu-surface-status--archived {
   color: #94a3b8;
 }
@@ -5560,6 +5592,14 @@ html[data-admin-theme="dark"] .admin-menu-manage-scope-chip--problem {
 
 .admin-shell[data-theme="dark"] .admin-menu-surface-status--draft {
   color: #fbbf24;
+}
+
+.admin-shell[data-theme="dark"] .admin-menu-surface-status--scheduled {
+  color: #60a5fa;
+}
+
+.admin-shell[data-theme="dark"] .admin-menu-surface-status--retired {
+  color: #c4b5fd;
 }
 
 .admin-shell[data-theme="dark"] .admin-menu-surface-status--archived {

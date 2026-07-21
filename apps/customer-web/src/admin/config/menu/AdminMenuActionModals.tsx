@@ -170,16 +170,16 @@ export function ScheduleMenuModal({
   restaurantId,
   onClose,
   onScheduled,
-  mode = "publish"
+  mode = "release"
 }: Omit<BaseProps, "venueName"> & {
   onScheduled: () => void;
-  mode?: "publish" | "unpublish";
+  mode?: "release" | "retirement" | "publish" | "unpublish";
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [date, setDate] = useState("");
   const [time, setTime] = useState("12:00");
-  const isUnpublish = mode === "unpublish";
+  const isRetirement = mode === "retirement" || mode === "unpublish";
 
   useEffect(() => {
     if (!open) return;
@@ -198,7 +198,7 @@ export function ScheduleMenuModal({
       token,
       restaurantId,
       menu.id,
-      isUnpublish ? { scheduledUnpublishAt: at } : { scheduledPublishAt: at }
+      isRetirement ? { scheduledRetireAt: at } : { scheduledPublishAt: at }
     );
     setBusy(false);
     if (!res.ok) {
@@ -216,7 +216,7 @@ export function ScheduleMenuModal({
       token,
       restaurantId,
       menu.id,
-      isUnpublish ? { scheduledUnpublishAt: null } : { scheduledPublishAt: null }
+      isRetirement ? { scheduledRetireAt: null } : { scheduledPublishAt: null }
     );
     setBusy(false);
     if (!res.ok) {
@@ -231,13 +231,13 @@ export function ScheduleMenuModal({
     <MenuPageModalShell
       open={open}
       onClose={busy ? () => undefined : onClose}
-      title={isUnpublish ? "Schedule archive" : "Schedule release"}
+      title={isRetirement ? "Schedule retirement" : "Schedule release"}
       description={
-        isUnpublish
-          ? `Choose when “${menu?.name ?? "this menu"}” should leave guest view automatically.`
-          : `Choose when “${menu?.name ?? "this menu"}” should publish a new guest version automatically.`
+        isRetirement
+          ? `Choose when “${menu?.name ?? "this menu"}” should leave guest view automatically (Retired — not archived).`
+          : `Choose when “${menu?.name ?? "this menu"}” should go live as a new published version.`
       }
-      titleId={isUnpublish ? "schedule-unpublish-menu-title" : "schedule-release-menu-title"}
+      titleId={isRetirement ? "schedule-retirement-menu-title" : "schedule-release-menu-title"}
       stackLevel="overlay"
     >
       <div className="grid gap-3 sm:grid-cols-2">
