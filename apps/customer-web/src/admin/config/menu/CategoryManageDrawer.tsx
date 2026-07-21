@@ -356,8 +356,8 @@ export function CategoryManageDrawer({
                       </button>
                       {visibleTargets.length > 0 ? (
                         <button type="button" className="admin-menu-manage-danger-btn" onClick={() => setDangerKind("unpublish")}>
-                          <span className="admin-menu-manage-danger-btn-label">Unpublish</span>
-                          <span className="admin-menu-manage-danger-btn-desc">Hide visible categories from guests.</span>
+                          <span className="admin-menu-manage-danger-btn-label">Hide</span>
+                          <span className="admin-menu-manage-danger-btn-desc">Hide visible categories in the draft workspace.</span>
                         </button>
                       ) : null}
                     </div>
@@ -417,16 +417,16 @@ export function CategoryManageDrawer({
       <MenuPageModalShell
         open={dangerKind === "unpublish"}
         onClose={dangerBusy ? () => undefined : () => setDangerKind(null)}
-        title="Unpublish categories?"
-        description="Visible categories will be hidden from guests until you show them again."
-        titleId="unpublish-category-title"
+        title="Hide categories?"
+        description="Visible categories will be hidden in the draft workspace until you show them again. Guests still see the last published menu version."
+        titleId="hide-category-title"
         stackLevel="overlay"
       >
         {dangerError ? <ProfileModalAlert tone="error">{dangerError}</ProfileModalAlert> : null}
         <ProfileModalFooter
           onCancel={() => setDangerKind(null)}
-          onConfirm={() => void runBulkVisibility(false, "Unpublish")}
-          confirmLabel={dangerBusy ? "Unpublishing…" : "Unpublish"}
+          onConfirm={() => void runBulkVisibility(false, "Hide")}
+          confirmLabel={dangerBusy ? "Hiding…" : "Hide"}
           busy={dangerBusy}
           danger
         />

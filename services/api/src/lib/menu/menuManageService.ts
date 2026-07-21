@@ -13,8 +13,9 @@ export type MenuManageActionId =
   | "delete-menu"
   | "share"
   | "archive"
-  | "unpublish"
   | "publish-drafts"
+  | "publish-changes"
+  | "version-history"
   | "qr"
   | "insights"
   | "move";
@@ -35,7 +36,9 @@ export type MenuManageContext = {
 };
 
 /** Authoritative scope health for manage UI chips — computed server-side only. */
-export function deriveMenuScopeHealth(menu: Pick<MenuListItem, "status" | "itemCount">): {
+export function deriveMenuScopeHealth(
+  menu: Pick<MenuListItem, "status" | "itemCount"> & { hasUnpublishedChanges?: boolean }
+): {
   scopeTone: MenuScopeTone;
   scopeLabel: string;
 } {
@@ -44,6 +47,9 @@ export function deriveMenuScopeHealth(menu: Pick<MenuListItem, "status" | "itemC
   }
   if (menu.status === "PUBLISHED" && menu.itemCount === 0) {
     return { scopeTone: "problem", scopeLabel: "Needs attention" };
+  }
+  if (menu.status === "PUBLISHED" && menu.hasUnpublishedChanges) {
+    return { scopeTone: "draft", scopeLabel: "Draft changes" };
   }
   if (menu.status === "PUBLISHED") {
     return { scopeTone: "live", scopeLabel: "Live" };
@@ -96,7 +102,6 @@ export function buildMenuManageActions(input: {
   const canEdit = caps.entities.menu.edit;
 
   const draftCount = targets.filter((m) => m.status === "DRAFT").length;
-  const publishedCount = targets.filter((m) => m.status === "PUBLISHED").length;
   const archivableCount = targets.filter((m) => m.status !== "ARCHIVED").length;
   const editableCount = targets.filter((m) => m.status !== "ARCHIVED").length;
 
@@ -120,8 +125,22 @@ export function buildMenuManageActions(input: {
   if (panelVariant !== "archived" && draftTargetIds.length > 0 && canPublish) {
     actions.push({
       id: "publish-drafts",
-      label: draftTargetIds.length === 1 ? "Publish draft" : `Publish ${draftTargetIds.length} drafts`,
-      description: "Make selected draft menus live for guests."
+      label: draftTargetIds.length === 1 ? "Publish changes" : `Publish ${draftTargetIds.length} menus`,
+      description: "Release selected draft menus as new live versions for guests."
+    });
+  }
+
+  const pendingPublishIds = targets.filter(
+    (m) => m.status === "PUBLISHED" && (m.hasUnpublishedChanges || m.draftChangeCount > 0)
+  );
+  if (panelVariant !== "archived" && pendingPublishIds.length > 0 && canPublish) {
+    actions.push({
+      id: "publish-changes",
+      label:
+        pendingPublishIds.length === 1
+          ? "Publish changes"
+          : `Publish changes (${pendingPublishIds.length})`,
+      description: "Release draft workspace edits as a new live version."
     });
   }
 
@@ -171,18 +190,16 @@ export function buildMenuManageActions(input: {
     actions.push({
       id: "archive",
       label: archivableCount === 1 ? "Archive" : `Archive ${archivableCount}`,
-      description: "Hide from guests and move to archived.",
+      description: "Hide from guests and move to archived. Prefer archive over unpublish.",
       danger: true
     });
   }
 
-  /* Unpublish only for live menus — drafts use Delete draft instead. */
-  if (panelVariant !== "archived" && publishedCount > 0 && canPublish) {
+  if (panelVariant !== "archived" && targets.length === 1 && canView) {
     actions.push({
-      id: "unpublish",
-      label: publishedCount === 1 ? "Unpublish" : `Unpublish ${publishedCount}`,
-      description: "Return live menus to draft — guests will no longer see them.",
-      danger: true
+      id: "version-history",
+      label: "Version history",
+      description: "Browse published versions, compare, and roll back."
     });
   }
 
@@ -205,22 +222,41 @@ export function buildMenuRowActions(
   const actions: MenuRowAction[] = [];
 
   if (caps.entities.menu.view) {
+    actions.push({ id: "preview", label: "Preview" });
     actions.push({ id: "details", label: "Menu details" });
   }
-  if (panelVariant !== "archived" && menu.status === "DRAFT" && caps.entities.menu.publish) {
-    actions.push({ id: "publish", label: "Publish" });
+
+  if (
+    panelVariant !== "archived" &&
+    caps.entities.menu.publish &&
+    (menu.status === "DRAFT" || menu.hasUnpublishedChanges)
+  ) {
+    actions.push({ id: "publish-changes", label: "Publish changes" });
   }
-  if (panelVariant !== "archived" && menu.status === "PUBLISHED" && caps.entities.menu.publish) {
-    actions.push({ id: "update-publish", label: "Update publish" });
+
+  if (panelVariant !== "archived" && caps.entities.menu.edit && menu.status !== "ARCHIVED") {
+    actions.push({ id: "schedule-release", label: "Schedule release" });
   }
+
+  if (caps.entities.menu.view && (menu.activeVersionNumber != null || menu.status === "PUBLISHED")) {
+    actions.push({ id: "version-history", label: "Version history" });
+  }
+
+  if (
+    panelVariant !== "archived" &&
+    caps.entities.menu.publish &&
+    menu.activeVersionNumber != null &&
+    menu.activeVersionNumber >= 1
+  ) {
+    actions.push({ id: "rollback", label: "Rollback" });
+  }
+
   if (caps.entities.menu.create) {
-    actions.push({ id: "duplicate", label: "Duplicate menu" });
+    actions.push({ id: "duplicate", label: "Duplicate" });
   }
-  if (panelVariant !== "archived" && menu.status === "DRAFT" && caps.entities.menu.edit) {
-    actions.push({ id: "schedule", label: "Schedule publish" });
-  }
-  if (panelVariant !== "archived" && menu.status === "PUBLISHED" && caps.entities.menu.edit) {
-    actions.push({ id: "schedule-unpublish", label: "Schedule unpublish" });
+
+  if (panelVariant !== "archived" && menu.status !== "ARCHIVED" && caps.entities.menu.archive) {
+    actions.push({ id: "archive", label: "Archive", danger: true });
   }
 
   return actions;

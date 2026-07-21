@@ -14,7 +14,6 @@ import {
   BulkArchiveConfirmModal,
   BulkDeleteDraftConfirmModal,
   BulkDeleteMenuConfirmModal,
-  BulkUnpublishConfirmModal,
   MenuInsightsPickerModal,
   MenuSinglePickerModal,
   MoveMenusLocationModal
@@ -37,6 +36,8 @@ type Props = {
   onRefresh: () => void;
   onClearSelection: () => void;
   onEditMenu: (menu: MenuSurfaceRow) => void;
+  onOpenVersionHistory?: (menu: MenuSurfaceRow) => void;
+  onOpenPublishReview?: (menu: MenuSurfaceRow) => void;
 };
 
 function ScopeChip({ menu }: { menu: MenuSurfaceRow }) {
@@ -63,7 +64,9 @@ export function MenuManageDrawer({
   onClose,
   onRefresh,
   onClearSelection,
-  onEditMenu
+  onEditMenu,
+  onOpenVersionHistory,
+  onOpenPublishReview
 }: Props) {
   const { pushToast } = useAdminToast();
   const [mounted, setMounted] = useState(false);
@@ -74,7 +77,6 @@ export function MenuManageDrawer({
   const [contextLoading, setContextLoading] = useState(false);
 
   const [archiveOpen, setArchiveOpen] = useState(false);
-  const [unpublishOpen, setUnpublishOpen] = useState(false);
   const [deleteDraftOpen, setDeleteDraftOpen] = useState(false);
   const [deleteMenuOpen, setDeleteMenuOpen] = useState(false);
   const [dangerConfirmMenus, setDangerConfirmMenus] = useState<MenuSurfaceRow[]>([]);
@@ -89,14 +91,8 @@ export function MenuManageDrawer({
   const actions: MenuManageActionDescriptor[] = context?.actions ?? [];
   const safeActions = useMemo(() => actions.filter((a) => !a.danger), [actions]);
   const dangerActions = useMemo(() => actions.filter((a) => a.danger), [actions]);
-  const dangerConfirmOpen =
-    archiveOpen || unpublishOpen || deleteDraftOpen || deleteMenuOpen;
+  const dangerConfirmOpen = archiveOpen || deleteDraftOpen || deleteMenuOpen;
   const showManageShell = mounted && !dangerConfirmOpen;
-  const draftTargets = useMemo(() => {
-    const draftIds = new Set(context?.draftTargetIds ?? []);
-    return targets.filter((m) => draftIds.has(m.id));
-  }, [context?.draftTargetIds, targets]);
-
   const scopePager = useMenuListPagination(targets, {
     pageSize: SCOPE_PAGE_SIZE,
     resetKey: `${open ? "open" : "closed"}:${targets.map((m) => m.id).join(",")}`
@@ -186,22 +182,25 @@ export function MenuManageDrawer({
   };
 
   const publishDrafts = async () => {
-    if (draftTargets.length === 0 || publishBusy) return;
+    const pending = targets.filter(
+      (m) => m.status === "DRAFT" || m.hasUnpublishedChanges || (m.draftChangeCount ?? 0) > 0
+    );
+    if (pending.length === 0 || publishBusy) return;
     setPublishBusy(true);
     let ok = 0;
     let failed = 0;
-    for (const menu of draftTargets) {
-      const res = await publishRestaurantMenu(token, restaurantId, menu.id);
+    for (const menu of pending) {
+      const res = await publishRestaurantMenu(token, restaurantId, menu.id, { requireChanges: false });
       if (res.ok) ok += 1;
       else failed += 1;
     }
     setPublishBusy(false);
     if (ok > 0) {
-      pushToast(ok === 1 ? "Draft published." : `${ok} drafts published.`, "success");
+      pushToast(ok === 1 ? "Menu published." : `${ok} menus published.`, "success");
       onRefresh();
     }
     if (failed > 0) {
-      pushToast(failed === 1 ? "One draft could not be published." : `${failed} drafts could not be published.`, "error");
+      pushToast(failed === 1 ? "One menu could not be published." : `${failed} menus could not be published.`, "error");
     }
   };
 
@@ -222,19 +221,17 @@ export function MenuManageDrawer({
   };
 
   const openDangerConfirm = (
-    kind: "archive" | "unpublish" | "delete-draft" | "delete-menu",
+    kind: "archive" | "delete-draft" | "delete-menu",
     menusForConfirm: MenuSurfaceRow[]
   ) => {
     setDangerConfirmMenus(menusForConfirm);
     if (kind === "archive") setArchiveOpen(true);
-    else if (kind === "unpublish") setUnpublishOpen(true);
     else if (kind === "delete-draft") setDeleteDraftOpen(true);
     else setDeleteMenuOpen(true);
   };
 
   const dismissDangerConfirm = () => {
     setArchiveOpen(false);
-    setUnpublishOpen(false);
     setDeleteDraftOpen(false);
     setDeleteMenuOpen(false);
     setDangerConfirmMenus([]);
@@ -275,15 +272,20 @@ export function MenuManageDrawer({
       );
       return;
     }
-    if (actionId === "unpublish") {
-      openDangerConfirm(
-        "unpublish",
-        targets.filter((m) => m.status === "PUBLISHED")
-      );
+    if (actionId === "publish-drafts" || actionId === "publish-changes") {
+      if (targets.length === 1 && onOpenPublishReview) {
+        onClose();
+        onOpenPublishReview(targets[0]!);
+        return;
+      }
+      void publishDrafts();
       return;
     }
-    if (actionId === "publish-drafts") {
-      void publishDrafts();
+    if (actionId === "version-history") {
+      if (targets[0] && onOpenVersionHistory) {
+        onClose();
+        onOpenVersionHistory(targets[0]);
+      }
       return;
     }
     if (actionId === "qr") {
@@ -388,11 +390,13 @@ export function MenuManageDrawer({
                         key={action.id}
                         type="button"
                         className="admin-menu-manage-action"
-                        disabled={action.id === "publish-drafts" && publishBusy}
+                        disabled={(action.id === "publish-drafts" || action.id === "publish-changes") && publishBusy}
                         onClick={() => handleAction(action.id)}
                       >
                         <span className="admin-menu-manage-action-label">
-                          {action.id === "publish-drafts" && publishBusy ? "Publishing…" : action.label}
+                          {(action.id === "publish-drafts" || action.id === "publish-changes") && publishBusy
+                            ? "Publishing…"
+                            : action.label}
                         </span>
                         {action.description ? (
                           <span className="admin-menu-manage-action-desc">{action.description}</span>
@@ -439,16 +443,6 @@ export function MenuManageDrawer({
         restaurantId={restaurantId}
         onClose={dismissDangerConfirm}
         onDone={(summary) => bulkDone("Archive", summary)}
-      />
-
-      <BulkUnpublishConfirmModal
-        open={unpublishOpen}
-        menus={dangerConfirmMenus}
-        venueName={venueName}
-        token={token}
-        restaurantId={restaurantId}
-        onClose={dismissDangerConfirm}
-        onDone={(summary) => bulkDone("Unpublish", summary)}
       />
 
       <BulkDeleteDraftConfirmModal

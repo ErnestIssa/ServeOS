@@ -231,13 +231,13 @@ export function ScheduleMenuModal({
     <MenuPageModalShell
       open={open}
       onClose={busy ? () => undefined : onClose}
-      title={isUnpublish ? "Schedule unpublish" : "Schedule publish"}
+      title={isUnpublish ? "Schedule archive" : "Schedule release"}
       description={
         isUnpublish
           ? `Choose when “${menu?.name ?? "this menu"}” should leave guest view automatically.`
-          : `Choose when “${menu?.name ?? "this menu"}” should go live automatically.`
+          : `Choose when “${menu?.name ?? "this menu"}” should publish a new guest version automatically.`
       }
-      titleId={isUnpublish ? "schedule-unpublish-menu-title" : "schedule-menu-title"}
+      titleId={isUnpublish ? "schedule-unpublish-menu-title" : "schedule-release-menu-title"}
       stackLevel="overlay"
     >
       <div className="grid gap-3 sm:grid-cols-2">

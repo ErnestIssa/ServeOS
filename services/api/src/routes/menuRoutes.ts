@@ -47,7 +47,15 @@ import {
   listAvailabilityOverview,
   mapAvailabilityManageError
 } from "../lib/menu/availabilityManageService.js";
-import { mapPublishMenuError, publishMenuSurface } from "../lib/menu/menuPublishService.js";
+import {
+  compareMenuVersions,
+  listMenuVersions,
+  mapMenuReleaseError,
+  previewMenuRelease,
+  processDueMenuReleases,
+  publishMenuRelease,
+  rollbackMenuVersion
+} from "../lib/menu/menuReleaseService.js";
 
 const surfaceKeySchema = z
   .string()
@@ -295,23 +303,37 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
 
   app.post("/restaurants/:restaurantId/menus/:menuId/publish", async (req, reply) => {
     const params = z.object({ restaurantId: z.string().min(1), menuId: z.string().min(1) }).parse(req.params);
+    const body = z
+      .object({
+        releaseNotes: z.string().trim().max(500).nullable().optional(),
+        requireChanges: z.boolean().optional()
+      })
+      .parse(req.body ?? {});
     const { userId, membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
     assertMenuEntityPermission("menu", "publish", membership);
 
     try {
-      const result = await publishMenuSurface(prisma, {
+      const result = await publishMenuRelease(prisma, {
         restaurantId: params.restaurantId,
         menuId: params.menuId,
-        publishedByUserId: userId
+        publishedByUserId: userId,
+        releaseNotes: body.releaseNotes,
+        requireChanges: body.requireChanges ?? false
       });
       if (!result.ok) {
         return reply.status(400).send({
           ok: false,
           error: result.error,
-          message: mapPublishMenuError(result.error)
+          message: mapMenuReleaseError(result.error),
+          validation: result.validation
         });
       }
-      return { ok: true, menu: result.menu };
+      return {
+        ok: true,
+        menu: result.menu,
+        report: result.report,
+        changeSummary: result.changeSummary
+      };
     } catch (err) {
       req.log.error({ err, menuId: params.menuId, restaurantId: params.restaurantId }, "menu_publish_failed");
       return reply.status(500).send({
@@ -320,6 +342,97 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
         message: "Could not publish menu. Check that categories and items are valid, then try again."
       });
     }
+  });
+
+  app.get("/restaurants/:restaurantId/menus/:menuId/release-preview", async (req, reply) => {
+    const params = z.object({ restaurantId: z.string().min(1), menuId: z.string().min(1) }).parse(req.params);
+    const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("menu", "view", membership);
+
+    const result = await previewMenuRelease(prisma, params.restaurantId, params.menuId);
+    if (!result.ok) {
+      return reply.status(404).send({
+        ok: false,
+        error: result.error,
+        message: mapMenuReleaseError(result.error)
+      });
+    }
+    return { ok: true, preview: result.preview };
+  });
+
+  app.get("/restaurants/:restaurantId/menus/:menuId/versions", async (req, reply) => {
+    const params = z.object({ restaurantId: z.string().min(1), menuId: z.string().min(1) }).parse(req.params);
+    const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("menu", "view", membership);
+
+    const result = await listMenuVersions(prisma, params.restaurantId, params.menuId);
+    if (!result.ok) {
+      return reply.status(404).send({
+        ok: false,
+        error: result.error,
+        message: mapMenuReleaseError(result.error)
+      });
+    }
+    return { ok: true, versions: result.versions };
+  });
+
+  app.get("/restaurants/:restaurantId/menus/:menuId/versions/compare", async (req, reply) => {
+    const params = z.object({ restaurantId: z.string().min(1), menuId: z.string().min(1) }).parse(req.params);
+    const query = z
+      .object({
+        from: z.coerce.number().int().min(1),
+        to: z.coerce.number().int().min(1)
+      })
+      .parse(req.query);
+    const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("menu", "view", membership);
+
+    const result = await compareMenuVersions(
+      prisma,
+      params.restaurantId,
+      params.menuId,
+      query.from,
+      query.to
+    );
+    if (!result.ok) {
+      return reply.status(400).send({
+        ok: false,
+        error: result.error,
+        message: mapMenuReleaseError(result.error)
+      });
+    }
+    return { ok: true, compare: result.compare };
+  });
+
+  app.post("/restaurants/:restaurantId/menus/:menuId/rollback", async (req, reply) => {
+    const params = z.object({ restaurantId: z.string().min(1), menuId: z.string().min(1) }).parse(req.params);
+    const body = z.object({ versionNumber: z.number().int().min(1) }).parse(req.body ?? {});
+    const { userId, membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("menu", "publish", membership);
+
+    const result = await rollbackMenuVersion(prisma, {
+      restaurantId: params.restaurantId,
+      menuId: params.menuId,
+      versionNumber: body.versionNumber,
+      rolledBackByUserId: userId
+    });
+    if (!result.ok) {
+      return reply.status(400).send({
+        ok: false,
+        error: result.error,
+        message: mapMenuReleaseError(result.error)
+      });
+    }
+    return { ok: true, menu: result.menu, report: result.report };
+  });
+
+  app.post("/restaurants/:restaurantId/menus/process-due-releases", async (req, reply) => {
+    const params = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
+    const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("menu", "publish", membership);
+
+    const results = await processDueMenuReleases(prisma);
+    return { ok: true, results };
   });
 
   const dangerConfirmSchema = z.object({

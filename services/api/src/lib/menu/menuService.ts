@@ -3,6 +3,7 @@ import { fetchMenuTree } from "../menu.js";
 import { buildMenuSnapshotForPublish } from "./publicMenuService.js";
 import { sanitizeAvailabilityWindows, type MenuAvailabilityWindows } from "./menuAvailability.js";
 import { deriveMenuScopeHealth, type MenuScopeTone } from "./menuManageService.js";
+import { getMenuDraftReleaseState, processDueMenuReleases } from "./menuReleaseService.js";
 
 export type MenuListItem = {
   id: string;
@@ -16,6 +17,9 @@ export type MenuListItem = {
   coverMediaKey: string | null;
   activeVersionNumber: number | null;
   publishedAt: string | null;
+  scheduledPublishAt: string | null;
+  hasUnpublishedChanges: boolean;
+  draftChangeCount: number;
   availabilityWindows: MenuAvailabilityWindows | null;
   scopeTone: MenuScopeTone;
   scopeLabel: string;
@@ -33,15 +37,21 @@ export function serializeMenu(
     sortOrder: number;
     coverMediaKey?: string | null;
     availabilityWindows?: unknown;
+    scheduledPublishAt?: Date | null;
     createdAt: Date;
     updatedAt: Date;
     categories: Array<{ _count: { items: number } }>;
     activeVersion: { versionNumber: number; publishedAt: Date | null } | null;
-  }
+  },
+  release?: { hasUnpublishedChanges: boolean; draftChangeCount: number }
 ): MenuListItem {
   const categoryCount = row.categories.length;
   const itemCount = row.categories.reduce((sum, c) => sum + c._count.items, 0);
-  const { scopeTone, scopeLabel } = deriveMenuScopeHealth({ status: row.status, itemCount });
+  const { scopeTone, scopeLabel } = deriveMenuScopeHealth({
+    status: row.status,
+    itemCount,
+    hasUnpublishedChanges: release?.hasUnpublishedChanges
+  });
   return {
     id: row.id,
     name: row.name,
@@ -54,6 +64,9 @@ export function serializeMenu(
     coverMediaKey: row.coverMediaKey ?? null,
     activeVersionNumber: row.activeVersion?.versionNumber ?? null,
     publishedAt: row.activeVersion?.publishedAt?.toISOString() ?? null,
+    scheduledPublishAt: row.scheduledPublishAt?.toISOString() ?? null,
+    hasUnpublishedChanges: release?.hasUnpublishedChanges ?? false,
+    draftChangeCount: release?.draftChangeCount ?? 0,
     availabilityWindows: sanitizeAvailabilityWindows(row.availabilityWindows),
     scopeTone,
     scopeLabel,
@@ -131,13 +144,26 @@ export async function listMenusForRestaurant(
     await ensureVenueMenusBootstrapped(prisma, restaurantId, userId);
   }
 
+  // Release scheduler: apply due publishes before listing so admin UI stays accurate.
+  await processDueMenuReleases(prisma);
+
   const rows = await prisma.menu.findMany({
     where: { restaurantId, status: menuListStatusWhere(status) },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     include: menuListInclude
   });
 
-  return rows.map(serializeMenu);
+  const serialized = await Promise.all(
+    rows.map(async (row) => {
+      const release = await getMenuDraftReleaseState(prisma, restaurantId, row.id);
+      return serializeMenu(row, {
+        hasUnpublishedChanges: release?.hasUnpublishedChanges ?? false,
+        draftChangeCount: release?.draftChangeCount ?? 0
+      });
+    })
+  );
+
+  return serialized;
 }
 
 export async function createDraftMenu(

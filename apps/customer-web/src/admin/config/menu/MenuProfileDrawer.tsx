@@ -179,20 +179,34 @@ export function MenuProfileDrawer({ menu, open, venueName, variant, onClose }: P
           </section>
 
           <section className="admin-staff-drawer-section">
-            <h4 className="admin-staff-drawer-section-title">Publishing</h4>
+            <h4 className="admin-staff-drawer-section-title">Release</h4>
             <div className="admin-staff-meta-grid">
               <ReadonlyRow label="Published at" value={formatWhen(activeMenu.publishedAt)} />
+              <ReadonlyRow
+                label="Draft changes"
+                value={
+                  activeMenu.hasUnpublishedChanges
+                    ? `${activeMenu.draftChangeCount ?? 0} pending`
+                    : "In sync with live"
+                }
+              />
               <ReadonlyRow label="Created" value={formatWhen(activeMenu.createdAt)} />
               <ReadonlyRow label="Last updated" value={formatWhen(activeMenu.updatedAt)} />
             </div>
             {variant === "active" && activeMenu.status === "DRAFT" ? (
               <p className="admin-staff-drawer-hint mt-3">
-                Draft menus are only visible in admin until published. Publishing creates an immutable snapshot for guests.
+                Edits stay in the draft workspace. Publish changes to create an immutable guest version.
               </p>
             ) : null}
-            {activeMenu.status === "PUBLISHED" ? (
+            {activeMenu.status === "PUBLISHED" && activeMenu.hasUnpublishedChanges ? (
               <p className="admin-staff-drawer-hint mt-3">
-                This menu is live — guests can order from the published snapshot.
+                Guests still see version {activeMenu.activeVersionNumber ?? "—"}. Publish changes to release a new
+                version.
+              </p>
+            ) : null}
+            {activeMenu.status === "PUBLISHED" && !activeMenu.hasUnpublishedChanges ? (
+              <p className="admin-staff-drawer-hint mt-3">
+                This menu is live — guests order from the published snapshot.
               </p>
             ) : null}
             {activeMenu.status === "ARCHIVED" ? (

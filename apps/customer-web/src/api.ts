@@ -400,6 +400,9 @@ export type MenuSurfaceRow = {
   coverMediaKey: string | null;
   activeVersionNumber: number | null;
   publishedAt: string | null;
+  scheduledPublishAt?: string | null;
+  hasUnpublishedChanges?: boolean;
+  draftChangeCount?: number;
   availabilityWindows: MenuAvailabilityWindows | null;
   scopeTone: "live" | "draft" | "problem";
   scopeLabel: string;
@@ -494,15 +497,153 @@ export async function updateRestaurantMenu(
   );
 }
 
-export async function publishRestaurantMenu(token: string, restaurantId: string, menuId: string) {
+export async function publishRestaurantMenu(
+  token: string,
+  restaurantId: string,
+  menuId: string,
+  body?: { releaseNotes?: string | null; requireChanges?: boolean }
+) {
   return apiFetch<{
     ok: boolean;
     menu?: { id: string; status: string; versionNumber: number; publishedAt: string };
+    report?: MenuPublishReport;
+    changeSummary?: MenuReleaseChangeSummary;
+    validation?: MenuReleaseValidationResult;
     error?: string;
     message?: string;
   }>(`/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}/publish`, {
     method: "POST",
-    headers: authHeaders(token)
+    headers: authJsonHeaders(token),
+    body: JSON.stringify(body ?? {})
+  });
+}
+
+export type MenuReleaseChangeLine = {
+  kind: string;
+  label: string;
+  detail?: string;
+};
+
+export type MenuReleaseChangeSummary = {
+  totalChanges: number;
+  categoriesAdded: number;
+  categoriesRemoved: number;
+  categoriesUpdated: number;
+  itemsAdded: number;
+  itemsRemoved: number;
+  itemsUpdated: number;
+  pricesChanged: number;
+  itemsHidden: number;
+  itemsShown: number;
+  mediaChanged: number;
+  modifiersChanged: number;
+  lines: MenuReleaseChangeLine[];
+};
+
+export type MenuReleaseValidationCheck = {
+  id: string;
+  ok: boolean;
+  label: string;
+  detail?: string;
+};
+
+export type MenuReleaseValidationResult = {
+  ok: boolean;
+  checks: MenuReleaseValidationCheck[];
+};
+
+export type MenuPublishReport = {
+  versionNumber: number;
+  publishedAt: string;
+  publishedByUserId: string;
+  categoryCount: number;
+  itemCount: number;
+  modifierGroupCount: number;
+  modifierOptionCount: number;
+  mediaCount: number;
+  changeSummary: MenuReleaseChangeSummary;
+};
+
+export type MenuReleasePreview = {
+  menuId: string;
+  menuName: string;
+  status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
+  currentVersionNumber: number | null;
+  nextVersionNumber: number;
+  hasUnpublishedChanges: boolean;
+  draftChangeCount: number;
+  changeSummary: MenuReleaseChangeSummary;
+  validation: MenuReleaseValidationResult;
+  scheduledPublishAt: string | null;
+};
+
+export type MenuVersionListItem = {
+  id: string;
+  versionNumber: number;
+  publishedAt: string | null;
+  createdAt: string;
+  createdByUserId: string;
+  isActive: boolean;
+  categoryCount: number;
+  itemCount: number;
+  changeSummary: MenuReleaseChangeSummary | null;
+  publishReport: MenuPublishReport | null;
+  releaseNotes: string | null;
+};
+
+export type MenuVersionCompareResult = {
+  fromVersionNumber: number;
+  toVersionNumber: number;
+  summary: MenuReleaseChangeSummary;
+  priceChanges: Array<{ itemId: string; name: string; fromCents: number; toCents: number }>;
+  addedItems: Array<{ id: string; name: string; priceCents: number }>;
+  removedItems: Array<{ id: string; name: string; priceCents: number }>;
+};
+
+export async function getMenuReleasePreview(token: string, restaurantId: string, menuId: string) {
+  return apiFetch<{ ok: boolean; preview?: MenuReleasePreview; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}/release-preview`,
+    { headers: authHeaders(token) }
+  );
+}
+
+export async function listMenuVersions(token: string, restaurantId: string, menuId: string) {
+  return apiFetch<{ ok: boolean; versions?: MenuVersionListItem[]; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}/versions`,
+    { headers: authHeaders(token) }
+  );
+}
+
+export async function compareMenuVersionsApi(
+  token: string,
+  restaurantId: string,
+  menuId: string,
+  from: number,
+  to: number
+) {
+  const qs = new URLSearchParams({ from: String(from), to: String(to) });
+  return apiFetch<{ ok: boolean; compare?: MenuVersionCompareResult; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}/versions/compare?${qs}`,
+    { headers: authHeaders(token) }
+  );
+}
+
+export async function rollbackMenuVersionApi(
+  token: string,
+  restaurantId: string,
+  menuId: string,
+  versionNumber: number
+) {
+  return apiFetch<{
+    ok: boolean;
+    menu?: { id: string; status: string; versionNumber: number; publishedAt: string };
+    report?: MenuPublishReport;
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}/rollback`, {
+    method: "POST",
+    headers: authJsonHeaders(token),
+    body: JSON.stringify({ versionNumber })
   });
 }
 

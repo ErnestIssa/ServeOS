@@ -5628,6 +5628,85 @@ html[data-admin-theme="dark"] .admin-menu-manage-scope-chip--problem {
   color: color-mix(in srgb, var(--admin-text-muted) 70%, transparent);
 }
 
+.admin-menu-release-review {
+  display: grid;
+  gap: 1rem;
+}
+
+.admin-menu-release-review-block {
+  border-top: 1px solid color-mix(in srgb, var(--admin-border, #e2e8f0) 80%, transparent);
+  padding-top: 0.75rem;
+}
+
+.admin-menu-release-change-list {
+  margin: 0.35rem 0 0;
+  padding-left: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.875rem;
+  color: var(--admin-text);
+}
+
+.admin-menu-release-change-list .is-fail {
+  color: #e11d48;
+  font-weight: 600;
+}
+
+.admin-menu-release-change-list--detail {
+  margin-top: 0.5rem;
+  max-height: 12rem;
+  overflow: auto;
+}
+
+.admin-menu-release-details {
+  margin-top: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--admin-text-muted);
+}
+
+.admin-menu-version-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.admin-menu-version-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: space-between;
+  align-items: flex-start;
+  border: 1px solid color-mix(in srgb, var(--admin-border, #e2e8f0) 85%, transparent);
+  border-radius: 0.85rem;
+  padding: 0.85rem 1rem;
+}
+
+.admin-menu-version-row.is-active {
+  border-color: color-mix(in srgb, #059669 45%, var(--admin-border, #e2e8f0));
+  background: color-mix(in srgb, #059669 6%, transparent);
+}
+
+.admin-menu-version-main {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.admin-menu-version-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.admin-menu-version-notes {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--admin-text-muted);
+}
+
 @media (max-width: 768px) {
   .admin-menu-surface-main {
     flex-wrap: wrap;

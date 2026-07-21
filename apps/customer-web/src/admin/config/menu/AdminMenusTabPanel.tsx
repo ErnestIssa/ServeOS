@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MenuSurfaceRow } from "../../../api";
-import { publishRestaurantMenu } from "../../../api";
+import { archiveRestaurantMenu } from "../../../api";
 import type { MenuCapabilitiesPayload } from "../../../api";
 import { AdminSkeletonTable } from "../../AdminSkeleton";
 import { useAdminToast } from "../../AdminToast";
@@ -14,6 +14,7 @@ import { MenuActionConfirmModal } from "./MenuActionConfirmModal";
 import { MenuEntityActionsMenu } from "./MenuEntityActionsMenu";
 import { MenuProfileDrawer } from "./MenuProfileDrawer";
 import { MenuManageDrawer } from "./MenuManageDrawer";
+import { MenuPublishReviewModal, MenuVersionHistoryDrawer } from "./MenuReleaseModals";
 import { MenuListSearchField, MenuToolbarButton } from "./MenuPageUi";
 import { MenuSurfacePagination } from "./MenuSurfacePagination";
 import {
@@ -55,23 +56,38 @@ function menuDescription(menu: MenuSurfaceRow, venueName: string) {
   }
 }
 
-function statusLabel(status: MenuSurfaceRow["status"]) {
-  if (status === "PUBLISHED") return "Live";
-  if (status === "ARCHIVED") return "Archived";
+function statusLabel(menu: MenuSurfaceRow) {
+  if (menu.status === "ARCHIVED") return "Archived";
+  if (menu.status === "PUBLISHED" && menu.hasUnpublishedChanges) return "Draft changes";
+  if (menu.status === "PUBLISHED") return "Published";
   return "Draft";
 }
 
-function statusClass(status: MenuSurfaceRow["status"]) {
-  if (status === "PUBLISHED") return "admin-menu-surface-status--live";
-  if (status === "ARCHIVED") return "admin-menu-surface-status--archived";
+function statusClass(menu: MenuSurfaceRow) {
+  if (menu.status === "ARCHIVED") return "admin-menu-surface-status--archived";
+  if (menu.status === "PUBLISHED" && menu.hasUnpublishedChanges) return "admin-menu-surface-status--draft";
+  if (menu.status === "PUBLISHED") return "admin-menu-surface-status--live";
   return "admin-menu-surface-status--draft";
+}
+
+function formatPublishedAgo(iso: string | null | undefined) {
+  if (!iso) return null;
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return null;
+  const mins = Math.round((Date.now() - then) / 60_000);
+  if (mins < 1) return "Published just now";
+  if (mins < 60) return `Published ${mins} min ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return `Published ${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.round(hours / 24);
+  return `Published ${days} day${days === 1 ? "" : "s"} ago`;
 }
 
 function sectionCopy(variant: MenuPanelVariant) {
   if (variant === "live") {
     return {
       title: "Live menus",
-      description: "Published menus guests can order from right now.",
+      description: "Published menu versions guests order from. Draft edits stay private until you publish changes.",
       empty: "No live menus yet — publish a draft menu to make it visible to guests.",
       searchPlaceholder: "Search live menus…"
     };
@@ -86,7 +102,7 @@ function sectionCopy(variant: MenuPanelVariant) {
   }
   return {
     title: "Menus",
-    description: "Everything guests can order from — main, lunch, dinner, drinks, and seasonal surfaces.",
+    description: "Draft workspace for each menu surface. Only Publish changes releases a new guest version.",
     empty: "No menus yet. Create your first draft menu.",
     searchPlaceholder: "Search menus by name, surface, or status…"
   };
@@ -100,11 +116,13 @@ function matchesMenuSearch(menu: MenuSurfaceRow, query: string, venueName: strin
     menu.description,
     menu.surfaceKey,
     menu.status,
-    statusLabel(menu.status),
+    statusLabel(menu),
     menuDescription(menu, venueName),
     menu.scopeLabel,
     String(menu.categoryCount),
-    String(menu.itemCount)
+    String(menu.itemCount),
+    menu.activeVersionNumber ? `version ${menu.activeVersionNumber}` : "",
+    menu.hasUnpublishedChanges ? "draft changes" : ""
   ]
     .filter(Boolean)
     .join(" ")
@@ -112,33 +130,37 @@ function matchesMenuSearch(menu: MenuSurfaceRow, query: string, venueName: strin
   return haystack.includes(q);
 }
 
-/** Fallback when list payload omits rowActions — mirrors backend buildMenuRowActions. */
-function fallbackRowActions(
+/** Prefer backend rowActions (SSOT). Fallback mirrors buildMenuRowActions. */
+function resolveRowActions(
   menu: MenuSurfaceRow,
   variant: MenuPanelVariant,
   can: Props["can"]
 ) {
-  const actions: Array<{ id: string; label: string; danger?: boolean }> = [];
+  if (menu.rowActions?.length) return menu.rowActions;
 
+  const actions: Array<{ id: string; label: string; danger?: boolean }> = [];
   if (can("menu", "view")) {
+    actions.push({ id: "preview", label: "Preview" });
     actions.push({ id: "details", label: "Menu details" });
   }
-  if (variant !== "archived" && menu.status === "DRAFT" && can("menu", "publish")) {
-    actions.push({ id: "publish", label: "Publish" });
+  if (variant !== "archived" && can("menu", "publish") && (menu.status === "DRAFT" || menu.hasUnpublishedChanges)) {
+    actions.push({ id: "publish-changes", label: "Publish changes" });
   }
-  if (variant !== "archived" && menu.status === "PUBLISHED" && can("menu", "publish")) {
-    actions.push({ id: "update-publish", label: "Update publish" });
+  if (variant !== "archived" && can("menu", "edit") && menu.status !== "ARCHIVED") {
+    actions.push({ id: "schedule-release", label: "Schedule release" });
+  }
+  if (can("menu", "view") && (menu.activeVersionNumber != null || menu.status === "PUBLISHED")) {
+    actions.push({ id: "version-history", label: "Version history" });
+  }
+  if (variant !== "archived" && can("menu", "publish") && menu.activeVersionNumber != null) {
+    actions.push({ id: "rollback", label: "Rollback" });
   }
   if (can("menu", "create")) {
-    actions.push({ id: "duplicate", label: "Duplicate menu" });
+    actions.push({ id: "duplicate", label: "Duplicate" });
   }
-  if (variant !== "archived" && menu.status === "DRAFT" && can("menu", "edit")) {
-    actions.push({ id: "schedule", label: "Schedule publish" });
+  if (variant !== "archived" && menu.status !== "ARCHIVED" && can("menu", "archive")) {
+    actions.push({ id: "archive", label: "Archive", danger: true });
   }
-  if (variant !== "archived" && menu.status === "PUBLISHED" && can("menu", "edit")) {
-    actions.push({ id: "schedule-unpublish", label: "Schedule unpublish" });
-  }
-
   return actions;
 }
 
@@ -344,10 +366,11 @@ export function AdminMenusTabPanel({
   const [actionMenu, setActionMenu] = useState<MenuSurfaceRow | null>(null);
   const [duplicateOpen, setDuplicateOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [scheduleMode, setScheduleMode] = useState<"publish" | "unpublish">("publish");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMenu, setDrawerMenu] = useState<MenuSurfaceRow | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
+  const [publishReviewOpen, setPublishReviewOpen] = useState(false);
+  const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
   const [pendingRowAction, setPendingRowAction] = useState<{
     menu: MenuSurfaceRow;
     actionId: string;
@@ -411,67 +434,43 @@ export function AdminMenusTabPanel({
     });
   };
 
-  const handlePublish = async (menu: MenuSurfaceRow, kind: "publish" | "update" = "publish") => {
-    if (isUiOnlyMenu(menu)) {
-      pushToast("Preview menu only — not connected to the backend.", "error");
-      return false;
-    }
-    const res = await publishRestaurantMenu(token, restaurantId, menu.id);
-    if (!res.ok) {
-      pushToast(res.message ?? res.error ?? "Could not publish menu", "error");
-      return false;
-    }
-    pushToast(
-      kind === "update"
-        ? `“${menu.name}” publish snapshot updated.`
-        : `“${menu.name}” is live for guests.`,
-      "success"
-    );
-    void menusApi.refresh();
-    return true;
-  };
-
   const handleMenuAction = (menu: MenuSurfaceRow, actionId: string) => {
     setOpenMenuActionsId(null);
     setActionMenu(menu);
 
-    if (actionId !== "details" && isUiOnlyMenu(menu)) {
+    if (actionId !== "details" && actionId !== "preview" && isUiOnlyMenu(menu)) {
       pushToast("Preview menu only — not connected to the backend.", "error");
       return;
     }
 
-    if (actionId === "details") {
+    if (actionId === "details" || actionId === "preview") {
       setDrawerMenu(menu);
       setDrawerOpen(true);
       return;
     }
 
-    if (actionId === "schedule") {
-      if (isUiOnlyMenu(menu)) {
-        pushToast("Preview menu only — not connected to the backend.", "error");
-        return;
-      }
-      setScheduleMode("publish");
+    if (actionId === "schedule-release" || actionId === "schedule") {
       setScheduleOpen(true);
       return;
     }
 
-    if (actionId === "schedule-unpublish") {
-      if (isUiOnlyMenu(menu)) {
-        pushToast("Preview menu only — not connected to the backend.", "error");
-        return;
-      }
-      setScheduleMode("unpublish");
-      setScheduleOpen(true);
+    if (actionId === "publish-changes" || actionId === "publish" || actionId === "update-publish") {
+      setPublishReviewOpen(true);
+      return;
+    }
+
+    if (actionId === "version-history" || actionId === "rollback") {
+      setVersionHistoryOpen(true);
       return;
     }
 
     if (actionId === "duplicate") {
-      if (isUiOnlyMenu(menu)) {
-        pushToast("Preview menu only — not connected to the backend.", "error");
-        return;
-      }
       setDuplicateOpen(true);
+      return;
+    }
+
+    if (actionId === "archive") {
+      setPendingRowAction({ menu, actionId });
       return;
     }
 
@@ -493,11 +492,17 @@ export function AdminMenusTabPanel({
       return;
     }
 
-    if (actionId === "publish" || actionId === "update-publish") {
+    if (actionId === "archive") {
       setConfirmBusy(true);
-      const ok = await handlePublish(menu, actionId === "update-publish" ? "update" : "publish");
+      const res = await archiveRestaurantMenu(token, restaurantId, menu.id, menu.name);
       setConfirmBusy(false);
-      if (ok) setPendingRowAction(null);
+      if (!res.ok) {
+        pushToast(res.message ?? res.error ?? "Could not archive menu", "error");
+        return;
+      }
+      pushToast(`“${menu.name}” archived.`, "success");
+      setPendingRowAction(null);
+      void menusApi.refresh();
     }
   };
 
@@ -505,19 +510,12 @@ export function AdminMenusTabPanel({
     if (!pendingRowAction) return null;
     const name = pendingRowAction.menu.name;
     switch (pendingRowAction.actionId) {
-      case "publish":
+      case "archive":
         return {
-          title: "Publish menu?",
-          description: `“${name}” will go live for guests.`,
-          confirmLabel: "Publish",
-          danger: false
-        };
-      case "update-publish":
-        return {
-          title: "Update publish?",
-          description: `Publish a fresh snapshot of “${name}” for guests.`,
-          confirmLabel: "Update publish",
-          danger: false
+          title: "Archive menu?",
+          description: `“${name}” will leave guest view. Prefer archive instead of unpublish.`,
+          confirmLabel: "Archive",
+          danger: true
         };
       default:
         return {
@@ -599,13 +597,22 @@ export function AdminMenusTabPanel({
               key={pager.pageKey}
             >
               {pagedMenus.map((m, index) => {
-                const actions = fallbackRowActions(m, variant, can);
+                const actions = resolveRowActions(m, variant, can);
                 const isSelected = selectedMenuIds.has(m.id);
                 const uiOnly = isUiOnlyMenu(m);
+                const publishedAgo = formatPublishedAgo(m.publishedAt);
+                const draftBits =
+                  m.draftChangeCount && m.draftChangeCount > 0
+                    ? `${m.draftChangeCount} draft change${m.draftChangeCount === 1 ? "" : "s"}`
+                    : m.hasUnpublishedChanges
+                      ? "Draft changes pending"
+                      : null;
                 const stats = [
+                  m.activeVersionNumber ? `Version ${m.activeVersionNumber}` : null,
+                  publishedAgo,
+                  draftBits,
                   `${m.categoryCount} categories`,
-                  `${m.itemCount} items`,
-                  m.activeVersionNumber ? `v${m.activeVersionNumber}` : null
+                  `${m.itemCount} items`
                 ]
                   .filter(Boolean)
                   .join(" · ");
@@ -628,8 +635,8 @@ export function AdminMenusTabPanel({
                         />
                       </label>
 
-                      <span className={`admin-menu-surface-status ${statusClass(m.status)}`}>
-                        {statusLabel(m.status)}
+                      <span className={`admin-menu-surface-status ${statusClass(m)}`}>
+                        {statusLabel(m)}
                       </span>
 
                       <div className="admin-menu-surface-main">
@@ -711,6 +718,14 @@ export function AdminMenusTabPanel({
           setEditMenu(menu);
           setCreateOpen(true);
         }}
+        onOpenPublishReview={(menu) => {
+          setActionMenu(menu);
+          setPublishReviewOpen(true);
+        }}
+        onOpenVersionHistory={(menu) => {
+          setActionMenu(menu);
+          setVersionHistoryOpen(true);
+        }}
       />
 
       <CreateMenuModal
@@ -753,13 +768,35 @@ export function AdminMenusTabPanel({
         menu={modalMenu}
         token={token}
         restaurantId={restaurantId}
-        mode={scheduleMode}
+        mode="publish"
         onClose={() => setScheduleOpen(false)}
         onScheduled={() => {
-          pushToast(
-            scheduleMode === "unpublish" ? "Unpublish schedule saved." : "Menu schedule saved.",
-            "success"
-          );
+          pushToast("Release scheduled. It will publish automatically when due.", "success");
+          void menusApi.refresh();
+        }}
+      />
+
+      <MenuPublishReviewModal
+        open={publishReviewOpen}
+        menu={modalMenu}
+        token={token}
+        restaurantId={restaurantId}
+        onClose={() => setPublishReviewOpen(false)}
+        onPublished={({ versionNumber, menuName }) => {
+          pushToast(`“${menuName}” published as version ${versionNumber}.`, "success");
+          void menusApi.refresh();
+        }}
+      />
+
+      <MenuVersionHistoryDrawer
+        open={versionHistoryOpen}
+        menu={modalMenu}
+        token={token}
+        restaurantId={restaurantId}
+        canRollback={can("menu", "publish")}
+        onClose={() => setVersionHistoryOpen(false)}
+        onRolledBack={(versionNumber) => {
+          pushToast(`Rolled back — now live as version ${versionNumber}.`, "success");
           void menusApi.refresh();
         }}
       />

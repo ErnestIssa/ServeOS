@@ -12,7 +12,6 @@ import { AdminEmptyState } from "../../AdminUi";
 import { useAdminToast } from "../../AdminToast";
 import type { MenuSectionTab } from "../configRouting";
 import type { useAdminMenu } from "../useAdminMenu";
-import { ScheduleMenuModal } from "./AdminMenuActionModals";
 import {
   toCategoryListRow,
   type CategoryListRow
@@ -62,12 +61,6 @@ function itemRowActions(item: ItemListRow, can: Props["can"]) {
       label: item.isActive ? "Hide item" : "Show item"
     });
   }
-  if (can("menu", "edit") && item.menuStatus === "DRAFT") {
-    actions.push({ id: "schedule", label: "Schedule publish" });
-  }
-  if (can("menu", "edit") && item.menuStatus === "PUBLISHED") {
-    actions.push({ id: "schedule-unpublish", label: "Schedule unpublish" });
-  }
   if (can("item", "edit")) {
     actions.push({ id: "details", label: "Add description & ingredients" });
   }
@@ -111,9 +104,7 @@ function confirmCopyForAction(action: PendingRowAction) {
 const DIRECT_OPEN_ACTIONS = new Set([
   "category-details",
   "details",
-  "media",
-  "schedule",
-  "schedule-unpublish"
+  "media"
 ]);
 
 function toEditTarget(item: ItemListRow): EditItemTarget {
@@ -165,9 +156,6 @@ export function AdminItemsTabPanel({
   const [itemDrawerOpen, setItemDrawerOpen] = useState(false);
   const [itemDrawerItem, setItemDrawerItem] = useState<ItemListRow | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
-  const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [scheduleMode, setScheduleMode] = useState<"publish" | "unpublish">("publish");
-  const [scheduleMenu, setScheduleMenu] = useState<MenuSurfaceRow | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingRowAction | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [createModifierGroupOpen, setCreateModifierGroupOpen] = useState(false);
@@ -304,21 +292,6 @@ export function AdminItemsTabPanel({
       setItemDrawerItem(item);
       setItemDrawerOpen(true);
       return;
-    }
-
-    if (actionId === "schedule" || actionId === "schedule-unpublish") {
-      if (isUiOnlyListId(item.id)) {
-        toastPreview();
-        return;
-      }
-      const parent = item.menuId ? menus.find((m) => m.id === item.menuId) ?? null : null;
-      if (!parent) {
-        pushToast("This item isn’t linked to a menu yet.", "error");
-        return;
-      }
-      setScheduleMenu(parent);
-      setScheduleMode(actionId === "schedule-unpublish" ? "unpublish" : "publish");
-      setScheduleOpen(true);
     }
   };
 
@@ -622,24 +595,6 @@ export function AdminItemsTabPanel({
         busy={confirmBusy}
         onClose={closeConfirm}
         onConfirm={() => void runConfirmedAction()}
-      />
-
-      <ScheduleMenuModal
-        open={scheduleOpen}
-        menu={scheduleMenu}
-        token={token}
-        restaurantId={restaurantId}
-        mode={scheduleMode}
-        onClose={() => {
-          setScheduleOpen(false);
-          setScheduleMenu(null);
-        }}
-        onScheduled={() => {
-          pushToast(
-            scheduleMode === "unpublish" ? "Unpublish schedule saved on menu." : "Publish schedule saved on menu.",
-            "success"
-          );
-        }}
       />
     </>
   );

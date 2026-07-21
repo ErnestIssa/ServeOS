@@ -593,7 +593,7 @@ export function ItemManageDrawer({
                       </button>
                       <button type="button" className="admin-menu-manage-danger-btn" onClick={() => setDangerKind("draft")}>
                         <span className="admin-menu-manage-danger-btn-label">Mark as draft</span>
-                        <span className="admin-menu-manage-danger-btn-desc">Return items to draft until republished.</span>
+                        <span className="admin-menu-manage-danger-btn-desc">Return items to draft in the workspace. Guests keep the last published version until you publish menu changes.</span>
                       </button>
                     </div>
                   </section>

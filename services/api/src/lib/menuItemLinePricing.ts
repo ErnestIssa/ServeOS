@@ -83,7 +83,7 @@ export async function resolveQuickAddModifierOptionIds(
 
 /**
  * Validates menu item + modifiers for `restaurantId`, returns pricing for one order-style line (quantity applied).
- * Uses availability SSOT — sold-out / schedule / unpublished menu blocks ordering.
+ * Guest pricing uses the published menu snapshot (SSOT). Sold-out is the only live operational overlay.
  */
 export async function priceMenuItemLineInput(
   prisma: PrismaClient,
@@ -113,7 +113,8 @@ export async function priceMenuItemLineInput(
               status: true,
               availabilityWindows: true,
               scheduledPublishAt: true,
-              scheduledUnpublishAt: true
+              scheduledUnpublishAt: true,
+              activeVersion: { select: { snapshot: true } }
             }
           }
         }
@@ -139,22 +140,90 @@ export async function priceMenuItemLineInput(
         status: true,
         availabilityWindows: true,
         scheduledPublishAt: true,
-        scheduledUnpublishAt: true
+        scheduledUnpublishAt: true,
+        activeVersion: { select: { snapshot: true } }
       },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }]
     });
   }
 
+  if (!menu || menu.status !== "PUBLISHED" || !menu.activeVersion?.snapshot) {
+    throw Object.assign(new Error("menu_unpublished"), { statusCode: 400 });
+  }
+
+  const snapshotRoot = menu.activeVersion.snapshot as { categories?: Array<{
+    id: string;
+    isActive?: boolean;
+    items?: Array<{
+      id: string;
+      name: string;
+      priceCents: number;
+      isActive?: boolean;
+      modifierGroups?: Array<{
+        id: string;
+        name: string;
+        minSelect: number;
+        maxSelect: number;
+        options?: Array<{
+          id: string;
+          name: string;
+          priceDeltaCents: number;
+          isActive?: boolean;
+        }>;
+      }>;
+    }>;
+  }> };
+
+  let snapItem: {
+    id: string;
+    name: string;
+    priceCents: number;
+    isActive?: boolean;
+    categoryActive: boolean;
+    modifierGroups: Array<{
+      id: string;
+      name: string;
+      minSelect: number;
+      maxSelect: number;
+      options: Array<{ id: string; name: string; priceDeltaCents: number; isActive?: boolean }>;
+    }>;
+  } | null = null;
+
+  for (const cat of snapshotRoot.categories ?? []) {
+    const found = (cat.items ?? []).find((i) => i.id === menuItemId);
+    if (found) {
+      snapItem = {
+        id: found.id,
+        name: found.name,
+        priceCents: found.priceCents,
+        isActive: found.isActive,
+        categoryActive: cat.isActive !== false,
+        modifierGroups: (found.modifierGroups ?? []).map((g) => ({
+          id: g.id,
+          name: g.name,
+          minSelect: g.minSelect,
+          maxSelect: g.maxSelect,
+          options: (g.options ?? []).filter((o) => o.isActive !== false)
+        }))
+      };
+      break;
+    }
+  }
+
+  if (!snapItem || snapItem.isActive === false || snapItem.categoryActive === false) {
+    throw Object.assign(new Error("menu_item_not_published"), { statusCode: 400 });
+  }
+
   const evaluation = evaluateAvailability({
     openingHours: restaurant?.openingHours ?? null,
     timezone: "Europe/Stockholm",
-    menuStatus: menu?.status ?? "PUBLISHED",
-    scheduledPublishAt: menu?.scheduledPublishAt ?? null,
-    scheduledUnpublishAt: menu?.scheduledUnpublishAt ?? null,
-    windows: sanitizeAvailabilityWindows(menu?.availabilityWindows ?? null),
-    categoryActive: item.category.isActive,
-    itemActive: item.isActive,
-    itemLifecycle: item.lifecycle,
+    menuStatus: "PUBLISHED",
+    scheduledPublishAt: menu.scheduledPublishAt ?? null,
+    scheduledUnpublishAt: menu.scheduledUnpublishAt ?? null,
+    windows: sanitizeAvailabilityWindows(menu.availabilityWindows ?? null),
+    categoryActive: snapItem.categoryActive,
+    itemActive: true,
+    itemLifecycle: "ACTIVE",
     itemSoldOut: item.isSoldOut,
     channel: opts.channel ?? "QR",
     locationId: opts.locationId ?? restaurantId,
@@ -170,7 +239,7 @@ export async function priceMenuItemLineInput(
   }
 
   const optionMeta = new Map<string, { groupId: string; groupName: string; priceDeltaCents: number; name: string }>();
-  for (const g of item.modifierGroups) {
+  for (const g of snapItem.modifierGroups) {
     for (const o of g.options) {
       optionMeta.set(o.id, {
         groupId: g.id,
@@ -188,7 +257,7 @@ export async function priceMenuItemLineInput(
   }
 
   const selectedByGroup = new Map<string, string[]>();
-  for (const g of item.modifierGroups) {
+  for (const g of snapItem.modifierGroups) {
     selectedByGroup.set(g.id, []);
   }
   for (const oid of optionIds) {
@@ -196,7 +265,7 @@ export async function priceMenuItemLineInput(
     selectedByGroup.get(meta.groupId)!.push(oid);
   }
 
-  for (const g of item.modifierGroups) {
+  for (const g of snapItem.modifierGroups) {
     const n = selectedByGroup.get(g.id)!.length;
     if (n < g.minSelect || n > g.maxSelect) {
       throw Object.assign(new Error("modifier_count_invalid"), { statusCode: 400 });
@@ -214,12 +283,12 @@ export async function priceMenuItemLineInput(
   });
 
   const extras = selectedModifiers.reduce((s, m) => s + m.priceDeltaCents, 0);
-  const unitPriceCents = item.priceCents + extras;
+  const unitPriceCents = snapItem.priceCents + extras;
   const lineTotalCents = unitPriceCents * quantity;
 
   return {
     menuItemId: item.id,
-    nameSnapshot: item.name,
+    nameSnapshot: snapItem.name,
     quantity,
     unitPriceCents,
     selectedModifiers,

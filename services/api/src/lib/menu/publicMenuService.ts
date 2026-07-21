@@ -308,54 +308,39 @@ export async function buildPublishedPublicMenu(
           include: { activeVersion: true }
         });
 
-  if (!menu) {
-    menu = await prisma.menu.findFirst({
-      where: { restaurantId, status: { not: "ARCHIVED" }, surfaceKey: "main" },
-      include: { activeVersion: true }
-    });
-  }
+  // Guests only see immutable published snapshots — never draft workspace trees.
+  if (!menu?.activeVersion?.snapshot) return null;
 
-  const snapshotCategories = menu?.activeVersion?.snapshot
-    ? parseSnapshotCategories(menu.activeVersion.snapshot)
-    : null;
+  const snapshotCategories = parseSnapshotCategories(menu.activeVersion.snapshot);
+  if (!snapshotCategories?.length) return null;
 
-  let categories: PublicMenuCategory[];
-  if (snapshotCategories?.length) {
-    categories = snapshotCategories
-      .filter((c) => c.isActive !== false)
-      .map((c) => ({
-        ...c,
-        items: (c.items ?? [])
-          .filter((i) => i.isActive !== false)
-          .map((i) => ({
-            ...i,
-            coverUrl: null,
-            media: i.media ?? []
-          }))
-      }))
-      .filter((c) => c.items.length > 0);
-    if (!categories.length) {
-      categories = await buildBrowsableLiveCategories(prisma, restaurantId, menu?.id ?? null);
-    }
-  } else {
-    categories = await buildBrowsableLiveCategories(prisma, restaurantId, menu?.id ?? null);
-  }
+  let categories: PublicMenuCategory[] = snapshotCategories
+    .filter((c) => c.isActive !== false)
+    .map((c) => ({
+      ...c,
+      items: (c.items ?? [])
+        .filter((i) => i.isActive !== false)
+        .map((i) => ({
+          ...i,
+          coverUrl: null,
+          media: i.media ?? []
+        }))
+    }))
+    .filter((c) => c.items.length > 0);
 
   if (!categories.length) return null;
 
   categories = await hydrateMenuCategoryUrls(prisma, categories);
 
-  const windows = sanitizeAvailabilityWindows(menu?.availabilityWindows ?? null);
+  const windows = sanitizeAvailabilityWindows(menu.availabilityWindows ?? null);
   const channel = opts?.channel ?? "QR";
   const timezone = "Europe/Stockholm";
 
-  // Attach SSOT orderability (browse still shows items; clients gate add-to-cart on orderable).
-  const liveItems = menu
-    ? await prisma.menuItem.findMany({
-        where: { category: { restaurantId, ...(menu.id ? { menuId: menu.id } : {}) } },
-        select: { id: true, isActive: true, isSoldOut: true, lifecycle: true, category: { select: { isActive: true } } }
-      })
-    : [];
+  // Operational sold-out overlays live DB; identity/price stay on the published snapshot.
+  const liveItems = await prisma.menuItem.findMany({
+    where: { category: { restaurantId, menuId: menu.id } },
+    select: { id: true, isSoldOut: true }
+  });
   const liveById = new Map(liveItems.map((i) => [i.id, i]));
 
   categories = categories.map((cat) => ({
@@ -366,13 +351,13 @@ export async function buildPublishedPublicMenu(
         const evaluation = evaluateAvailability({
           openingHours: restaurant.openingHours,
           timezone,
-          menuStatus: menu?.status === "PUBLISHED" ? "PUBLISHED" : menu?.status === "ARCHIVED" ? "ARCHIVED" : "DRAFT",
-          scheduledPublishAt: menu?.scheduledPublishAt ?? null,
-          scheduledUnpublishAt: menu?.scheduledUnpublishAt ?? null,
+          menuStatus: "PUBLISHED",
+          scheduledPublishAt: menu.scheduledPublishAt ?? null,
+          scheduledUnpublishAt: menu.scheduledUnpublishAt ?? null,
           windows,
-          categoryActive: live?.category.isActive ?? cat.isActive,
-          itemActive: live?.isActive ?? item.isActive,
-          itemLifecycle: live?.lifecycle ?? "ACTIVE",
+          categoryActive: cat.isActive,
+          itemActive: item.isActive,
+          itemLifecycle: "ACTIVE",
           itemSoldOut: live?.isSoldOut ?? false,
           channel,
           locationId: restaurant.id,
@@ -395,9 +380,9 @@ export async function buildPublishedPublicMenu(
 
   return {
     restaurant: { id: restaurant.id, name: restaurant.name },
-    menuId: menu?.id ?? null,
-    menuVersionNumber: menu?.activeVersion?.versionNumber ?? null,
-    publishedAt: menu?.activeVersion?.publishedAt?.toISOString() ?? null,
+    menuId: menu.id,
+    menuVersionNumber: menu.activeVersion.versionNumber ?? null,
+    publishedAt: menu.activeVersion.publishedAt?.toISOString() ?? null,
     categories
   };
 }
