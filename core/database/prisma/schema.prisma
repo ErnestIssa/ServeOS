@@ -490,6 +490,16 @@ enum MenuItemLifecycle {
   ARCHIVED
 }
 
+enum ModifierGroupLifecycle {
+  ACTIVE
+  ARCHIVED
+}
+
+enum ModifierOptionLifecycle {
+  ACTIVE
+  ARCHIVED
+}
+
 /// Versioned menu surface — draft → publish creates immutable MenuVersion snapshot.
 model Menu {
   id              String     @id @default(cuid())
@@ -1280,6 +1290,7 @@ model ModifierGroup {
   minSelect  Int      @default(0)
   maxSelect  Int      @default(1)
   sortOrder  Int      @default(0)
+  lifecycle  ModifierGroupLifecycle @default(ACTIVE)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -1287,6 +1298,7 @@ model ModifierGroup {
   options  ModifierOption[]
 
   @@index([menuItemId])
+  @@index([lifecycle])
 }
 
 model ModifierOption {
@@ -1296,12 +1308,14 @@ model ModifierOption {
   priceDeltaCents Int      @default(0)
   sortOrder       Int      @default(0)
   isActive        Boolean  @default(true)
+  lifecycle       ModifierOptionLifecycle @default(ACTIVE)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   group ModifierGroup @relation(fields: [modifierGroupId], references: [id], onDelete: Cascade)
 
   @@index([modifierGroupId])
+  @@index([lifecycle])
 }
 
 enum NotificationCategory {

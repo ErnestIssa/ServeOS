@@ -265,16 +265,53 @@ export type MenuTree = {
         minSelect: number;
         maxSelect: number;
         sortOrder: number;
+        lifecycle?: "ACTIVE" | "ARCHIVED";
         options: Array<{
           id: string;
           name: string;
           priceDeltaCents: number;
           sortOrder: number;
           isActive: boolean;
+          lifecycle?: "ACTIVE" | "ARCHIVED";
         }>;
       }>;
     }>;
   }>;
+};
+
+export type AvailabilityChannel = "DINE_IN" | "TAKEAWAY" | "DELIVERY" | "QR" | "KIOSK" | "STAFF";
+export type AvailabilityScheduleKind = "RECURRING" | "TEMPORARY" | "SEASONAL";
+export type AvailabilityVisibility = "CUSTOMERS" | "HIDDEN" | "STAFF_ONLY" | "TESTING";
+export type AvailabilityComputedStatus =
+  | "AVAILABLE"
+  | "UNAVAILABLE"
+  | "SCHEDULED"
+  | "OUT_OF_STOCK"
+  | "HIDDEN"
+  | "SEASONAL"
+  | "EXPIRED"
+  | "PAUSED"
+  | "TESTING"
+  | "INHERITED";
+
+export type AvailabilityReason = {
+  ok: boolean;
+  code: string;
+  label: string;
+};
+
+export type AvailabilityEvaluation = {
+  orderable: boolean;
+  status: AvailabilityComputedStatus;
+  reasons: AvailabilityReason[];
+  matchedWindowKey: string | null;
+};
+
+export type AvailabilityAuditEntry = {
+  at: string;
+  action: string;
+  detail?: string;
+  actorUserId?: string | null;
 };
 
 export type MenuAvailabilityWindow = {
@@ -284,9 +321,72 @@ export type MenuAvailabilityWindow = {
   days: number[];
   label: string;
   color: string;
+  scheduleKind?: AvailabilityScheduleKind;
+  temporaryStartAt?: string | null;
+  temporaryEndAt?: string | null;
+  seasonalStartMd?: string | null;
+  seasonalEndMd?: string | null;
+  channels?: AvailabilityChannel[];
+  locationMode?: "ALL" | "SELECTED";
+  locationIds?: string[];
+  visibility?: AvailabilityVisibility;
+  outOfStock?: boolean;
+  requiresManagerApproval?: boolean;
+  ageRestricted?: boolean;
+  minAge?: number | null;
+  paused?: boolean;
+  history?: AvailabilityAuditEntry[];
 };
 
 export type MenuAvailabilityWindows = Record<string, MenuAvailabilityWindow>;
+
+export type AvailabilityCardPayload = {
+  key: string;
+  menuId: string;
+  menuName: string;
+  menuStatus: "DRAFT" | "PUBLISHED" | "ARCHIVED";
+  window: MenuAvailabilityWindow;
+  evaluation: AvailabilityEvaluation;
+};
+
+export type AvailabilityOverviewPayload = {
+  ok: boolean;
+  restaurant?: {
+    id: string;
+    name: string;
+    timezone: string;
+    openingHours: string | null;
+  };
+  locations?: Array<{ id: string; name: string }>;
+  channels?: AvailabilityChannel[];
+  cards?: AvailabilityCardPayload[];
+  affected?: number;
+  exported?: MenuAvailabilityWindows | null;
+  error?: string;
+  message?: string;
+};
+
+export type AvailabilityManageAction =
+  | "make_available"
+  | "make_unavailable"
+  | "set_recurring"
+  | "set_temporary"
+  | "set_seasonal"
+  | "mark_out_of_stock"
+  | "restock"
+  | "set_channels"
+  | "set_locations_all"
+  | "set_locations"
+  | "set_visibility"
+  | "set_business_rules"
+  | "copy_schedule"
+  | "copy_availability"
+  | "apply_to_menus"
+  | "reset_to_default"
+  | "remove_rules"
+  | "update_window"
+  | "export_rules"
+  | "import_schedule";
 
 export type MenuSurfaceRow = {
   id: string;
@@ -564,18 +664,48 @@ export async function updateModifierGroup(
   token: string,
   restaurantId: string,
   groupId: string,
-  body: { name?: string; minSelect?: number; maxSelect?: number; sortOrder?: number }
+  body: {
+    name?: string;
+    minSelect?: number;
+    maxSelect?: number;
+    sortOrder?: number;
+    lifecycle?: "ACTIVE" | "ARCHIVED";
+  }
 ) {
-  return apiFetch<{ ok: boolean; error?: string; group?: { id: string } }>(
+  return apiFetch<{ ok: boolean; error?: string; message?: string; group?: { id: string } }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menu/modifier-groups/${encodeURIComponent(groupId)}`,
     { method: "PATCH", headers: authJsonHeaders(token), body: JSON.stringify(body) }
   );
 }
 
 export async function deleteModifierGroup(token: string, restaurantId: string, groupId: string) {
-  return apiFetch<{ ok: boolean; error?: string }>(
+  return apiFetch<{ ok: boolean; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menu/modifier-groups/${encodeURIComponent(groupId)}`,
     { method: "DELETE", headers: authJsonHeaders(token) }
+  );
+}
+
+export async function duplicateModifierGroup(token: string, restaurantId: string, groupId: string) {
+  return apiFetch<{ ok: boolean; error?: string; message?: string; group?: { id: string; name: string } }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menu/modifier-groups/${encodeURIComponent(groupId)}/duplicate`,
+    { method: "POST", headers: authJsonHeaders(token) }
+  );
+}
+
+export async function attachModifierGroup(
+  token: string,
+  restaurantId: string,
+  groupId: string,
+  body: { itemIds: string[] }
+) {
+  return apiFetch<{
+    ok: boolean;
+    error?: string;
+    message?: string;
+    groups?: Array<{ id: string; menuItemId: string }>;
+  }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menu/modifier-groups/${encodeURIComponent(groupId)}/attach`,
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body) }
   );
 }
 
@@ -583,18 +713,32 @@ export async function updateModifierOption(
   token: string,
   restaurantId: string,
   optionId: string,
-  body: { name?: string; priceDeltaCents?: number; sortOrder?: number; isActive?: boolean }
+  body: {
+    name?: string;
+    priceDeltaCents?: number;
+    sortOrder?: number;
+    isActive?: boolean;
+    lifecycle?: "ACTIVE" | "ARCHIVED";
+    modifierGroupId?: string;
+  }
 ) {
-  return apiFetch<{ ok: boolean; error?: string; option?: { id: string } }>(
+  return apiFetch<{ ok: boolean; error?: string; message?: string; option?: { id: string } }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menu/modifier-options/${encodeURIComponent(optionId)}`,
     { method: "PATCH", headers: authJsonHeaders(token), body: JSON.stringify(body) }
   );
 }
 
 export async function deleteModifierOption(token: string, restaurantId: string, optionId: string) {
-  return apiFetch<{ ok: boolean; error?: string }>(
+  return apiFetch<{ ok: boolean; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menu/modifier-options/${encodeURIComponent(optionId)}`,
     { method: "DELETE", headers: authJsonHeaders(token) }
+  );
+}
+
+export async function duplicateModifierOption(token: string, restaurantId: string, optionId: string) {
+  return apiFetch<{ ok: boolean; error?: string; message?: string; option?: { id: string; name: string } }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menu/modifier-options/${encodeURIComponent(optionId)}/duplicate`,
+    { method: "POST", headers: authJsonHeaders(token) }
   );
 }
 
@@ -946,6 +1090,30 @@ export async function scheduleRestaurantMenu(
   }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}/schedule`,
     { method: "PATCH", headers: authJsonHeaders(token), body: JSON.stringify(body) }
+  );
+}
+
+export async function getAvailabilityOverview(token: string, restaurantId: string) {
+  return apiFetch<AvailabilityOverviewPayload>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/availability`,
+    { headers: authHeaders(token) }
+  );
+}
+
+export async function manageAvailability(
+  token: string,
+  restaurantId: string,
+  body: {
+    action: AvailabilityManageAction;
+    refs: Array<{ menuId: string; key: string }>;
+    patch?: Partial<MenuAvailabilityWindow>;
+    targetMenuIds?: string[];
+    importWindows?: MenuAvailabilityWindows;
+  }
+) {
+  return apiFetch<AvailabilityOverviewPayload>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/availability/manage`,
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body) }
   );
 }
 

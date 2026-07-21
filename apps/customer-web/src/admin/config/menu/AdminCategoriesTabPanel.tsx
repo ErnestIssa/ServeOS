@@ -65,14 +65,6 @@ function categoryRowActions(category: CategoryListRow, can: Props["can"]) {
 function confirmCopyForAction(action: PendingRowAction) {
   const name = action.category.name;
   switch (action.actionId) {
-    case "details":
-      return {
-        title: "Open category details?",
-        description: `View details for “${name}”.`,
-        confirmLabel: "Open details",
-        danger: false,
-        titleId: "category-confirm-details"
-      };
     case "hide":
       return {
         title: "Hide category?",
@@ -89,22 +81,6 @@ function confirmCopyForAction(action: PendingRowAction) {
         danger: false,
         titleId: "category-confirm-show"
       };
-    case "schedule":
-      return {
-        title: "Schedule publish?",
-        description: `Schedule when the parent menu for “${name}” should go live.`,
-        confirmLabel: "Continue",
-        danger: false,
-        titleId: "category-confirm-schedule"
-      };
-    case "schedule-unpublish":
-      return {
-        title: "Schedule unpublish?",
-        description: `Schedule when the parent menu for “${name}” should leave guest view.`,
-        confirmLabel: "Continue",
-        danger: false,
-        titleId: "category-confirm-schedule-unpublish"
-      };
     default:
       return {
         title: "Confirm action?",
@@ -115,6 +91,8 @@ function confirmCopyForAction(action: PendingRowAction) {
       };
   }
 }
+
+const DIRECT_OPEN_ACTIONS = new Set(["details", "schedule", "schedule-unpublish"]);
 
 export function AdminCategoriesTabPanel({
   api,
@@ -228,7 +206,31 @@ export function AdminCategoriesTabPanel({
 
   const handleAction = (category: CategoryListRow, actionId: string) => {
     setOpenActionsId(null);
-    if (actionId !== "details" && isUiOnlyListId(category.id)) {
+
+    if (DIRECT_OPEN_ACTIONS.has(actionId)) {
+      if (actionId === "details") {
+        setDetailsCategory(category);
+        setDetailsOpen(true);
+        return;
+      }
+      if (isUiOnlyListId(category.id)) {
+        toastPreview();
+        return;
+      }
+      if (actionId === "schedule" || actionId === "schedule-unpublish") {
+        const parent = category.menuId ? menus.find((m) => m.id === category.menuId) ?? null : null;
+        if (!parent) {
+          pushToast("This category isn’t linked to a menu yet.", "error");
+          return;
+        }
+        setScheduleMenu(parent);
+        setScheduleMode(actionId === "schedule-unpublish" ? "unpublish" : "publish");
+        setScheduleOpen(true);
+      }
+      return;
+    }
+
+    if (isUiOnlyListId(category.id)) {
       toastPreview();
       return;
     }
@@ -244,38 +246,11 @@ export function AdminCategoriesTabPanel({
     if (!pendingAction) return;
     const { category, actionId } = pendingAction;
 
-    if (actionId === "details") {
-      setDetailsCategory(category);
-      setDetailsOpen(true);
-      setPendingAction(null);
-      return;
-    }
-
-    if (isUiOnlyListId(category.id)) {
-      toastPreview();
-      setPendingAction(null);
-      return;
-    }
-
     if (actionId === "hide" || actionId === "show") {
       setConfirmBusy(true);
       const ok = await setVisibility(category, actionId === "show");
       setConfirmBusy(false);
       if (ok) setPendingAction(null);
-      return;
-    }
-
-    if (actionId === "schedule" || actionId === "schedule-unpublish") {
-      const parent = category.menuId ? menus.find((m) => m.id === category.menuId) ?? null : null;
-      if (!parent) {
-        pushToast("This category isn’t linked to a menu yet.", "error");
-        setPendingAction(null);
-        return;
-      }
-      setScheduleMenu(parent);
-      setScheduleMode(actionId === "schedule-unpublish" ? "unpublish" : "publish");
-      setPendingAction(null);
-      setScheduleOpen(true);
     }
   };
 

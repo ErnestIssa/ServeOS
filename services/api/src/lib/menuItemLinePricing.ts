@@ -1,4 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
+import { evaluateAvailability } from "./menu/availabilityEvaluationService.js";
+import { sanitizeAvailabilityWindows } from "./menu/menuAvailability.js";
 
 export type ModifierSnap = {
   optionId: string;
@@ -81,6 +83,7 @@ export async function resolveQuickAddModifierOptionIds(
 
 /**
  * Validates menu item + modifiers for `restaurantId`, returns pricing for one order-style line (quantity applied).
+ * Uses availability SSOT — sold-out / schedule / unpublished menu blocks ordering.
  */
 export async function priceMenuItemLineInput(
   prisma: PrismaClient,
@@ -89,6 +92,8 @@ export async function priceMenuItemLineInput(
     menuItemId: string;
     quantity: number;
     modifierOptionIds?: string[] | undefined;
+    channel?: "DINE_IN" | "TAKEAWAY" | "DELIVERY" | "QR" | "KIOSK" | "STAFF";
+    locationId?: string | null;
   }
 ): Promise<PricedOrderLineInput> {
   const { restaurantId, menuItemId, quantity } = opts;
@@ -97,16 +102,72 @@ export async function priceMenuItemLineInput(
   const item = await prisma.menuItem.findFirst({
     where: {
       id: menuItemId,
-      isActive: true,
-      category: { restaurantId, isActive: true }
+      category: { restaurantId }
     },
     include: {
+      category: {
+        include: {
+          menu: {
+            select: {
+              id: true,
+              status: true,
+              availabilityWindows: true,
+              scheduledPublishAt: true,
+              scheduledUnpublishAt: true
+            }
+          }
+        }
+      },
       modifierGroups: {
         include: { options: { where: { isActive: true } } }
       }
     }
   });
   if (!item) throw Object.assign(new Error("menu_item_not_found"), { statusCode: 400 });
+
+  const restaurant = await prisma.restaurant.findUnique({
+    where: { id: restaurantId },
+    select: { openingHours: true }
+  });
+
+  let menu = item.category.menu;
+  if (!menu) {
+    menu = await prisma.menu.findFirst({
+      where: { restaurantId, status: "PUBLISHED" },
+      select: {
+        id: true,
+        status: true,
+        availabilityWindows: true,
+        scheduledPublishAt: true,
+        scheduledUnpublishAt: true
+      },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }]
+    });
+  }
+
+  const evaluation = evaluateAvailability({
+    openingHours: restaurant?.openingHours ?? null,
+    timezone: "Europe/Stockholm",
+    menuStatus: menu?.status ?? "PUBLISHED",
+    scheduledPublishAt: menu?.scheduledPublishAt ?? null,
+    scheduledUnpublishAt: menu?.scheduledUnpublishAt ?? null,
+    windows: sanitizeAvailabilityWindows(menu?.availabilityWindows ?? null),
+    categoryActive: item.category.isActive,
+    itemActive: item.isActive,
+    itemLifecycle: item.lifecycle,
+    itemSoldOut: item.isSoldOut,
+    channel: opts.channel ?? "QR",
+    locationId: opts.locationId ?? restaurantId,
+    audience: "CUSTOMER"
+  });
+
+  if (!evaluation.orderable) {
+    const blocking = evaluation.reasons.find((r) => !r.ok);
+    throw Object.assign(new Error(blocking?.code ?? "not_orderable"), {
+      statusCode: 400,
+      availability: evaluation
+    });
+  }
 
   const optionMeta = new Map<string, { groupId: string; groupName: string; priceDeltaCents: number; name: string }>();
   for (const g of item.modifierGroups) {

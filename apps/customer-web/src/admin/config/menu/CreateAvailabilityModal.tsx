@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import type { MenuSurfaceRow } from "../../../api";
-import { AdminBtnPrimary, AdminBtnSecondary, AdminInput, AdminLabel } from "../../AdminUi";
-import { AdminBubbleDropdown } from "../../AdminBubbleDropdown";
+import { useEffect, useMemo, useState } from "react";
+import type { MenuAvailabilityWindow, MenuSurfaceRow } from "../../../api";
+import { AdminBtnPrimary, AdminBtnSecondary } from "../../AdminUi";
 import type { MenuSectionTab } from "../configRouting";
 import {
   ProfileModalAlert,
@@ -9,50 +8,84 @@ import {
   ProfileModalNote,
   MenuPageModalShell
 } from "./menuPageModalShell";
-import { AvailabilityColorPicker } from "./AvailabilityColorPicker";
-import { AvailabilityPreviewCard } from "./AvailabilityPreviewCard";
 import {
-  AVAILABILITY_DAY_OPTIONS,
-  DEFAULT_AVAILABILITY_COLOR,
+  AvailabilityWindowFormFields,
+  defaultAvailabilityWindowForm,
+  type AvailabilityWindowFormValues
+} from "./AvailabilityWindowFormFields";
+import {
+  formatAvailabilityChannels,
   formatAvailabilityDays,
+  formatAvailabilityLocations,
   makeAvailabilityKey,
   resolveAvailabilityColor,
   saveMenuAvailabilityWindows
 } from "./availabilityHelpers";
 
-export type CreateAvailabilityForm = {
-  menuId: string;
-  label: string;
-  start: string;
-  end: string;
-  days: number[];
-  enabled: boolean;
-  color: string;
-};
-
-const emptyForm = (menuId: string): CreateAvailabilityForm => ({
-  menuId,
-  label: "",
-  start: "09:00",
-  end: "17:00",
-  days: [],
-  enabled: true,
-  color: DEFAULT_AVAILABILITY_COLOR
-});
-
-function validateForm(form: CreateAvailabilityForm) {
-  const errors: Partial<Record<keyof CreateAvailabilityForm, string>> = {};
+function validateForm(form: AvailabilityWindowFormValues) {
+  const errors: Partial<Record<keyof AvailabilityWindowFormValues, string>> = {};
   const label = form.label.trim();
   if (!form.menuId) errors.menuId = "Please choose a menu.";
   if (!label) errors.label = "Please enter a window name.";
   else if (label.length < 2) errors.label = "Window name needs at least 2 characters.";
   if (!form.start) errors.start = "Please choose a start time.";
   if (!form.end) errors.end = "Please choose an end time.";
-  if (form.start && form.end && form.start >= form.end) {
-    errors.end = "End time must be after start time.";
+  if (form.start && form.end && form.start === form.end) {
+    errors.end = "End time must differ from start time.";
   }
   if (form.days.length === 0) errors.days = "Select at least one day.";
+  if (form.channels.length === 0) errors.channels = "Select at least one channel.";
+  if (form.locationMode === "SELECTED" && form.locationIds.length === 0) {
+    errors.locationIds = "Select at least one location, or choose all locations.";
+  }
+  if (form.scheduleKind === "SEASONAL") {
+    if (!/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(form.seasonalStartMd)) {
+      errors.seasonalStartMd = "Use MM-DD format.";
+    }
+    if (!/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(form.seasonalEndMd)) {
+      errors.seasonalEndMd = "Use MM-DD format.";
+    }
+  }
   return errors;
+}
+
+function formToWindow(form: AvailabilityWindowFormValues): MenuAvailabilityWindow {
+  const color = resolveAvailabilityColor(form.color);
+  return {
+    label: form.label.trim(),
+    start: form.start,
+    end: form.end,
+    days: [...form.days].sort((a, b) => a - b),
+    enabled: form.enabled,
+    color,
+    scheduleKind: form.scheduleKind,
+    temporaryStartAt:
+      form.scheduleKind === "TEMPORARY" && form.temporaryStartAt
+        ? new Date(form.temporaryStartAt).toISOString()
+        : null,
+    temporaryEndAt:
+      form.scheduleKind === "TEMPORARY" && form.temporaryEndAt
+        ? new Date(form.temporaryEndAt).toISOString()
+        : null,
+    seasonalStartMd: form.scheduleKind === "SEASONAL" ? form.seasonalStartMd : null,
+    seasonalEndMd: form.scheduleKind === "SEASONAL" ? form.seasonalEndMd : null,
+    channels: form.channels,
+    locationMode: form.locationMode,
+    locationIds: form.locationMode === "SELECTED" ? form.locationIds : [],
+    visibility: form.visibility,
+    outOfStock: form.outOfStock,
+    requiresManagerApproval: form.requiresManagerApproval,
+    ageRestricted: form.ageRestricted,
+    minAge: form.ageRestricted ? Number(form.minAge) || 18 : null,
+    paused: false,
+    history: [
+      {
+        at: new Date().toISOString(),
+        action: "created",
+        detail: "Created from admin availability form"
+      }
+    ]
+  };
 }
 
 function friendlyAvailabilityCreateError(error?: string) {
@@ -66,17 +99,9 @@ function friendlyAvailabilityCreateError(error?: string) {
   return "We couldn't create the availability window right now. Please try again.";
 }
 
-function isDirty(form: CreateAvailabilityForm, defaultMenuId: string) {
-  const baseline = emptyForm(defaultMenuId);
-  return (
-    form.label.trim() !== "" ||
-    form.menuId !== defaultMenuId ||
-    form.start !== baseline.start ||
-    form.end !== baseline.end ||
-    form.enabled !== baseline.enabled ||
-    form.color !== baseline.color ||
-    form.days.join(",") !== baseline.days.join(",")
-  );
+function isDirty(form: AvailabilityWindowFormValues, defaultMenuId: string) {
+  const baseline = defaultAvailabilityWindowForm(defaultMenuId);
+  return JSON.stringify({ ...form, menuId: form.menuId || defaultMenuId }) !== JSON.stringify(baseline);
 }
 
 type Props = {
@@ -85,6 +110,7 @@ type Props = {
   token: string;
   restaurantId: string;
   menus: MenuSurfaceRow[];
+  locations?: Array<{ id: string; name: string }>;
   onClose: () => void;
   onCreated: () => void;
   onNavigateTab: (tab: MenuSectionTab) => void;
@@ -103,13 +129,14 @@ function CreateAvailabilityConfirmModal({
   open: boolean;
   venueLabel: string;
   menuLabel: string;
-  form: CreateAvailabilityForm;
+  form: AvailabilityWindowFormValues;
   busy: boolean;
   error?: string | null;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
   const color = resolveAvailabilityColor(form.color);
+  const windowPreview = formToWindow(form);
 
   return (
     <MenuPageModalShell
@@ -128,9 +155,17 @@ function CreateAvailabilityConfirmModal({
         <br />
         Menu: <strong>{menuLabel}</strong>
         <br />
-        Hours: <strong>{form.start} – {form.end}</strong>
+        Schedule: <strong>{form.scheduleKind.toLowerCase()}</strong> · {form.start} – {form.end}
         <br />
         Days: <strong>{formatAvailabilityDays(form.days)}</strong>
+        <br />
+        Channels: <strong>{formatAvailabilityChannels(form.channels)}</strong>
+        <br />
+        Locations: <strong>{formatAvailabilityLocations(windowPreview)}</strong>
+        <br />
+        Visibility: <strong>{form.visibility}</strong>
+        <br />
+        Stock: <strong>{form.outOfStock ? "Out of stock" : "In stock"}</strong>
         <br />
         Status: <strong>{form.enabled ? "Enabled" : "Disabled"}</strong>
         <br />
@@ -164,13 +199,14 @@ export function CreateAvailabilityModal({
   token,
   restaurantId,
   menus,
+  locations = [],
   onClose,
   onCreated,
   onNavigateTab
 }: Props) {
   const activeMenus = useMemo(() => menus.filter((m) => m.status !== "ARCHIVED"), [menus]);
   const defaultMenuId = activeMenus[0]?.id ?? "";
-  const [form, setForm] = useState<CreateAvailabilityForm>(() => emptyForm(defaultMenuId));
+  const [form, setForm] = useState<AvailabilityWindowFormValues>(() => defaultAvailabilityWindowForm(defaultMenuId));
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [sending, setSending] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -190,7 +226,6 @@ export function CreateAvailabilityModal({
 
   const selectedMenu = activeMenus.find((m) => m.id === form.menuId) ?? null;
   const selectedMenuLabel = selectedMenu?.name ?? "Menu";
-  const previewColor = resolveAvailabilityColor(form.color);
 
   const errors = useMemo(() => validateForm(form), [form]);
   const hasErrors = Object.keys(errors).length > 0;
@@ -198,7 +233,7 @@ export function CreateAvailabilityModal({
 
   useEffect(() => {
     if (!open) {
-      setForm(emptyForm(defaultMenuId));
+      setForm(defaultAvailabilityWindowForm(defaultMenuId));
       setSubmitAttempted(false);
       setSending(false);
       setConfirmOpen(false);
@@ -214,7 +249,7 @@ export function CreateAvailabilityModal({
     }));
   }, [open, defaultMenuId, activeMenus]);
 
-  const patch = <K extends keyof CreateAvailabilityForm>(key: K, value: CreateAvailabilityForm[K]) => {
+  const patch = <K extends keyof AvailabilityWindowFormValues>(key: K, value: AvailabilityWindowFormValues[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
@@ -237,18 +272,9 @@ export function CreateAvailabilityModal({
   const finishClose = () => {
     setDiscardOpen(false);
     setConfirmOpen(false);
-    setForm(emptyForm(defaultMenuId));
+    setForm(defaultAvailabilityWindowForm(defaultMenuId));
     setSubmitAttempted(false);
     onClose();
-  };
-
-  const fieldClass = (key: keyof CreateAvailabilityForm) => {
-    const showError = submitAttempted && errors[key];
-    const value = String(form[key] ?? "").trim();
-    const showOk = submitAttempted && !errors[key] && value;
-    return [showError ? "admin-staff-field--error" : "", showOk ? "admin-staff-field--ok" : ""]
-      .filter(Boolean)
-      .join(" ");
   };
 
   const submitTone =
@@ -272,21 +298,19 @@ export function CreateAvailabilityModal({
 
   const handleCreate = async () => {
     if (!selectedMenu) return;
-    const color = resolveAvailabilityColor(form.color);
 
     setSending(true);
     setSubmitError(null);
     const key = makeAvailabilityKey(form.label);
-    const res = await saveMenuAvailabilityWindows(token, restaurantId, selectedMenu.id, selectedMenu.availabilityWindows, {
-      [key]: {
-        label: form.label.trim(),
-        start: form.start,
-        end: form.end,
-        days: [...form.days].sort((a, b) => a - b),
-        enabled: form.enabled,
-        color
+    const res = await saveMenuAvailabilityWindows(
+      token,
+      restaurantId,
+      selectedMenu.id,
+      selectedMenu.availabilityWindows,
+      {
+        [key]: formToWindow(form)
       }
-    });
+    );
     setSending(false);
 
     if (!res.ok) {
@@ -304,7 +328,7 @@ export function CreateAvailabilityModal({
         open={open && !confirmOpen}
         onClose={attemptClose}
         title="Create availability window"
-        description="Define when a menu is visible — breakfast, lunch, weekend hours, or any custom schedule."
+        description="Define a full rule set — schedule, channels, locations, visibility, stock, and business rules. Backend remains the SSOT."
         titleId="create-availability-title"
         maxWidthClass="max-w-none"
         maxHeightClass="admin-staff-invite-modal-max-h"
@@ -316,156 +340,36 @@ export function CreateAvailabilityModal({
         <div className="admin-menu-create-hero" aria-hidden>
           <div className="admin-menu-create-hero__icon">☰</div>
           <p className="admin-menu-create-hero__text">
-            Schedule when guests can see a menu — with custom hours, days, and card colors
+            Build an orderability window guests and staff will understand — reasons, not just an on/off switch
           </p>
         </div>
 
-        <div className="admin-staff-invite-form admin-menu-create-form">
-          <div className="admin-menu-create-form__primary">
-            <AdminLabel className={fieldClass("label")}>
-              <span className="admin-staff-field-label">
-                Window name <span className="admin-staff-field-required">*</span>
-              </span>
-              <AdminInput
-                className="admin-staff-premium-input admin-menu-create-field-input"
-                placeholder="e.g. Breakfast, Weekend brunch, Holiday hours"
-                autoComplete="off"
-                value={form.label}
-                onChange={(e) => patch("label", e.target.value)}
-                aria-invalid={(submitAttempted && Boolean(errors.label)) || undefined}
-              />
-              {submitAttempted && errors.label ? (
-                <span className="admin-staff-field-error" role="alert">
-                  {errors.label}
-                </span>
-              ) : null}
-            </AdminLabel>
-
-            <div className="admin-menu-availability-time-row">
-              <AdminLabel className={fieldClass("start")}>
-                <span className="admin-staff-field-label">
-                  Start time <span className="admin-staff-field-required">*</span>
-                </span>
-                <AdminInput
-                  type="time"
-                  className="admin-staff-premium-input admin-menu-create-field-input"
-                  value={form.start}
-                  onChange={(e) => patch("start", e.target.value)}
-                />
-                {submitAttempted && errors.start ? (
-                  <span className="admin-staff-field-error" role="alert">
-                    {errors.start}
-                  </span>
-                ) : null}
-              </AdminLabel>
-
-              <AdminLabel className={fieldClass("end")}>
-                <span className="admin-staff-field-label">
-                  End time <span className="admin-staff-field-required">*</span>
-                </span>
-                <AdminInput
-                  type="time"
-                  className="admin-staff-premium-input admin-menu-create-field-input"
-                  value={form.end}
-                  onChange={(e) => patch("end", e.target.value)}
-                />
-                {submitAttempted && errors.end ? (
-                  <span className="admin-staff-field-error" role="alert">
-                    {errors.end}
-                  </span>
-                ) : null}
-              </AdminLabel>
-            </div>
-          </div>
-
-          <div className="admin-menu-create-form__meta">
-            <div className={fieldClass("menuId")}>
-              {menuOptions.length === 0 ? (
-                <div className="rounded-2xl border border-amber-200/80 bg-amber-50/60 p-4 dark:border-amber-500/30 dark:bg-amber-950/20">
-                  <p className="text-sm admin-config-text-subtle">This venue has no menus yet. Create a menu first, then add availability windows.</p>
-                  <AdminBtnPrimary
-                    className="mt-3"
-                    onClick={() => {
-                      finishClose();
-                      onNavigateTab("menus");
-                    }}
-                  >
-                    Go to Menus
-                  </AdminBtnPrimary>
-                </div>
-              ) : (
-                <>
-                  <AdminBubbleDropdown
-                    label="Menu"
-                    required
-                    dropInline
-                    value={form.menuId}
-                    options={menuOptions}
-                    onChange={(v) => patch("menuId", v)}
-                  />
-                  {submitAttempted && errors.menuId ? (
-                    <span className="admin-staff-field-error" role="alert">
-                      {errors.menuId}
-                    </span>
-                  ) : null}
-                </>
-              )}
-            </div>
-
-            <div className={submitAttempted && errors.days ? "admin-staff-field--error" : ""}>
-              <span className="admin-staff-field-label">
-                Days <span className="admin-staff-field-required">*</span>
-              </span>
-              <div
-                className="admin-menu-availability-day-grid"
-                style={{ "--availability-accent": previewColor } as CSSProperties}
+        <AvailabilityWindowFormFields
+          form={form}
+          onPatch={patch}
+          onToggleDay={toggleDay}
+          menuOptions={menuOptions}
+          selectedMenuLabel={selectedMenuLabel}
+          locations={locations}
+          submitAttempted={submitAttempted}
+          errors={errors}
+          emptyMenusSlot={
+            <div className="rounded-2xl border border-amber-200/80 bg-amber-50/60 p-4 dark:border-amber-500/30 dark:bg-amber-950/20">
+              <p className="text-sm admin-config-text-subtle">
+                This venue has no menus yet. Create a menu first, then add availability windows.
+              </p>
+              <AdminBtnPrimary
+                className="mt-3"
+                onClick={() => {
+                  finishClose();
+                  onNavigateTab("menus");
+                }}
               >
-                {AVAILABILITY_DAY_OPTIONS.map((day) => {
-                  const active = form.days.includes(day.value);
-                  return (
-                    <button
-                      key={day.value}
-                      type="button"
-                      className={`admin-menu-availability-day-chip${active ? " is-active" : ""}`}
-                      aria-pressed={active}
-                      onClick={() => toggleDay(day.value)}
-                    >
-                      {day.label}
-                    </button>
-                  );
-                })}
-              </div>
-              {submitAttempted && errors.days ? (
-                <span className="admin-staff-field-error" role="alert">
-                  {errors.days}
-                </span>
-              ) : null}
+                Go to Menus
+              </AdminBtnPrimary>
             </div>
-
-            <label className="admin-menu-availability-enabled-toggle">
-              <input
-                type="checkbox"
-                checked={form.enabled}
-                onChange={(e) => patch("enabled", e.target.checked)}
-              />
-              <span>Enable this window right away</span>
-            </label>
-
-            <div className="admin-menu-availability-preview-row">
-              <AvailabilityPreviewCard
-                label={form.label}
-                start={form.start}
-                end={form.end}
-                days={form.days}
-                menuName={selectedMenuLabel}
-                enabled={form.enabled}
-                color={previewColor}
-              />
-
-              <AvailabilityColorPicker value={form.color} onChange={(color) => patch("color", color)} inline />
-            </div>
-          </div>
-        </div>
+          }
+        />
 
         <div className="admin-staff-invite-footer mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <AdminBtnSecondary onClick={attemptClose} disabled={sending}>

@@ -440,7 +440,41 @@ export function AdminMenusTabPanel({
       return;
     }
 
-    // Duplicate / schedule already open dedicated modals — still gate with confirm first.
+    if (actionId === "details") {
+      setDrawerMenu(menu);
+      setDrawerOpen(true);
+      return;
+    }
+
+    if (actionId === "schedule") {
+      if (isUiOnlyMenu(menu)) {
+        pushToast("Preview menu only — not connected to the backend.", "error");
+        return;
+      }
+      setScheduleMode("publish");
+      setScheduleOpen(true);
+      return;
+    }
+
+    if (actionId === "schedule-unpublish") {
+      if (isUiOnlyMenu(menu)) {
+        pushToast("Preview menu only — not connected to the backend.", "error");
+        return;
+      }
+      setScheduleMode("unpublish");
+      setScheduleOpen(true);
+      return;
+    }
+
+    if (actionId === "duplicate") {
+      if (isUiOnlyMenu(menu)) {
+        pushToast("Preview menu only — not connected to the backend.", "error");
+        return;
+      }
+      setDuplicateOpen(true);
+      return;
+    }
+
     setPendingRowAction({ menu, actionId });
   };
 
@@ -453,13 +487,6 @@ export function AdminMenusTabPanel({
     if (!pendingRowAction) return;
     const { menu, actionId } = pendingRowAction;
 
-    if (actionId === "details") {
-      setDrawerMenu(menu);
-      setDrawerOpen(true);
-      setPendingRowAction(null);
-      return;
-    }
-
     if (isUiOnlyMenu(menu)) {
       pushToast("Preview menu only — not connected to the backend.", "error");
       setPendingRowAction(null);
@@ -471,26 +498,6 @@ export function AdminMenusTabPanel({
       const ok = await handlePublish(menu, actionId === "update-publish" ? "update" : "publish");
       setConfirmBusy(false);
       if (ok) setPendingRowAction(null);
-      return;
-    }
-
-    if (actionId === "duplicate") {
-      setPendingRowAction(null);
-      setDuplicateOpen(true);
-      return;
-    }
-
-    if (actionId === "schedule") {
-      setPendingRowAction(null);
-      setScheduleMode("publish");
-      setScheduleOpen(true);
-      return;
-    }
-
-    if (actionId === "schedule-unpublish") {
-      setPendingRowAction(null);
-      setScheduleMode("unpublish");
-      setScheduleOpen(true);
     }
   };
 
@@ -498,13 +505,6 @@ export function AdminMenusTabPanel({
     if (!pendingRowAction) return null;
     const name = pendingRowAction.menu.name;
     switch (pendingRowAction.actionId) {
-      case "details":
-        return {
-          title: "Open menu details?",
-          description: `View details for “${name}”.`,
-          confirmLabel: "Open details",
-          danger: false
-        };
       case "publish":
         return {
           title: "Publish menu?",
@@ -517,27 +517,6 @@ export function AdminMenusTabPanel({
           title: "Update publish?",
           description: `Publish a fresh snapshot of “${name}” for guests.`,
           confirmLabel: "Update publish",
-          danger: false
-        };
-      case "duplicate":
-        return {
-          title: "Duplicate menu?",
-          description: `Create a draft copy of “${name}”.`,
-          confirmLabel: "Continue",
-          danger: false
-        };
-      case "schedule":
-        return {
-          title: "Schedule publish?",
-          description: `Choose when “${name}” should go live automatically.`,
-          confirmLabel: "Continue",
-          danger: false
-        };
-      case "schedule-unpublish":
-        return {
-          title: "Schedule unpublish?",
-          description: `Choose when “${name}” should leave guest view.`,
-          confirmLabel: "Continue",
           danger: false
         };
       default:

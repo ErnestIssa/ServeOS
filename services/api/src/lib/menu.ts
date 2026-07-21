@@ -17,10 +17,13 @@ export async function fetchMenuTree(
         orderBy: { sortOrder: "asc" },
         include: {
           modifierGroups: {
+            ...(opts.onlyActive ? { where: { lifecycle: "ACTIVE" as const } } : {}),
             orderBy: { sortOrder: "asc" },
             include: {
               options: {
-                where: opts.onlyActive ? { isActive: true } : undefined,
+                where: opts.onlyActive
+                  ? { isActive: true, lifecycle: "ACTIVE" as const }
+                  : undefined,
                 orderBy: { sortOrder: "asc" }
               }
             }

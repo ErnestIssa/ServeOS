@@ -42,6 +42,11 @@ import {
   unpublishMenuSurface
 } from "../lib/menu/menuSurfaceOpsService.js";
 import { sanitizeAvailabilityWindows } from "../lib/menu/menuAvailability.js";
+import {
+  applyAvailabilityManageAction,
+  listAvailabilityOverview,
+  mapAvailabilityManageError
+} from "../lib/menu/availabilityManageService.js";
 import { mapPublishMenuError, publishMenuSurface } from "../lib/menu/menuPublishService.js";
 
 const surfaceKeySchema = z
@@ -51,13 +56,39 @@ const surfaceKeySchema = z
   .max(48)
   .regex(/^[a-z0-9][a-z0-9_-]*$/i);
 
+const availabilityChannelSchema = z.enum(["DINE_IN", "TAKEAWAY", "DELIVERY", "QR", "KIOSK", "STAFF"]);
+
 const availabilityWindowSchema = z.object({
   enabled: z.boolean(),
   start: z.string(),
   end: z.string(),
   days: z.array(z.number().int()),
   label: z.string().trim().min(1).max(48).optional(),
-  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional()
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+  scheduleKind: z.enum(["RECURRING", "TEMPORARY", "SEASONAL"]).optional(),
+  temporaryStartAt: z.string().nullable().optional(),
+  temporaryEndAt: z.string().nullable().optional(),
+  seasonalStartMd: z.string().regex(/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable().optional(),
+  seasonalEndMd: z.string().regex(/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable().optional(),
+  channels: z.array(availabilityChannelSchema).optional(),
+  locationMode: z.enum(["ALL", "SELECTED"]).optional(),
+  locationIds: z.array(z.string().min(1)).optional(),
+  visibility: z.enum(["CUSTOMERS", "HIDDEN", "STAFF_ONLY", "TESTING"]).optional(),
+  outOfStock: z.boolean().optional(),
+  requiresManagerApproval: z.boolean().optional(),
+  ageRestricted: z.boolean().optional(),
+  minAge: z.number().int().min(0).max(120).nullable().optional(),
+  paused: z.boolean().optional(),
+  history: z
+    .array(
+      z.object({
+        at: z.string(),
+        action: z.string(),
+        detail: z.string().optional(),
+        actorUserId: z.string().nullable().optional()
+      })
+    )
+    .optional()
 });
 
 export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
@@ -485,6 +516,81 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
       });
     }
     return { ok: true, menu: result.menu };
+  });
+
+  app.get("/restaurants/:restaurantId/availability", async (req, reply) => {
+    const params = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
+    const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuPermission("view", membership);
+
+    const result = await listAvailabilityOverview(prisma, params.restaurantId);
+    if (!result.ok) {
+      return reply.status(404).send({
+        ok: false,
+        error: result.error,
+        message: mapAvailabilityManageError(result.error)
+      });
+    }
+    return result;
+  });
+
+  app.post("/restaurants/:restaurantId/availability/manage", async (req, reply) => {
+    const params = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
+    const body = z
+      .object({
+        action: z.enum([
+          "make_available",
+          "make_unavailable",
+          "set_recurring",
+          "set_temporary",
+          "set_seasonal",
+          "mark_out_of_stock",
+          "restock",
+          "set_channels",
+          "set_locations_all",
+          "set_locations",
+          "set_visibility",
+          "set_business_rules",
+          "copy_schedule",
+          "copy_availability",
+          "apply_to_menus",
+          "reset_to_default",
+          "remove_rules",
+          "update_window",
+          "export_rules",
+          "import_schedule"
+        ]),
+        refs: z
+          .array(z.object({ menuId: z.string().min(1), key: z.string().min(1) }))
+          .default([]),
+        patch: availabilityWindowSchema.partial().optional(),
+        targetMenuIds: z.array(z.string().min(1)).optional(),
+        importWindows: z.record(availabilityWindowSchema).optional()
+      })
+      .parse(req.body ?? {});
+
+    const { userId, membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("menu", "edit", membership);
+
+    const result = await applyAvailabilityManageAction(prisma, params.restaurantId, {
+      action: body.action,
+      refs: body.refs,
+      patch: body.patch as never,
+      targetMenuIds: body.targetMenuIds,
+      importWindows: body.importWindows
+        ? sanitizeAvailabilityWindows(body.importWindows) ?? undefined
+        : undefined,
+      actorUserId: userId
+    });
+
+    if (!result.ok) {
+      return reply.status(400).send({
+        ok: false,
+        error: result.error,
+        message: mapAvailabilityManageError(result.error)
+      });
+    }
+    return result;
   });
 
   app.post("/restaurants/:restaurantId/menus/:menuId/cover-media", async (req, reply) => {

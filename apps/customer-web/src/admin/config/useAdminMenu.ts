@@ -102,6 +102,7 @@ export function useAdminMenu(token: string | null, restaurantId: string | null) 
       groupName: string;
       priceDeltaCents: number;
       isActive: boolean;
+      lifecycle: "ACTIVE" | "ARCHIVED";
     }> = [];
     for (const cat of menu?.categories ?? []) {
       for (const item of cat.items) {
@@ -114,7 +115,8 @@ export function useAdminMenu(token: string | null, restaurantId: string | null) 
               groupId: group.id,
               groupName: group.name,
               priceDeltaCents: opt.priceDeltaCents,
-              isActive: opt.isActive
+              isActive: opt.isActive,
+              lifecycle: opt.lifecycle ?? "ACTIVE"
             });
           }
         }
@@ -132,6 +134,7 @@ export function useAdminMenu(token: string | null, restaurantId: string | null) 
       minSelect: number;
       maxSelect: number;
       optionCount: number;
+      lifecycle: "ACTIVE" | "ARCHIVED";
     }> = [];
     for (const cat of menu?.categories ?? []) {
       for (const item of cat.items) {
@@ -143,7 +146,8 @@ export function useAdminMenu(token: string | null, restaurantId: string | null) 
             itemId: item.id,
             minSelect: group.minSelect,
             maxSelect: group.maxSelect,
-            optionCount: group.options.length
+            optionCount: group.options.length,
+            lifecycle: group.lifecycle ?? "ACTIVE"
           });
         }
       }

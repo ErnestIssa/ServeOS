@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatMoneyCents } from "@serveos/core-shared/currency";
 import {
   exportMenuCsv,
+  getAvailabilityOverview,
   importMenuCsv,
+  manageAvailability,
+  type AvailabilityCardPayload,
   type MenuSurfaceRow
 } from "../../../api";
 import {
@@ -17,18 +20,19 @@ import type { MenuCapabilitiesPayload } from "../../../api";
 import { MenuMediaDestinationModal } from "./MenuMediaDestinationModal";
 import { AdminCategoriesTabPanel } from "./AdminCategoriesTabPanel";
 import { AdminItemsTabPanel } from "./AdminItemsTabPanel";
-import { CreateModifierGroupModal } from "./CreateModifierGroupModal";
-import { CreateModifierOptionModal } from "./CreateModifierOptionModal";
-import { EditModifierGroupModal, type EditModifierGroupTarget } from "./EditModifierGroupModal";
-import { EditModifierOptionModal, type EditModifierOptionTarget } from "./EditModifierOptionModal";
-import { DeleteModifierGroupModal, DeleteModifierOptionModal } from "./ModifierDeleteModals";
+import { AdminModifierGroupsTabPanel } from "./AdminModifierGroupsTabPanel";
+import { AdminModifierOptionsTabPanel } from "./AdminModifierOptionsTabPanel";
+import { AvailabilityManageDrawer } from "./AvailabilityManageDrawer";
 import { CreateAvailabilityModal } from "./CreateAvailabilityModal";
 import { EditAvailabilityModal, type EditAvailabilityTarget } from "./EditAvailabilityModal";
 import { DeleteAvailabilityModal } from "./DeleteAvailabilityModal";
 import {
   availabilityCardStyle,
+  formatAvailabilityChannels,
   formatAvailabilityDays,
-  listAvailabilityCards
+  formatAvailabilityLocations,
+  listAvailabilityCards,
+  STATUS_LABELS
 } from "./availabilityHelpers";
 import { MenuEntityActionsMenu } from "./MenuEntityActionsMenu";
 import {
@@ -43,11 +47,10 @@ import { MenuSurfacePagination } from "./MenuSurfacePagination";
 import {
   isUiOnlyListId,
   matchesListSearch,
-  UI_MOCK_AVAILABILITY,
-  UI_MOCK_MODIFIER_GROUPS,
-  UI_MOCK_MODIFIER_OPTIONS
+  UI_MOCK_AVAILABILITY
 } from "./menuListUiMocks";
 import { useMenuListPagination } from "./useMenuListPagination";
+import { MenuPageModalShell, ProfileModalFooter } from "./menuPageModalShell";
 
 type MenuApi = ReturnType<typeof useAdminMenu>;
 
@@ -83,19 +86,8 @@ export function AdminMenuTabContent({
   const [importBusy, setImportBusy] = useState(false);
   const [mediaModalOpen, setMediaModalOpen] = useState(false);
   const [mediaModalKind, setMediaModalKind] = useState<"image" | "video">("image");
-  const [createModifierGroupOpen, setCreateModifierGroupOpen] = useState(false);
-  const [openModifierGroupMenuId, setOpenModifierGroupMenuId] = useState<string | null>(null);
-  const [editModifierGroupTarget, setEditModifierGroupTarget] = useState<EditModifierGroupTarget | null>(null);
-  const [editModifierGroupOpen, setEditModifierGroupOpen] = useState(false);
-  const [deleteModifierGroupId, setDeleteModifierGroupId] = useState<string | null>(null);
-  const [deleteModifierGroupName, setDeleteModifierGroupName] = useState<string | null>(null);
-  const [openModifierOptionMenuId, setOpenModifierOptionMenuId] = useState<string | null>(null);
-  const [editModifierOptionTarget, setEditModifierOptionTarget] = useState<EditModifierOptionTarget | null>(null);
-  const [editModifierOptionOpen, setEditModifierOptionOpen] = useState(false);
-  const [deleteModifierOptionId, setDeleteModifierOptionId] = useState<string | null>(null);
-  const [deleteModifierOptionName, setDeleteModifierOptionName] = useState<string | null>(null);
-  const [createModifierOptionOpen, setCreateModifierOptionOpen] = useState(false);
   const [createAvailabilityOpen, setCreateAvailabilityOpen] = useState(false);
+  const [manageAvailabilityOpen, setManageAvailabilityOpen] = useState(false);
   const [openAvailabilityMenuKey, setOpenAvailabilityMenuKey] = useState<string | null>(null);
   const [editAvailabilityTarget, setEditAvailabilityTarget] = useState<EditAvailabilityTarget | null>(null);
   const [editAvailabilityOpen, setEditAvailabilityOpen] = useState(false);
@@ -103,49 +95,67 @@ export function AdminMenuTabContent({
   const [deleteAvailabilityMenuId, setDeleteAvailabilityMenuId] = useState<string | null>(null);
   const [deleteAvailabilityLabel, setDeleteAvailabilityLabel] = useState<string | null>(null);
   const [listSearch, setListSearch] = useState("");
+  const [availabilityOverviewCards, setAvailabilityOverviewCards] = useState<AvailabilityCardPayload[]>([]);
+  const [availabilityLocations, setAvailabilityLocations] = useState<Array<{ id: string; name: string }>>([]);
+  const [selectedAvailabilityKeys, setSelectedAvailabilityKeys] = useState<Set<string>>(new Set());
+  const [previewAvailabilityCard, setPreviewAvailabilityCard] = useState<AvailabilityCardPayload | null>(null);
+  const [availabilityBusyKey, setAvailabilityBusyKey] = useState<string | null>(null);
 
   useEffect(() => {
     setListSearch("");
+    setSelectedAvailabilityKeys(new Set());
   }, [tab]);
 
-  const availabilityCards = useMemo(
-    () => [...listAvailabilityCards(menus), ...UI_MOCK_AVAILABILITY],
-    [menus]
-  );
+  const refreshAvailabilityOverview = useCallback(async () => {
+    const res = await getAvailabilityOverview(token, restaurantId);
+    if (res.ok && res.cards) {
+      setAvailabilityOverviewCards(res.cards);
+      setAvailabilityLocations(res.locations ?? []);
+    } else {
+      const fallback = listAvailabilityCards(menus).map((card) => ({
+        ...card,
+        menuStatus: (menus.find((m) => m.id === card.menuId)?.status ?? "DRAFT") as AvailabilityCardPayload["menuStatus"],
+        evaluation: {
+          orderable: card.window.enabled,
+          status: card.window.enabled ? ("AVAILABLE" as const) : ("UNAVAILABLE" as const),
+          reasons: [
+            {
+              ok: card.window.enabled,
+              code: "local",
+              label: card.window.enabled ? "Enabled" : "Disabled"
+            }
+          ],
+          matchedWindowKey: card.window.enabled ? card.key : null
+        }
+      }));
+      setAvailabilityOverviewCards(fallback);
+    }
+  }, [token, restaurantId, menus]);
+
+  useEffect(() => {
+    if (tab !== "availability") return;
+    void refreshAvailabilityOverview();
+  }, [tab, refreshAvailabilityOverview]);
+
+  const availabilityCards = useMemo(() => {
+    const mockCards: AvailabilityCardPayload[] = UI_MOCK_AVAILABILITY.map((card) => ({
+      ...card,
+      menuStatus: "PUBLISHED",
+      evaluation: {
+        orderable: true,
+        status: "AVAILABLE",
+        reasons: [
+          { ok: true, code: "preview", label: "Preview mock" },
+          { ok: true, code: "day", label: formatAvailabilityDays(card.window.days) },
+          { ok: true, code: "hours", label: `${card.window.start}–${card.window.end}` }
+        ],
+        matchedWindowKey: card.key
+      }
+    }));
+    return [...availabilityOverviewCards, ...mockCards];
+  }, [availabilityOverviewCards]);
 
   const categories = api.menu?.categories ?? [];
-
-  const flatModifierGroups = useMemo(
-    () => [...api.flatModifierGroups, ...UI_MOCK_MODIFIER_GROUPS],
-    [api.flatModifierGroups]
-  );
-  const flatModifiers = useMemo(
-    () => [...api.flatModifiers, ...UI_MOCK_MODIFIER_OPTIONS],
-    [api.flatModifiers]
-  );
-
-  const filteredModifierGroups = useMemo(
-    () =>
-      flatModifierGroups.filter((g) =>
-        matchesListSearch(listSearch, g.name, g.itemName, g.minSelect, g.maxSelect, g.optionCount)
-      ),
-    [flatModifierGroups, listSearch]
-  );
-
-  const filteredModifierOptions = useMemo(
-    () =>
-      flatModifiers.filter((m) =>
-        matchesListSearch(
-          listSearch,
-          m.name,
-          m.groupName,
-          m.itemName,
-          m.priceDeltaCents,
-          m.isActive ? "yes" : "no"
-        )
-      ),
-    [flatModifiers, listSearch]
-  );
 
   const filteredAvailability = useMemo(
     () =>
@@ -156,54 +166,52 @@ export function AdminMenuTabContent({
           card.menuName,
           card.window.start,
           card.window.end,
+          card.evaluation.status,
           card.window.enabled ? "enabled" : "disabled"
         )
       ),
     [availabilityCards, listSearch]
   );
 
-  const modifierGroupsPager = useMenuListPagination(filteredModifierGroups, { resetKey: listSearch });
-  const modifierOptionsPager = useMenuListPagination(filteredModifierOptions, { resetKey: listSearch });
   const availabilityPager = useMenuListPagination(filteredAvailability, { resetKey: listSearch });
-
-  const modifierGroups = useMemo(() => {
-    const out: Array<{ id: string; label: string; itemId: string }> = [];
-    for (const cat of categories) {
-      for (const item of cat.items) {
-        for (const g of item.modifierGroups) {
-          out.push({ id: g.id, label: `${item.name} → ${g.name}`, itemId: item.id });
-        }
-      }
-    }
-    return out;
-  }, [categories]);
 
   const toastPreviewOnly = () => {
     pushToast("Preview row only — not connected to the backend.", "error");
   };
 
-  const modifierGroupMenuActions = useMemo(() => {
-    const actions: Array<{ id: string; label: string; danger?: boolean }> = [];
-    if (can("modifier_group", "edit")) actions.push({ id: "edit", label: "Edit modifier group" });
-    if (can("modifier_group", "delete")) actions.push({ id: "delete", label: "Delete", danger: true });
-    return actions;
-  }, [can]);
-
-  const modifierOptionMenuActions = useMemo(() => {
-    const actions: Array<{ id: string; label: string; danger?: boolean }> = [];
-    if (can("modifier_option", "edit")) actions.push({ id: "edit", label: "Edit modifier option" });
-    if (can("modifier_option", "delete")) actions.push({ id: "delete", label: "Delete", danger: true });
-    return actions;
-  }, [can]);
+  const cardKeyOf = (card: AvailabilityCardPayload) => `${card.menuId}:${card.key}`;
 
   const availabilityMenuActions = useMemo(() => {
     const actions: Array<{ id: string; label: string; danger?: boolean }> = [];
-    if (can("menu", "edit")) actions.push({ id: "edit", label: "Edit availability window" });
-    if (can("menu", "edit")) actions.push({ id: "delete", label: "Delete", danger: true });
+    if (can("menu", "edit")) {
+      actions.push(
+        { id: "edit", label: "Edit availability" },
+        { id: "preview", label: "Preview availability" },
+        { id: "make_available", label: "Make available now" },
+        { id: "make_unavailable", label: "Make unavailable now" }
+      );
+    }
     return actions;
   }, [can]);
 
-  const handleAvailabilityMenuAction = (card: (typeof availabilityCards)[number], actionId: string) => {
+  const runCardManage = async (card: AvailabilityCardPayload, action: Parameters<typeof manageAvailability>[2]["action"]) => {
+    const k = cardKeyOf(card);
+    setAvailabilityBusyKey(k);
+    const res = await manageAvailability(token, restaurantId, {
+      action,
+      refs: [{ menuId: card.menuId, key: card.key }]
+    });
+    setAvailabilityBusyKey(null);
+    if (!res.ok) {
+      pushToast(res.message ?? "Could not update availability.", "error");
+      return;
+    }
+    pushToast("Availability updated.", "success");
+    onMenusRefresh();
+    await refreshAvailabilityOverview();
+  };
+
+  const handleAvailabilityMenuAction = (card: AvailabilityCardPayload, actionId: string) => {
     setOpenAvailabilityMenuKey(null);
     if (isUiOnlyListId(card.key) || isUiOnlyListId(card.menuId)) {
       toastPreviewOnly();
@@ -219,60 +227,26 @@ export function AdminMenuTabContent({
       setEditAvailabilityOpen(true);
       return;
     }
-    if (actionId === "delete") {
-      setDeleteAvailabilityKey(card.key);
-      setDeleteAvailabilityMenuId(card.menuId);
-      setDeleteAvailabilityLabel(card.window.label);
+    if (actionId === "preview") {
+      setPreviewAvailabilityCard(card);
+      return;
+    }
+    if (
+      actionId === "make_available" ||
+      actionId === "make_unavailable"
+    ) {
+      void runCardManage(card, actionId);
     }
   };
 
-  const handleModifierGroupMenuAction = (group: (typeof flatModifierGroups)[number], actionId: string) => {
-    setOpenModifierGroupMenuId(null);
-    if (isUiOnlyListId(group.id)) {
-      toastPreviewOnly();
-      return;
-    }
-    if (actionId === "edit") {
-      setEditModifierGroupTarget({
-        id: group.id,
-        name: group.name,
-        itemId: group.itemId,
-        itemName: group.itemName,
-        minSelect: group.minSelect,
-        maxSelect: group.maxSelect
-      });
-      setEditModifierGroupOpen(true);
-      return;
-    }
-    if (actionId === "delete") {
-      setDeleteModifierGroupId(group.id);
-      setDeleteModifierGroupName(group.name);
-    }
-  };
-
-  const handleModifierOptionMenuAction = (option: (typeof flatModifiers)[number], actionId: string) => {
-    setOpenModifierOptionMenuId(null);
-    if (isUiOnlyListId(option.id)) {
-      toastPreviewOnly();
-      return;
-    }
-    if (actionId === "edit") {
-      setEditModifierOptionTarget({
-        id: option.id,
-        name: option.name,
-        groupId: option.groupId,
-        groupName: option.groupName,
-        itemName: option.itemName,
-        priceDeltaCents: option.priceDeltaCents,
-        isActive: option.isActive
-      });
-      setEditModifierOptionOpen(true);
-      return;
-    }
-    if (actionId === "delete") {
-      setDeleteModifierOptionId(option.id);
-      setDeleteModifierOptionName(option.name);
-    }
+  const toggleAvailabilitySelect = (card: AvailabilityCardPayload, checked: boolean) => {
+    const k = cardKeyOf(card);
+    setSelectedAvailabilityKeys((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(k);
+      else next.delete(k);
+      return next;
+    });
   };
 
   const realCategories = api.menu?.categories ?? [];
@@ -291,11 +265,6 @@ export function AdminMenuTabContent({
   const modalItems = useMemo(
     () => api.flatItems.map((i) => ({ id: i.id, name: i.name, categoryName: i.categoryName })),
     [api.flatItems]
-  );
-
-  const modalModifierGroups = useMemo(
-    () => modifierGroups.map((g) => ({ id: g.id, label: g.label })),
-    [modifierGroups]
   );
 
   if (initialLoading) {
@@ -335,319 +304,106 @@ export function AdminMenuTabContent({
 
   if (tab === "modifier-groups") {
     return (
-      <>
-        <div className="admin-menu-tab-stack">
-          <MenuSection
-            title="Modifier groups"
-            description="Examples: Choose Size (Small, Medium, Large), Choose Bread (White, Whole wheat)."
-            action={
-              <MenuToolbarButton primary disabled={!can("modifier_group", "create")} onClick={() => setCreateModifierGroupOpen(true)}>
-                Create
-              </MenuToolbarButton>
-            }
-          >
-            {flatModifierGroups.length === 0 ? (
-              <AdminEmptyState>No modifier groups yet — add Choose Size or Choose Bread to an item.</AdminEmptyState>
-            ) : (
-              <>
-                <MenuListSearchField
-                  value={listSearch}
-                  onChange={setListSearch}
-                  placeholder="Search modifier groups by name or item…"
-                  aria-label="Search modifier groups"
-                />
-                {filteredModifierGroups.length === 0 ? (
-                  <p className="admin-config-text-muted py-2 text-sm">No modifier groups match your search.</p>
-                ) : (
-                  <>
-                    <div className={modifierGroupsPager.pageClassName} key={modifierGroupsPager.pageKey}>
-                      <table className="admin-config-data-table w-full text-left text-sm">
-                        <thead>
-                          <tr>
-                            <th>Group</th>
-                            <th>Item</th>
-                            <th>Min select</th>
-                            <th>Max select</th>
-                            <th>Options</th>
-                            <th className="admin-menu-item-actions-col" aria-label="Actions" />
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {modifierGroupsPager.pagedItems.map((g, index) => (
-                            <tr key={g.id} style={{ animationDelay: `${Math.min(index, 12) * 36}ms` }}>
-                              <td className="font-semibold admin-config-text">{g.name}</td>
-                              <td className="admin-config-text-muted">{g.itemName}</td>
-                              <td className="admin-config-text-subtle">{g.minSelect}</td>
-                              <td className="admin-config-text-subtle">{g.maxSelect}</td>
-                              <td className="admin-config-text-subtle">{g.optionCount}</td>
-                              <td className="admin-menu-item-actions-col text-right">
-                                {modifierGroupMenuActions.length > 0 ? (
-                                  <MenuEntityActionsMenu
-                                    entityName={g.name}
-                                    subtitle="Modifier group actions"
-                                    open={openModifierGroupMenuId === g.id}
-                                    actions={modifierGroupMenuActions}
-                                    onToggle={() => setOpenModifierGroupMenuId((id) => (id === g.id ? null : g.id))}
-                                    onAction={(actionId) => handleModifierGroupMenuAction(g, actionId)}
-                                  />
-                                ) : null}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    {modifierGroupsPager.showPagination ? (
-                      <MenuSurfacePagination
-                        page={modifierGroupsPager.page}
-                        totalPages={modifierGroupsPager.totalPages}
-                        totalItems={modifierGroupsPager.totalItems}
-                        pageSize={modifierGroupsPager.pageSize}
-                        onPageChange={modifierGroupsPager.goToPage}
-                        label="Modifier groups pagination"
-                      />
-                    ) : null}
-                  </>
-                )}
-              </>
-            )}
-          </MenuSection>
-        </div>
-
-        <CreateModifierGroupModal
-          open={createModifierGroupOpen}
-          onClose={() => setCreateModifierGroupOpen(false)}
-          token={token}
-          restaurantId={restaurantId}
-          venueName={venueName}
-          items={modalItems}
-          onCreated={() => {
-            pushToast("Modifier group created.", "success");
-            api.refresh();
-          }}
-          onNavigateTab={onNavigateTab}
-        />
-
-        <EditModifierGroupModal
-          open={editModifierGroupOpen}
-          target={editModifierGroupTarget}
-          canEdit={can("modifier_group", "edit")}
-          token={token}
-          restaurantId={restaurantId}
-          onClose={() => {
-            setEditModifierGroupOpen(false);
-            setEditModifierGroupTarget(null);
-          }}
-          onSaved={() => {
-            pushToast("Modifier group updated.", "success");
-            api.refresh();
-          }}
-        />
-
-        <DeleteModifierGroupModal
-          open={Boolean(deleteModifierGroupId)}
-          groupName={deleteModifierGroupName}
-          groupId={deleteModifierGroupId}
-          token={token}
-          restaurantId={restaurantId}
-          onClose={() => {
-            setDeleteModifierGroupId(null);
-            setDeleteModifierGroupName(null);
-          }}
-          onDeleted={() => {
-            pushToast("Modifier group deleted.", "success");
-            api.refresh();
-          }}
-        />
-      </>
+      <AdminModifierGroupsTabPanel
+        api={api}
+        token={token}
+        restaurantId={restaurantId}
+        venueName={venueName}
+        can={can}
+        onNavigateTab={onNavigateTab}
+      />
     );
   }
 
   if (tab === "modifier-options") {
     return (
-      <>
-        <div className="admin-menu-tab-stack">
-          <MenuSection
-            title="Modifier options"
-            description="Each option: name, extra price, default, and availability."
-            action={
-              <MenuToolbarButton primary disabled={!can("modifier_option", "create")} onClick={() => setCreateModifierOptionOpen(true)}>
-                Create
-              </MenuToolbarButton>
-            }
-          >
-            {flatModifiers.length === 0 ? (
-              <AdminEmptyState>No modifier options yet — add Small, Medium, Large, or similar choices.</AdminEmptyState>
-            ) : (
-              <>
-                <MenuListSearchField
-                  value={listSearch}
-                  onChange={setListSearch}
-                  placeholder="Search modifier options by name, group, or item…"
-                  aria-label="Search modifier options"
-                />
-                {filteredModifierOptions.length === 0 ? (
-                  <p className="admin-config-text-muted py-2 text-sm">No modifier options match your search.</p>
-                ) : (
-                  <>
-                    <div className={modifierOptionsPager.pageClassName} key={modifierOptionsPager.pageKey}>
-                      <table className="admin-config-data-table w-full text-left text-sm">
-                        <thead>
-                          <tr>
-                            <th>Name</th>
-                            <th>Group</th>
-                            <th>Item</th>
-                            <th>Extra price</th>
-                            <th>Default</th>
-                            <th>Available</th>
-                            <th className="admin-menu-item-actions-col" aria-label="Actions" />
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {modifierOptionsPager.pagedItems.map((m, index) => (
-                            <tr key={m.id} style={{ animationDelay: `${Math.min(index, 12) * 36}ms` }}>
-                              <td className="font-semibold admin-config-text">{m.name}</td>
-                              <td className="admin-config-text-muted">{m.groupName}</td>
-                              <td className="admin-config-text-subtle">{m.itemName}</td>
-                              <td>{m.priceDeltaCents ? `+${formatMoneyCents(m.priceDeltaCents)}` : "—"}</td>
-                              <td className="admin-config-text-subtle">—</td>
-                              <td>
-                                <MenuChip tone={m.isActive ? "success" : "muted"}>{m.isActive ? "Yes" : "No"}</MenuChip>
-                              </td>
-                              <td className="admin-menu-item-actions-col text-right">
-                                {modifierOptionMenuActions.length > 0 ? (
-                                  <MenuEntityActionsMenu
-                                    entityName={m.name}
-                                    subtitle="Modifier option actions"
-                                    open={openModifierOptionMenuId === m.id}
-                                    actions={modifierOptionMenuActions}
-                                    onToggle={() => setOpenModifierOptionMenuId((id) => (id === m.id ? null : m.id))}
-                                    onAction={(actionId) => handleModifierOptionMenuAction(m, actionId)}
-                                  />
-                                ) : null}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    {modifierOptionsPager.showPagination ? (
-                      <MenuSurfacePagination
-                        page={modifierOptionsPager.page}
-                        totalPages={modifierOptionsPager.totalPages}
-                        totalItems={modifierOptionsPager.totalItems}
-                        pageSize={modifierOptionsPager.pageSize}
-                        onPageChange={modifierOptionsPager.goToPage}
-                        label="Modifier options pagination"
-                      />
-                    ) : null}
-                  </>
-                )}
-              </>
-            )}
-          </MenuSection>
-        </div>
-
-        <CreateModifierOptionModal
-          open={createModifierOptionOpen}
-          onClose={() => setCreateModifierOptionOpen(false)}
-          token={token}
-          restaurantId={restaurantId}
-          venueName={venueName}
-          groups={modalModifierGroups}
-          onCreated={() => {
-            pushToast("Modifier option created.", "success");
-            api.refresh();
-          }}
-          onNavigateTab={onNavigateTab}
-        />
-
-      <EditModifierOptionModal
-        open={editModifierOptionOpen}
-        target={editModifierOptionTarget}
-        canEdit={can("modifier_option", "edit")}
+      <AdminModifierOptionsTabPanel
+        api={api}
         token={token}
         restaurantId={restaurantId}
-        onClose={() => {
-          setEditModifierOptionOpen(false);
-          setEditModifierOptionTarget(null);
-        }}
-        onSaved={() => {
-          pushToast("Modifier option updated.", "success");
-          api.refresh();
-        }}
+        venueName={venueName}
+        can={can}
+        onNavigateTab={onNavigateTab}
       />
-
-      <DeleteModifierOptionModal
-        open={Boolean(deleteModifierOptionId)}
-        optionName={deleteModifierOptionName}
-        optionId={deleteModifierOptionId}
-        token={token}
-        restaurantId={restaurantId}
-        onClose={() => {
-          setDeleteModifierOptionId(null);
-          setDeleteModifierOptionName(null);
-        }}
-        onDeleted={() => {
-          pushToast("Modifier option deleted.", "success");
-          api.refresh();
-        }}
-      />
-      </>
     );
   }
 
   if (tab === "availability") {
+    const realCardCount = availabilityOverviewCards.length;
     return (
       <>
         <div className="admin-menu-tab-stack">
           <MenuSection
             title="Availability"
-            description="Create custom windows that control when each menu is visible — with hours, days, and your own card colors."
+            description="Rule-based windows evaluated by the backend SSOT — schedule, stock, channels, locations, and visibility with clear reasons."
             action={
-              <MenuToolbarButton primary disabled={!can("menu", "edit")} onClick={() => setCreateAvailabilityOpen(true)}>
-                Create
-              </MenuToolbarButton>
+              <div className="admin-menu-action-row">
+                {realCardCount > 0 ? (
+                  <MenuToolbarButton
+                    onClick={() => setManageAvailabilityOpen(true)}
+                  >
+                    {selectedAvailabilityKeys.size > 0
+                      ? `Manage selected (${selectedAvailabilityKeys.size})`
+                      : "Manage"}
+                  </MenuToolbarButton>
+                ) : null}
+                <MenuToolbarButton primary disabled={!can("menu", "edit")} onClick={() => setCreateAvailabilityOpen(true)}>
+                  Create
+                </MenuToolbarButton>
+              </div>
             }
           >
             {availabilityCards.length === 0 ? (
               <AdminEmptyState>No availability windows yet — create one to schedule when menus appear.</AdminEmptyState>
             ) : (
-              <>
+              <div className="admin-menu-availability-stack">
                 <MenuListSearchField
                   value={listSearch}
                   onChange={setListSearch}
-                  placeholder="Search availability by label, menu, or hours…"
+                  placeholder="Search by label, status, menu, or hours…"
                   aria-label="Search availability"
                 />
                 {filteredAvailability.length === 0 ? (
-                  <p className="admin-config-text-muted py-2 text-sm">No availability windows match your search.</p>
+                  <p className="admin-config-text-muted text-sm">No availability windows match your search.</p>
                 ) : (
                   <>
                     <div
-                      className={`admin-menu-availability-grid ${availabilityPager.pageClassName}`}
+                      className={`admin-menu-availability-grid admin-menu-availability-grid--rich ${availabilityPager.pageClassName}`}
                       key={availabilityPager.pageKey}
                     >
                       {availabilityPager.pagedItems.map((card, index) => {
-                        const cardKey = `${card.menuId}:${card.key}`;
+                        const cardKey = cardKeyOf(card);
                         const style = availabilityCardStyle(card.window.color);
+                        const selected = selectedAvailabilityKeys.has(cardKey);
+                        const isMock = isUiOnlyListId(card.key) || isUiOnlyListId(card.menuId);
+                        const status = card.evaluation.status;
+                        const reasons = card.evaluation.reasons.filter((r) => r.ok).slice(0, 5);
+                        const blocked = card.evaluation.reasons.find((r) => !r.ok);
                         return (
                           <div
                             key={cardKey}
-                            className="admin-menu-availability-card"
+                            className={`admin-menu-availability-card admin-menu-availability-card--rich${selected ? " is-selected" : ""}${availabilityBusyKey === cardKey ? " is-busy" : ""}`}
                             style={{ ...style, animationDelay: `${Math.min(index, 12) * 36}ms` }}
                           >
                             <div className="admin-menu-availability-card__header">
-                              <div className="min-w-0 flex-1">
+                              <label className="admin-menu-availability-card__select">
+                                <input
+                                  type="checkbox"
+                                  className="admin-menu-surface-checkbox"
+                                  checked={selected}
+                                  disabled={isMock}
+                                  aria-label={`Select ${card.window.label}`}
+                                  onChange={(e) => toggleAvailabilitySelect(card, e.target.checked)}
+                                />
+                              </label>
+                              <div className="admin-menu-availability-card__meta min-w-0 flex-1">
                                 <p className="font-display text-base font-bold admin-config-text truncate">{card.window.label}</p>
-                                <p className="admin-config-text-subtle mt-1 text-xs">
-                                  {card.window.start} – {card.window.end}
-                                </p>
+                                <p className="admin-config-text-muted text-[0.65rem] truncate">{card.menuName}</p>
                               </div>
                               {availabilityMenuActions.length > 0 ? (
                                 <MenuEntityActionsMenu
                                   entityName={card.window.label}
-                                  subtitle="Availability window actions"
+                                  subtitle="Availability actions"
                                   open={openAvailabilityMenuKey === cardKey}
                                   actions={availabilityMenuActions}
                                   onToggle={() => setOpenAvailabilityMenuKey((id) => (id === cardKey ? null : cardKey))}
@@ -655,12 +411,72 @@ export function AdminMenuTabContent({
                                 />
                               ) : null}
                             </div>
-                            <p className="admin-config-text-subtle text-xs">{formatAvailabilityDays(card.window.days)}</p>
-                            <p className="admin-config-text-muted text-xs">Menu: {card.menuName}</p>
-                            <div className="admin-menu-availability-card__footer">
-                              <MenuChip tone={card.window.enabled ? "success" : "muted"}>
-                                {card.window.enabled ? "Enabled" : "Disabled"}
+
+                            <div className="admin-avail-status-row">
+                              <MenuChip
+                                tone={
+                                  card.evaluation.orderable
+                                    ? "success"
+                                    : status === "OUT_OF_STOCK"
+                                      ? "violet"
+                                      : "muted"
+                                }
+                              >
+                                {STATUS_LABELS[status]}
                               </MenuChip>
+                            </div>
+
+                            <div className="admin-avail-because">
+                              <p className="admin-avail-because__title">
+                                {card.evaluation.orderable ? "Available because" : "Unavailable because"}
+                              </p>
+                              <ul className="admin-avail-reason-list admin-avail-reason-list--compact">
+                                {card.evaluation.orderable
+                                  ? reasons.map((r) => (
+                                      <li key={`${r.code}-${r.label}`} className="is-ok">
+                                        <span aria-hidden>✓</span> {r.label}
+                                      </li>
+                                    ))
+                                  : blocked ? (
+                                      <li className="is-blocked">
+                                        <span aria-hidden>✗</span> {blocked.label}
+                                      </li>
+                                    ) : (
+                                      <li className="is-blocked">
+                                        <span aria-hidden>✗</span> Not orderable
+                                      </li>
+                                    )}
+                              </ul>
+                            </div>
+
+                            <div className="admin-avail-meta-lines">
+                              <span>{formatAvailabilityDays(card.window.days)}</span>
+                              <span>
+                                {card.window.start}–{card.window.end}
+                              </span>
+                              <span>{formatAvailabilityLocations(card.window)}</span>
+                              <span>{formatAvailabilityChannels(card.window.channels)}</span>
+                              <span>{card.window.outOfStock ? "Out of stock" : "Stock OK"}</span>
+                            </div>
+
+                            <div className="admin-menu-availability-card__footer admin-avail-card-actions">
+                              <button
+                                type="button"
+                                className="admin-avail-card-link"
+                                disabled={isMock}
+                                onClick={() =>
+                                  handleAvailabilityMenuAction(card, "edit")
+                                }
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                className="admin-avail-card-link"
+                                onClick={() => handleAvailabilityMenuAction(card, "preview")}
+                              >
+                                Preview
+                              </button>
                               <span
                                 className="admin-menu-availability-card__color-dot"
                                 style={{ backgroundColor: card.window.color }}
@@ -683,10 +499,72 @@ export function AdminMenuTabContent({
                     ) : null}
                   </>
                 )}
-              </>
+              </div>
             )}
           </MenuSection>
         </div>
+
+        <AvailabilityManageDrawer
+          open={manageAvailabilityOpen}
+          cards={availabilityOverviewCards}
+          selectedKeys={selectedAvailabilityKeys}
+          menus={menus}
+          locations={availabilityLocations}
+          token={token}
+          restaurantId={restaurantId}
+          venueName={venueName}
+          onClose={() => setManageAvailabilityOpen(false)}
+          onRefresh={() => {
+            onMenusRefresh();
+            void refreshAvailabilityOverview();
+          }}
+          onClearSelection={() => setSelectedAvailabilityKeys(new Set())}
+          onEditWindow={(card) => {
+            setEditAvailabilityTarget({
+              key: card.key,
+              menuId: card.menuId,
+              menuName: card.menuName,
+              window: card.window
+            });
+            setEditAvailabilityOpen(true);
+          }}
+          onPreviewWindow={(card) => setPreviewAvailabilityCard(card)}
+        />
+
+        {previewAvailabilityCard ? (
+          <MenuPageModalShell
+            open
+            onClose={() => setPreviewAvailabilityCard(null)}
+            title={`Preview · ${previewAvailabilityCard.window.label}`}
+            titleId="avail-preview-modal"
+            stackLevel="overlay"
+            maxWidthClass="max-w-md"
+          >
+            <p className="admin-avail-because__title mb-2">
+              Orderable: {previewAvailabilityCard.evaluation.orderable ? "YES" : "NO"}
+            </p>
+            <p className="admin-config-text-muted text-xs mb-3">
+              Status: {STATUS_LABELS[previewAvailabilityCard.evaluation.status]} · {previewAvailabilityCard.menuName}
+            </p>
+            <ul className="admin-avail-reason-list">
+              {previewAvailabilityCard.evaluation.reasons.map((r) => (
+                <li key={`${r.code}-${r.label}`} className={r.ok ? "is-ok" : "is-blocked"}>
+                  <span aria-hidden>{r.ok ? "✓" : "✗"}</span> {r.label}
+                </li>
+              ))}
+            </ul>
+            <ProfileModalFooter
+              cancelLabel="Close"
+              onCancel={() => setPreviewAvailabilityCard(null)}
+              confirmLabel="Edit"
+              onConfirm={() => {
+                const card = previewAvailabilityCard;
+                setPreviewAvailabilityCard(null);
+                handleAvailabilityMenuAction(card, "edit");
+              }}
+            />
+          </MenuPageModalShell>
+        ) : null}
 
         <CreateAvailabilityModal
           open={createAvailabilityOpen}
@@ -695,9 +573,11 @@ export function AdminMenuTabContent({
           restaurantId={restaurantId}
           venueName={venueName}
           menus={menus}
+          locations={availabilityLocations}
           onCreated={() => {
             pushToast("Availability window created.", "success");
             onMenusRefresh();
+            void refreshAvailabilityOverview();
           }}
           onNavigateTab={onNavigateTab}
         />
@@ -709,6 +589,7 @@ export function AdminMenuTabContent({
           token={token}
           restaurantId={restaurantId}
           menus={menus}
+          locations={availabilityLocations}
           onClose={() => {
             setEditAvailabilityOpen(false);
             setEditAvailabilityTarget(null);
@@ -716,6 +597,7 @@ export function AdminMenuTabContent({
           onSaved={() => {
             pushToast("Availability window updated.", "success");
             onMenusRefresh();
+            void refreshAvailabilityOverview();
           }}
         />
 
@@ -735,6 +617,7 @@ export function AdminMenuTabContent({
           onDeleted={() => {
             pushToast("Availability window deleted.", "success");
             onMenusRefresh();
+            void refreshAvailabilityOverview();
           }}
         />
       </>

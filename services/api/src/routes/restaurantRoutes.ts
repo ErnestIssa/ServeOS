@@ -590,7 +590,8 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
     name: z.string().min(1).optional(),
     minSelect: z.number().int().nonnegative().optional(),
     maxSelect: z.number().int().nonnegative().optional(),
-    sortOrder: z.number().int().optional()
+    sortOrder: z.number().int().optional(),
+    lifecycle: z.enum(["ACTIVE", "ARCHIVED"]).optional()
   });
 
   app.patch("/restaurants/:restaurantId/menu/modifier-groups/:groupId", async (req) => {
@@ -610,6 +611,106 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
     await assertGroupRestaurant(groupId, restaurantId);
     await prisma.modifierGroup.delete({ where: { id: groupId } });
     return { ok: true };
+  });
+
+  async function cloneGroupOntoItem(
+    source: {
+      name: string;
+      minSelect: number;
+      maxSelect: number;
+      sortOrder: number;
+      lifecycle: "ACTIVE" | "ARCHIVED";
+      options: Array<{
+        name: string;
+        priceDeltaCents: number;
+        sortOrder: number;
+        isActive: boolean;
+      }>;
+    },
+    targetItemId: string,
+    name: string
+  ) {
+    const sortOrder = await prisma.modifierGroup.count({ where: { menuItemId: targetItemId } });
+    return prisma.$transaction(async (tx) => {
+      const group = await tx.modifierGroup.create({
+        data: {
+          menuItemId: targetItemId,
+          name,
+          minSelect: source.minSelect,
+          maxSelect: source.maxSelect,
+          sortOrder,
+          lifecycle: "ACTIVE"
+        }
+      });
+      for (const opt of source.options) {
+        await tx.modifierOption.create({
+          data: {
+            modifierGroupId: group.id,
+            name: opt.name,
+            priceDeltaCents: opt.priceDeltaCents,
+            sortOrder: opt.sortOrder,
+            isActive: opt.isActive
+          }
+        });
+      }
+      return group;
+    });
+  }
+
+  app.post("/restaurants/:restaurantId/menu/modifier-groups/:groupId/duplicate", async (req, reply) => {
+    const { restaurantId, groupId } = req.params as { restaurantId: string; groupId: string };
+    const { membership } = await requireStaff(req, restaurantId);
+    assertMenuEntityPermission("modifier_group", "create", membership);
+    const source = await prisma.modifierGroup.findFirst({
+      where: { id: groupId },
+      include: {
+        options: true,
+        menuItem: { include: { category: { select: { restaurantId: true } } } }
+      }
+    });
+    if (!source || source.menuItem.category.restaurantId !== restaurantId) {
+      return reply.status(404).send({ ok: false, error: "modifier_group_not_found", message: "Modifier group not found." });
+    }
+    const group = await cloneGroupOntoItem(source, source.menuItemId, `${source.name} (copy)`);
+    return { ok: true, group };
+  });
+
+  const attachGroupSchema = z.object({
+    itemIds: z.array(z.string().min(1)).min(1)
+  });
+
+  app.post("/restaurants/:restaurantId/menu/modifier-groups/:groupId/attach", async (req, reply) => {
+    const { restaurantId, groupId } = req.params as { restaurantId: string; groupId: string };
+    const { membership } = await requireStaff(req, restaurantId);
+    assertMenuEntityPermission("modifier_group", "create", membership);
+    const body = attachGroupSchema.parse(req.body);
+    const source = await prisma.modifierGroup.findFirst({
+      where: { id: groupId },
+      include: {
+        options: true,
+        menuItem: { include: { category: { select: { restaurantId: true } } } }
+      }
+    });
+    if (!source || source.menuItem.category.restaurantId !== restaurantId) {
+      return reply.status(404).send({ ok: false, error: "modifier_group_not_found", message: "Modifier group not found." });
+    }
+
+    const uniqueItemIds = [...new Set(body.itemIds)].filter((id) => id !== source.menuItemId);
+    if (uniqueItemIds.length === 0) {
+      return reply.status(400).send({
+        ok: false,
+        error: "no_target_items",
+        message: "Choose at least one other item to attach this group to."
+      });
+    }
+
+    const created: Array<{ id: string; menuItemId: string }> = [];
+    for (const itemId of uniqueItemIds) {
+      await assertItemRestaurant(itemId, restaurantId);
+      const group = await cloneGroupOntoItem(source, itemId, source.name);
+      created.push({ id: group.id, menuItemId: itemId });
+    }
+    return { ok: true, groups: created };
   });
 
   const createOptionSchema = z.object({
@@ -641,7 +742,9 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
     name: z.string().min(1).optional(),
     priceDeltaCents: z.number().int().optional(),
     sortOrder: z.number().int().optional(),
-    isActive: z.boolean().optional()
+    isActive: z.boolean().optional(),
+    lifecycle: z.enum(["ACTIVE", "ARCHIVED"]).optional(),
+    modifierGroupId: z.string().min(1).optional()
   });
 
   app.patch("/restaurants/:restaurantId/menu/modifier-options/:optionId", async (req) => {
@@ -650,6 +753,9 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
     assertMenuEntityPermission("modifier_option", "edit", membership);
     await assertOptionRestaurant(optionId, restaurantId);
     const body = patchOptionSchema.parse(req.body);
+    if (body.modifierGroupId) {
+      await assertGroupRestaurant(body.modifierGroupId, restaurantId);
+    }
     const option = await prisma.modifierOption.update({ where: { id: optionId }, data: body });
     return { ok: true, option };
   });
@@ -661,5 +767,34 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
     await assertOptionRestaurant(optionId, restaurantId);
     await prisma.modifierOption.delete({ where: { id: optionId } });
     return { ok: true };
+  });
+
+  app.post("/restaurants/:restaurantId/menu/modifier-options/:optionId/duplicate", async (req, reply) => {
+    const { restaurantId, optionId } = req.params as { restaurantId: string; optionId: string };
+    const { membership } = await requireStaff(req, restaurantId);
+    assertMenuEntityPermission("modifier_option", "create", membership);
+    const source = await prisma.modifierOption.findFirst({
+      where: { id: optionId },
+      include: { group: { include: { menuItem: { include: { category: { select: { restaurantId: true } } } } } } }
+    });
+    if (!source || source.group.menuItem.category.restaurantId !== restaurantId) {
+      return reply.status(404).send({
+        ok: false,
+        error: "modifier_option_not_found",
+        message: "Modifier option not found."
+      });
+    }
+    const sortOrder = await prisma.modifierOption.count({ where: { modifierGroupId: source.modifierGroupId } });
+    const option = await prisma.modifierOption.create({
+      data: {
+        modifierGroupId: source.modifierGroupId,
+        name: `${source.name} (copy)`,
+        priceDeltaCents: source.priceDeltaCents,
+        sortOrder,
+        isActive: false,
+        lifecycle: "ACTIVE"
+      }
+    });
+    return { ok: true, option };
   });
 }

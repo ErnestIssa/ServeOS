@@ -31,6 +31,7 @@ export type UiMockModifierGroup = {
   minSelect: number;
   maxSelect: number;
   optionCount: number;
+  lifecycle: "ACTIVE" | "ARCHIVED";
 };
 export type UiMockModifierOption = {
   id: string;
@@ -40,6 +41,7 @@ export type UiMockModifierOption = {
   groupName: string;
   priceDeltaCents: number;
   isActive: boolean;
+  lifecycle: "ACTIVE" | "ARCHIVED";
 };
 
 const MENU_EXTRA_SEEDS: Array<{
@@ -213,7 +215,8 @@ export const UI_MOCK_MODIFIER_GROUPS: UiMockModifierGroup[] = GROUP_SEEDS.map(
     itemId: `ui-mock-item-${(index % 16) + 1}`,
     minSelect,
     maxSelect,
-    optionCount
+    optionCount,
+    lifecycle: index % 9 === 0 ? "ARCHIVED" : "ACTIVE"
   })
 );
 
@@ -244,7 +247,8 @@ export const UI_MOCK_MODIFIER_OPTIONS: UiMockModifierOption[] = OPTION_SEEDS.map
     itemName,
     groupId: `ui-mock-mod-group-${(index % 16) + 1}`,
     priceDeltaCents,
-    isActive: index % 6 !== 5
+    isActive: index % 6 !== 5,
+    lifecycle: index % 10 === 0 ? "ARCHIVED" : "ACTIVE"
   })
 );
 

@@ -1,4 +1,11 @@
-import type { MenuAvailabilityWindow, MenuAvailabilityWindows, MenuSurfaceRow } from "../../../api";
+import type {
+  AvailabilityChannel,
+  AvailabilityComputedStatus,
+  AvailabilityEvaluation,
+  MenuAvailabilityWindow,
+  MenuAvailabilityWindows,
+  MenuSurfaceRow
+} from "../../../api";
 import { scheduleRestaurantMenu } from "../../../api";
 
 export const AVAILABILITY_DAY_OPTIONS = [
@@ -10,6 +17,28 @@ export const AVAILABILITY_DAY_OPTIONS = [
   { value: 6, label: "Sat" },
   { value: 0, label: "Sun" }
 ] as const;
+
+export const CHANNEL_LABELS: Record<AvailabilityChannel, string> = {
+  DINE_IN: "Dine-in",
+  TAKEAWAY: "Takeaway",
+  DELIVERY: "Delivery",
+  QR: "QR",
+  KIOSK: "Kiosk",
+  STAFF: "Staff"
+};
+
+export const STATUS_LABELS: Record<AvailabilityComputedStatus, string> = {
+  AVAILABLE: "Available",
+  UNAVAILABLE: "Unavailable",
+  SCHEDULED: "Scheduled",
+  OUT_OF_STOCK: "Out of Stock",
+  HIDDEN: "Hidden",
+  SEASONAL: "Seasonal",
+  EXPIRED: "Expired",
+  PAUSED: "Paused",
+  TESTING: "Testing",
+  INHERITED: "Inherited"
+};
 
 export const AVAILABILITY_COLOR_PRESETS = [
   "#7c3aed",
@@ -29,6 +58,8 @@ export type AvailabilityCard = {
   menuId: string;
   menuName: string;
   window: MenuAvailabilityWindow;
+  evaluation?: AvailabilityEvaluation;
+  menuStatus?: "DRAFT" | "PUBLISHED" | "ARCHIVED";
 };
 
 export function isUserCreatedAvailabilityWindow(window: unknown): window is MenuAvailabilityWindow {
@@ -72,8 +103,21 @@ export function formatAvailabilityDays(days: number[]) {
   });
   if (sorted.length === 0) return "No days selected";
   if (sorted.length === 7) return "Every day";
+  if (sorted.length === 5 && [1, 2, 3, 4, 5].every((d) => sorted.includes(d))) return "Every weekday";
+  if (sorted.length === 2 && sorted.includes(0) && sorted.includes(6)) return "Weekends only";
   const labels = sorted.map((d) => AVAILABILITY_DAY_OPTIONS.find((o) => o.value === d)?.label ?? String(d));
   return labels.join(", ");
+}
+
+export function formatAvailabilityChannels(channels?: AvailabilityChannel[]) {
+  if (!channels?.length || channels.length === 6) return "All channels";
+  return channels.map((c) => CHANNEL_LABELS[c]).join(" + ");
+}
+
+export function formatAvailabilityLocations(window: MenuAvailabilityWindow) {
+  if (!window.locationMode || window.locationMode === "ALL") return "All locations";
+  const n = window.locationIds?.length ?? 0;
+  return n === 1 ? "1 location" : `${n} locations`;
 }
 
 export function makeAvailabilityKey(label: string) {

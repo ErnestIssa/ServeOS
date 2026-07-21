@@ -6,6 +6,8 @@ import {
   publicUrlForKey
 } from "../integrations/objectStorage.js";
 import { fetchMenuTree } from "../menu.js";
+import { evaluateAvailability, type AvailabilityEvaluation } from "./availabilityEvaluationService.js";
+import { sanitizeAvailabilityWindows } from "./menuAvailability.js";
 
 export type PublicMenuMedia = {
   id: string;
@@ -25,6 +27,11 @@ export type PublicMenuItem = {
   imageKey: string | null;
   coverUrl: string | null;
   media: PublicMenuMedia[];
+  /** SSOT orderability from availabilityEvaluationService */
+  orderable?: boolean;
+  availabilityStatus?: string;
+  availabilityReasons?: AvailabilityEvaluation["reasons"];
+  isSoldOut?: boolean;
   modifierGroups: Array<{
     id: string;
     name: string;
@@ -281,11 +288,11 @@ async function buildBrowsableLiveCategories(
 export async function buildPublishedPublicMenu(
   prisma: PrismaClient,
   restaurantId: string,
-  opts?: { menuId?: string | null }
+  opts?: { menuId?: string | null; channel?: "DINE_IN" | "TAKEAWAY" | "DELIVERY" | "QR" | "KIOSK" | "STAFF" }
 ): Promise<PublicMenuPayload | null> {
   const restaurant = await prisma.restaurant.findUnique({
     where: { id: restaurantId },
-    select: { id: true, name: true }
+    select: { id: true, name: true, openingHours: true }
   });
   if (!restaurant) return null;
 
@@ -338,8 +345,56 @@ export async function buildPublishedPublicMenu(
 
   categories = await hydrateMenuCategoryUrls(prisma, categories);
 
+  const windows = sanitizeAvailabilityWindows(menu?.availabilityWindows ?? null);
+  const channel = opts?.channel ?? "QR";
+  const timezone = "Europe/Stockholm";
+
+  // Attach SSOT orderability (browse still shows items; clients gate add-to-cart on orderable).
+  const liveItems = menu
+    ? await prisma.menuItem.findMany({
+        where: { category: { restaurantId, ...(menu.id ? { menuId: menu.id } : {}) } },
+        select: { id: true, isActive: true, isSoldOut: true, lifecycle: true, category: { select: { isActive: true } } }
+      })
+    : [];
+  const liveById = new Map(liveItems.map((i) => [i.id, i]));
+
+  categories = categories.map((cat) => ({
+    ...cat,
+    items: cat.items
+      .map((item) => {
+        const live = liveById.get(item.id);
+        const evaluation = evaluateAvailability({
+          openingHours: restaurant.openingHours,
+          timezone,
+          menuStatus: menu?.status === "PUBLISHED" ? "PUBLISHED" : menu?.status === "ARCHIVED" ? "ARCHIVED" : "DRAFT",
+          scheduledPublishAt: menu?.scheduledPublishAt ?? null,
+          scheduledUnpublishAt: menu?.scheduledUnpublishAt ?? null,
+          windows,
+          categoryActive: live?.category.isActive ?? cat.isActive,
+          itemActive: live?.isActive ?? item.isActive,
+          itemLifecycle: live?.lifecycle ?? "ACTIVE",
+          itemSoldOut: live?.isSoldOut ?? false,
+          channel,
+          locationId: restaurant.id,
+          audience: "CUSTOMER"
+        });
+        return {
+          ...item,
+          isSoldOut: live?.isSoldOut ?? false,
+          orderable: evaluation.orderable,
+          availabilityStatus: evaluation.status,
+          availabilityReasons: evaluation.reasons,
+          _hide: !evaluation.orderable && (evaluation.status === "HIDDEN" || evaluation.status === "TESTING")
+        };
+      })
+      .filter((item) => !item._hide)
+      .map(({ _hide: _, ...item }) => item)
+  })).filter((c) => c.items.length > 0);
+
+  if (!categories.length) return null;
+
   return {
-    restaurant,
+    restaurant: { id: restaurant.id, name: restaurant.name },
     menuId: menu?.id ?? null,
     menuVersionNumber: menu?.activeVersion?.versionNumber ?? null,
     publishedAt: menu?.activeVersion?.publishedAt?.toISOString() ?? null,
