@@ -6,11 +6,18 @@ import {
   type MenuSurfaceRow
 } from "../../api";
 
+export type AdminMenusListQuery = {
+  q?: string;
+  sort?: string;
+  filters?: string[];
+};
+
 export function useAdminMenus(
   token: string | null,
   restaurantId: string | null,
   status: MenuListStatusFilter = "active",
-  enabled = true
+  enabled = true,
+  listQuery: AdminMenusListQuery = {}
 ) {
   const [menus, setMenus] = useState<MenuSurfaceRow[]>([]);
   const [pagination, setPagination] = useState<MenuListPagination | null>(null);
@@ -22,41 +29,52 @@ export function useAdminMenus(
   const initialLoading = loading && !hasLoadedOnce.current;
   const refreshing = loading && hasLoadedOnce.current;
 
-  const reload = useCallback(async (opts?: { soft?: boolean }) => {
-    if (!hookEnabled || !token || !restaurantId) return;
-    const soft = Boolean(opts?.soft && hasLoadedOnce.current);
-    if (!soft) setLoading(true);
-    setError(null);
-    // Full list from backend (SSOT total); UI paginates after merging preview rows.
-    const res = await listRestaurantMenus(token, restaurantId, status);
-    if (!soft) setLoading(false);
-    hasLoadedOnce.current = true;
-    if (!res.ok || !res.menus) {
-      setError(res.message ?? res.error ?? "Failed to load menus");
-      if (!menus.length) {
-        setMenus([]);
-        setPagination(null);
+  const q = listQuery.q?.trim() ?? "";
+  const sort = listQuery.sort?.trim() || undefined;
+  const filters = (listQuery.filters ?? []).filter(Boolean);
+  const filtersKey = filters.slice().sort().join(",");
+
+  const reload = useCallback(
+    async (opts?: { soft?: boolean }) => {
+      if (!hookEnabled || !token || !restaurantId) return;
+      const soft = Boolean(opts?.soft && hasLoadedOnce.current);
+      if (!soft) setLoading(true);
+      setError(null);
+      const res = await listRestaurantMenus(token, restaurantId, status, {
+        ...(q ? { q } : {}),
+        ...(sort ? { sort } : {}),
+        ...(filtersKey ? { filters: filtersKey.split(",") } : {})
+      });
+      if (!soft) setLoading(false);
+      hasLoadedOnce.current = true;
+      if (!res.ok || !res.menus) {
+        setError(res.message ?? res.error ?? "Failed to load menus");
+        if (!menus.length) {
+          setMenus([]);
+          setPagination(null);
+        }
+        return;
       }
-      return;
-    }
-    setMenus(res.menus);
-    setPagination(
-      res.pagination ?? {
-        page: 1,
-        pageSize: Math.max(res.menus.length, 1),
-        total: res.menus.length,
-        totalPages: 1,
-        hasNextPage: false,
-        hasPrevPage: false
-      }
-    );
-  }, [hookEnabled, token, restaurantId, status]);
+      setMenus(res.menus);
+      setPagination(
+        res.pagination ?? {
+          page: 1,
+          pageSize: Math.max(res.menus.length, 1),
+          total: res.menus.length,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPrevPage: false
+        }
+      );
+    },
+    [hookEnabled, token, restaurantId, status, q, sort, filtersKey]
+  );
 
   useEffect(() => {
     hasLoadedOnce.current = false;
     setMenus([]);
     setPagination(null);
-  }, [token, restaurantId, status]);
+  }, [token, restaurantId, status, q, sort, filtersKey]);
 
   useEffect(() => {
     void reload();

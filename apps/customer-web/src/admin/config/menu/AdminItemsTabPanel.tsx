@@ -31,6 +31,11 @@ import { MenuActionConfirmModal } from "./MenuActionConfirmModal";
 import { MenuEntityActionsMenu } from "./MenuEntityActionsMenu";
 import { MenuItemProfileDrawer } from "./MenuItemProfileDrawer";
 import { isUiOnlyListId, matchesListSearch, UI_MOCK_CATEGORIES, UI_MOCK_ITEMS } from "./menuListUiMocks";
+import {
+  applyItemListFilters,
+  applyItemListSort,
+  ITEM_LIST_QUERY
+} from "./menuListQuery";
 import { MenuListSearchField, MenuToolbarButton } from "./MenuPageUi";
 import { MenuSurfacePagination } from "./MenuSurfacePagination";
 import { useMenuListPagination } from "./useMenuListPagination";
@@ -159,6 +164,8 @@ export function AdminItemsTabPanel({
   const [editOpen, setEditOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<EditItemTarget | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [activeSort, setActiveSort] = useState(ITEM_LIST_QUERY.defaultSort);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const selectAllRef = useRef<HTMLInputElement>(null);
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
@@ -200,25 +207,24 @@ export function AdminItemsTabPanel({
     [realItems]
   );
 
-  const filtered = useMemo(
-    () =>
-      items.filter((i) =>
-        matchesListSearch(
-          searchQuery,
-          i.name,
-          i.description,
-          i.categoryName,
-          i.menuName,
-          itemStatusLabel(i),
-          formatMoneyCents(i.priceCents),
-          i.modifierCount
-        )
-      ),
-    [items, searchQuery]
-  );
+  const filtered = useMemo(() => {
+    const searched = items.filter((i) =>
+      matchesListSearch(
+        searchQuery,
+        i.name,
+        i.description,
+        i.categoryName,
+        i.menuName,
+        itemStatusLabel(i),
+        formatMoneyCents(i.priceCents),
+        i.modifierCount
+      )
+    );
+    return applyItemListSort(applyItemListFilters(searched, activeFilters), activeSort);
+  }, [items, searchQuery, activeFilters, activeSort]);
 
   const pager = useMenuListPagination(filtered, {
-    resetKey: searchQuery.trim().toLowerCase()
+    resetKey: `${searchQuery.trim().toLowerCase()}:${activeFilters.join(",")}:${activeSort}`
   });
 
   const selectablePaged = useMemo(
@@ -434,13 +440,24 @@ export function AdminItemsTabPanel({
             onChange={setSearchQuery}
             placeholder="Search items by name, category, or status…"
             aria-label="Search items"
+            filterGroups={ITEM_LIST_QUERY.filterGroups}
+            sortOptions={ITEM_LIST_QUERY.sortOptions}
+            defaultSort={ITEM_LIST_QUERY.defaultSort}
+            activeFilters={activeFilters}
+            activeSort={activeSort}
+            totalCount={items.length}
+            resultCount={filtered.length}
+            onFiltersChange={setActiveFilters}
+            onSortChange={setActiveSort}
+            filterTitle="Filter items"
+            sortTitle="Sort items"
           />
         ) : null}
 
         {items.length === 0 ? (
           <AdminEmptyState>No items yet — add products to populate your menu.</AdminEmptyState>
         ) : filtered.length === 0 ? (
-          <p className="admin-config-text-muted py-2 text-sm">No items match your search.</p>
+          <p className="admin-config-text-muted py-2 text-sm">No items match your search or filters.</p>
         ) : (
           <>
             <label className="admin-menu-surface-select-all">

@@ -51,6 +51,11 @@ import {
   matchesListSearch,
   UI_MOCK_AVAILABILITY
 } from "./menuListUiMocks";
+import {
+  applyAvailabilityListFilters,
+  applyAvailabilityListSort,
+  AVAILABILITY_LIST_QUERY
+} from "./menuListQuery";
 import { useMenuListPagination } from "./useMenuListPagination";
 import { MenuPageModalShell, ProfileModalFooter } from "./menuPageModalShell";
 
@@ -97,6 +102,8 @@ export function AdminMenuTabContent({
   const [deleteAvailabilityMenuId, setDeleteAvailabilityMenuId] = useState<string | null>(null);
   const [deleteAvailabilityLabel, setDeleteAvailabilityLabel] = useState<string | null>(null);
   const [listSearch, setListSearch] = useState("");
+  const [availabilityFilters, setAvailabilityFilters] = useState<string[]>([]);
+  const [availabilitySort, setAvailabilitySort] = useState(AVAILABILITY_LIST_QUERY.defaultSort);
   const [availabilityOverviewCards, setAvailabilityOverviewCards] = useState<AvailabilityCardPayload[]>([]);
   const [availabilityLocations, setAvailabilityLocations] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedAvailabilityKeys, setSelectedAvailabilityKeys] = useState<Set<string>>(new Set());
@@ -107,6 +114,8 @@ export function AdminMenuTabContent({
 
   useEffect(() => {
     setListSearch("");
+    setAvailabilityFilters([]);
+    setAvailabilitySort(AVAILABILITY_LIST_QUERY.defaultSort);
     setSelectedAvailabilityKeys(new Set());
   }, [tab]);
 
@@ -162,23 +171,27 @@ export function AdminMenuTabContent({
 
   const categories = api.menu?.categories ?? [];
 
-  const filteredAvailability = useMemo(
-    () =>
-      availabilityCards.filter((card) =>
-        matchesListSearch(
-          listSearch,
-          card.window.label,
-          card.menuName,
-          card.window.start,
-          card.window.end,
-          card.evaluation.status,
-          card.window.enabled ? "enabled" : "disabled"
-        )
-      ),
-    [availabilityCards, listSearch]
-  );
+  const filteredAvailability = useMemo(() => {
+    const searched = availabilityCards.filter((card) =>
+      matchesListSearch(
+        listSearch,
+        card.window.label,
+        card.menuName,
+        card.window.start,
+        card.window.end,
+        card.evaluation.status,
+        card.window.enabled ? "enabled" : "disabled"
+      )
+    );
+    return applyAvailabilityListSort(
+      applyAvailabilityListFilters(searched, availabilityFilters),
+      availabilitySort
+    );
+  }, [availabilityCards, listSearch, availabilityFilters, availabilitySort]);
 
-  const availabilityPager = useMenuListPagination(filteredAvailability, { resetKey: listSearch });
+  const availabilityPager = useMenuListPagination(filteredAvailability, {
+    resetKey: `${listSearch}:${availabilityFilters.join(",")}:${availabilitySort}`
+  });
 
   const toastPreviewOnly = () => {
     pushToast("Preview row only — not connected to the backend.", "error");
@@ -373,9 +386,20 @@ export function AdminMenuTabContent({
                   onChange={setListSearch}
                   placeholder="Search by label, status, menu, or hours…"
                   aria-label="Search availability"
+                  filterGroups={AVAILABILITY_LIST_QUERY.filterGroups}
+                  sortOptions={AVAILABILITY_LIST_QUERY.sortOptions}
+                  defaultSort={AVAILABILITY_LIST_QUERY.defaultSort}
+                  activeFilters={availabilityFilters}
+                  activeSort={availabilitySort}
+                  totalCount={availabilityCards.length}
+                  resultCount={filteredAvailability.length}
+                  onFiltersChange={setAvailabilityFilters}
+                  onSortChange={setAvailabilitySort}
+                  filterTitle="Filter availability"
+                  sortTitle="Sort availability"
                 />
                 {filteredAvailability.length === 0 ? (
-                  <p className="admin-config-text-muted text-sm">No availability windows match your search.</p>
+                  <p className="admin-config-text-muted text-sm">No availability windows match your search or filters.</p>
                 ) : (
                   <>
                     <div

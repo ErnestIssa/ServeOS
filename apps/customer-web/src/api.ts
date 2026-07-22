@@ -446,12 +446,15 @@ export async function listRestaurantMenus(
   token: string,
   restaurantId: string,
   status: MenuListStatusFilter = "active",
-  params?: { page?: number; pageSize?: number }
+  params?: { page?: number; pageSize?: number; q?: string; sort?: string; filters?: string[] }
 ) {
   const search = new URLSearchParams();
   if (status !== "active") search.set("status", status);
   if (params?.page != null) search.set("page", String(params.page));
   if (params?.pageSize != null) search.set("pageSize", String(params.pageSize));
+  if (params?.q?.trim()) search.set("q", params.q.trim());
+  if (params?.sort?.trim()) search.set("sort", params.sort.trim());
+  if (params?.filters?.length) search.set("filters", params.filters.join(","));
   const query = search.toString() ? `?${search.toString()}` : "";
   return apiFetch<{
     ok: boolean;

@@ -19,6 +19,11 @@ import { MenuPublishReviewModal, MenuVersionHistoryDrawer } from "./MenuReleaseM
 import { MenuListSearchField, MenuToolbarButton } from "./MenuPageUi";
 import { MenuSurfacePagination } from "./MenuSurfacePagination";
 import {
+  applyMenuListFilters,
+  applyMenuListSort,
+  MENU_LIST_QUERY
+} from "./menuListQuery";
+import {
   isUiOnlyListId,
   UI_MOCK_ARCHIVED_MENUS,
   UI_MOCK_LIVE_MENUS,
@@ -379,6 +384,8 @@ export function AdminMenusTabPanel({
   const [createOpen, setCreateOpen] = useState(false);
   const [editMenu, setEditMenu] = useState<MenuSurfaceRow | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [activeSort, setActiveSort] = useState(MENU_LIST_QUERY.defaultSort);
   const [selectedMenuIds, setSelectedMenuIds] = useState<Set<string>>(() => new Set());
   const selectAllRef = useRef<HTMLInputElement>(null);
   const [openMenuActionsId, setOpenMenuActionsId] = useState<string | null>(null);
@@ -427,14 +434,15 @@ export function AdminMenusTabPanel({
 
   const realMenus = useMemo(() => menus.filter((m) => !isUiOnlyMenu(m)), [menus]);
 
-  const filteredMenus = useMemo(
-    () => menus.filter((m) => matchesMenuSearch(m, searchQuery, venueName)),
-    [menus, searchQuery, venueName]
-  );
+  const filteredMenus = useMemo(() => {
+    const searched = menus.filter((m) => matchesMenuSearch(m, searchQuery, venueName));
+    const filtered = applyMenuListFilters(searched, activeFilters);
+    return applyMenuListSort(filtered, activeSort);
+  }, [menus, searchQuery, venueName, activeFilters, activeSort]);
 
   const pager = useMenuListPagination(filteredMenus, {
     pageSize: MENU_LIST_PAGE_SIZE,
-    resetKey: `${variant}:${searchQuery.trim().toLowerCase()}:${menusApi.backendTotal}:${menus.length}`
+    resetKey: `${variant}:${searchQuery.trim().toLowerCase()}:${activeFilters.join(",")}:${activeSort}:${menusApi.backendTotal}:${menus.length}`
   });
 
   const pagedMenus = pager.pagedItems;
@@ -623,13 +631,24 @@ export function AdminMenusTabPanel({
             onChange={setSearchQuery}
             placeholder={copy.searchPlaceholder}
             aria-label="Search menus"
+            filterGroups={MENU_LIST_QUERY.filterGroups}
+            sortOptions={MENU_LIST_QUERY.sortOptions}
+            defaultSort={MENU_LIST_QUERY.defaultSort}
+            activeFilters={activeFilters}
+            activeSort={activeSort}
+            totalCount={menus.length}
+            resultCount={filteredMenus.length}
+            onFiltersChange={setActiveFilters}
+            onSortChange={setActiveSort}
+            filterTitle="Filter menus"
+            sortTitle="Sort menus"
           />
         ) : null}
 
         {menus.length === 0 ? (
           <p className="admin-config-text-muted py-2 text-sm">{copy.empty}</p>
         ) : filteredMenus.length === 0 ? (
-          <p className="admin-config-text-muted py-2 text-sm">No menus match your search.</p>
+          <p className="admin-config-text-muted py-2 text-sm">No menus match your search or filters.</p>
         ) : (
           <>
             <label className="admin-menu-surface-select-all">

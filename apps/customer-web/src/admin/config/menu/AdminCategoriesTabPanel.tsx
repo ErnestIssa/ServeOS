@@ -23,6 +23,11 @@ import { EditCategoryModal } from "./EditCategoryModal";
 import { MenuActionConfirmModal } from "./MenuActionConfirmModal";
 import { MenuEntityActionsMenu } from "./MenuEntityActionsMenu";
 import { isUiOnlyListId, matchesListSearch, UI_MOCK_CATEGORIES } from "./menuListUiMocks";
+import {
+  applyCategoryListFilters,
+  applyCategoryListSort,
+  CATEGORY_LIST_QUERY
+} from "./menuListQuery";
 import { MenuListSearchField, MenuToolbarButton } from "./MenuPageUi";
 import { MenuSurfacePagination } from "./MenuSurfacePagination";
 import { useMenuListPagination } from "./useMenuListPagination";
@@ -106,6 +111,8 @@ export function AdminCategoriesTabPanel({
   const [editOpen, setEditOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<CategoryListRow | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [activeSort, setActiveSort] = useState(CATEGORY_LIST_QUERY.defaultSort);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const selectAllRef = useRef<HTMLInputElement>(null);
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
@@ -127,24 +134,23 @@ export function AdminCategoriesTabPanel({
 
   const realCategories = useMemo(() => categories.filter((c) => !isUiOnlyListId(c.id)), [categories]);
 
-  const filtered = useMemo(
-    () =>
-      categories.filter((c) =>
-        matchesListSearch(
-          searchQuery,
-          c.name,
-          c.description,
-          c.menuName,
-          categoryPublishLabel(c.menuStatus),
-          c.isActive ? "visible" : "hidden",
-          c.itemCount
-        )
-      ),
-    [categories, searchQuery]
-  );
+  const filtered = useMemo(() => {
+    const searched = categories.filter((c) =>
+      matchesListSearch(
+        searchQuery,
+        c.name,
+        c.description,
+        c.menuName,
+        categoryPublishLabel(c.menuStatus),
+        c.isActive ? "visible" : "hidden",
+        c.itemCount
+      )
+    );
+    return applyCategoryListSort(applyCategoryListFilters(searched, activeFilters), activeSort);
+  }, [categories, searchQuery, activeFilters, activeSort]);
 
   const pager = useMenuListPagination(filtered, {
-    resetKey: searchQuery.trim().toLowerCase()
+    resetKey: `${searchQuery.trim().toLowerCase()}:${activeFilters.join(",")}:${activeSort}`
   });
 
   const selectablePaged = useMemo(
@@ -290,13 +296,24 @@ export function AdminCategoriesTabPanel({
             onChange={setSearchQuery}
             placeholder="Search categories by name, menu, or status…"
             aria-label="Search categories"
+            filterGroups={CATEGORY_LIST_QUERY.filterGroups}
+            sortOptions={CATEGORY_LIST_QUERY.sortOptions}
+            defaultSort={CATEGORY_LIST_QUERY.defaultSort}
+            activeFilters={activeFilters}
+            activeSort={activeSort}
+            totalCount={categories.length}
+            resultCount={filtered.length}
+            onFiltersChange={setActiveFilters}
+            onSortChange={setActiveSort}
+            filterTitle="Filter categories"
+            sortTitle="Sort categories"
           />
         ) : null}
 
         {categories.length === 0 ? (
           <AdminEmptyState>No categories yet — add Burgers, Pizza, Drinks, or Desserts to get started.</AdminEmptyState>
         ) : filtered.length === 0 ? (
-          <p className="admin-config-text-muted py-2 text-sm">No categories match your search.</p>
+          <p className="admin-config-text-muted py-2 text-sm">No categories match your search or filters.</p>
         ) : (
           <>
             <label className="admin-menu-surface-select-all">

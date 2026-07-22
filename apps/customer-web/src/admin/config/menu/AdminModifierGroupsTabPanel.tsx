@@ -15,6 +15,11 @@ import { EditModifierGroupModal, type EditModifierGroupTarget } from "./EditModi
 import { MenuActionConfirmModal } from "./MenuActionConfirmModal";
 import { MenuEntityActionsMenu } from "./MenuEntityActionsMenu";
 import { isUiOnlyListId, matchesListSearch, UI_MOCK_MODIFIER_GROUPS } from "./menuListUiMocks";
+import {
+  applyModifierGroupListFilters,
+  applyModifierGroupListSort,
+  MODIFIER_GROUP_LIST_QUERY
+} from "./menuListQuery";
 import { MenuListSearchField, MenuToolbarButton } from "./MenuPageUi";
 import { MenuPageModalShell, ProfileModalFooter } from "./menuPageModalShell";
 import { MenuSurfacePagination } from "./MenuSurfacePagination";
@@ -116,6 +121,8 @@ export function AdminModifierGroupsTabPanel({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [detailsGroup, setDetailsGroup] = useState<ModifierGroupListRow | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [activeSort, setActiveSort] = useState(MODIFIER_GROUP_LIST_QUERY.defaultSort);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const selectAllRef = useRef<HTMLInputElement>(null);
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
@@ -141,24 +148,26 @@ export function AdminModifierGroupsTabPanel({
     [api.flatItems]
   );
 
-  const filtered = useMemo(
-    () =>
-      groups.filter((g) =>
-        matchesListSearch(
-          searchQuery,
-          g.name,
-          g.itemName,
-          g.minSelect,
-          g.maxSelect,
-          g.optionCount,
-          modifierGroupStatusLabel(g)
-        )
-      ),
-    [groups, searchQuery]
-  );
+  const filtered = useMemo(() => {
+    const searched = groups.filter((g) =>
+      matchesListSearch(
+        searchQuery,
+        g.name,
+        g.itemName,
+        g.minSelect,
+        g.maxSelect,
+        g.optionCount,
+        modifierGroupStatusLabel(g)
+      )
+    );
+    return applyModifierGroupListSort(
+      applyModifierGroupListFilters(searched, activeFilters),
+      activeSort
+    );
+  }, [groups, searchQuery, activeFilters, activeSort]);
 
   const pager = useMenuListPagination(filtered, {
-    resetKey: searchQuery.trim().toLowerCase()
+    resetKey: `${searchQuery.trim().toLowerCase()}:${activeFilters.join(",")}:${activeSort}`
   });
 
   const selectablePaged = useMemo(
@@ -373,13 +382,24 @@ export function AdminModifierGroupsTabPanel({
             onChange={setSearchQuery}
             placeholder="Search modifier groups by name or item…"
             aria-label="Search modifier groups"
+            filterGroups={MODIFIER_GROUP_LIST_QUERY.filterGroups}
+            sortOptions={MODIFIER_GROUP_LIST_QUERY.sortOptions}
+            defaultSort={MODIFIER_GROUP_LIST_QUERY.defaultSort}
+            activeFilters={activeFilters}
+            activeSort={activeSort}
+            totalCount={groups.length}
+            resultCount={filtered.length}
+            onFiltersChange={setActiveFilters}
+            onSortChange={setActiveSort}
+            filterTitle="Filter modifier groups"
+            sortTitle="Sort modifier groups"
           />
         ) : null}
 
         {groups.length === 0 ? (
           <AdminEmptyState>No modifier groups yet — add Choose Size or Choose Bread to an item.</AdminEmptyState>
         ) : filtered.length === 0 ? (
-          <p className="admin-config-text-muted py-2 text-sm">No modifier groups match your search.</p>
+          <p className="admin-config-text-muted py-2 text-sm">No modifier groups match your search or filters.</p>
         ) : (
           <>
             <label className="admin-menu-surface-select-all">

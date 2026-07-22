@@ -23,6 +23,7 @@ import {
   type MenuListItem,
   type MenuListStatusFilter
 } from "../lib/menu/menuService.js";
+import { applyMenuListQuery } from "../lib/menu/menuListQuery.js";
 import {
   buildMenuManageContext,
   buildMenuRowActions,
@@ -105,7 +106,10 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
       .object({
         status: z.enum(["active", "DRAFT", "PUBLISHED", "ARCHIVED"]).optional().default("active"),
         page: z.coerce.number().int().min(1).optional(),
-        pageSize: z.coerce.number().int().min(1).max(100).optional()
+        pageSize: z.coerce.number().int().min(1).max(100).optional(),
+        q: z.string().max(200).optional(),
+        sort: z.string().max(64).optional(),
+        filters: z.string().max(800).optional()
       })
       .parse(req.query);
     const status = query.status as MenuListStatusFilter;
@@ -119,8 +123,18 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
 
     try {
       const menus = await listMenusForRestaurant(prisma, restaurantId, userId, status);
+      const filtered = applyMenuListQuery(menus, {
+        q: query.q,
+        sort: query.sort,
+        filters: query.filters
+          ? query.filters
+              .split(",")
+              .map((f) => f.trim())
+              .filter(Boolean)
+          : undefined
+      });
       const panelVariant = statusFilterToPanelVariant(status);
-      const menusWithActions = menus.map((menu: MenuListItem) => ({
+      const menusWithActions = filtered.map((menu: MenuListItem) => ({
         ...menu,
         rowActions: buildMenuRowActions(menu, panelVariant, membership)
       }));
