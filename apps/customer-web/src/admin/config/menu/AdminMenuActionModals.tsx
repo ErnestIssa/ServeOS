@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import type { MenuSurfaceRow } from "../../../api";
 import {
   archiveRestaurantMenu,
-  duplicateRestaurantMenu,
   scheduleRestaurantMenu
 } from "../../../api";
 import { AdminBtnSecondary, AdminInput, AdminLabel } from "../../AdminUi";
@@ -11,7 +10,9 @@ import {
   ProfileModalFooter,
   MenuPageModalShell
 } from "./menuPageModalShell";
+import { DuplicateEntityModal } from "./DuplicateEntityModal";
 import { MenuQrGeneratorContent } from "./MenuQrGeneratorContent";
+export { ContentTemplatesPanel } from "./ContentTemplatesPanel";
 
 type BaseProps = {
   open: boolean;
@@ -122,44 +123,28 @@ export function DuplicateMenuConfirmModal({
   menu,
   token,
   restaurantId,
+  locationDestinations = [],
   onClose,
   onDuplicated
-}: Omit<BaseProps, "venueName"> & { onDuplicated: (menu: MenuSurfaceRow) => void }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const confirm = async () => {
-    if (!menu) return;
-    setBusy(true);
-    setError(null);
-    const res = await duplicateRestaurantMenu(token, restaurantId, menu.id);
-    setBusy(false);
-    if (!res.ok || !res.menu) {
-      setError(res.message ?? res.error ?? "Could not duplicate menu");
-      return;
-    }
-    onDuplicated(res.menu);
-    onClose();
-  };
-
+}: Omit<BaseProps, "venueName"> & {
+  locationDestinations?: Array<{ id: string; label: string; hint?: string }>;
+  onDuplicated: (menu: MenuSurfaceRow | { id: string; name: string }) => void;
+}) {
+  if (!menu) return null;
   return (
-    <MenuPageModalShell
+    <DuplicateEntityModal
       open={open}
-      onClose={busy ? () => undefined : onClose}
-      title="Duplicate menu?"
-      description={`Create a draft copy of “${menu?.name ?? "this menu"}” including categories, items, and modifiers.`}
-      titleId="duplicate-menu-title"
-      stackLevel="overlay"
-    >
-      {error ? <ProfileModalAlert tone="error">{error}</ProfileModalAlert> : null}
-      <ProfileModalFooter
-        onCancel={onClose}
-        onConfirm={() => void confirm()}
-        confirmLabel={busy ? "Duplicating…" : "Duplicate"}
-        busy={busy}
-        confirmDisabled={!menu}
-      />
-    </MenuPageModalShell>
+      kind="menu"
+      sourceId={menu.id}
+      sourceName={menu.name}
+      token={token}
+      restaurantId={restaurantId}
+      locationDestinations={locationDestinations}
+      onClose={onClose}
+      onDuplicated={(result) => {
+        onDuplicated(result.menu ?? { id: result.id, name: result.name });
+      }}
+    />
   );
 }
 

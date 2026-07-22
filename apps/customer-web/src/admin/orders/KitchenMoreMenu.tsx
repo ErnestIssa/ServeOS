@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { useAdminPopoverMount } from "../useAdminPopoverMount";
 
 export type KitchenMenuAction =
-  | "refresh"
   | "sound-alerts"
   | "show-completed"
   | "station-settings"
@@ -10,7 +9,6 @@ export type KitchenMenuAction =
   | "fullscreen";
 
 const MENU_ITEMS: Array<{ id: KitchenMenuAction; title: string; description: string }> = [
-  { id: "refresh", title: "Refresh tickets", description: "Pull latest kitchen queue" },
   { id: "sound-alerts", title: "Sound alerts", description: "New ticket chime on/off" },
   { id: "show-completed", title: "Show completed", description: "Include bumped tickets today" },
   { id: "station-settings", title: "Station routing", description: "Grill, cold, bar stations" },

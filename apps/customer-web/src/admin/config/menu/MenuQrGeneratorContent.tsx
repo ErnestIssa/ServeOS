@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createOrderingSession, getOrderingSessionQr } from "../../../api";
-import { AdminBtnSecondary, AdminInput, AdminLabel } from "../../AdminUi";
+import { AdminInput, AdminLabel } from "../../AdminUi";
 import { ProfileModalAlert } from "../../profile/ProfileModalShell";
 
 type Props = {
@@ -91,11 +91,6 @@ export function MenuQrGeneratorContent({ token, restaurantId, compact = false }:
         <button type="button" className="admin-staff-invite-submit admin-menu-create-submit" disabled={busy} onClick={() => void generate()}>
           {busy ? "Generating…" : menuUrl ? "Generate new QR" : "Generate QR"}
         </button>
-        {menuUrl ? (
-          <AdminBtnSecondary type="button" disabled={busy} onClick={() => void generate()}>
-            Refresh
-          </AdminBtnSecondary>
-        ) : null}
       </div>
     </div>
   );

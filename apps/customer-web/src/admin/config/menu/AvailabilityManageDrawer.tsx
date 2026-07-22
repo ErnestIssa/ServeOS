@@ -507,13 +507,13 @@ export function AvailabilityManageDrawer({
                     <div className="admin-menu-manage-actions">
                       <ActionBtn
                         label="Copy schedule"
-                        desc="Duplicate hours/days as a new window on the same menu."
+                        desc="Clone hours/days as a new window on the same menu."
                         disabled={busy}
                         onClick={() => void runAction("copy_schedule")}
                       />
                       <ActionBtn
-                        label="Copy availability"
-                        desc="Duplicate the full rule set."
+                        label="Clone schedule"
+                        desc="Copy the full availability rule set."
                         disabled={busy}
                         onClick={() => void runAction("copy_availability")}
                       />

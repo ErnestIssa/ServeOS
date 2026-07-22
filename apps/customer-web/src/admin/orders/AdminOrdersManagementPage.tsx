@@ -26,6 +26,8 @@ import { KitchenMoreMenu, type KitchenMenuAction } from "./KitchenMoreMenu";
 import { OrderDetailsDrawer } from "./OrderDetailsDrawer";
 import { CreateOrderModal, OrderActionConfirmModal } from "./OrderProfileModals";
 import { DEFAULT_ORDERS_PAGE_SIZE, OrdersPagination } from "./OrdersPagination";
+import { usePageRecoverySync, useSilentRevalidate } from "../sync/adminPageSync";
+import { useOrdersRealtimeSync } from "../sync/useOrdersRealtimeSync";
 import { useDebouncedValue } from "./useDebouncedValue";
 import { useAdminOrders } from "./useAdminOrders";
 import type { AdminOrderVm } from "./ordersApiMappers";
@@ -468,6 +470,21 @@ export function AdminOrdersManagementPage({ presetId, venueName = "", token = nu
     pageSize
   });
 
+  const { recover, recovering } = usePageRecoverySync([() => api.refresh()]);
+  useSilentRevalidate(() => api.refresh({ soft: true }), {
+    enabled: Boolean(token && restaurantId),
+    minIntervalMs: 12_000,
+    intervalMs: 0
+  });
+  useOrdersRealtimeSync({
+    token,
+    restaurantId,
+    enabled: Boolean(token && restaurantId),
+    onEvent: () => {
+      void api.refresh({ soft: true });
+    }
+  });
+
   const effectiveFilters = useMemo(
     () => ({ ...filters, search: debouncedSearch }),
     [filters, debouncedSearch]
@@ -548,11 +565,6 @@ export function AdminOrdersManagementPage({ presetId, venueName = "", token = nu
   const handleKitchenMenuAction = (action: KitchenMenuAction) => {
     if (action === "fullscreen") {
       setKdsFullscreen(true);
-      return;
-    }
-    if (action === "refresh") {
-      api.refresh();
-      pushToast("Kitchen queue refreshed.", "success");
       return;
     }
     pushToast("This action is not available yet.", "success");
@@ -674,6 +686,11 @@ export function AdminOrdersManagementPage({ presetId, venueName = "", token = nu
           action={
             viewPreset === "kitchen-view" ? (
               <div className="admin-orders-kitchen-actions">
+                <AdminRefreshButton
+                  onRefresh={() => void recover()}
+                  refreshing={recovering || api.meta.refreshing}
+                  label="Sync orders"
+                />
                 <AdminBtnSecondary className="admin-orders-fullscreen-btn" onClick={() => setKdsFullscreen(true)}>
                   <FullscreenIcon className="admin-orders-fullscreen-icon" />
                   Full screen
@@ -682,7 +699,11 @@ export function AdminOrdersManagementPage({ presetId, venueName = "", token = nu
               </div>
             ) : (
               <div className="flex flex-wrap gap-2">
-                <AdminRefreshButton onRefresh={() => api.refresh()} refreshing={api.meta.refreshing} label="Refresh orders" />
+                <AdminRefreshButton
+                  onRefresh={() => void recover()}
+                  refreshing={recovering || api.meta.refreshing}
+                  label="Sync orders"
+                />
                 <AdminBtnSecondary onClick={() => setPendingAction({ type: "export" })}>Export</AdminBtnSecondary>
                 <AdminBtnPrimary onClick={() => setCreateOpen(true)}>Create order</AdminBtnPrimary>
               </div>

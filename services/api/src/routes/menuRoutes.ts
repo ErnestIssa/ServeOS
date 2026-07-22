@@ -35,7 +35,6 @@ import {
   assertDangerMenuNameConfirmation,
   deleteDraftMenuSurface,
   deleteMenuSurface,
-  duplicateMenuSurface,
   mapMenuOpsError,
   moveMenuSurface,
   scheduleMenuSurface,
@@ -588,18 +587,42 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
 
   app.post("/restaurants/:restaurantId/menus/:menuId/duplicate", async (req, reply) => {
     const params = z.object({ restaurantId: z.string().min(1), menuId: z.string().min(1) }).parse(req.params);
+    const body = z
+      .object({
+        name: z.string().trim().min(2).max(80).optional(),
+        copyCategories: z.boolean().optional(),
+        copyAvailability: z.boolean().optional(),
+        copyMedia: z.boolean().optional()
+      })
+      .parse(req.body ?? {});
     const { userId, membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
     assertMenuEntityPermission("menu", "create", membership);
 
-    const result = await duplicateMenuSurface(prisma, params.restaurantId, params.menuId, userId);
-    if (!result.ok) {
-      return reply.status(400).send({
-        ok: false,
-        error: result.error,
-        message: mapMenuOpsError(result.error)
-      });
+    const source = await prisma.menu.findFirst({
+      where: { id: params.menuId, restaurantId: params.restaurantId },
+      select: { id: true }
+    });
+    if (!source) {
+      return reply.status(404).send({ ok: false, error: "menu_not_found", message: "Menu not found." });
     }
-    return reply.status(201).send({ ok: true, menu: result.menu });
+
+    const { enqueueReplicationJob } = await import("../lib/replication/replicationJobService.js");
+    const job = await enqueueReplicationJob(prisma, {
+      kind: "DUPLICATE_MENU",
+      sourceRestaurantId: params.restaurantId,
+      targetRestaurantId: params.restaurantId,
+      actorUserId: userId,
+      payload: {
+        menuId: params.menuId,
+        name: body.name,
+        copyCategories: body.copyCategories,
+        copyAvailability: body.copyAvailability,
+        copyMedia: body.copyMedia
+      }
+    });
+
+    req.log.info({ jobId: job.id, menuId: params.menuId, restaurantId: params.restaurantId }, "menu_duplicate_enqueued");
+    return reply.status(202).send({ ok: true, jobId: job.id });
   });
 
   app.patch("/restaurants/:restaurantId/menus/:menuId/schedule", async (req, reply) => {

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listMenuItemMedia, removeMenuItemMedia, type MenuCapabilitiesPayload, type MenuItemMediaRow } from "../../../api";
-import { AdminBtnSecondary } from "../../AdminUi";
 import { useAdminToast } from "../../AdminToast";
 import { attachUploadedMediaToItem, readVideoDurationMs, uploadMenuMediaFile } from "./menuMediaUpload";
 import { MenuChip, MenuSection, MenuToolbarButton } from "./MenuPageUi";
@@ -152,9 +151,6 @@ export function MenuItemMediaGallery({
         >
           Add video ({counts.videos}/{maxVideos})
         </MenuToolbarButton>
-        <AdminBtnSecondary disabled={busy || loading} onClick={() => void reload()}>
-          Refresh
-        </AdminBtnSecondary>
       </div>
 
       {loading ? (

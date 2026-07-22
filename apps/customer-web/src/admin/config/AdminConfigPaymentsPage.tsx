@@ -12,6 +12,7 @@ import { AdminBtnPrimary, AdminBtnSecondary, AdminEmptyState, AdminInput, AdminL
 import { ProfileModalFooter, ProfileModalShell } from "../profile/ProfileModalShell";
 import { AdminSkeletonStatGrid, AdminStaleContent } from "../AdminSkeleton";
 import { useAdminToast } from "../AdminToast";
+import { usePageRecoverySync, useSilentRevalidate } from "../sync/adminPageSync";
 import { canEditPayments, paymentsEditReason } from "./paymentsAccess";
 import { CONFIG_PRESET_DESCRIPTIONS } from "./configRouting";
 
@@ -167,10 +168,10 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
   const [connectId, setConnectId] = useState("");
 
   const loadPaymentsContext = useCallback(
-    async (mode: "initial" | "refresh") => {
+    async (mode: "initial" | "refresh" | "soft") => {
       if (!token || !restaurantId) return;
       if (mode === "initial") setLoading(true);
-      else setRefreshing(true);
+      else if (mode === "refresh") setRefreshing(true);
       const [restaurantsRes, paymentRes] = await Promise.all([
         listRestaurants(token),
         getVenuePaymentSettings(token, restaurantId)
@@ -178,7 +179,7 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
       if (mode === "initial") {
         setLoading(false);
         setReady(true);
-      } else {
+      } else if (mode === "refresh") {
         setRefreshing(false);
       }
       const row = restaurantsRes.restaurants?.find((r) => r.id === restaurantId);
@@ -280,6 +281,13 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
   const canEdit = useMemo(() => canEditPayments(role), [role]);
   const lockReason = paymentsEditReason(role);
 
+  const { recover, recovering } = usePageRecoverySync([() => loadPaymentsContext("refresh")]);
+  useSilentRevalidate(() => loadPaymentsContext("soft"), {
+    enabled: Boolean(token && restaurantId && ready),
+    minIntervalMs: 30_000,
+    intervalMs: 90_000
+  });
+
   useEffect(() => {
     void loadPaymentsContext("initial");
   }, [loadPaymentsContext]);
@@ -309,9 +317,9 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
               </AdminBtnPrimary>
             ) : null}
             <AdminRefreshButton
-              onRefresh={() => loadPaymentsContext("refresh")}
-              refreshing={refreshing}
-              label="Refresh payments"
+              onRefresh={() => void recover()}
+              refreshing={recovering || refreshing}
+              label="Sync payments"
             />
           </div>
         }

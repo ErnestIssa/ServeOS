@@ -256,18 +256,30 @@ export function AdminRefreshButton({
 }: {
   onRefresh: () => void | Promise<void>;
   refreshing?: boolean;
+  /** Accessible name — icon-only recovery control (shown as native tooltip). */
   label?: string;
   disabled?: boolean;
 }) {
+  const tip = refreshing ? "Syncing…" : label;
   return (
-    <AdminBtnSecondary
+    <button
       type="button"
+      className={`${btnSecondarySm} admin-refresh-icon-btn`}
       onClick={() => void onRefresh()}
       disabled={disabled || refreshing}
       aria-busy={refreshing}
+      aria-label={tip}
+      title={tip}
     >
-      {refreshing ? "Refreshing…" : label}
-    </AdminBtnSecondary>
+      <img
+        src="/icons/reload.png"
+        alt=""
+        width={18}
+        height={18}
+        className={`admin-refresh-icon${refreshing ? " is-spinning" : ""}`}
+        draggable={false}
+      />
+    </button>
   );
 }
 

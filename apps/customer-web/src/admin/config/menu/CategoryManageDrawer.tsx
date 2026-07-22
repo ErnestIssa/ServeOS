@@ -16,6 +16,7 @@ import {
   ProfileModalAlert,
   ProfileModalFooter
 } from "./menuPageModalShell";
+import { DuplicateEntityModal } from "./DuplicateEntityModal";
 import { MenuSurfacePagination } from "./MenuSurfacePagination";
 import { useMenuListPagination } from "./useMenuListPagination";
 import { isUiOnlyListId } from "./menuListUiMocks";
@@ -77,6 +78,8 @@ export function CategoryManageDrawer({
   const [dangerBusy, setDangerBusy] = useState(false);
   const [dangerError, setDangerError] = useState<string | null>(null);
   const [confirmName, setConfirmName] = useState("");
+  const [duplicateOpen, setDuplicateOpen] = useState(false);
+  const [duplicateToMode, setDuplicateToMode] = useState(false);
 
   const targets = useMemo(() => {
     const real = categories.filter((c) => !isUiOnlyListId(c.id));
@@ -97,7 +100,9 @@ export function CategoryManageDrawer({
     selectedIds.size > 0 ? `${selectedIds.size} selected` : `${targets.length} in list`;
 
   const dangerOpen = dangerKind != null;
-  const showManageShell = mounted && !dangerOpen && !moveOpen;
+  const showManageShell = mounted && !dangerOpen && !moveOpen && !duplicateOpen;
+  const overlayOpen = dangerOpen || moveOpen || duplicateOpen;
+  useModalScrollLock(mounted || overlayOpen);
 
   useEffect(() => {
     if (closeTimerRef.current) {
@@ -124,16 +129,14 @@ export function CategoryManageDrawer({
     };
   }, [open]);
 
-  useModalScrollLock(mounted || dangerOpen || moveOpen);
-
   useEffect(() => {
-    if (!visible || dangerOpen || moveOpen) return;
+    if (!visible || dangerOpen || moveOpen || duplicateOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [visible, dangerOpen, moveOpen, onClose]);
+  }, [visible, dangerOpen, moveOpen, duplicateOpen, onClose]);
 
   useEffect(() => {
     if (!dangerOpen) {
@@ -223,7 +226,12 @@ export function CategoryManageDrawer({
     }
   };
 
-  const runDuplicate = async () => {
+  const runDuplicate = async (toOtherMenu: boolean) => {
+    if (targets.length === 1) {
+      setDuplicateToMode(toOtherMenu);
+      setDuplicateOpen(true);
+      return;
+    }
     let ok = 0;
     let failed = 0;
     for (const cat of targets) {
@@ -250,7 +258,7 @@ export function CategoryManageDrawer({
     }
   };
 
-  if (!mounted && !dangerOpen && !moveOpen) return null;
+  if (!mounted && !dangerOpen && !moveOpen && !duplicateOpen) return null;
 
   return createPortal(
     <>
@@ -334,12 +342,18 @@ export function CategoryManageDrawer({
                         </span>
                         <span className="admin-menu-manage-action-desc">Update name, description, and parent menu.</span>
                       </button>
-                      <button type="button" className="admin-menu-manage-action" onClick={() => void runDuplicate()}>
+                      <button type="button" className="admin-menu-manage-action" onClick={() => void runDuplicate(false)}>
                         <span className="admin-menu-manage-action-label">
                           {targets.length === 1 ? "Duplicate" : `Duplicate ${targets.length}`}
                         </span>
                         <span className="admin-menu-manage-action-desc">Create draft copies with the same items.</span>
                       </button>
+                      {targets.length === 1 ? (
+                        <button type="button" className="admin-menu-manage-action" onClick={() => void runDuplicate(true)}>
+                          <span className="admin-menu-manage-action-label">Duplicate to…</span>
+                          <span className="admin-menu-manage-action-desc">Copy this category into another menu.</span>
+                        </button>
+                      ) : null}
                     </div>
                   </section>
 
@@ -461,6 +475,34 @@ export function CategoryManageDrawer({
           danger
         />
       </MenuPageModalShell>
+
+      <DuplicateEntityModal
+        open={duplicateOpen && targets.length === 1}
+        kind="category"
+        sourceId={targets[0]?.id ?? ""}
+        sourceName={targets[0]?.name ?? "Category"}
+        token={token}
+        restaurantId={restaurantId}
+        destinations={menus
+          .filter((m) => m.status !== "ARCHIVED")
+          .map((m) => ({
+            id: m.id,
+            label: m.name,
+            hint: m.status === "PUBLISHED" ? "Live" : m.status === "RETIRED" ? "Retired" : "Draft"
+          }))}
+        defaultDestinationId={targets[0]?.menuId ?? null}
+        allowChangeDestination={duplicateToMode}
+        onClose={() => {
+          setDuplicateOpen(false);
+          setDuplicateToMode(false);
+        }}
+        onDuplicated={(result) => {
+          pushToast(`“${result.name}” created as a draft copy.`, "success");
+          onRefresh();
+          setDuplicateOpen(false);
+          setDuplicateToMode(false);
+        }}
+      />
     </>,
     document.body
   );

@@ -4,6 +4,7 @@ import {
   sanitizeAvailabilityWindows,
   type MenuAvailabilityWindows
 } from "./menuAvailability.js";
+import { duplicateMenuEntity, type MenuDuplicateOptions } from "./menuDuplicateService.js";
 
 export type { AvailabilityWindow, MenuAvailabilityWindows } from "./menuAvailability.js";
 
@@ -38,105 +39,15 @@ export async function duplicateMenuSurface(
   prisma: PrismaClient,
   restaurantId: string,
   menuId: string,
-  createdByUserId: string
+  createdByUserId: string,
+  options?: MenuDuplicateOptions
 ) {
-  const source = await prisma.menu.findFirst({
-    where: { id: menuId, restaurantId },
-    include: {
-      categories: {
-        orderBy: { sortOrder: "asc" },
-        include: {
-          items: {
-            orderBy: { sortOrder: "asc" },
-            include: {
-              modifierGroups: {
-                orderBy: { sortOrder: "asc" },
-                include: { options: { orderBy: { sortOrder: "asc" } } }
-              }
-            }
-          }
-        }
-      }
-    }
+  return duplicateMenuEntity(prisma, {
+    restaurantId,
+    menuId,
+    createdByUserId,
+    options
   });
-  if (!source) return { ok: false as const, error: "menu_not_found" };
-
-  const copyName = `${source.name} (copy)`;
-  const sortOrder = await prisma.menu.count({ where: { restaurantId, status: { not: "ARCHIVED" } } });
-
-  const newMenu = await prisma.$transaction(async (tx) => {
-    const created = await tx.menu.create({
-      data: {
-        restaurantId,
-        name: copyName,
-        description: source.description,
-        surfaceKey: source.surfaceKey,
-        status: "DRAFT",
-        createdByUserId,
-        sortOrder,
-        availabilityWindows: source.availabilityWindows ?? undefined
-      }
-    });
-
-    for (const cat of source.categories) {
-      const newCat = await tx.menuCategory.create({
-        data: {
-          restaurantId,
-          menuId: created.id,
-          name: cat.name,
-          sortOrder: cat.sortOrder,
-          isActive: cat.isActive
-        }
-      });
-
-      for (const item of cat.items) {
-        const newItem = await tx.menuItem.create({
-          data: {
-            categoryId: newCat.id,
-            name: item.name,
-            description: item.description,
-            priceCents: item.priceCents,
-            imageKey: item.imageKey,
-            sortOrder: item.sortOrder,
-            isActive: item.isActive
-          }
-        });
-
-        for (const group of item.modifierGroups) {
-          const newGroup = await tx.modifierGroup.create({
-            data: {
-              menuItemId: newItem.id,
-              name: group.name,
-              minSelect: group.minSelect,
-              maxSelect: group.maxSelect,
-              sortOrder: group.sortOrder
-            }
-          });
-
-          for (const opt of group.options) {
-            await tx.modifierOption.create({
-              data: {
-                groupId: newGroup.id,
-                name: opt.name,
-                priceDeltaCents: opt.priceDeltaCents,
-                sortOrder: opt.sortOrder,
-                isActive: opt.isActive
-              }
-            });
-          }
-        }
-      }
-    }
-
-    return created;
-  });
-
-  const row = await prisma.menu.findUniqueOrThrow({
-    where: { id: newMenu.id },
-    include: menuListInclude
-  });
-
-  return { ok: true as const, menu: serializeMenu(row) };
 }
 
 export async function scheduleMenuSurface(
@@ -221,6 +132,12 @@ export function mapMenuOpsError(code: string): string {
       return "Type the menu name exactly to confirm this action.";
     case "confirmation_mismatch":
       return "The name you typed does not match this menu. Confirmation failed.";
+    case "cannot_duplicate_into_archived_menu":
+      return "Cannot duplicate into an archived menu.";
+    case "target_menu_not_found":
+      return "Destination menu not found.";
+    case "target_category_not_found":
+      return "Destination category not found.";
     default:
       return "Menu operation failed.";
   }

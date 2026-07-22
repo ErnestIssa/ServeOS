@@ -153,6 +153,13 @@ export async function attachMenuItemMedia(
     }
   });
 
+  try {
+    const { syncAssetFromStoredMedia } = await import("../replication/mediaAssetService.js");
+    await syncAssetFromStoredMedia(prisma, updated);
+  } catch {
+    /* dual-write best-effort */
+  }
+
   if (params.setAsCover && kind === "image") {
     await prisma.menuItem.update({
       where: { id: params.menuItemId },

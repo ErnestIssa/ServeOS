@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRestaurant, listRestaurants } from "../../api";
 import { buildVenueProfileAccess, type VenueProfileAccess } from "./venueProfileAccess";
 import {
@@ -24,6 +24,7 @@ export function useVenueProfile(
   const [venues, setVenues] = useState<VenueListRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
+  const hasLoadedOnce = useRef(false);
   const [settings, setSettings] = useState<VenueProfileSettings>(() =>
     defaultVenueProfileSettings(venueName)
   );
@@ -35,16 +36,19 @@ export function useVenueProfile(
     [active?.role]
   );
 
-  const reloadVenues = useCallback(async () => {
+  const reloadVenues = useCallback(async (opts?: { soft?: boolean }) => {
     if (!token) {
       setVenues([]);
       setReady(false);
+      hasLoadedOnce.current = false;
       return;
     }
-    setLoading(true);
+    const soft = Boolean(opts?.soft && hasLoadedOnce.current);
+    if (!soft) setLoading(true);
     const res = await listRestaurants(token);
-    setLoading(false);
+    if (!soft) setLoading(false);
     setReady(true);
+    hasLoadedOnce.current = true;
     setVenues(res.ok && res.restaurants ? res.restaurants : []);
   }, [token]);
 

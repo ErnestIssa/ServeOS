@@ -695,10 +695,20 @@ export async function deleteCategory(token: string, restaurantId: string, catego
   );
 }
 
-export async function duplicateCategory(token: string, restaurantId: string, categoryId: string) {
+export async function duplicateCategory(
+  token: string,
+  restaurantId: string,
+  categoryId: string,
+  body?: {
+    name?: string;
+    targetMenuId?: string | null;
+    copyItems?: boolean;
+    copyMedia?: boolean;
+  }
+) {
   return apiFetch<{ ok: boolean; error?: string; message?: string; category?: { id: string; name: string } }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menu/categories/${encodeURIComponent(categoryId)}/duplicate`,
-    { method: "POST", headers: authJsonHeaders(token) }
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body ?? {}) }
   );
 }
 
@@ -751,10 +761,25 @@ export async function deleteMenuItem(token: string, restaurantId: string, itemId
   );
 }
 
-export async function duplicateMenuItem(token: string, restaurantId: string, itemId: string) {
-  return apiFetch<{ ok: boolean; error?: string; message?: string; item?: { id: string; name: string } }>(
+export async function duplicateMenuItem(
+  token: string,
+  restaurantId: string,
+  itemId: string,
+  body?: {
+    name?: string;
+    targetCategoryId?: string;
+    copyModifiers?: boolean;
+    copyMedia?: boolean;
+  }
+) {
+  return apiFetch<{
+    ok: boolean;
+    error?: string;
+    message?: string;
+    item?: { id: string; name: string; categoryId?: string };
+  }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menu/items/${encodeURIComponent(itemId)}/duplicate`,
-    { method: "POST", headers: authJsonHeaders(token) }
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body ?? {}) }
   );
 }
 
@@ -831,10 +856,15 @@ export async function deleteModifierGroup(token: string, restaurantId: string, g
   );
 }
 
-export async function duplicateModifierGroup(token: string, restaurantId: string, groupId: string) {
+export async function duplicateModifierGroup(
+  token: string,
+  restaurantId: string,
+  groupId: string,
+  body?: { name?: string }
+) {
   return apiFetch<{ ok: boolean; error?: string; message?: string; group?: { id: string; name: string } }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menu/modifier-groups/${encodeURIComponent(groupId)}/duplicate`,
-    { method: "POST", headers: authJsonHeaders(token) }
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body ?? {}) }
   );
 }
 
@@ -881,10 +911,15 @@ export async function deleteModifierOption(token: string, restaurantId: string, 
   );
 }
 
-export async function duplicateModifierOption(token: string, restaurantId: string, optionId: string) {
+export async function duplicateModifierOption(
+  token: string,
+  restaurantId: string,
+  optionId: string,
+  body?: { name?: string }
+) {
   return apiFetch<{ ok: boolean; error?: string; message?: string; option?: { id: string; name: string } }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menu/modifier-options/${encodeURIComponent(optionId)}/duplicate`,
-    { method: "POST", headers: authJsonHeaders(token) }
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body ?? {}) }
   );
 }
 
@@ -1208,10 +1243,152 @@ export async function moveRestaurantMenu(
   );
 }
 
-export async function duplicateRestaurantMenu(token: string, restaurantId: string, menuId: string) {
-  return apiFetch<{ ok: boolean; menu?: MenuSurfaceRow; error?: string; message?: string }>(
+export type ReplicationJobRow = {
+  id: string;
+  kind: string;
+  status: string;
+  sourceRestaurantId: string;
+  targetRestaurantId: string | null;
+  progressPct: number;
+  phase: string | null;
+  counts: unknown;
+  result: { newMenuId?: string; name?: string } | null;
+  error: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+};
+
+export type MediaAssetRow = {
+  id: string;
+  objectKey: string;
+  contentType: string;
+  byteSize: number;
+  originalName: string | null;
+  sha256Hex: string | null;
+  usageCount: number;
+  createdAt: string;
+  url: string | null;
+};
+
+export type ContentTemplateRow = {
+  id: string;
+  name: string;
+  description: string | null;
+  kind: string;
+  restaurantId: string;
+  companyId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function duplicateRestaurantMenu(
+  token: string,
+  restaurantId: string,
+  menuId: string,
+  body?: {
+    name?: string;
+    copyCategories?: boolean;
+    copyAvailability?: boolean;
+    copyMedia?: boolean;
+  }
+) {
+  return apiFetch<{ ok: boolean; jobId?: string; menu?: MenuSurfaceRow; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}/duplicate`,
-    { method: "POST", headers: authHeaders(token) }
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body ?? {}) }
+  );
+}
+
+export async function duplicateRestaurantMenuToLocation(
+  token: string,
+  restaurantId: string,
+  menuId: string,
+  body: {
+    targetRestaurantId: string;
+    name?: string;
+    copyCategories?: boolean;
+    copyAvailability?: boolean;
+    copyMedia?: boolean;
+  }
+) {
+  return apiFetch<{ ok: boolean; jobId?: string; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}/duplicate-to-location`,
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body) }
+  );
+}
+
+export async function getReplicationJob(token: string, restaurantId: string, jobId: string) {
+  return apiFetch<{ ok: boolean; job?: ReplicationJobRow; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/replication/jobs/${encodeURIComponent(jobId)}`,
+    { headers: authHeaders(token) }
+  );
+}
+
+export async function listReplicationJobs(token: string, restaurantId: string) {
+  return apiFetch<{ ok: boolean; jobs?: ReplicationJobRow[]; error?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/replication/jobs`,
+    { headers: authHeaders(token) }
+  );
+}
+
+export async function listMediaAssets(token: string, restaurantId: string) {
+  return apiFetch<{ ok: boolean; assets?: MediaAssetRow[]; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/media/assets`,
+    { headers: authHeaders(token) }
+  );
+}
+
+export async function duplicateMediaAssetUsage(
+  token: string,
+  restaurantId: string,
+  assetId: string,
+  body: {
+    targetType: "MENU_COVER" | "MENU_ITEM" | "CATEGORY" | "VENUE_LOGO" | "VENUE_COVER";
+    targetId: string;
+    role?: "PRIMARY" | "GALLERY" | "COVER";
+  }
+) {
+  return apiFetch<{ ok: boolean; usage?: { id: string }; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/media/assets/${encodeURIComponent(assetId)}/duplicate-usage`,
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body) }
+  );
+}
+
+export async function listContentTemplates(token: string, restaurantId: string) {
+  return apiFetch<{ ok: boolean; templates?: ContentTemplateRow[]; error?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/content-templates`,
+    { headers: authHeaders(token) }
+  );
+}
+
+export async function saveMenuAsTemplate(
+  token: string,
+  restaurantId: string,
+  menuId: string,
+  body?: { name?: string; description?: string }
+) {
+  return apiFetch<{ ok: boolean; template?: ContentTemplateRow; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/menus/${encodeURIComponent(menuId)}/save-as-template`,
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body ?? {}) }
+  );
+}
+
+export async function applyContentTemplate(
+  token: string,
+  restaurantId: string,
+  templateId: string,
+  body?: { targetRestaurantId?: string; name?: string }
+) {
+  return apiFetch<{ ok: boolean; jobId?: string; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/content-templates/${encodeURIComponent(templateId)}/apply`,
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body ?? {}) }
+  );
+}
+
+export async function deleteContentTemplate(token: string, restaurantId: string, templateId: string) {
+  return apiFetch<{ ok: boolean; error?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/content-templates/${encodeURIComponent(templateId)}`,
+    { method: "DELETE", headers: authJsonHeaders(token) }
   );
 }
 

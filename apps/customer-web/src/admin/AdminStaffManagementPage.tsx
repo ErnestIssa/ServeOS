@@ -16,6 +16,7 @@ import { ADMIN_TOP_HASHES } from "./adminTopHashes";
 import { ProfileModalShell } from "./profile/ProfileModalShell";
 import { useModalScrollLock } from "../lib/modalScrollLock";
 import { useAdminToast } from "./AdminToast";
+import { usePageRecoverySync, useSilentRevalidate } from "./sync/adminPageSync";
 import { AdminBubbleDropdown } from "./AdminBubbleDropdown";
 import { AdminNavChevron } from "./AdminNavChevron";
 import {
@@ -1339,6 +1340,13 @@ export function AdminStaffManagementPage({
     runSecurityAction
   } = useStaffManagement(token, restaurantId, venueName);
 
+  const { recover, recovering } = usePageRecoverySync([() => reload()]);
+  useSilentRevalidate(() => reload({ soft: true }), {
+    enabled: Boolean(token && restaurantId),
+    minIntervalMs: 20_000,
+    intervalMs: 60_000
+  });
+
   const [filter, setFilter] = useState<StaffFilter>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -1521,7 +1529,11 @@ export function AdminStaffManagementPage({
           description={sectionDescription}
           action={
             <div className="flex flex-wrap gap-2">
-              <AdminRefreshButton onRefresh={() => reload()} refreshing={refreshing} label="Refresh staff" />
+              <AdminRefreshButton
+                onRefresh={() => void recover()}
+                refreshing={recovering || refreshing}
+                label="Sync staff"
+              />
               <AdminBtnSecondary onClick={() => setTemplatesOpen(true)}>Role templates</AdminBtnSecondary>
               <AdminBtnPrimary onClick={() => setInviteOpen(true)}>Invite staff</AdminBtnPrimary>
             </div>

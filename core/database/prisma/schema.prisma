@@ -246,7 +246,8 @@ enum StoredMediaVisibility {
 
 model StoredMedia {
   id            String                @id @default(cuid())
-  objectKey     String                @unique
+  /// S3/object storage key. Shared across items when media is reference-duplicated (not re-uploaded).
+  objectKey     String
   scope         StoredMediaScope
   contentType   String
   byteSize      Int
@@ -268,10 +269,149 @@ model StoredMedia {
   restaurant Restaurant? @relation(fields: [restaurantId], references: [id], onDelete: SetNull)
   menuItem   MenuItem?   @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
 
+  @@index([objectKey])
   @@index([restaurantId, scope])
   @@index([menuItemId, scope, sortOrder])
   @@index([userId])
   @@index([chatRoomId])
+}
+
+/// Physical file identity in object storage (Content Replication Engine).
+/// Multiple MediaUsage rows may point at one MediaAsset; S3 object is shared.
+model MediaAsset {
+  id               String                @id @default(cuid())
+  objectKey        String                @unique
+  sha256Hex        String?
+  contentType      String
+  byteSize         Int
+  originalName     String?
+  visibility       StoredMediaVisibility @default(PRIVATE)
+  createdByUserId  String?
+  restaurantId     String?
+  createdAt        DateTime              @default(now())
+
+  restaurant Restaurant?  @relation(fields: [restaurantId], references: [id], onDelete: SetNull)
+  usages     MediaUsage[]
+
+  @@index([restaurantId])
+  @@index([sha256Hex])
+}
+
+enum MediaUsageTargetType {
+  MENU_COVER
+  MENU_ITEM
+  CATEGORY
+  VENUE_LOGO
+  VENUE_COVER
+}
+
+enum MediaUsageRole {
+  PRIMARY
+  GALLERY
+  COVER
+}
+
+/// Attachment of a MediaAsset to a domain entity (refcount via count of usages).
+model MediaUsage {
+  id           String              @id @default(cuid())
+  assetId      String
+  restaurantId String
+  targetType   MediaUsageTargetType
+  targetId     String
+  sortOrder    Int                 @default(0)
+  role         MediaUsageRole      @default(GALLERY)
+  createdAt    DateTime            @default(now())
+
+  asset      MediaAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, targetType, targetId, role, sortOrder])
+  @@index([restaurantId, targetType, targetId])
+  @@index([assetId])
+}
+
+enum ReplicationJobKind {
+  DUPLICATE_MENU
+  DUPLICATE_CATEGORY
+  DUPLICATE_ITEM
+  DUPLICATE_TO_LOCATION
+  APPLY_TEMPLATE
+  DUPLICATE_MEDIA_USAGE
+}
+
+enum ReplicationJobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+  /// Reserved for future worker pause/retry (unused in V1).
+  PAUSED
+  RETRYING
+}
+
+/// Async Content Replication Engine job (duplicate, cross-location, template apply).
+model ReplicationJob {
+  id                  String                @id @default(cuid())
+  kind                ReplicationJobKind
+  status              ReplicationJobStatus  @default(QUEUED)
+  sourceRestaurantId  String
+  targetRestaurantId  String?
+  actorUserId         String
+  payload             Json
+  progressPct         Int                   @default(0)
+  phase               String?
+  counts              Json?
+  result              Json?
+  error               String?
+  createdAt           DateTime              @default(now())
+  startedAt           DateTime?
+  finishedAt          DateTime?
+
+  sourceRestaurant Restaurant        @relation("ReplicationJobSourceVenue", fields: [sourceRestaurantId], references: [id], onDelete: Cascade)
+  targetRestaurant Restaurant?       @relation("ReplicationJobTargetVenue", fields: [targetRestaurantId], references: [id], onDelete: SetNull)
+  mapEntries       ReplicationMap[]
+
+  @@index([status, createdAt])
+  @@index([sourceRestaurantId, createdAt])
+  @@index([actorUserId, createdAt])
+}
+
+model ReplicationMap {
+  id         String   @id @default(cuid())
+  jobId      String
+  entityType String
+  sourceId   String
+  targetId   String
+  createdAt  DateTime @default(now())
+
+  job ReplicationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, entityType, sourceId])
+  @@index([jobId])
+}
+
+enum ContentTemplateKind {
+  MENU
+}
+
+/// Reusable content snapshot (menus in V1). Apply creates a draft via ReplicationJob.
+model ContentTemplate {
+  id              String              @id @default(cuid())
+  restaurantId    String
+  companyId       String?
+  kind            ContentTemplateKind @default(MENU)
+  name            String
+  description     String?
+  snapshot        Json
+  createdByUserId String
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId, kind])
+  @@index([companyId, kind])
 }
 
 model Restaurant {
@@ -320,6 +460,11 @@ model Restaurant {
   reservationDrafts CustomerReservationDraft[]
   customerReservations CustomerReservation[]
   storedMedia        StoredMedia[]
+  mediaAssets        MediaAsset[]
+  mediaUsages        MediaUsage[]
+  replicationJobsSource ReplicationJob[] @relation("ReplicationJobSourceVenue")
+  replicationJobsTarget ReplicationJob[] @relation("ReplicationJobTargetVenue")
+  contentTemplates   ContentTemplate[]
   staffAuditLogs     StaffAuditLog[]
 
   @@index([companyId])

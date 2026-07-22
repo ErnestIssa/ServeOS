@@ -18,11 +18,13 @@ import type { MenuSectionTab } from "../configRouting";
 import type { useAdminMenu } from "../useAdminMenu";
 import type { MenuCapabilitiesPayload } from "../../../api";
 import { MenuMediaDestinationModal } from "./MenuMediaDestinationModal";
+import { MediaAssetLibrary } from "./MediaAssetLibrary";
 import { AdminCategoriesTabPanel } from "./AdminCategoriesTabPanel";
 import { AdminItemsTabPanel } from "./AdminItemsTabPanel";
 import { AdminModifierGroupsTabPanel } from "./AdminModifierGroupsTabPanel";
 import { AdminModifierOptionsTabPanel } from "./AdminModifierOptionsTabPanel";
 import { AvailabilityManageDrawer } from "./AvailabilityManageDrawer";
+import { AvailabilityProfileDrawer } from "./AvailabilityProfileDrawer";
 import { CreateAvailabilityModal } from "./CreateAvailabilityModal";
 import { EditAvailabilityModal, type EditAvailabilityTarget } from "./EditAvailabilityModal";
 import { DeleteAvailabilityModal } from "./DeleteAvailabilityModal";
@@ -99,6 +101,8 @@ export function AdminMenuTabContent({
   const [availabilityLocations, setAvailabilityLocations] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedAvailabilityKeys, setSelectedAvailabilityKeys] = useState<Set<string>>(new Set());
   const [previewAvailabilityCard, setPreviewAvailabilityCard] = useState<AvailabilityCardPayload | null>(null);
+  const [detailsAvailabilityCard, setDetailsAvailabilityCard] = useState<AvailabilityCardPayload | null>(null);
+  const [availabilityTimezone, setAvailabilityTimezone] = useState<string | null>(null);
   const [availabilityBusyKey, setAvailabilityBusyKey] = useState<string | null>(null);
 
   useEffect(() => {
@@ -111,6 +115,7 @@ export function AdminMenuTabContent({
     if (res.ok && res.cards) {
       setAvailabilityOverviewCards(res.cards);
       setAvailabilityLocations(res.locations ?? []);
+      setAvailabilityTimezone(res.restaurant?.timezone ?? null);
     } else {
       const fallback = listAvailabilityCards(menus).map((card) => ({
         ...card,
@@ -182,7 +187,9 @@ export function AdminMenuTabContent({
   const cardKeyOf = (card: AvailabilityCardPayload) => `${card.menuId}:${card.key}`;
 
   const availabilityMenuActions = useMemo(() => {
-    const actions: Array<{ id: string; label: string; danger?: boolean }> = [];
+    const actions: Array<{ id: string; label: string; danger?: boolean }> = [
+      { id: "details", label: "Schedule details" }
+    ];
     if (can("menu", "edit")) {
       actions.push(
         { id: "edit", label: "Edit availability" },
@@ -213,6 +220,10 @@ export function AdminMenuTabContent({
 
   const handleAvailabilityMenuAction = (card: AvailabilityCardPayload, actionId: string) => {
     setOpenAvailabilityMenuKey(null);
+    if (actionId === "details") {
+      setDetailsAvailabilityCard(card);
+      return;
+    }
     if (isUiOnlyListId(card.key) || isUiOnlyListId(card.menuId)) {
       toastPreviewOnly();
       return;
@@ -531,6 +542,14 @@ export function AdminMenuTabContent({
           onPreviewWindow={(card) => setPreviewAvailabilityCard(card)}
         />
 
+        <AvailabilityProfileDrawer
+          card={detailsAvailabilityCard}
+          open={Boolean(detailsAvailabilityCard)}
+          timezone={availabilityTimezone}
+          venueName={venueName}
+          onClose={() => setDetailsAvailabilityCard(null)}
+        />
+
         {previewAvailabilityCard ? (
           <MenuPageModalShell
             open
@@ -681,6 +700,14 @@ export function AdminMenuTabContent({
                     </div>
                   </div>
                 ) : null}
+                <MediaAssetLibrary
+                  token={token}
+                  restaurantId={restaurantId}
+                  menus={menus}
+                  items={modalItems}
+                  canUpload={can("media", "upload")}
+                  canView={can("media", "view")}
+                />
               </>
             )}
           </MenuSection>

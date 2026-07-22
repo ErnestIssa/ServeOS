@@ -18,6 +18,7 @@ import {
 import { CategoryManageDrawer } from "./CategoryManageDrawer";
 import { CategoryProfileDrawer } from "./CategoryProfileDrawer";
 import { CreateCategoryModal } from "./CreateCategoryModal";
+import { DuplicateEntityModal } from "./DuplicateEntityModal";
 import { EditCategoryModal } from "./EditCategoryModal";
 import { MenuActionConfirmModal } from "./MenuActionConfirmModal";
 import { MenuEntityActionsMenu } from "./MenuEntityActionsMenu";
@@ -45,6 +46,10 @@ function categoryRowActions(category: CategoryListRow, can: Props["can"]) {
   const actions: Array<{ id: string; label: string; danger?: boolean }> = [];
   if (can("category", "view") || can("category", "edit")) {
     actions.push({ id: "details", label: "Category details" });
+  }
+  if (can("category", "create")) {
+    actions.push({ id: "duplicate", label: "Duplicate" });
+    actions.push({ id: "duplicate-to", label: "Duplicate to…" });
   }
   if (can("category", "edit")) {
     actions.push({
@@ -85,7 +90,7 @@ function confirmCopyForAction(action: PendingRowAction) {
   }
 }
 
-const DIRECT_OPEN_ACTIONS = new Set(["details"]);
+const DIRECT_OPEN_ACTIONS = new Set(["details", "duplicate", "duplicate-to"]);
 
 export function AdminCategoriesTabPanel({
   api,
@@ -109,6 +114,8 @@ export function AdminCategoriesTabPanel({
   const [manageOpen, setManageOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingRowAction | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
+  const [duplicateTarget, setDuplicateTarget] = useState<CategoryListRow | null>(null);
+  const [duplicateToMode, setDuplicateToMode] = useState(false);
 
   const treeCategories = api.menu?.categories ?? [];
 
@@ -201,6 +208,15 @@ export function AdminCategoriesTabPanel({
       if (actionId === "details") {
         setDetailsCategory(category);
         setDetailsOpen(true);
+        return;
+      }
+      if (actionId === "duplicate" || actionId === "duplicate-to") {
+        if (isUiOnlyListId(category.id)) {
+          toastPreview();
+          return;
+        }
+        setDuplicateToMode(actionId === "duplicate-to");
+        setDuplicateTarget(category);
       }
       return;
     }
@@ -232,6 +248,17 @@ export function AdminCategoriesTabPanel({
   const hasSelection = selectedIds.size > 0;
   const canManage = realCategories.length > 0;
   const confirmCopy = pendingAction ? confirmCopyForAction(pendingAction) : null;
+  const duplicateDestinations = useMemo(
+    () =>
+      menus
+        .filter((m) => m.status !== "ARCHIVED")
+        .map((m) => ({
+          id: m.id,
+          label: m.name,
+          hint: m.status === "PUBLISHED" ? "Live" : m.status === "RETIRED" ? "Retired" : "Draft"
+        })),
+    [menus]
+  );
 
   return (
     <>
@@ -409,6 +436,26 @@ export function AdminCategoriesTabPanel({
         }}
         onSaved={() => {
           pushToast("Category updated.", "success");
+          api.refresh();
+        }}
+      />
+
+      <DuplicateEntityModal
+        open={Boolean(duplicateTarget)}
+        kind="category"
+        sourceId={duplicateTarget?.id ?? ""}
+        sourceName={duplicateTarget?.name ?? "Category"}
+        token={token}
+        restaurantId={restaurantId}
+        destinations={duplicateDestinations}
+        defaultDestinationId={duplicateTarget?.menuId ?? null}
+        allowChangeDestination={duplicateToMode}
+        onClose={() => {
+          setDuplicateTarget(null);
+          setDuplicateToMode(false);
+        }}
+        onDuplicated={(result) => {
+          pushToast(`“${result.name}” created as a draft copy.`, "success");
           api.refresh();
         }}
       />

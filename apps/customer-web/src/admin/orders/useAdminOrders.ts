@@ -44,9 +44,10 @@ export function useAdminOrders(input: {
     );
   }, []);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (opts?: { soft?: boolean }) => {
     if (!enabled || !input.token || !input.restaurantId) return;
-    setLoading(true);
+    const soft = Boolean(opts?.soft && hasLoadedOnce.current);
+    if (!soft) setLoading(true);
     setError(null);
     const presetQuery = presetToApiQuery(input.viewPreset);
     const [listRes, statsRes] = await Promise.all([
@@ -61,7 +62,7 @@ export function useAdminOrders(input: {
       }),
       fetchAdminOrderStats(input.token, input.restaurantId)
     ]);
-    setLoading(false);
+    if (!soft) setLoading(false);
     hasLoadedOnce.current = true;
     if (!listRes.ok) {
       setError(listRes.error ?? "Failed to load orders");

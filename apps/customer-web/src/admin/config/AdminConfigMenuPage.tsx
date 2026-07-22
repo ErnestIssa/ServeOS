@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   AdminEmptyState,
@@ -8,6 +8,7 @@ import {
   subPanelCls
 } from "../AdminUi";
 import { AdminSkeletonStatGrid, AdminStaleContent } from "../AdminSkeleton";
+import { usePageRecoverySync, useSilentRevalidate } from "../sync/adminPageSync";
 import { CONFIG_PRESET_DESCRIPTIONS, MENU_TAB_LABELS, MENU_TABS, type MenuSectionTab } from "./configRouting";
 import { AdminMenuTabContent } from "./menu/AdminMenuTabContent";
 import { AdminMenusTabPanel } from "./menu/AdminMenusTabPanel";
@@ -47,8 +48,42 @@ export function AdminConfigMenuPage({ token, restaurantId, venueName, initialTab
     if (initialTab) setTab(initialTab);
   }, [initialTab]);
 
+  const refreshTree = api.refresh;
+  const refreshMenus = menusApi.refresh;
+  const refreshCaps = menuCaps.refresh;
+  const refreshLive = liveMenusApi.refresh;
+  const refreshArchived = archivedMenusApi.refresh;
+
+  const syncAll = useCallback(
+    async (soft = false) => {
+      const opts = soft ? ({ soft: true } as const) : undefined;
+      await Promise.all([
+        refreshTree(opts),
+        refreshMenus(opts),
+        refreshCaps(),
+        tab === "live" ? refreshLive(opts) : Promise.resolve(),
+        tab === "archived" ? refreshArchived(opts) : Promise.resolve()
+      ]);
+    },
+    [refreshTree, refreshMenus, refreshCaps, refreshLive, refreshArchived, tab]
+  );
+
+  const { recover, recovering } = usePageRecoverySync([() => syncAll(false)]);
+  useSilentRevalidate(() => syncAll(true), {
+    enabled: Boolean(token && restaurantId),
+    minIntervalMs: 20_000,
+    intervalMs: 60_000
+  });
+
   const menuSurfaceCount = menusApi.menus.filter((m) => m.status !== "ARCHIVED").length;
   const publishedMenuCount = menusApi.menus.filter((m) => m.status === "PUBLISHED").length;
+
+  const headerRefreshing =
+    recovering ||
+    api.meta.refreshing ||
+    menusApi.meta.refreshing ||
+    (tab === "live" && liveMenusApi.meta.refreshing) ||
+    (tab === "archived" && archivedMenusApi.meta.refreshing);
 
   if (!token || !restaurantId) {
     return (
@@ -68,11 +103,15 @@ export function AdminConfigMenuPage({ token, restaurantId, venueName, initialTab
         title="Menu"
         description={CONFIG_PRESET_DESCRIPTIONS.menu}
         action={
-          <AdminRefreshButton onRefresh={() => api.refresh()} refreshing={api.meta.refreshing} label="Refresh menu" />
+          <AdminRefreshButton
+            onRefresh={() => void recover()}
+            refreshing={headerRefreshing}
+            label="Sync menu data"
+          />
         }
       />
 
-      <AdminStaleContent refreshing={api.meta.refreshing}>
+      <AdminStaleContent refreshing={headerRefreshing && !recovering ? api.meta.refreshing : headerRefreshing}>
         {api.meta.initialLoading ? (
           <div className="mt-8">
             <AdminSkeletonStatGrid />

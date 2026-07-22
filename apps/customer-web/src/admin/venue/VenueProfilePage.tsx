@@ -2,6 +2,7 @@ import { useState } from "react";
 import { AdminEmptyState, AdminPanel, AdminRefreshButton, AdminSectionHeader } from "../AdminUi";
 import { AdminSkeletonStatGrid, AdminStaleContent } from "../AdminSkeleton";
 import { ADMIN_VENUE_CONTROL_HASH } from "../adminTopHashes";
+import { usePageRecoverySync, useSilentRevalidate } from "../sync/adminPageSync";
 import { useVenueProfile } from "./useVenueProfile";
 import { VENUE_PROFILE_TABS, type VenueProfileTab } from "./venueProfileModel";
 import { VenueProfileTabContent } from "./VenueProfileTabs";
@@ -18,6 +19,13 @@ export function VenueProfilePage({ venueName, venueId, token = null, onSelectVen
   const [tab, setTab] = useState<VenueProfileTab>("overview");
   const displayName = (api.active?.name ?? venueName) || "Your venue";
   const companyId = api.active?.companyId ?? null;
+
+  const { recover, recovering } = usePageRecoverySync([() => api.reload()]);
+  useSilentRevalidate(() => api.reload({ soft: true }), {
+    enabled: Boolean(token && venueId),
+    minIntervalMs: 30_000,
+    intervalMs: 90_000
+  });
 
   if (!token || !venueId) {
     return (
@@ -41,7 +49,11 @@ export function VenueProfilePage({ venueName, venueId, token = null, onSelectVen
         title={displayName}
         description="Everything about the venue itself — profile, locations, hours, dining, branding, and advanced controls."
         action={
-          <AdminRefreshButton onRefresh={() => api.reload()} refreshing={api.refreshing} label="Refresh venue" />
+          <AdminRefreshButton
+            onRefresh={() => void recover()}
+            refreshing={recovering || api.refreshing}
+            label="Sync venue"
+          />
         }
       />
 

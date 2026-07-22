@@ -3,7 +3,6 @@ import {
   attachModifierGroup,
   createOrderingSession,
   deleteModifierGroup,
-  duplicateModifierGroup,
   type MenuCapabilitiesPayload
 } from "../../../api";
 import { AdminEmptyState } from "../../AdminUi";
@@ -11,6 +10,7 @@ import { useAdminToast } from "../../AdminToast";
 import type { MenuSectionTab } from "../configRouting";
 import type { useAdminMenu } from "../useAdminMenu";
 import { CreateModifierGroupModal } from "./CreateModifierGroupModal";
+import { DuplicateEntityModal } from "./DuplicateEntityModal";
 import { EditModifierGroupModal, type EditModifierGroupTarget } from "./EditModifierGroupModal";
 import { MenuActionConfirmModal } from "./MenuActionConfirmModal";
 import { MenuEntityActionsMenu } from "./MenuEntityActionsMenu";
@@ -66,19 +66,11 @@ function groupRowActions(
   return actions;
 }
 
-const DIRECT_OPEN_ACTIONS = new Set(["group-details", "preview", "attach"]);
+const DIRECT_OPEN_ACTIONS = new Set(["group-details", "preview", "attach", "duplicate"]);
 
 function confirmCopyForAction(action: PendingRowAction) {
   const name = action.group.name;
   switch (action.actionId) {
-    case "duplicate":
-      return {
-        title: "Duplicate modifier group?",
-        description: `Create a copy of “${name}” on ${action.group.itemName}.`,
-        confirmLabel: "Duplicate",
-        danger: false,
-        titleId: "mod-group-confirm-duplicate"
-      };
     case "detach":
       return {
         title: "Detach from item?",
@@ -131,6 +123,7 @@ export function AdminModifierGroupsTabPanel({
   const [pendingAction, setPendingAction] = useState<PendingRowAction | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
+  const [duplicateTarget, setDuplicateTarget] = useState<ModifierGroupListRow | null>(null);
 
   const [attachGroup, setAttachGroup] = useState<ModifierGroupListRow | null>(null);
   const [attachItemIds, setAttachItemIds] = useState<Set<string>>(() => new Set());
@@ -266,6 +259,14 @@ export function AdminModifierGroupsTabPanel({
         return;
       }
       setAttachGroup(group);
+      return;
+    }
+    if (actionId === "duplicate") {
+      if (isUiOnlyListId(group.id)) {
+        toastPreview();
+        return;
+      }
+      setDuplicateTarget(group);
     }
   };
 
@@ -291,19 +292,6 @@ export function AdminModifierGroupsTabPanel({
     if (!pendingAction) return;
     const { group, actionId } = pendingAction;
     setConfirmBusy(true);
-
-    if (actionId === "duplicate") {
-      const res = await duplicateModifierGroup(token, restaurantId, group.id);
-      setConfirmBusy(false);
-      if (!res.ok) {
-        pushToast(res.message ?? res.error ?? "Could not duplicate group.", "error");
-        return;
-      }
-      pushToast("Modifier group duplicated.", "success");
-      api.refresh();
-      setPendingAction(null);
-      return;
-    }
 
     if (actionId === "detach") {
       const res = await deleteModifierGroup(token, restaurantId, group.id);
@@ -581,6 +569,20 @@ export function AdminModifierGroupsTabPanel({
           confirmDisabled={attachItemIds.size === 0 || attachCandidates.length === 0}
         />
       </MenuPageModalShell>
+
+      <DuplicateEntityModal
+        open={Boolean(duplicateTarget)}
+        kind="modifier_group"
+        sourceId={duplicateTarget?.id ?? ""}
+        sourceName={duplicateTarget?.name ?? "Modifier group"}
+        token={token}
+        restaurantId={restaurantId}
+        onClose={() => setDuplicateTarget(null)}
+        onDuplicated={(result) => {
+          pushToast(`“${result.name}” created as a draft copy.`, "success");
+          api.refresh();
+        }}
+      />
 
       <MenuActionConfirmModal
         open={Boolean(pendingAction && confirmCopy)}

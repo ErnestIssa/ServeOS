@@ -1,11 +1,17 @@
-import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { useModalScrollLock } from "../../../lib/modalScrollLock";
+import { modifierGroupHealthWarnings } from "./detailsHealth";
 import {
-  MENU_PAGE_DRAWER_BACKDROP_CLASS,
-  MENU_PAGE_DRAWER_SHELL_CLASS
-} from "./menuPageModalShell";
+  DetailsDrawerShell,
+  DetailsFlags,
+  DetailsGrid,
+  DetailsHealth,
+  DetailsInternalId,
+  DetailsRow,
+  DetailsSection,
+  DetailsSystemStatus,
+  useCachedDetailsEntity
+} from "./detailsDrawerUi";
 import {
+  modifierGroupStatusClass,
   modifierGroupStatusLabel,
   type ModifierGroupListRow
 } from "./modifierGroupListHelpers";
@@ -17,117 +23,134 @@ type Props = {
   onClose: () => void;
 };
 
-function ReadonlyRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="admin-menu-readonly-field">
-      <p className="admin-menu-readonly-label">{label}</p>
-      <p className="admin-menu-readonly-value">{value || "—"}</p>
-    </div>
-  );
-}
-
 export function ModifierGroupProfileDrawer({ group, open, venueName, onClose }: Props) {
-  const [mounted, setMounted] = useState(false);
-  const [visible, setVisible] = useState(false);
-  const [active, setActive] = useState<ModifierGroupListRow | null>(null);
-  const closeTimerRef = useRef<number | null>(null);
+  const active = useCachedDetailsEntity(open, group);
+  const warnings = active ? modifierGroupHealthWarnings(active) : [];
+  const required = Boolean(active && active.minSelect > 0);
+  const multi = Boolean(active && active.maxSelect > 1);
 
-  useEffect(() => {
-    if (closeTimerRef.current) {
-      window.clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
-
-    if (open && group) {
-      setActive(group);
-      setMounted(true);
-      const frame = window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(() => setVisible(true));
-      });
-      return () => window.cancelAnimationFrame(frame);
-    }
-
-    setVisible(false);
-    closeTimerRef.current = window.setTimeout(() => {
-      setMounted(false);
-      setActive(null);
-      closeTimerRef.current = null;
-    }, 520);
-
-    return () => {
-      if (closeTimerRef.current) {
-        window.clearTimeout(closeTimerRef.current);
-        closeTimerRef.current = null;
+  return (
+    <DetailsDrawerShell
+      open={open}
+      entityKey={active?.id ?? null}
+      title={active?.name ?? "Modifier group"}
+      subtitle={active ? `Modifier group at ${venueName}` : undefined}
+      badge={
+        active ? (
+          <span className={`admin-menu-surface-status ${modifierGroupStatusClass(active)}`}>
+            {modifierGroupStatusLabel(active)}
+          </span>
+        ) : null
       }
-    };
-  }, [open, group]);
-
-  useModalScrollLock(mounted);
-
-  useEffect(() => {
-    if (!visible) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [visible, onClose]);
-
-  if (!mounted || !active) return null;
-
-  return createPortal(
-    <div
-      className={`admin-staff-profile-shell ${MENU_PAGE_DRAWER_SHELL_CLASS} ${visible ? "admin-staff-profile-shell--open" : ""}`}
-      role="presentation"
-      aria-hidden={!visible}
+      closeLabel="Close modifier group details"
+      onClose={onClose}
     >
-      <button
-        type="button"
-        className={`${MENU_PAGE_DRAWER_BACKDROP_CLASS}${visible ? " is-active" : ""}`}
-        aria-label="Close modifier group details"
-        tabIndex={visible ? 0 : -1}
-        onClick={onClose}
-      />
-      <div
-        role="dialog"
-        aria-modal="true"
-        tabIndex={visible ? 0 : -1}
-        aria-label="Modifier group details"
-        className={`admin-staff-profile-panel admin-menu-item-profile-panel ${visible ? "admin-staff-profile-panel--open" : ""}`}
-      >
-        <header className="admin-staff-profile-header">
-          <div className="min-w-0 flex-1">
-            <h3 className="admin-staff-profile-title">{active.name}</h3>
-            <p className="admin-staff-profile-sub">Modifier group at {venueName}</p>
-          </div>
-          <button type="button" className="admin-staff-profile-close" onClick={onClose} aria-label="Close">
-            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-              <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
-            </svg>
-          </button>
-        </header>
+      {active ? (
+        <>
+          <DetailsSection>
+            <DetailsGrid>
+              <DetailsRow label="Name" value={active.name} />
+              <DetailsInternalId id={active.id} />
+              <DetailsRow label="Type" value="Modifier group" />
+              <DetailsRow label="Status" value={modifierGroupStatusLabel(active)} />
+              <DetailsRow label="Lifecycle" value={active.lifecycle} />
+            </DetailsGrid>
+          </DetailsSection>
 
-        <div className="admin-staff-profile-body admin-menu-item-profile-body">
-          <section className="admin-staff-drawer-section">
-            <h4 className="admin-staff-drawer-section-title">Overview</h4>
-            <div className="admin-menu-field-grid">
-              <ReadonlyRow label="Name" value={active.name} />
-              <ReadonlyRow label="Item" value={active.itemName} />
-              <ReadonlyRow label="Status" value={modifierGroupStatusLabel(active)} />
-            </div>
-          </section>
+          <DetailsSection title="Where it is used">
+            <DetailsFlags
+              flags={[
+                {
+                  label: "Parent item",
+                  ok: Boolean(active.itemId),
+                  note: active.itemName
+                },
+                {
+                  label: "Options",
+                  ok: active.optionCount > 0,
+                  note: `${active.optionCount} option${active.optionCount === 1 ? "" : "s"}`
+                }
+              ]}
+            />
+          </DetailsSection>
 
-          <section className="admin-staff-drawer-section">
-            <h4 className="admin-staff-drawer-section-title">Selection rules</h4>
-            <div className="admin-menu-field-grid">
-              <ReadonlyRow label="Min select" value={String(active.minSelect)} />
-              <ReadonlyRow label="Max select" value={String(active.maxSelect)} />
-              <ReadonlyRow label="Options" value={String(active.optionCount)} />
-            </div>
-          </section>
-        </div>
-      </div>
-    </div>,
-    document.body
+          <DetailsSection title="Customer visibility" hint="How guests interact with this group.">
+            <DetailsFlags
+              flags={[
+                {
+                  label: required ? "Required selection" : "Optional selection",
+                  ok: true,
+                  note: `Min ${active.minSelect} · Max ${active.maxSelect}`
+                },
+                {
+                  label: multi ? "Allows multi-select" : "Single-select",
+                  ok: true,
+                  note: `Max ${active.maxSelect}`
+                },
+                {
+                  label: "Group active",
+                  ok: active.lifecycle === "ACTIVE",
+                  note: modifierGroupStatusLabel(active)
+                }
+              ]}
+            />
+          </DetailsSection>
+
+          <DetailsSection title="Selection rules">
+            <DetailsGrid>
+              <DetailsRow label="Min select" value={String(active.minSelect)} />
+              <DetailsRow label="Max select" value={String(active.maxSelect)} />
+              <DetailsRow label="Options" value={String(active.optionCount)} />
+            </DetailsGrid>
+          </DetailsSection>
+
+          <DetailsSection title="Relationships">
+            <DetailsGrid>
+              <DetailsRow label="Used by item" value={active.itemName} />
+              <DetailsRow
+                label="Contains"
+                value={`${active.optionCount} option${active.optionCount === 1 ? "" : "s"}`}
+              />
+            </DetailsGrid>
+          </DetailsSection>
+
+          <DetailsSection title="Dependencies" hint="Deleting this group affects the parent item and options.">
+            <DetailsGrid>
+              <DetailsRow label="Parent item" value={active.itemName} />
+              <DetailsRow label="Options affected" value={String(active.optionCount)} />
+            </DetailsGrid>
+          </DetailsSection>
+
+          <DetailsSection title="Health">
+            <DetailsHealth ready={warnings.length === 0} warnings={warnings} />
+          </DetailsSection>
+
+          <DetailsSystemStatus
+            rows={[
+              {
+                label: "Attached to item",
+                ok: Boolean(active.itemId),
+                note: active.itemName
+              },
+              {
+                label: "Selection rules",
+                ok: active.minSelect <= active.maxSelect,
+                note: `Min ${active.minSelect} · Max ${active.maxSelect}`
+              },
+              {
+                label: "Options",
+                ok: active.optionCount > 0,
+                note: `${active.optionCount} option${active.optionCount === 1 ? "" : "s"}`
+              },
+              {
+                label: "Health",
+                ok: warnings.length === 0,
+                note: warnings.length === 0 ? "No issues detected" : `${warnings.length} warning(s)`
+              }
+            ]}
+          />
+        </>
+      ) : null}
+    </DetailsDrawerShell>
   );
 }

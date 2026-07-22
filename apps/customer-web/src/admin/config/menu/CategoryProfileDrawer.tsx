@@ -1,16 +1,21 @@
-import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { useModalScrollLock } from "../../../lib/modalScrollLock";
-import {
-  MENU_PAGE_DRAWER_BACKDROP_CLASS,
-  MENU_PAGE_DRAWER_SHELL_CLASS
-} from "./menuPageModalShell";
 import {
   categoryPublishClass,
   categoryPublishLabel,
   categoryVisibilityLabel,
   type CategoryListRow
 } from "./categoryListHelpers";
+import { categoryHealthWarnings } from "./detailsHealth";
+import {
+  DetailsDrawerShell,
+  DetailsFlags,
+  DetailsGrid,
+  DetailsHealth,
+  DetailsInternalId,
+  DetailsRow,
+  DetailsSection,
+  DetailsSystemStatus,
+  useCachedDetailsEntity
+} from "./detailsDrawerUi";
 
 type Props = {
   category: CategoryListRow | null;
@@ -19,128 +24,137 @@ type Props = {
   onClose: () => void;
 };
 
-function ReadonlyRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="admin-menu-readonly-field">
-      <p className="admin-menu-readonly-label">{label}</p>
-      <p className="admin-menu-readonly-value">{value || "—"}</p>
-    </div>
-  );
-}
-
 export function CategoryProfileDrawer({ category, open, venueName, onClose }: Props) {
-  const [mounted, setMounted] = useState(false);
-  const [visible, setVisible] = useState(false);
-  const [active, setActive] = useState<CategoryListRow | null>(null);
-  const closeTimerRef = useRef<number | null>(null);
+  const active = useCachedDetailsEntity(open, category);
+  const warnings = active ? categoryHealthWarnings(active) : [];
+  const onLiveMenu = active?.menuStatus === "PUBLISHED";
+  const guestVisible = Boolean(active?.isActive && onLiveMenu);
 
-  useEffect(() => {
-    if (closeTimerRef.current) {
-      window.clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
-
-    if (open && category) {
-      setActive(category);
-      setMounted(true);
-      const frame = window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(() => setVisible(true));
-      });
-      return () => window.cancelAnimationFrame(frame);
-    }
-
-    setVisible(false);
-    closeTimerRef.current = window.setTimeout(() => {
-      setMounted(false);
-      setActive(null);
-      closeTimerRef.current = null;
-    }, 520);
-
-    return () => {
-      if (closeTimerRef.current) {
-        window.clearTimeout(closeTimerRef.current);
-        closeTimerRef.current = null;
+  return (
+    <DetailsDrawerShell
+      open={open}
+      entityKey={active?.id ?? null}
+      title={active?.name ?? "Category"}
+      subtitle={active ? `Category at ${venueName}` : undefined}
+      badge={
+        active ? (
+          <>
+            <span className={`admin-menu-surface-status ${categoryPublishClass(active.menuStatus)}`}>
+              {categoryPublishLabel(active.menuStatus)}
+            </span>
+            <span className="admin-staff-profile-meta">{categoryVisibilityLabel(active.isActive)}</span>
+          </>
+        ) : null
       }
-    };
-  }, [open, category]);
-
-  useModalScrollLock(mounted);
-
-  useEffect(() => {
-    if (!visible) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [visible, onClose]);
-
-  if (!mounted || !active) return null;
-
-  return createPortal(
-    <div
-      className={`admin-staff-profile-shell ${MENU_PAGE_DRAWER_SHELL_CLASS} ${visible ? "admin-staff-profile-shell--open" : ""}`}
-      role="presentation"
-      aria-hidden={!visible}
+      closeLabel="Close category details"
+      onClose={onClose}
     >
-      <button
-        type="button"
-        className={`${MENU_PAGE_DRAWER_BACKDROP_CLASS}${visible ? " is-active" : ""}`}
-        aria-label="Close category details"
-        tabIndex={visible ? 0 : -1}
-        onClick={onClose}
-      />
-      <div
-        role="dialog"
-        aria-modal="true"
-        tabIndex={visible ? 0 : -1}
-        aria-label="Category details"
-        className={`admin-staff-profile-panel admin-menu-item-profile-panel ${visible ? "admin-staff-profile-panel--open" : ""}`}
-      >
-        <header className="admin-staff-profile-header">
-          <div className="min-w-0 flex-1">
-            <h3 className="admin-staff-profile-title">{active.name}</h3>
-            <p className="admin-staff-profile-sub">Category at {venueName}</p>
-          </div>
-          <button type="button" className="admin-staff-profile-close" onClick={onClose} aria-label="Close">
-            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-              <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
-            </svg>
-          </button>
-        </header>
+      {active ? (
+        <>
+          <DetailsSection>
+            <DetailsGrid>
+              <DetailsRow label="Name" value={active.name} />
+              <DetailsInternalId id={active.id} />
+              <DetailsRow label="Type" value="Category" />
+              <DetailsRow label="Status" value={categoryVisibilityLabel(active.isActive)} />
+              <DetailsRow label="Lifecycle" value={active.isActive ? "Active" : "Hidden"} />
+              <DetailsRow label="Sort order" value={String(active.sortOrder)} />
+              <DetailsRow label="Venue" value={venueName || "—"} />
+            </DetailsGrid>
+          </DetailsSection>
 
-        <div className="admin-staff-profile-body admin-menu-item-profile-body">
-          <section className="admin-staff-drawer-section">
-            <h4 className="admin-staff-drawer-section-title">Overview</h4>
-            <div className="admin-menu-field-grid">
-              <ReadonlyRow label="Name" value={active.name} />
-              <ReadonlyRow label="Menu" value={active.menuName} />
-              <ReadonlyRow
-                label="Menu status"
-                value={categoryPublishLabel(active.menuStatus)}
+          <DetailsSection title="Where it is used">
+            <DetailsFlags
+              flags={[
+                {
+                  label: "Parent menu",
+                  ok: Boolean(active.menuId),
+                  note: active.menuName
+                },
+                {
+                  label: "On live menu",
+                  ok: onLiveMenu,
+                  note: categoryPublishLabel(active.menuStatus)
+                },
+                {
+                  label: "Contains items",
+                  ok: active.itemCount > 0,
+                  note: `${active.itemCount} item${active.itemCount === 1 ? "" : "s"}`
+                }
+              ]}
+            />
+          </DetailsSection>
+
+          <DetailsSection title="Customer visibility" hint="Can guests see this category?">
+            <DetailsFlags
+              flags={[
+                { label: "Category visible", ok: active.isActive },
+                { label: "Parent menu published", ok: onLiveMenu },
+                {
+                  label: "Shown to guests",
+                  ok: guestVisible,
+                  note: guestVisible ? "Visible when browsing the live menu" : "Not shown to guests"
+                }
+              ]}
+            />
+          </DetailsSection>
+
+          <DetailsSection title="Statistics">
+            <DetailsGrid>
+              <DetailsRow label="Item count" value={String(active.itemCount)} />
+              <DetailsRow label="Sort order" value={String(active.sortOrder)} />
+            </DetailsGrid>
+          </DetailsSection>
+
+          <DetailsSection title="Relationships">
+            <DetailsGrid>
+              <DetailsRow label="Belongs to menu" value={active.menuName} />
+              <DetailsRow
+                label="Contains"
+                value={`${active.itemCount} item${active.itemCount === 1 ? "" : "s"}`}
               />
-              <ReadonlyRow label="Visibility" value={categoryVisibilityLabel(active.isActive)} />
-              <ReadonlyRow label="Sort order" value={String(active.sortOrder)} />
-              <ReadonlyRow label="Items" value={String(active.itemCount)} />
-            </div>
-            <p className="admin-staff-drawer-hint mt-3">
-              <span className={`admin-menu-surface-status ${categoryPublishClass(active.menuStatus)}`}>
-                {categoryPublishLabel(active.menuStatus)}
-              </span>
-              {" · "}
-              {active.isActive ? "Shown to guests when the menu is live" : "Hidden from guests"}
-            </p>
-          </section>
+            </DetailsGrid>
+          </DetailsSection>
 
-          <section className="admin-staff-drawer-section">
-            <h4 className="admin-staff-drawer-section-title">Description</h4>
-            <p className="admin-config-text-muted text-sm leading-relaxed">
+          <DetailsSection title="Dependencies" hint="Deleting this category affects these items.">
+            <DetailsGrid>
+              <DetailsRow label="Items affected" value={String(active.itemCount)} />
+              <DetailsRow label="Parent menu" value={active.menuName} />
+            </DetailsGrid>
+          </DetailsSection>
+
+          <DetailsSection title="Health">
+            <DetailsHealth ready={warnings.length === 0} warnings={warnings} />
+          </DetailsSection>
+
+          <DetailsSection title="Description">
+            <p className="admin-menu-details-prose">
               {active.description?.trim() || "No description yet."}
             </p>
-          </section>
-        </div>
-      </div>
-    </div>,
-    document.body
+          </DetailsSection>
+
+          <DetailsSystemStatus
+            rows={[
+              { label: "Public visibility", ok: guestVisible, note: guestVisible ? "Visible" : "Hidden" },
+              {
+                label: "Parent menu",
+                ok: onLiveMenu,
+                note: categoryPublishLabel(active.menuStatus)
+              },
+              {
+                label: "Content",
+                ok: active.itemCount > 0,
+                note: `${active.itemCount} item${active.itemCount === 1 ? "" : "s"}`
+              },
+              {
+                label: "Health",
+                ok: warnings.length === 0,
+                note: warnings.length === 0 ? "No issues detected" : `${warnings.length} warning(s)`
+              }
+            ]}
+          />
+        </>
+      ) : null}
+    </DetailsDrawerShell>
   );
 }

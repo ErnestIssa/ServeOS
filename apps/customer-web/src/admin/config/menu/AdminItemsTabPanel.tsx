@@ -19,6 +19,7 @@ import {
 import { CategoryProfileDrawer } from "./CategoryProfileDrawer";
 import { CreateItemModal, type EditItemTarget } from "./CreateItemModal";
 import { CreateModifierGroupModal } from "./CreateModifierGroupModal";
+import { DuplicateEntityModal } from "./DuplicateEntityModal";
 import {
   enrichItemRow,
   itemStatusClass,
@@ -52,8 +53,15 @@ type PendingRowAction = {
 
 function itemRowActions(item: ItemListRow, can: Props["can"]) {
   const actions: Array<{ id: string; label: string; danger?: boolean }> = [];
+  if (can("item", "view") || can("item", "edit")) {
+    actions.push({ id: "item-details", label: "Item details" });
+  }
   if (can("category", "view") || can("category", "edit")) {
     actions.push({ id: "category-details", label: "Category details" });
+  }
+  if (can("item", "create")) {
+    actions.push({ id: "duplicate", label: "Duplicate" });
+    actions.push({ id: "duplicate-to", label: "Duplicate to…" });
   }
   if (can("item", "edit")) {
     actions.push({
@@ -65,7 +73,7 @@ function itemRowActions(item: ItemListRow, can: Props["can"]) {
     actions.push({ id: "details", label: "Add description & ingredients" });
   }
   if (can("media", "view")) {
-    actions.push({ id: "media", label: "View media" });
+    actions.push({ id: "media", label: "Open Images tab" });
   }
   return actions;
 }
@@ -102,9 +110,12 @@ function confirmCopyForAction(action: PendingRowAction) {
 
 /** Opens a screen/modal immediately — no confirm step. */
 const DIRECT_OPEN_ACTIONS = new Set([
+  "item-details",
   "category-details",
   "details",
-  "media"
+  "media",
+  "duplicate",
+  "duplicate-to"
 ]);
 
 function toEditTarget(item: ItemListRow): EditItemTarget {
@@ -161,6 +172,8 @@ export function AdminItemsTabPanel({
   const [createModifierGroupOpen, setCreateModifierGroupOpen] = useState(false);
   const [modifierInitialItemId, setModifierInitialItemId] = useState<string | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
+  const [duplicateTarget, setDuplicateTarget] = useState<ItemListRow | null>(null);
+  const [duplicateToMode, setDuplicateToMode] = useState(false);
 
   const treeCategories = api.menu?.categories ?? [];
 
@@ -268,6 +281,12 @@ export function AdminItemsTabPanel({
   };
 
   const runDirectAction = (item: ItemListRow, actionId: string) => {
+    if (actionId === "item-details") {
+      setItemDrawerItem(item);
+      setItemDrawerOpen(true);
+      return;
+    }
+
     if (actionId === "category-details") {
       const category = resolveCategoryRow(item.categoryId, treeCategories, menus);
       if (!category) {
@@ -289,9 +308,17 @@ export function AdminItemsTabPanel({
     }
 
     if (actionId === "media") {
-      setItemDrawerItem(item);
-      setItemDrawerOpen(true);
+      onNavigateTab("images");
       return;
+    }
+
+    if (actionId === "duplicate" || actionId === "duplicate-to") {
+      if (isUiOnlyListId(item.id)) {
+        toastPreview();
+        return;
+      }
+      setDuplicateToMode(actionId === "duplicate-to");
+      setDuplicateTarget(item);
     }
   };
 
@@ -361,6 +388,21 @@ export function AdminItemsTabPanel({
   const hasSelection = selectedIds.size > 0;
   const canManage = realItems.length > 0;
   const confirmCopy = pendingAction ? confirmCopyForAction(pendingAction) : null;
+  const duplicateDestinations = useMemo(
+    () =>
+      treeCategories
+        .filter((c) => {
+          if (!c.menuId) return true;
+          const menu = menus.find((m) => m.id === c.menuId);
+          return !menu || menu.status !== "ARCHIVED";
+        })
+        .map((c) => ({
+          id: c.id,
+          label: c.name,
+          hint: c.menuId ? menus.find((m) => m.id === c.menuId)?.name : undefined
+        })),
+    [treeCategories, menus]
+  );
 
   return (
     <>
@@ -502,9 +544,7 @@ export function AdminItemsTabPanel({
       <MenuItemProfileDrawer
         item={itemDrawerItem}
         open={itemDrawerOpen}
-        token={token}
-        restaurantId={restaurantId}
-        limits={capabilities?.limits ?? null}
+        venueName={venueName}
         onClose={() => {
           setItemDrawerOpen(false);
           setItemDrawerItem(null);
@@ -583,6 +623,26 @@ export function AdminItemsTabPanel({
           api.refresh();
         }}
         onNavigateTab={onNavigateTab}
+      />
+
+      <DuplicateEntityModal
+        open={Boolean(duplicateTarget)}
+        kind="item"
+        sourceId={duplicateTarget?.id ?? ""}
+        sourceName={duplicateTarget?.name ?? "Item"}
+        token={token}
+        restaurantId={restaurantId}
+        destinations={duplicateDestinations}
+        defaultDestinationId={duplicateTarget?.categoryId ?? null}
+        allowChangeDestination={duplicateToMode}
+        onClose={() => {
+          setDuplicateTarget(null);
+          setDuplicateToMode(false);
+        }}
+        onDuplicated={(result) => {
+          pushToast(`“${result.name}” created as a draft copy.`, "success");
+          api.refresh();
+        }}
       />
 
       <MenuActionConfirmModal

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MenuSurfaceRow } from "../../../api";
-import { archiveRestaurantMenu } from "../../../api";
+import { archiveRestaurantMenu, getMenuManageContext } from "../../../api";
 import type { MenuCapabilitiesPayload } from "../../../api";
 import { AdminSkeletonTable } from "../../AdminSkeleton";
 import { useAdminToast } from "../../AdminToast";
@@ -8,7 +8,8 @@ import type { useAdminMenus } from "../useAdminMenus";
 import { CreateMenuModal } from "./CreateMenuModal";
 import {
   DuplicateMenuConfirmModal,
-  ScheduleMenuModal
+  ScheduleMenuModal,
+  ContentTemplatesPanel
 } from "./AdminMenuActionModals";
 import { MenuActionConfirmModal } from "./MenuActionConfirmModal";
 import { MenuEntityActionsMenu } from "./MenuEntityActionsMenu";
@@ -395,6 +396,28 @@ export function AdminMenusTabPanel({
     actionId: string;
   } | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
+  const [locationDestinations, setLocationDestinations] = useState<
+    Array<{ id: string; label: string; hint?: string }>
+  >([]);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const res = await getMenuManageContext(token, restaurantId, { variant: "active" });
+      if (cancelled || !res.ok || !res.context) return;
+      setLocationDestinations(
+        (res.context.moveDestinations ?? []).map((d) => ({
+          id: d.id,
+          label: d.name,
+          hint: "Other location"
+        }))
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, restaurantId]);
 
   const menus = useMemo(() => {
     if (variant === "live") return [...menusApi.menus, ...UI_MOCK_LIVE_MENUS];
@@ -575,6 +598,9 @@ export function AdminMenusTabPanel({
                 <MenuToolbarButton onClick={() => setManageOpen(true)}>
                   {hasSelection ? "Manage selected" : "Manage"}
                 </MenuToolbarButton>
+              ) : null}
+              {can("menu", "view") || can("menu", "create") ? (
+                <MenuToolbarButton onClick={() => setTemplatesOpen(true)}>Templates</MenuToolbarButton>
               ) : null}
               {can("menu", "create") ? (
                 <MenuToolbarButton
@@ -785,10 +811,25 @@ export function AdminMenusTabPanel({
         menu={modalMenu}
         token={token}
         restaurantId={restaurantId}
+        locationDestinations={locationDestinations}
         onClose={() => setDuplicateOpen(false)}
         onDuplicated={(menu) => {
-          menusApi.upsertMenu(menu);
+          if ("status" in menu) menusApi.upsertMenu(menu as MenuSurfaceRow);
           pushToast(`“${menu.name}” draft created from duplicate.`, "success");
+          void menusApi.refresh();
+        }}
+      />
+
+      <ContentTemplatesPanel
+        open={templatesOpen}
+        token={token}
+        restaurantId={restaurantId}
+        menus={realMenus}
+        locationDestinations={locationDestinations}
+        canCreate={can("menu", "create")}
+        onClose={() => setTemplatesOpen(false)}
+        onApplied={() => {
+          pushToast("Template apply started — draft menu will appear when the job completes.", "success");
           void menusApi.refresh();
         }}
       />

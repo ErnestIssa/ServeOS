@@ -11,12 +11,13 @@ export function useAdminMenu(token: string | null, restaurantId: string | null) 
   const initialLoading = loading && !hasLoadedOnce.current;
   const refreshing = loading && hasLoadedOnce.current;
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (opts?: { soft?: boolean }) => {
     if (!enabled || !token || !restaurantId) return;
-    setLoading(true);
+    const soft = Boolean(opts?.soft && hasLoadedOnce.current);
+    if (!soft) setLoading(true);
     setError(null);
     const res = await getMenuAdmin(token, restaurantId);
-    setLoading(false);
+    if (!soft) setLoading(false);
     hasLoadedOnce.current = true;
     if (!res.ok || !res.categories) {
       setError(res.error ?? "Failed to load menu");

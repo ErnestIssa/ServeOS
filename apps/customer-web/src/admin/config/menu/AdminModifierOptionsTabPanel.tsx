@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { formatMoneyCents } from "@serveos/core-shared/currency";
 import {
   createOrderingSession,
-  duplicateModifierOption,
   updateModifierOption,
   type MenuCapabilitiesPayload
 } from "../../../api";
@@ -11,6 +10,7 @@ import { useAdminToast } from "../../AdminToast";
 import type { MenuSectionTab } from "../configRouting";
 import type { useAdminMenu } from "../useAdminMenu";
 import { CreateModifierOptionModal } from "./CreateModifierOptionModal";
+import { DuplicateEntityModal } from "./DuplicateEntityModal";
 import { EditModifierOptionModal, type EditModifierOptionTarget } from "./EditModifierOptionModal";
 import { MenuActionConfirmModal } from "./MenuActionConfirmModal";
 import { MenuEntityActionsMenu } from "./MenuEntityActionsMenu";
@@ -24,6 +24,7 @@ import {
   type ModifierOptionListRow
 } from "./modifierOptionListHelpers";
 import { ModifierGroupProfileDrawer } from "./ModifierGroupProfileDrawer";
+import { ModifierOptionProfileDrawer } from "./ModifierOptionProfileDrawer";
 import type { ModifierGroupListRow } from "./modifierGroupListHelpers";
 import { ModifierOptionManageDrawer } from "./ModifierOptionManageDrawer";
 import { useMenuListPagination } from "./useMenuListPagination";
@@ -45,6 +46,9 @@ type PendingRowAction = {
 function optionRowActions(option: ModifierOptionListRow, can: Props["can"], hasOtherGroups: boolean) {
   const actions: Array<{ id: string; label: string; danger?: boolean }> = [];
 
+  if (can("modifier_option", "view") || can("modifier_option", "edit")) {
+    actions.push({ id: "option-details", label: "Option details" });
+  }
   if (can("modifier_group", "view") || can("modifier_group", "edit")) {
     actions.push({ id: "group-details", label: "Group details" });
   }
@@ -65,21 +69,13 @@ function optionRowActions(option: ModifierOptionListRow, can: Props["can"], hasO
   return actions;
 }
 
-const DIRECT_OPEN_ACTIONS = new Set(["group-details", "preview", "move"]);
+const DIRECT_OPEN_ACTIONS = new Set(["option-details", "group-details", "preview", "move", "duplicate"]);
 /** Runs immediately after confirmation — no further UI. */
-const CONFIRM_RUN_ACTIONS = new Set(["duplicate", "unavailable", "available"]);
+const CONFIRM_RUN_ACTIONS = new Set(["unavailable", "available"]);
 
 function confirmCopyForAction(action: PendingRowAction) {
   const name = action.option.name;
   switch (action.actionId) {
-    case "duplicate":
-      return {
-        title: "Duplicate modifier option?",
-        description: `Create a copy of “${name}” in ${action.option.groupName}.`,
-        confirmLabel: "Duplicate",
-        danger: false,
-        titleId: "mod-option-confirm-duplicate"
-      };
     case "unavailable":
       return {
         title: "Mark unavailable?",
@@ -133,6 +129,8 @@ export function AdminModifierOptionsTabPanel({
   const [editTarget, setEditTarget] = useState<EditModifierOptionTarget | null>(null);
   const [groupDetailsOpen, setGroupDetailsOpen] = useState(false);
   const [groupDetailsTarget, setGroupDetailsTarget] = useState<ModifierGroupListRow | null>(null);
+  const [optionDetailsOpen, setOptionDetailsOpen] = useState(false);
+  const [optionDetailsTarget, setOptionDetailsTarget] = useState<ModifierOptionListRow | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const selectAllRef = useRef<HTMLInputElement>(null);
@@ -141,6 +139,7 @@ export function AdminModifierOptionsTabPanel({
   const [pendingAction, setPendingAction] = useState<PendingRowAction | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
+  const [duplicateTarget, setDuplicateTarget] = useState<ModifierOptionListRow | null>(null);
 
   const [moveOption, setMoveOption] = useState<ModifierOptionListRow | null>(null);
   const [moveGroupId, setMoveGroupId] = useState("");
@@ -289,6 +288,11 @@ export function AdminModifierOptionsTabPanel({
   };
 
   const runDirectAction = (option: ModifierOptionListRow, actionId: string) => {
+    if (actionId === "option-details") {
+      setOptionDetailsTarget(option);
+      setOptionDetailsOpen(true);
+      return;
+    }
     if (actionId === "group-details") {
       openGroupDetails(option);
       return;
@@ -303,6 +307,14 @@ export function AdminModifierOptionsTabPanel({
         return;
       }
       setMoveOption(option);
+      return;
+    }
+    if (actionId === "duplicate") {
+      if (isUiOnlyListId(option.id)) {
+        toastPreview();
+        return;
+      }
+      setDuplicateTarget(option);
     }
   };
 
@@ -332,19 +344,6 @@ export function AdminModifierOptionsTabPanel({
     if (!pendingAction) return;
     const { option, actionId } = pendingAction;
     setConfirmBusy(true);
-
-    if (actionId === "duplicate") {
-      const res = await duplicateModifierOption(token, restaurantId, option.id);
-      setConfirmBusy(false);
-      if (!res.ok) {
-        pushToast(res.message ?? res.error ?? "Could not duplicate option.", "error");
-        return;
-      }
-      pushToast("Modifier option duplicated.", "success");
-      api.refresh();
-      setPendingAction(null);
-      return;
-    }
 
     if (actionId === "unavailable" || actionId === "available") {
       const res = await updateModifierOption(token, restaurantId, option.id, {
@@ -573,6 +572,16 @@ export function AdminModifierOptionsTabPanel({
         }}
       />
 
+      <ModifierOptionProfileDrawer
+        option={optionDetailsTarget}
+        open={optionDetailsOpen}
+        venueName={venueName}
+        onClose={() => {
+          setOptionDetailsOpen(false);
+          setOptionDetailsTarget(null);
+        }}
+      />
+
       <MenuPageModalShell
         open={Boolean(moveOption)}
         onClose={moveBusy ? () => undefined : () => setMoveOption(null)}
@@ -611,6 +620,20 @@ export function AdminModifierOptionsTabPanel({
           confirmDisabled={!moveGroupId || moveCandidates.length === 0}
         />
       </MenuPageModalShell>
+
+      <DuplicateEntityModal
+        open={Boolean(duplicateTarget)}
+        kind="modifier_option"
+        sourceId={duplicateTarget?.id ?? ""}
+        sourceName={duplicateTarget?.name ?? "Modifier option"}
+        token={token}
+        restaurantId={restaurantId}
+        onClose={() => setDuplicateTarget(null)}
+        onDuplicated={(result) => {
+          pushToast(`“${result.name}” created as a draft copy.`, "success");
+          api.refresh();
+        }}
+      />
 
       <MenuActionConfirmModal
         open={Boolean(pendingAction && confirmCopy)}

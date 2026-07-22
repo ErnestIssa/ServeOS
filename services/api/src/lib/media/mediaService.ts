@@ -12,6 +12,7 @@ import {
   visibilityForScope
 } from "../integrations/objectStorage.js";
 import { purgeCdnObjectKeys } from "../integrations/cloudflareCdn.js";
+import { syncAssetFromStoredMedia } from "../replication/mediaAssetService.js";
 
 const SCOPE_TO_DB: Record<StorageScope, StoredMediaScope> = {
   profile: "PROFILE_IMAGE",
@@ -85,6 +86,12 @@ export async function uploadMediaBase64(
     }
   });
 
+  try {
+    await syncAssetFromStoredMedia(prisma, media);
+  } catch {
+    /* dual-write best-effort */
+  }
+
   return { ok: true as const, media };
 }
 
@@ -129,6 +136,12 @@ export async function recordUploadedObject(
       chatMessageId: params.chatMessageId ?? null
     }
   });
+
+  try {
+    await syncAssetFromStoredMedia(prisma, media);
+  } catch {
+    /* dual-write best-effort */
+  }
 
   const purge = await purgeCdnObjectKeys([params.objectKey]);
   if (!purge.ok) {

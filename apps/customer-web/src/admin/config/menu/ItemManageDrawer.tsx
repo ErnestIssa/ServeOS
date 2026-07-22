@@ -17,6 +17,7 @@ import {
   ProfileModalAlert,
   ProfileModalFooter
 } from "./menuPageModalShell";
+import { DuplicateEntityModal } from "./DuplicateEntityModal";
 import { MenuSurfacePagination } from "./MenuSurfacePagination";
 import { useMenuListPagination } from "./useMenuListPagination";
 import { isUiOnlyListId } from "./menuListUiMocks";
@@ -127,6 +128,8 @@ export function ItemManageDrawer({
   const [dangerBusy, setDangerBusy] = useState(false);
   const [dangerError, setDangerError] = useState<string | null>(null);
   const [confirmName, setConfirmName] = useState("");
+  const [duplicateOpen, setDuplicateOpen] = useState(false);
+  const [duplicateToMode, setDuplicateToMode] = useState(false);
 
   const targets = useMemo(() => {
     const real = items.filter((item) => !isUiOnlyListId(item.id));
@@ -154,7 +157,7 @@ export function ItemManageDrawer({
   const transferOpen = transferMode != null;
   const pickOpen = pickAction != null;
   const dangerOpen = dangerKind != null;
-  const showManageShell = mounted && !dangerOpen && !transferOpen && !pickOpen;
+  const showManageShell = mounted && !dangerOpen && !transferOpen && !pickOpen && !duplicateOpen;
 
   useEffect(() => {
     if (closeTimerRef.current) {
@@ -181,16 +184,16 @@ export function ItemManageDrawer({
     };
   }, [open]);
 
-  useModalScrollLock(mounted || dangerOpen || transferOpen || pickOpen);
+  useModalScrollLock(mounted || dangerOpen || transferOpen || pickOpen || duplicateOpen);
 
   useEffect(() => {
-    if (!visible || dangerOpen || transferOpen || pickOpen) return;
+    if (!visible || dangerOpen || transferOpen || pickOpen || duplicateOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [visible, dangerOpen, transferOpen, pickOpen, onClose]);
+  }, [visible, dangerOpen, transferOpen, pickOpen, duplicateOpen, onClose]);
 
   useEffect(() => {
     if (!dangerOpen) {
@@ -360,7 +363,12 @@ export function ItemManageDrawer({
     }
   };
 
-  const runDuplicate = async () => {
+  const runDuplicate = async (toOtherCategory: boolean) => {
+    if (targets.length === 1) {
+      setDuplicateToMode(toOtherCategory);
+      setDuplicateOpen(true);
+      return;
+    }
     let ok = 0;
     let failed = 0;
     for (const item of targets) {
@@ -418,7 +426,7 @@ export function ItemManageDrawer({
 
   const pickCopy = pickAction ? singleItemActionCopy(pickAction) : null;
 
-  if (!mounted && !dangerOpen && !transferOpen && !pickOpen) return null;
+  if (!mounted && !dangerOpen && !transferOpen && !pickOpen && !duplicateOpen) return null;
 
   return createPortal(
     <>
@@ -490,12 +498,23 @@ export function ItemManageDrawer({
                           Update name, price, category, and details for one item.
                         </span>
                       </button>
-                      <button type="button" className="admin-menu-manage-action" onClick={() => void runDuplicate()}>
+                      <button type="button" className="admin-menu-manage-action" onClick={() => void runDuplicate(false)}>
                         <span className="admin-menu-manage-action-label">
                           {targets.length === 1 ? "Duplicate" : `Duplicate ${targets.length}`}
                         </span>
                         <span className="admin-menu-manage-action-desc">Create draft copies of the selected items.</span>
                       </button>
+                      {targets.length === 1 ? (
+                        <button
+                          type="button"
+                          className="admin-menu-manage-action"
+                          disabled={categories.length === 0}
+                          onClick={() => void runDuplicate(true)}
+                        >
+                          <span className="admin-menu-manage-action-label">Duplicate to…</span>
+                          <span className="admin-menu-manage-action-desc">Copy this item into another category.</span>
+                        </button>
+                      ) : null}
                       {anyAvailable ? (
                         <button
                           type="button"
@@ -532,7 +551,7 @@ export function ItemManageDrawer({
                         onClick={() => openTransfer("copy")}
                       >
                         <span className="admin-menu-manage-action-label">Copy</span>
-                        <span className="admin-menu-manage-action-desc">Duplicate items into another category or menu.</span>
+                        <span className="admin-menu-manage-action-desc">Place copies into another category or menu (same name).</span>
                       </button>
                     </div>
                   </section>
@@ -825,6 +844,38 @@ export function ItemManageDrawer({
           danger
         />
       </MenuPageModalShell>
+
+      <DuplicateEntityModal
+        open={duplicateOpen && targets.length === 1}
+        kind="item"
+        sourceId={targets[0]?.id ?? ""}
+        sourceName={targets[0]?.name ?? "Item"}
+        token={token}
+        restaurantId={restaurantId}
+        destinations={categories
+          .filter((c) => {
+            if (!c.menuId) return true;
+            const menu = menus.find((m) => m.id === c.menuId);
+            return !menu || menu.status !== "ARCHIVED";
+          })
+          .map((c) => ({
+            id: c.id,
+            label: c.name,
+            hint: c.menuId ? menus.find((m) => m.id === c.menuId)?.name : undefined
+          }))}
+        defaultDestinationId={targets[0]?.categoryId ?? null}
+        allowChangeDestination={duplicateToMode}
+        onClose={() => {
+          setDuplicateOpen(false);
+          setDuplicateToMode(false);
+        }}
+        onDuplicated={(result) => {
+          pushToast(`“${result.name}” created as a draft copy.`, "success");
+          onRefresh();
+          setDuplicateOpen(false);
+          setDuplicateToMode(false);
+        }}
+      />
     </>,
     document.body
   );

@@ -39,7 +39,7 @@ export function useStaffManagement(token: string | null, restaurantId: string, v
   const [recentlyRemoved, setRecentlyRemoved] = useState<RecentlyRemovedMember[]>([]);
   const [permissionCatalog, setPermissionCatalog] = useState<Array<{ id: string; label: string; keys: string[] }>>([]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { soft?: boolean }) => {
     if (!token || !restaurantId) {
       setStaff([]);
       setPendingInvites([]);
@@ -50,7 +50,8 @@ export function useStaffManagement(token: string | null, restaurantId: string, v
       hasLoadedOnce.current = false;
       return;
     }
-    setLoading(true);
+    const soft = Boolean(opts?.soft && hasLoadedOnce.current);
+    if (!soft) setLoading(true);
     setError(null);
     const [listRes, catalogRes] = await Promise.all([
       fetchVenueStaff(token, restaurantId),
@@ -63,7 +64,7 @@ export function useStaffManagement(token: string | null, restaurantId: string, v
       setPendingApprovals([]);
       setInviteHistory([]);
       setRecentlyRemoved([]);
-      setLoading(false);
+      if (!soft) setLoading(false);
       return;
     }
     const catalog = catalogRes.ok ? catalogRes.groups : [];
@@ -140,7 +141,7 @@ export function useStaffManagement(token: string | null, restaurantId: string, v
         capabilities: row.capabilities ?? null
       }))
     );
-    setLoading(false);
+    if (!soft) setLoading(false);
     hasLoadedOnce.current = true;
   }, [token, restaurantId, venueName]);
 

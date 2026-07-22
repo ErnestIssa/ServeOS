@@ -22,13 +22,14 @@ export function useAdminMenus(
   const initialLoading = loading && !hasLoadedOnce.current;
   const refreshing = loading && hasLoadedOnce.current;
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (opts?: { soft?: boolean }) => {
     if (!hookEnabled || !token || !restaurantId) return;
-    setLoading(true);
+    const soft = Boolean(opts?.soft && hasLoadedOnce.current);
+    if (!soft) setLoading(true);
     setError(null);
     // Full list from backend (SSOT total); UI paginates after merging preview rows.
     const res = await listRestaurantMenus(token, restaurantId, status);
-    setLoading(false);
+    if (!soft) setLoading(false);
     hasLoadedOnce.current = true;
     if (!res.ok || !res.menus) {
       setError(res.message ?? res.error ?? "Failed to load menus");
