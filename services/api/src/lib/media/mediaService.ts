@@ -13,6 +13,10 @@ import {
 } from "../integrations/objectStorage.js";
 import { purgeCdnObjectKeys } from "../integrations/cloudflareCdn.js";
 import { syncAssetFromStoredMedia } from "../replication/mediaAssetService.js";
+import {
+  advanceUploadJob,
+  finalizeUploadJobProcessing
+} from "./library/uploadJobService.js";
 
 const SCOPE_TO_DB: Record<StorageScope, StoredMediaScope> = {
   profile: "PROFILE_IMAGE",
@@ -57,15 +61,40 @@ export async function uploadMediaBase64(
     chatRoomId?: string;
     chatMessageId?: string;
     originalName?: string;
+    uploadJobId?: string;
+    displayName?: string;
+    altText?: string;
+    width?: number;
+    height?: number;
+    durationMs?: number;
   }
 ) {
+  if (params.uploadJobId) {
+    await advanceUploadJob(prisma, params.uploadJobId, {
+      status: "UPLOADING",
+      stage: "uploading",
+      progress: 25,
+      objectKey: params.objectKey
+    }).catch(() => undefined);
+  }
+
   const uploaded = await uploadBase64Object({
     scope: params.scope,
     objectKey: params.objectKey,
     dataBase64: params.dataBase64,
     contentType: params.contentType
   });
-  if ("error" in uploaded) return { ok: false as const, error: uploaded.error };
+  if ("error" in uploaded) {
+    if (params.uploadJobId) {
+      await advanceUploadJob(prisma, params.uploadJobId, {
+        status: "FAILED",
+        stage: "uploading",
+        progress: 25,
+        error: uploaded.error
+      }).catch(() => undefined);
+    }
+    return { ok: false as const, error: uploaded.error };
+  }
 
   const visibility = visibilityForScope(params.scope);
   const media = await prisma.storedMedia.create({
@@ -82,17 +111,44 @@ export async function uploadMediaBase64(
       userId: params.userId ?? null,
       menuItemId: params.menuItemId ?? null,
       chatRoomId: params.chatRoomId ?? null,
-      chatMessageId: params.chatMessageId ?? null
+      chatMessageId: params.chatMessageId ?? null,
+      durationMs: params.durationMs ?? null
     }
   });
 
+  let assetId: string | null = null;
   try {
-    await syncAssetFromStoredMedia(prisma, media);
+    const asset = await syncAssetFromStoredMedia(prisma, {
+      ...media,
+      durationMs: params.durationMs ?? media.durationMs
+    });
+    assetId = asset.id;
+    if (params.displayName || params.altText || params.width || params.height) {
+      await prisma.mediaAsset.update({
+        where: { id: asset.id },
+        data: {
+          ...(params.displayName ? { displayName: params.displayName.trim() } : {}),
+          ...(params.altText ? { altText: params.altText.trim() } : {}),
+          ...(params.width != null ? { width: params.width } : {}),
+          ...(params.height != null ? { height: params.height } : {})
+        }
+      });
+    }
   } catch {
     /* dual-write best-effort */
   }
 
-  return { ok: true as const, media };
+  if (params.uploadJobId && params.restaurantId && assetId) {
+    await finalizeUploadJobProcessing(prisma, {
+      jobId: params.uploadJobId,
+      restaurantId: params.restaurantId,
+      assetId,
+      objectKey: uploaded.objectKey,
+      contentType: params.contentType
+    }).catch(() => undefined);
+  }
+
+  return { ok: true as const, media, assetId };
 }
 
 export async function recordUploadedObject(
@@ -108,10 +164,29 @@ export async function recordUploadedObject(
     chatRoomId?: string;
     chatMessageId?: string;
     originalName?: string;
+    uploadJobId?: string;
+    sha256Hex?: string;
   }
 ) {
+  if (params.uploadJobId) {
+    await advanceUploadJob(prisma, params.uploadJobId, {
+      status: "UPLOADING",
+      stage: "uploading",
+      progress: 30,
+      objectKey: params.objectKey
+    }).catch(() => undefined);
+  }
+
   const head = await headObject(params.objectKey);
-  if (!head) return { ok: false as const, error: "object_not_found" };
+  if (!head) {
+    if (params.uploadJobId) {
+      await advanceUploadJob(prisma, params.uploadJobId, {
+        status: "FAILED",
+        error: "object_not_found"
+      }).catch(() => undefined);
+    }
+    return { ok: false as const, error: "object_not_found" };
+  }
 
   const maxBytes = maxBytesForScope(params.scope);
   if (head.byteSize > maxBytes) {
@@ -119,6 +194,7 @@ export async function recordUploadedObject(
     return { ok: false as const, error: "file_too_large" };
   }
 
+  const sha256Hex = params.sha256Hex?.trim() || head.sha256Hex || null;
   const visibility = visibilityForScope(params.scope);
   const media = await prisma.storedMedia.create({
     data: {
@@ -126,6 +202,7 @@ export async function recordUploadedObject(
       scope: SCOPE_TO_DB[params.scope],
       contentType: head.contentType ?? params.contentType,
       byteSize: head.byteSize,
+      sha256Hex,
       visibility: toDbVisibility(visibility),
       originalName: params.originalName?.trim() || null,
       uploadedById: params.uploadedById ?? null,
@@ -137,8 +214,10 @@ export async function recordUploadedObject(
     }
   });
 
+  let assetId: string | null = null;
   try {
-    await syncAssetFromStoredMedia(prisma, media);
+    const asset = await syncAssetFromStoredMedia(prisma, media);
+    assetId = asset.id;
   } catch {
     /* dual-write best-effort */
   }
@@ -148,7 +227,17 @@ export async function recordUploadedObject(
     console.warn("[cloudflare-cdn] presigned upload purge failed", purge.error);
   }
 
-  return { ok: true as const, media };
+  if (params.uploadJobId && params.restaurantId && assetId) {
+    await finalizeUploadJobProcessing(prisma, {
+      jobId: params.uploadJobId,
+      restaurantId: params.restaurantId,
+      assetId,
+      objectKey: params.objectKey,
+      contentType: head.contentType ?? params.contentType
+    }).catch(() => undefined);
+  }
+
+  return { ok: true as const, media, assetId };
 }
 
 export async function refreshMediaCdnCache(prisma: PrismaClient, mediaId: string) {

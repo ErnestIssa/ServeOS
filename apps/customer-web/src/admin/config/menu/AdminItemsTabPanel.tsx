@@ -78,7 +78,7 @@ function itemRowActions(item: ItemListRow, can: Props["can"]) {
     actions.push({ id: "details", label: "Add description & ingredients" });
   }
   if (can("media", "view")) {
-    actions.push({ id: "media", label: "Open Images tab" });
+    actions.push({ id: "media", label: "Open Media Library" });
   }
   return actions;
 }
@@ -314,7 +314,7 @@ export function AdminItemsTabPanel({
     }
 
     if (actionId === "media") {
-      onNavigateTab("images");
+      syncAdminNavHash(buildNavHref("config", "media-library"));
       return;
     }
 
@@ -566,7 +566,6 @@ export function AdminItemsTabPanel({
           setItemDrawerOpen(false);
           setItemDrawerItem(null);
         }}
-        onNavigateTab={onNavigateTab}
       />
 
       <ItemManageDrawer

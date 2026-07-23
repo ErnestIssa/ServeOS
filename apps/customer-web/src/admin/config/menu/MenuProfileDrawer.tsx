@@ -1,4 +1,7 @@
+import { useState } from "react";
 import type { MenuSurfaceRow } from "../../../api";
+import { AdminBtnPrimary } from "../../AdminUi";
+import { MediaPickerModal } from "../media/MediaPickerModal";
 import { filterUserCreatedWindows, formatAvailabilityDays } from "./availabilityHelpers";
 import { menuHealthWarnings } from "./detailsHealth";
 import {
@@ -22,7 +25,11 @@ type Props = {
   open: boolean;
   venueName: string;
   variant: MenuPanelVariant;
+  token: string;
+  restaurantId: string;
+  canUpload: boolean;
   onClose: () => void;
+  onCoverChanged?: () => void;
 };
 
 function menuDescription(menu: MenuSurfaceRow, venueName: string) {
@@ -65,8 +72,19 @@ function lifecycleLabel(menu: MenuSurfaceRow) {
   return "Draft workspace";
 }
 
-export function MenuProfileDrawer({ menu, open, venueName, variant, onClose }: Props) {
+export function MenuProfileDrawer({
+  menu,
+  open,
+  venueName,
+  variant,
+  token,
+  restaurantId,
+  canUpload,
+  onClose,
+  onCoverChanged
+}: Props) {
   const active = useCachedDetailsEntity(open, menu);
+  const [coverPickerOpen, setCoverPickerOpen] = useState(false);
   const windows = active ? filterUserCreatedWindows(active.availabilityWindows) : {};
   const windowSummaries = Object.values(windows).map((w) => {
     const days = formatAvailabilityDays(w.days ?? []);
@@ -78,6 +96,7 @@ export function MenuProfileDrawer({ menu, open, venueName, variant, onClose }: P
   const availabilityCount = windowSummaries.length;
 
   return (
+    <>
     <DetailsDrawerShell
       open={open}
       entityKey={active?.id ?? null}
@@ -176,6 +195,20 @@ export function MenuProfileDrawer({ menu, open, venueName, variant, onClose }: P
               <DetailsRow label="Availability windows" value={String(availabilityCount)} />
               <DetailsRow label="Cover image" value={active.coverMediaKey ? "Set" : "Missing"} />
             </DetailsGrid>
+          </DetailsSection>
+
+          <DetailsSection
+            title="Cover media"
+            hint="Choose from the Media Library or upload a new cover for this menu."
+          >
+            <p className="admin-menu-details-prose admin-staff-profile-muted mb-3">
+              {active.coverMediaKey
+                ? "A cover is attached. Replace it anytime from the library."
+                : "No cover yet — guests see a better menu when one is set."}
+            </p>
+            <AdminBtnPrimary className="w-full" onClick={() => setCoverPickerOpen(true)}>
+              {active.coverMediaKey ? "Change cover" : "Choose cover"}
+            </AdminBtnPrimary>
           </DetailsSection>
 
           <DetailsSection title="Relationships">
@@ -280,5 +313,22 @@ export function MenuProfileDrawer({ menu, open, venueName, variant, onClose }: P
         </>
       ) : null}
     </DetailsDrawerShell>
+    {active ? (
+      <MediaPickerModal
+        open={coverPickerOpen}
+        onClose={() => setCoverPickerOpen(false)}
+        token={token}
+        restaurantId={restaurantId}
+        canUpload={canUpload}
+        menus={[active]}
+        items={[]}
+        attachTarget={{ targetType: "MENU_COVER", targetId: active.id }}
+        onAttached={() => {
+          setCoverPickerOpen(false);
+          onCoverChanged?.();
+        }}
+      />
+    ) : null}
+    </>
   );
 }

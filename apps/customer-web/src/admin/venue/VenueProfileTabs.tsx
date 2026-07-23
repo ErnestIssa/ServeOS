@@ -79,6 +79,7 @@ function OverviewTab({ displayName, venueId, companyId, settings, access, persis
 
   const connected = [
     { label: "Menu", ok: true, href: buildNavHref("config", "menu") },
+    { label: "Media Library", ok: true, href: buildNavHref("config", "media-library") },
     { label: "Staff", ok: true, href: ADMIN_TOP_HASHES.addStaff },
     { label: "Payments", ok: false, href: buildNavHref("config", "payments") },
     { label: "Orders", ok: true, href: buildNavHref("orders", "active-orders") }

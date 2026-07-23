@@ -98,7 +98,13 @@ export function registerMediaRoutes(app: FastifyInstance, prisma: PrismaClient) 
         restaurantId: z.string().optional(),
         menuItemId: z.string().optional(),
         chatRoomId: z.string().optional(),
-        originalName: z.string().max(200).optional()
+        originalName: z.string().max(200).optional(),
+        uploadJobId: z.string().optional(),
+        displayName: z.string().max(200).optional(),
+        altText: z.string().max(500).optional(),
+        width: z.number().int().optional(),
+        height: z.number().int().optional(),
+        durationMs: z.number().int().optional()
       })
       .parse(req.body);
 
@@ -134,10 +140,16 @@ export function registerMediaRoutes(app: FastifyInstance, prisma: PrismaClient) 
       userId: body.scope === "profile" ? userId : undefined,
       menuItemId: body.menuItemId,
       chatRoomId: body.chatRoomId,
-      originalName: body.originalName
+      originalName: body.originalName,
+      uploadJobId: body.uploadJobId,
+      displayName: body.displayName,
+      altText: body.altText,
+      width: body.width,
+      height: body.height,
+      durationMs: body.durationMs
     });
     if (!result.ok) return reply.status(400).send(result);
-    return { ok: true, media: result.media };
+    return { ok: true, media: result.media, assetId: result.assetId ?? null };
   });
 
   app.post("/media/complete", async (req, reply) => {
@@ -150,7 +162,9 @@ export function registerMediaRoutes(app: FastifyInstance, prisma: PrismaClient) 
         restaurantId: z.string().optional(),
         menuItemId: z.string().optional(),
         chatRoomId: z.string().optional(),
-        originalName: z.string().max(200).optional()
+        originalName: z.string().max(200).optional(),
+        uploadJobId: z.string().optional(),
+        sha256Hex: z.string().optional()
       })
       .parse(req.body);
 
@@ -171,10 +185,12 @@ export function registerMediaRoutes(app: FastifyInstance, prisma: PrismaClient) 
       userId: body.scope === "profile" ? userId : undefined,
       menuItemId: body.menuItemId,
       chatRoomId: body.chatRoomId,
-      originalName: body.originalName
+      originalName: body.originalName,
+      uploadJobId: body.uploadJobId,
+      sha256Hex: body.sha256Hex
     });
     if (!result.ok) return reply.status(400).send(result);
-    return { ok: true, media: result.media };
+    return { ok: true, media: result.media, assetId: result.assetId ?? null };
   });
 
   app.get("/media/:mediaId/url", async (req, reply) => {

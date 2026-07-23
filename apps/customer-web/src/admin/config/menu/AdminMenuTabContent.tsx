@@ -6,19 +6,14 @@ import {
   importMenuCsv,
   manageAvailability,
   type AvailabilityCardPayload,
+  type MenuCapabilitiesPayload,
   type MenuSurfaceRow
 } from "../../../api";
-import {
-  AdminBtnPrimary,
-  AdminEmptyState
-} from "../../AdminUi";
+import { AdminBtnPrimary, AdminEmptyState } from "../../AdminUi";
 import { AdminSkeletonTable } from "../../AdminSkeleton";
 import { useAdminToast } from "../../AdminToast";
 import type { MenuSectionTab } from "../configRouting";
 import type { useAdminMenu } from "../useAdminMenu";
-import type { MenuCapabilitiesPayload } from "../../../api";
-import { MenuMediaDestinationModal } from "./MenuMediaDestinationModal";
-import { MediaAssetLibrary } from "./MediaAssetLibrary";
 import { AdminCategoriesTabPanel } from "./AdminCategoriesTabPanel";
 import { AdminItemsTabPanel } from "./AdminItemsTabPanel";
 import { AdminModifierGroupsTabPanel } from "./AdminModifierGroupsTabPanel";
@@ -91,8 +86,6 @@ export function AdminMenuTabContent({
   const { pushToast } = useAdminToast();
   const [busy, setBusy] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
-  const [mediaModalOpen, setMediaModalOpen] = useState(false);
-  const [mediaModalKind, setMediaModalKind] = useState<"image" | "video">("image");
   const [createAvailabilityOpen, setCreateAvailabilityOpen] = useState(false);
   const [manageAvailabilityOpen, setManageAvailabilityOpen] = useState(false);
   const [openAvailabilityMenuKey, setOpenAvailabilityMenuKey] = useState<string | null>(null);
@@ -199,20 +192,26 @@ export function AdminMenuTabContent({
 
   const cardKeyOf = (card: AvailabilityCardPayload) => `${card.menuId}:${card.key}`;
 
-  const availabilityMenuActions = useMemo(() => {
+  const availabilityMenuActionsFor = (card: AvailabilityCardPayload) => {
     const actions: Array<{ id: string; label: string; danger?: boolean }> = [
       { id: "details", label: "Schedule details" }
     ];
-    if (can("menu", "edit")) {
-      actions.push(
-        { id: "edit", label: "Edit availability" },
-        { id: "preview", label: "Preview availability" },
-        { id: "make_available", label: "Make available now" },
-        { id: "make_unavailable", label: "Make unavailable now" }
-      );
+    if (!can("menu", "edit")) return actions;
+
+    actions.push(
+      { id: "edit", label: "Edit availability" },
+      { id: "preview", label: "Preview availability" }
+    );
+
+    // Only offer the action that changes state — backend evaluation is SSOT.
+    if (card.evaluation.orderable) {
+      actions.push({ id: "make_unavailable", label: "Make unavailable now" });
+    } else {
+      actions.push({ id: "make_available", label: "Make available now" });
     }
+
     return actions;
-  }, [can]);
+  };
 
   const runCardManage = async (card: AvailabilityCardPayload, action: Parameters<typeof manageAvailability>[2]["action"]) => {
     const k = cardKeyOf(card);
@@ -274,22 +273,6 @@ export function AdminMenuTabContent({
   };
 
   const realCategories = api.menu?.categories ?? [];
-
-  const modalCategories = useMemo(
-    () =>
-      realCategories.map((c) => ({
-        id: c.id,
-        name: c.name,
-        menuId: c.menuId ?? null,
-        itemCount: c.items.length
-      })),
-    [realCategories]
-  );
-
-  const modalItems = useMemo(
-    () => api.flatItems.map((i) => ({ id: i.id, name: i.name, categoryName: i.categoryName })),
-    [api.flatItems]
-  );
 
   if (initialLoading) {
     const rows = tab === "items" ? 8 : tab === "categories" ? 6 : 4;
@@ -414,6 +397,7 @@ export function AdminMenuTabContent({
                         const status = card.evaluation.status;
                         const reasons = card.evaluation.reasons.filter((r) => r.ok).slice(0, 5);
                         const blocked = card.evaluation.reasons.find((r) => !r.ok);
+                        const menuActions = availabilityMenuActionsFor(card);
                         return (
                           <div
                             key={cardKey}
@@ -435,12 +419,12 @@ export function AdminMenuTabContent({
                                 <p className="font-display text-base font-bold admin-config-text truncate">{card.window.label}</p>
                                 <p className="admin-config-text-muted text-[0.65rem] truncate">{card.menuName}</p>
                               </div>
-                              {availabilityMenuActions.length > 0 ? (
+                              {menuActions.length > 0 ? (
                                 <MenuEntityActionsMenu
                                   entityName={card.window.label}
                                   subtitle="Availability actions"
                                   open={openAvailabilityMenuKey === cardKey}
-                                  actions={availabilityMenuActions}
+                                  actions={menuActions}
                                   onToggle={() => setOpenAvailabilityMenuKey((id) => (id === cardKey ? null : cardKey))}
                                   onAction={(actionId) => handleAvailabilityMenuAction(card, actionId)}
                                 />
@@ -662,94 +646,6 @@ export function AdminMenuTabContent({
             onMenusRefresh();
             void refreshAvailabilityOverview();
           }}
-        />
-      </>
-    );
-  }
-
-  if (tab === "images") {
-    return (
-      <>
-        <div className="admin-menu-tab-stack">
-          <MenuSection
-            title="Menu images & videos"
-            description="Three levels: menu cover (whole menu card), categories (group dishes), and items (individual product photos). Pick where each upload belongs so guests see the right image in the right place."
-          >
-            {!can("media", "view") ? (
-              <p className="admin-config-text-subtle text-sm">Your role cannot view menu media.</p>
-            ) : (
-              <>
-                <div className="rounded-2xl border border-slate-200/70 bg-slate-50/50 p-4 text-sm leading-relaxed admin-config-text-subtle dark:border-slate-700/50 dark:bg-slate-900/30">
-                  <p>
-                    <strong className="admin-config-text">Menu cover</strong> — one hero image on the menu listing.
-                  </p>
-                  <p className="mt-2">
-                    <strong className="admin-config-text">Item photos & videos</strong> — attached to a specific dish; shown when guests browse that product.
-                  </p>
-                </div>
-                <div className="admin-menu-media-toolbar mt-4">
-                  <MenuToolbarButton
-                    primary
-                    disabled={!can("media", "upload")}
-                    onClick={() => {
-                      setMediaModalKind("image");
-                      setMediaModalOpen(true);
-                    }}
-                  >
-                    Add image
-                  </MenuToolbarButton>
-                  <MenuToolbarButton
-                    disabled={!can("media", "upload")}
-                    onClick={() => {
-                      setMediaModalKind("video");
-                      setMediaModalOpen(true);
-                    }}
-                  >
-                    Add video
-                  </MenuToolbarButton>
-                </div>
-                {menus.filter((m) => m.status !== "ARCHIVED").length === 0 ? (
-                  <div className="admin-menu-image-placeholder mt-4">
-                    <p className="admin-config-text-subtle text-sm">Create a menu surface first, then add cover photos and item media.</p>
-                    <AdminBtnPrimary className="mt-3" onClick={() => onNavigateTab("menus")}>
-                      Go to Menus
-                    </AdminBtnPrimary>
-                  </div>
-                ) : api.flatItems.length === 0 && realCategories.length === 0 ? (
-                  <div className="admin-menu-image-placeholder mt-4">
-                    <p className="admin-config-text-subtle text-sm">Add categories and items before uploading product photos.</p>
-                    <div className="mt-3 flex flex-wrap justify-center gap-2">
-                      <AdminBtnPrimary onClick={() => onNavigateTab("categories")}>Go to Categories</AdminBtnPrimary>
-                      <AdminBtnPrimary onClick={() => onNavigateTab("items")}>Go to Items</AdminBtnPrimary>
-                    </div>
-                  </div>
-                ) : null}
-                <MediaAssetLibrary
-                  token={token}
-                  restaurantId={restaurantId}
-                  menus={menus}
-                  items={modalItems}
-                  canUpload={can("media", "upload")}
-                  canView={can("media", "view")}
-                />
-              </>
-            )}
-          </MenuSection>
-        </div>
-        <MenuMediaDestinationModal
-          open={mediaModalOpen}
-          onClose={() => setMediaModalOpen(false)}
-          kind={mediaModalKind}
-          token={token}
-          restaurantId={restaurantId}
-          menus={menus}
-          categories={modalCategories}
-          items={modalItems}
-          canUpload={can("media", "upload")}
-          canRemove={can("media", "remove")}
-          limits={capabilities?.limits ?? null}
-          onNavigateTab={onNavigateTab}
-          onRefresh={() => api.refresh()}
         />
       </>
     );

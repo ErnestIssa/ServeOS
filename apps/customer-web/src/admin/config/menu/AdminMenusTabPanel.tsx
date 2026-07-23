@@ -772,9 +772,15 @@ export function AdminMenusTabPanel({
         open={drawerOpen}
         venueName={venueName}
         variant={variant}
+        token={token}
+        restaurantId={restaurantId}
+        canUpload={can("media", "upload")}
         onClose={() => {
           setDrawerOpen(false);
           setDrawerMenu(null);
+        }}
+        onCoverChanged={() => {
+          void menusApi.refresh();
         }}
       />
 

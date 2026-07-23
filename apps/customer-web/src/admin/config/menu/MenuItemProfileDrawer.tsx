@@ -1,5 +1,5 @@
 import { formatMoneyCents } from "@serveos/core-shared/currency";
-import type { MenuSectionTab } from "../configRouting";
+import { buildNavHref, syncAdminNavHash } from "../../adminWorkspaceRouting";
 import { AdminBtnPrimary } from "../../AdminUi";
 import { MenuChip } from "./MenuPageUi";
 import { itemHealthWarnings } from "./detailsHealth";
@@ -9,10 +9,10 @@ import {
   DetailsFlags,
   DetailsGrid,
   DetailsHealth,
-  DetailsInternalId,
   DetailsRow,
   DetailsSection,
   DetailsSystemStatus,
+  shortEntityId,
   useCachedDetailsEntity
 } from "./detailsDrawerUi";
 import { itemStatusClass, itemStatusLabel, type ItemListRow } from "./itemListHelpers";
@@ -22,10 +22,9 @@ type Props = {
   open: boolean;
   venueName: string;
   onClose: () => void;
-  onNavigateTab: (tab: MenuSectionTab) => void;
 };
 
-export function MenuItemProfileDrawer({ item, open, venueName, onClose, onNavigateTab }: Props) {
+export function MenuItemProfileDrawer({ item, open, venueName, onClose }: Props) {
   const active = useCachedDetailsEntity(open, item);
   const warnings = active ? itemHealthWarnings(active) : [];
   const onLiveMenu = active?.menuStatus === "PUBLISHED";
@@ -33,9 +32,9 @@ export function MenuItemProfileDrawer({ item, open, venueName, onClose, onNaviga
     active && active.isActive && !active.isSoldOut && active.lifecycle === "ACTIVE" && onLiveMenu
   );
 
-  const goToMediaTab = () => {
+  const goToMediaLibrary = () => {
     onClose();
-    onNavigateTab("images");
+    syncAdminNavHash(buildNavHref("config", "media-library"));
   };
 
   return (
@@ -62,7 +61,7 @@ export function MenuItemProfileDrawer({ item, open, venueName, onClose, onNaviga
           <DetailsSection>
             <DetailsGrid>
               <DetailsRow label="Name" value={active.name} />
-              <DetailsInternalId id={active.id} />
+              <DetailsRow label="Internal ID" value={shortEntityId(active.id)} />
               <DetailsRow label="Type" value="Menu item" />
               <DetailsRow label="Status" value={itemStatusLabel(active)} />
               <DetailsRow label="Lifecycle" value={active.lifecycle} />
@@ -144,13 +143,13 @@ export function MenuItemProfileDrawer({ item, open, venueName, onClose, onNaviga
 
           <DetailsSection
             title="Media"
-            hint="Photos and videos stay on the Images tab — not inside this details drawer."
+            hint="Photos and videos live in the Media Library — not inside this details drawer."
           >
             <p className="admin-menu-details-prose admin-staff-profile-muted mb-3">
-              Use Images to upload, set cover, or remove media for this item.
+              Use the Media Library to upload, set cover, or remove media for this item.
             </p>
-            <AdminBtnPrimary className="w-full" onClick={goToMediaTab}>
-              Open Images tab
+            <AdminBtnPrimary className="w-full" onClick={goToMediaLibrary}>
+              Open Media Library
             </AdminBtnPrimary>
           </DetailsSection>
 

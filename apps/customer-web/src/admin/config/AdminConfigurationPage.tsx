@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { resolveWorkspacePreset, WORKSPACE_META } from "../adminWorkspaceRouting";
 import { AdminConfigMenuPage } from "./AdminConfigMenuPage";
 import { AdminConfigPaymentsPage } from "./AdminConfigPaymentsPage";
+import { AdminConfigMediaLibraryPage } from "./media/AdminConfigMediaLibraryPage";
 import {
   CONFIG_PRESET_DESCRIPTIONS,
   menuTabFromLegacyPreset,
@@ -37,6 +38,14 @@ export function AdminConfigurationPage({
           restaurantId={restaurantId}
           venueName={venueName}
           initialTab={menuInitialTab}
+        />
+      );
+    case "media-library":
+      return (
+        <AdminConfigMediaLibraryPage
+          token={token}
+          restaurantId={restaurantId}
+          venueName={venueName}
         />
       );
     case "payments":

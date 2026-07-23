@@ -276,25 +276,134 @@ model StoredMedia {
   @@index([chatRoomId])
 }
 
-/// Physical file identity in object storage (Content Replication Engine).
+/// Physical file identity in object storage (Media Library + Content Replication).
 /// Multiple MediaUsage rows may point at one MediaAsset; S3 object is shared.
+/// objectKey is the current deliverable; originalObjectKey is the immutable first upload.
 model MediaAsset {
-  id               String                @id @default(cuid())
-  objectKey        String                @unique
-  sha256Hex        String?
-  contentType      String
-  byteSize         Int
-  originalName     String?
-  visibility       StoredMediaVisibility @default(PRIVATE)
-  createdByUserId  String?
-  restaurantId     String?
-  createdAt        DateTime              @default(now())
+  id                   String                 @id @default(cuid())
+  objectKey            String                 @unique
+  /// Immutable first-upload key; never overwritten on replace.
+  originalObjectKey    String
+  sha256Hex            String?
+  contentType          String
+  byteSize             Int
+  originalName         String?
+  displayName          String?
+  altText              String?
+  description          String?
+  tags                 String[]               @default([])
+  width                Int?
+  height               Int?
+  durationMs           Int?
+  favorite             Boolean                @default(false)
+  archivedAt           DateTime?
+  processingStatus     MediaProcessingStatus  @default(READY)
+  currentVersionNumber Int                    @default(1)
+  /// Future AI hooks — never populated in V1 UI unless set.
+  aiQualityScore       Float?
+  aiTags               String[]               @default([])
+  visibility           StoredMediaVisibility  @default(PRIVATE)
+  createdByUserId      String?
+  restaurantId         String?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
 
-  restaurant Restaurant?  @relation(fields: [restaurantId], references: [id], onDelete: SetNull)
-  usages     MediaUsage[]
+  restaurant   Restaurant?           @relation(fields: [restaurantId], references: [id], onDelete: SetNull)
+  usages       MediaUsage[]
+  versions     MediaAssetVersion[]
+  collections  MediaCollectionItem[]
+  uploadJobs   MediaUploadJob[]
 
   @@index([restaurantId])
   @@index([sha256Hex])
+  @@index([restaurantId, archivedAt])
+  @@index([restaurantId, favorite])
+  @@index([restaurantId, processingStatus])
+}
+
+enum MediaProcessingStatus {
+  READY
+  PROCESSING
+  FAILED
+  SKIPPED
+}
+
+enum MediaUploadJobStatus {
+  QUEUED
+  UPLOADING
+  PROCESSING
+  READY
+  FAILED
+}
+
+model MediaAssetVersion {
+  id              String   @id @default(cuid())
+  assetId         String
+  versionNumber   Int
+  objectKey       String
+  byteSize        Int
+  contentType     String
+  sha256Hex       String?
+  note            String?
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+
+  asset MediaAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, versionNumber])
+  @@index([assetId])
+}
+
+model MediaCollection {
+  id           String   @id @default(cuid())
+  restaurantId String
+  name         String
+  description  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  restaurant Restaurant            @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  items      MediaCollectionItem[]
+
+  @@unique([restaurantId, name])
+  @@index([restaurantId])
+}
+
+model MediaCollectionItem {
+  id           String   @id @default(cuid())
+  collectionId String
+  assetId      String
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  collection MediaCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  asset      MediaAsset      @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([collectionId, assetId])
+  @@index([assetId])
+}
+
+model MediaUploadJob {
+  id            String               @id @default(cuid())
+  restaurantId  String
+  status        MediaUploadJobStatus @default(QUEUED)
+  stage         String               @default("queued")
+  progress      Int                  @default(0)
+  assetId       String?
+  error         String?
+  originalName  String?
+  contentType   String?
+  purpose       String?
+  objectKey     String?
+  createdByUserId String?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  asset      MediaAsset? @relation(fields: [assetId], references: [id], onDelete: SetNull)
+
+  @@index([restaurantId, status])
+  @@index([restaurantId, createdAt])
 }
 
 enum MediaUsageTargetType {
@@ -462,6 +571,8 @@ model Restaurant {
   storedMedia        StoredMedia[]
   mediaAssets        MediaAsset[]
   mediaUsages        MediaUsage[]
+  mediaCollections   MediaCollection[]
+  mediaUploadJobs    MediaUploadJob[]
   replicationJobsSource ReplicationJob[] @relation("ReplicationJobSourceVenue")
   replicationJobsTarget ReplicationJob[] @relation("ReplicationJobTargetVenue")
   contentTemplates   ContentTemplate[]

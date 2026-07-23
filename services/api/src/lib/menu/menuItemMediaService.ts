@@ -1,5 +1,6 @@
 import type { PrismaClient, StoredMedia, StoredMediaScope } from "@prisma/client";
 import { getMediaSignedUrl } from "../media/mediaService.js";
+import { ensureAssetFromUpload, attachUsage } from "../media/library/assetService.js";
 import { MENU_ITEM_MEDIA_LIMITS } from "./menuPermissions.js";
 
 export type MenuItemMediaRow = {
@@ -304,6 +305,32 @@ export async function attachMenuSurfaceCoverMedia(
     where: { id: params.menuId },
     data: { coverMediaKey: media.objectKey }
   });
+
+  try {
+    const full = await prisma.storedMedia.findUnique({ where: { id: media.id } });
+    if (full) {
+      const asset = await ensureAssetFromUpload(prisma, {
+        objectKey: full.objectKey,
+        contentType: full.contentType,
+        byteSize: full.byteSize,
+        sha256Hex: full.sha256Hex,
+        originalName: full.originalName,
+        visibility: full.visibility,
+        createdByUserId: full.uploadedById,
+        restaurantId: params.restaurantId
+      });
+      await attachUsage(prisma, {
+        assetId: asset.id,
+        restaurantId: params.restaurantId,
+        targetType: "MENU_COVER",
+        targetId: params.menuId,
+        role: "COVER",
+        sortOrder: 0
+      });
+    }
+  } catch {
+    /* dual-write best-effort */
+  }
 
   return { ok: true as const, coverMediaKey: media.objectKey };
 }

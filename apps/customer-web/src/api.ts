@@ -1029,24 +1029,6 @@ export async function createMenuMediaUploadSession(
   });
 }
 
-export async function completeMenuMediaUpload(
-  token: string,
-  body: {
-    scope: "menu" | "video";
-    objectKey: string;
-    contentType: string;
-    restaurantId: string;
-    menuItemId?: string;
-    originalName?: string;
-  }
-) {
-  return apiFetch<{ ok: boolean; media?: { id: string }; error?: string }>("/media/complete", {
-    method: "POST",
-    headers: authJsonHeaders(token),
-    body: JSON.stringify(body)
-  });
-}
-
 export async function uploadMenuMediaBase64(
   token: string,
   body: {
@@ -1057,13 +1039,44 @@ export async function uploadMenuMediaBase64(
     restaurantId: string;
     menuItemId?: string;
     originalName?: string;
+    uploadJobId?: string;
+    displayName?: string;
+    altText?: string;
+    width?: number;
+    height?: number;
+    durationMs?: number;
   }
 ) {
-  return apiFetch<{ ok: boolean; media?: { id: string }; error?: string }>("/media/upload", {
-    method: "POST",
-    headers: authJsonHeaders(token),
-    body: JSON.stringify(body)
-  });
+  return apiFetch<{ ok: boolean; media?: { id: string }; assetId?: string | null; error?: string }>(
+    "/media/upload",
+    {
+      method: "POST",
+      headers: authJsonHeaders(token),
+      body: JSON.stringify(body)
+    }
+  );
+}
+
+export async function completeMenuMediaUpload(
+  token: string,
+  body: {
+    scope: "menu" | "video";
+    objectKey: string;
+    contentType: string;
+    restaurantId: string;
+    menuItemId?: string;
+    originalName?: string;
+    uploadJobId?: string;
+  }
+) {
+  return apiFetch<{ ok: boolean; media?: { id: string }; assetId?: string | null; error?: string }>(
+    "/media/complete",
+    {
+      method: "POST",
+      headers: authJsonHeaders(token),
+      body: JSON.stringify(body)
+    }
+  );
 }
 
 export type OrderRow = {
@@ -1268,10 +1281,100 @@ export type MediaAssetRow = {
   contentType: string;
   byteSize: number;
   originalName: string | null;
+  displayName?: string | null;
+  altText?: string | null;
   sha256Hex: string | null;
   usageCount: number;
+  favorite?: boolean;
+  processingStatus?: string;
   createdAt: string;
   url: string | null;
+  health?: {
+    missingAlt: boolean;
+    unused: boolean;
+    largeFile: boolean;
+    processingFailed: boolean;
+  };
+};
+
+export type MediaLibraryAsset = MediaAssetRow & {
+  description?: string | null;
+  tags?: string[];
+  width?: number | null;
+  height?: number | null;
+  durationMs?: number | null;
+  archivedAt?: string | null;
+  currentVersionNumber?: number;
+  updatedAt?: string;
+  collectionIds?: string[];
+};
+
+export type MediaLibraryDetail = MediaLibraryAsset & {
+  originalObjectKey?: string;
+  visibility?: string;
+  aiQualityScore?: number | null;
+  aiTags?: string[];
+  createdByUserId?: string | null;
+  versions?: Array<{
+    id: string;
+    versionNumber: number;
+    objectKey: string;
+    byteSize: number;
+    contentType: string;
+    note: string | null;
+    createdAt: string;
+  }>;
+  collections?: Array<{ id: string; name: string }>;
+  usages?: Array<{
+    id: string;
+    targetType: string;
+    targetId: string;
+    role: string;
+    sortOrder: number;
+    createdAt: string;
+    label?: string;
+  }>;
+};
+
+export type MediaCollectionRow = {
+  id: string;
+  name: string;
+  description: string | null;
+  itemCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MediaUploadJobRow = {
+  id: string;
+  restaurantId: string;
+  status: string;
+  stage: string;
+  progress: number;
+  assetId: string | null;
+  error: string | null;
+  originalName: string | null;
+  contentType: string | null;
+  purpose: string | null;
+  objectKey: string | null;
+  stages?: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MediaLibraryListQuery = {
+  page?: number;
+  pageSize?: number;
+  q?: string;
+  type?: "image" | "video" | "all";
+  used?: boolean;
+  unused?: boolean;
+  favorite?: boolean;
+  archived?: boolean;
+  needsAlt?: boolean;
+  largeFiles?: boolean;
+  recentlyUploaded?: boolean;
+  collectionId?: string;
 };
 
 export type ContentTemplateRow = {
@@ -1338,6 +1441,185 @@ export async function listMediaAssets(token: string, restaurantId: string) {
   return apiFetch<{ ok: boolean; assets?: MediaAssetRow[]; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/media/assets`,
     { headers: authHeaders(token) }
+  );
+}
+
+export async function listMediaLibrary(
+  token: string,
+  restaurantId: string,
+  query: MediaLibraryListQuery = {}
+) {
+  const qs = new URLSearchParams();
+  if (query.page) qs.set("page", String(query.page));
+  if (query.pageSize) qs.set("pageSize", String(query.pageSize));
+  if (query.q) qs.set("q", query.q);
+  if (query.type) qs.set("type", query.type);
+  if (query.used) qs.set("used", "true");
+  if (query.unused) qs.set("unused", "true");
+  if (query.favorite) qs.set("favorite", "true");
+  if (query.archived) qs.set("archived", "true");
+  if (query.needsAlt) qs.set("needsAlt", "true");
+  if (query.largeFiles) qs.set("largeFiles", "true");
+  if (query.recentlyUploaded) qs.set("recentlyUploaded", "true");
+  if (query.collectionId) qs.set("collectionId", query.collectionId);
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return apiFetch<{
+    ok: boolean;
+    assets?: MediaLibraryAsset[];
+    page?: number;
+    pageSize?: number;
+    total?: number;
+    totalPages?: number;
+    cloudSources?: Array<{ id: string; label: string; available: boolean }>;
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/media/library${suffix}`, {
+    headers: authHeaders(token)
+  });
+}
+
+export async function getMediaLibraryAsset(token: string, restaurantId: string, assetId: string) {
+  return apiFetch<{ ok: boolean; asset?: MediaLibraryDetail; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/media/library/${encodeURIComponent(assetId)}`,
+    { headers: authHeaders(token) }
+  );
+}
+
+export async function patchMediaLibraryAsset(
+  token: string,
+  restaurantId: string,
+  assetId: string,
+  body: Record<string, unknown>
+) {
+  return apiFetch<{ ok: boolean; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/media/library/${encodeURIComponent(assetId)}`,
+    { method: "PATCH", headers: authJsonHeaders(token), body: JSON.stringify(body) }
+  );
+}
+
+export async function replaceMediaLibraryAsset(
+  token: string,
+  restaurantId: string,
+  assetId: string,
+  body: { dataBase64: string; contentType?: string; note?: string; purpose?: string }
+) {
+  return apiFetch<{ ok: boolean; versionNumber?: number; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/media/library/${encodeURIComponent(assetId)}/replace`,
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body) }
+  );
+}
+
+export async function rollbackMediaLibraryAsset(
+  token: string,
+  restaurantId: string,
+  assetId: string,
+  versionNumber: number
+) {
+  return apiFetch<{ ok: boolean; versionNumber?: number; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/media/library/${encodeURIComponent(assetId)}/rollback`,
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify({ versionNumber }) }
+  );
+}
+
+export async function attachMediaLibraryAsset(
+  token: string,
+  restaurantId: string,
+  assetId: string,
+  body: {
+    targetType: "MENU_COVER" | "MENU_ITEM" | "CATEGORY" | "VENUE_LOGO" | "VENUE_COVER";
+    targetId: string;
+    role?: "PRIMARY" | "GALLERY" | "COVER";
+  }
+) {
+  return apiFetch<{ ok: boolean; usage?: { id: string }; storedMediaId?: string | null; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/media/library/${encodeURIComponent(assetId)}/attach`,
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body) }
+  );
+}
+
+export async function createMediaUploadJob(
+  token: string,
+  restaurantId: string,
+  body?: { originalName?: string; contentType?: string; purpose?: string }
+) {
+  return apiFetch<{ ok: boolean; job?: MediaUploadJobRow; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/media/upload-jobs`,
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body ?? {}) }
+  );
+}
+
+export async function listMediaUploadJobs(token: string, restaurantId: string) {
+  return apiFetch<{ ok: boolean; jobs?: MediaUploadJobRow[]; error?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/media/upload-jobs`,
+    { headers: authHeaders(token) }
+  );
+}
+
+export async function getMediaUploadJob(token: string, restaurantId: string, jobId: string) {
+  return apiFetch<{ ok: boolean; job?: MediaUploadJobRow; error?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/media/upload-jobs/${encodeURIComponent(jobId)}`,
+    { headers: authHeaders(token) }
+  );
+}
+
+export async function listMediaCollections(token: string, restaurantId: string) {
+  return apiFetch<{ ok: boolean; collections?: MediaCollectionRow[]; error?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/media/collections`,
+    { headers: authHeaders(token) }
+  );
+}
+
+export async function createMediaCollection(
+  token: string,
+  restaurantId: string,
+  body: { name: string; description?: string | null }
+) {
+  return apiFetch<{ ok: boolean; collection?: MediaCollectionRow; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/media/collections`,
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body) }
+  );
+}
+
+export async function updateMediaCollection(
+  token: string,
+  restaurantId: string,
+  collectionId: string,
+  body: { name?: string; description?: string | null }
+) {
+  return apiFetch<{ ok: boolean; collection?: MediaCollectionRow; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/media/collections/${encodeURIComponent(collectionId)}`,
+    { method: "PATCH", headers: authJsonHeaders(token), body: JSON.stringify(body) }
+  );
+}
+
+export async function deleteMediaCollection(token: string, restaurantId: string, collectionId: string) {
+  return apiFetch<{ ok: boolean; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/media/collections/${encodeURIComponent(collectionId)}`,
+    { method: "DELETE", headers: authHeaders(token) }
+  );
+}
+
+export async function addMediaCollectionItems(
+  token: string,
+  restaurantId: string,
+  collectionId: string,
+  assetIds: string[]
+) {
+  return apiFetch<{ ok: boolean; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/media/collections/${encodeURIComponent(collectionId)}/items`,
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify({ assetIds }) }
+  );
+}
+
+export async function removeMediaCollectionItem(
+  token: string,
+  restaurantId: string,
+  collectionId: string,
+  assetId: string
+) {
+  return apiFetch<{ ok: boolean; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/media/collections/${encodeURIComponent(collectionId)}/items/${encodeURIComponent(assetId)}`,
+    { method: "DELETE", headers: authHeaders(token) }
   );
 }
 

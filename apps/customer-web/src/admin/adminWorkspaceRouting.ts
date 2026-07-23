@@ -241,6 +241,12 @@ export const WORKSPACE_PRESETS: Record<WorkspaceId, WorkspacePreset[]> = {
       description: "Menus, categories, items, and modifiers"
     },
     {
+      id: "media-library",
+      label: "Media Library",
+      tab: "media",
+      description: "Restaurant-wide images, videos, and reusable assets"
+    },
+    {
       id: "payments",
       label: "Payments",
       tab: "payments",

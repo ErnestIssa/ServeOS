@@ -48,7 +48,7 @@ const SCOPE_MAX_BYTES: Record<StorageScope, number> = {
   restaurant: 8 * 1024 * 1024,
   menu: 8 * 1024 * 1024,
   chat: 5 * 1024 * 1024,
-  video: 120 * 1024 * 1024,
+  video: 250 * 1024 * 1024,
   pdf: 25 * 1024 * 1024,
   invoice: 25 * 1024 * 1024,
   document: 25 * 1024 * 1024,
@@ -326,12 +326,19 @@ export async function deleteObject(objectKey: string): Promise<void> {
   scheduleCdnPurgeForObjectKeys([objectKey]);
 }
 
-export async function headObject(objectKey: string): Promise<{ byteSize: number; contentType?: string } | null> {
+export async function headObject(
+  objectKey: string
+): Promise<{ byteSize: number; contentType?: string; sha256Hex?: string } | null> {
   if (!isObjectStorageConfigured()) return null;
   try {
     const client = getS3Client();
     const head = await client.send(new HeadObjectCommand({ Bucket: awsBucket(), Key: objectKey }));
-    return { byteSize: Number(head.ContentLength ?? 0), contentType: head.ContentType };
+    const sha256Hex = head.Metadata?.sha256?.trim() || undefined;
+    return {
+      byteSize: Number(head.ContentLength ?? 0),
+      contentType: head.ContentType,
+      sha256Hex
+    };
   } catch {
     return null;
   }

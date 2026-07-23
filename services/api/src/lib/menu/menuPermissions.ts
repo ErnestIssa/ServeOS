@@ -27,7 +27,7 @@ export const MENU_ITEM_MEDIA_LIMITS = {
   maxImagesPerItem: 10,
   maxVideosPerItem: 3,
   maxVideoDurationMs: 60_000,
-  maxVideoBytes: 25 * 1024 * 1024
+  maxVideoBytes: 250 * 1024 * 1024
 } as const;
 
 export type MenuCapabilities = {

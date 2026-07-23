@@ -34,6 +34,7 @@ import { isSessionRevoked } from "./lib/account/sessionService.js";
 import { assertBearerUserStillActive } from "./lib/auth/authAccessGuard.js";
 import { registerMeRoutes } from "./routes/meRoutes.js";
 import { registerMediaRoutes } from "./routes/mediaRoutes.js";
+import { registerMediaLibraryRoutes } from "./routes/mediaLibraryRoutes.js";
 import { captureApiError, captureException, flushSentry } from "./lib/integrations/sentry.js";
 import { isCloudflareCdnConfigured } from "./lib/integrations/cloudflareCdn.js";
 import { isObjectStorageConfigured } from "./lib/integrations/objectStorage.js";
@@ -225,6 +226,7 @@ async function main() {
   registerAuthRoutes(app, prisma, domainEventBus);
   registerMeRoutes(app, prisma);
   registerMediaRoutes(app, prisma);
+  registerMediaLibraryRoutes(app, prisma);
   registerMobileExperienceRoutes(app, prisma);
   registerMobileWorkspaceRoutes(app, prisma, chatBus, domainEventBus);
   registerStaffAccessRoutes(app, prisma, domainEventBus);

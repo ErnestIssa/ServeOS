@@ -16,8 +16,6 @@ import {
   listContentTemplates,
   saveMenuAsTemplate
 } from "./contentTemplateService.js";
-import { duplicateUsage, listVenueAssets } from "./mediaAssetService.js";
-import { getMediaSignedUrl } from "../media/mediaService.js";
 
 export function registerReplicationRoutes(app: FastifyInstance, prisma: PrismaClient) {
   app.get("/restaurants/:restaurantId/replication/jobs", async (req, reply) => {
@@ -204,76 +202,5 @@ export function registerReplicationRoutes(app: FastifyInstance, prisma: PrismaCl
       return reply.status(404).send({ ok: false, error: result.error });
     }
     return { ok: true };
-  });
-
-  app.get("/restaurants/:restaurantId/media/assets", async (req, reply) => {
-    const params = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
-    const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
-    assertMenuEntityPermission("media", "view", membership);
-    const assets = await listVenueAssets(prisma, params.restaurantId);
-
-    const withUrls = [];
-    for (const a of assets) {
-      const media = await prisma.storedMedia.findFirst({
-        where: { objectKey: a.objectKey },
-        orderBy: { createdAt: "desc" },
-        select: { id: true }
-      });
-      let url: string | null = null;
-      if (media) {
-        const signed = await getMediaSignedUrl(prisma, media.id);
-        url = signed.ok ? signed.url : null;
-      }
-      withUrls.push({ ...a, url });
-    }
-    return { ok: true, assets: withUrls };
-  });
-
-  app.post("/restaurants/:restaurantId/media/assets/:assetId/duplicate-usage", async (req, reply) => {
-    const params = z
-      .object({ restaurantId: z.string().min(1), assetId: z.string().min(1) })
-      .parse(req.params);
-    const body = z
-      .object({
-        targetType: z.enum(["MENU_COVER", "MENU_ITEM", "CATEGORY", "VENUE_LOGO", "VENUE_COVER"]),
-        targetId: z.string().min(1),
-        role: z.enum(["PRIMARY", "GALLERY", "COVER"]).optional(),
-        sortOrder: z.number().int().optional()
-      })
-      .parse(req.body ?? {});
-
-    const { userId, membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
-    assertMenuEntityPermission("media", "upload", membership);
-
-    const result = await duplicateUsage(prisma, {
-      assetId: params.assetId,
-      restaurantId: params.restaurantId,
-      targetType: body.targetType,
-      targetId: body.targetId,
-      role: body.role,
-      sortOrder: body.sortOrder,
-      actorUserId: userId
-    });
-    if (!result.ok) {
-      return reply.status(404).send({ ok: false, error: result.error, message: "Asset not found." });
-    }
-
-    req.log.info(
-      {
-        audit: {
-          action: "media.usage_duplicated",
-          assetId: params.assetId,
-          usageId: result.usage.id,
-          actorUserId: userId
-        }
-      },
-      "media.usage_duplicated"
-    );
-    return reply.status(201).send({
-      ok: true,
-      usage: { id: result.usage.id },
-      assetId: result.asset.id,
-      storedMediaId: result.storedMediaId
-    });
   });
 }
