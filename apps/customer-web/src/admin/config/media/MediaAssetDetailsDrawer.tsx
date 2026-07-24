@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getMediaLibraryAsset,
   patchMediaLibraryAsset,
@@ -20,6 +20,8 @@ import {
 import { useAdminToast } from "../../AdminToast";
 import { AdminBtnPrimary, AdminBtnSecondary } from "../../AdminUi";
 import { readFileAsDataUrl } from "./mediaLibraryUpload";
+import { MediaUsageGraph } from "./MediaUsageGraph";
+import { MediaDeleteSafetyModal } from "./MediaDeleteSafetyModal";
 
 type Props = {
   token: string;
@@ -28,6 +30,7 @@ type Props = {
   open: boolean;
   canEdit: boolean;
   canUpload: boolean;
+  canDelete?: boolean;
   onClose: () => void;
   onChanged: () => void;
 };
@@ -45,6 +48,7 @@ export function MediaAssetDetailsDrawer({
   open,
   canEdit,
   canUpload,
+  canDelete = false,
   onClose,
   onChanged
 }: Props) {
@@ -53,6 +57,8 @@ export function MediaAssetDetailsDrawer({
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState("");
   const [alt, setAlt] = useState("");
+  const [removeOpen, setRemoveOpen] = useState(false);
+  const replaceInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     if (!assetId || !open) return;
@@ -74,7 +80,9 @@ export function MediaAssetDetailsDrawer({
     asset?.health?.missingAlt ? "Missing alt text" : null,
     asset?.health?.unused ? "Not used anywhere" : null,
     asset?.health?.largeFile ? "Large file" : null,
-    asset?.health?.processingFailed ? "Processing failed" : null
+    asset?.health?.processingFailed ? "Processing failed" : null,
+    asset?.health && asset.health.hasThumb === false ? "Missing thumbnail" : null,
+    asset?.health && asset.health.hasWebp === false ? "Missing WebP" : null
   ].filter(Boolean) as string[];
 
   const saveMeta = async () => {
@@ -97,13 +105,6 @@ export function MediaAssetDetailsDrawer({
   const toggleFavorite = async () => {
     if (!asset || !canEdit) return;
     await patchMediaLibraryAsset(token, restaurantId, asset.id, { favorite: !asset.favorite });
-    onChanged();
-    void load();
-  };
-
-  const archive = async () => {
-    if (!asset || !canEdit) return;
-    await patchMediaLibraryAsset(token, restaurantId, asset.id, { archived: !asset.archivedAt });
     onChanged();
     void load();
   };
@@ -142,6 +143,7 @@ export function MediaAssetDetailsDrawer({
   };
 
   return (
+    <>
     <DetailsDrawerShell
       open={open}
       entityKey={asset?.id ?? assetId}
@@ -201,18 +203,11 @@ export function MediaAssetDetailsDrawer({
             </DetailsSection>
           ) : null}
 
-          <DetailsSection title="Where used">
-            {(asset.usages ?? []).length === 0 ? (
-              <p className="admin-staff-profile-muted text-sm">Not attached to any surface yet.</p>
-            ) : (
-              <ul className="admin-menu-details-chips">
-                {(asset.usages ?? []).map((u) => (
-                  <li key={u.id}>
-                    {u.label ?? u.targetType} · {u.role}
-                  </li>
-                ))}
-              </ul>
-            )}
+          <DetailsSection
+            title="Where used"
+            hint="Click a name to open that menu, item, category, or venue surface."
+          >
+            <MediaUsageGraph usages={asset.usages ?? []} />
           </DetailsSection>
 
           <DetailsSection title="Versions">
@@ -276,9 +271,25 @@ export function MediaAssetDetailsDrawer({
                 <AdminBtnSecondary disabled={busy} onClick={() => void toggleFavorite()}>
                   {asset.favorite ? "Unfavorite" : "Favorite"}
                 </AdminBtnSecondary>
-                <AdminBtnSecondary disabled={busy} onClick={() => void archive()}>
-                  {asset.archivedAt ? "Unarchive" : "Archive"}
-                </AdminBtnSecondary>
+                {asset.archivedAt ? (
+                  <AdminBtnSecondary
+                    disabled={busy}
+                    onClick={() =>
+                      void patchMediaLibraryAsset(token, restaurantId, asset.id, {
+                        archived: false
+                      }).then(() => {
+                        onChanged();
+                        void load();
+                      })
+                    }
+                  >
+                    Unarchive
+                  </AdminBtnSecondary>
+                ) : (
+                  <AdminBtnSecondary disabled={busy} onClick={() => setRemoveOpen(true)}>
+                    Remove…
+                  </AdminBtnSecondary>
+                )}
               </>
             ) : null}
           </div>
@@ -312,5 +323,37 @@ export function MediaAssetDetailsDrawer({
         <p className="admin-config-text-muted text-sm">Loading…</p>
       )}
     </DetailsDrawerShell>
+
+    <input
+      ref={replaceInputRef}
+      type="file"
+      accept="image/*,video/*"
+      className="hidden"
+      onChange={(e) => {
+        const f = e.target.files?.[0];
+        if (f) void onReplace(f);
+        e.target.value = "";
+      }}
+    />
+
+    {asset ? (
+      <MediaDeleteSafetyModal
+        open={removeOpen}
+        onClose={() => setRemoveOpen(false)}
+        token={token}
+        restaurantId={restaurantId}
+        assetId={asset.id}
+        canDelete={canDelete}
+        canEdit={canEdit}
+        canUpload={canUpload}
+        onReplaceEverywhere={() => replaceInputRef.current?.click()}
+        onDone={() => {
+          onChanged();
+          void load();
+          onClose();
+        }}
+      />
+    ) : null}
+    </>
   );
 }

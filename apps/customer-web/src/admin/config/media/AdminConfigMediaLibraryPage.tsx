@@ -1,11 +1,13 @@
 ﻿import { useCallback, useEffect, useState } from "react";
 import {
+  getMediaLibraryStats,
   listMediaLibrary,
   listMediaCollections,
   listMediaUploadJobs,
   type MediaCollectionRow,
   type MediaLibraryAsset,
   type MediaLibraryListQuery,
+  type MediaLibraryStats,
   type MediaUploadJobRow
 } from "../../../api";
 import { useMenuCapabilities } from "../useMenuCapabilities";
@@ -19,6 +21,7 @@ import { MediaUploadFlowModal } from "./MediaUploadFlowModal";
 import { MediaCollectionsPanel } from "./MediaCollectionsPanel";
 import { MediaUploadQueuePanel } from "./MediaUploadQueuePanel";
 import { MediaReviewStubPanel } from "./MediaReviewStubPanel";
+import { MediaLibraryDashboard } from "./MediaLibraryDashboard";
 
 type Section = "library" | "collections" | "queue" | "review";
 
@@ -39,11 +42,13 @@ export function AdminConfigMediaLibraryPage({ token, restaurantId, venueName = "
   const [uploadOpen, setUploadOpen] = useState(false);
   const [collections, setCollections] = useState<MediaCollectionRow[]>([]);
   const [jobs, setJobs] = useState<MediaUploadJobRow[]>([]);
+  const [stats, setStats] = useState<MediaLibraryStats | null>(null);
 
   const caps = useMenuCapabilities(token, restaurantId);
   const canView = caps.can("media", "view");
   const canUpload = caps.can("media", "upload");
   const canEdit = caps.can("media", "edit");
+  const canDelete = caps.can("media", "delete");
 
   const reloadLibrary = useCallback(async () => {
     if (!token || !restaurantId || !canView) return;
@@ -57,6 +62,12 @@ export function AdminConfigMediaLibraryPage({ token, restaurantId, venueName = "
     setAssets(res.assets ?? []);
     setTotal(res.total ?? 0);
   }, [token, restaurantId, canView, query, pushToast]);
+
+  const reloadStats = useCallback(async () => {
+    if (!token || !restaurantId || !canView) return;
+    const res = await getMediaLibraryStats(token, restaurantId);
+    if (res.ok && res.stats) setStats(res.stats);
+  }, [token, restaurantId, canView]);
 
   const reloadCollections = useCallback(async () => {
     if (!token || !restaurantId || !canView) return;
@@ -77,7 +88,8 @@ export function AdminConfigMediaLibraryPage({ token, restaurantId, venueName = "
   useEffect(() => {
     void reloadCollections();
     void reloadJobs();
-  }, [reloadCollections, reloadJobs]);
+    void reloadStats();
+  }, [reloadCollections, reloadJobs, reloadStats]);
 
   if (!token || !restaurantId) {
     return <AdminEmptyState>Select a venue to manage the Media Library.</AdminEmptyState>;
@@ -88,13 +100,21 @@ export function AdminConfigMediaLibraryPage({ token, restaurantId, venueName = "
   }
 
   return (
-    <div className={"admin-menu-tab-stack space-y-4"}>
+    <div className="admin-menu-tab-stack space-y-4">
       <AdminSectionHeader
-        title={"Media Library"}
+        title="Media Library"
         description={CONFIG_PRESET_DESCRIPTIONS["media-library"]}
       />
 
-      <div className={"flex flex-wrap gap-2"}>
+      <MediaLibraryDashboard
+        stats={stats}
+        onFilter={(patch) => {
+          setSection("library");
+          setQuery((q) => ({ ...q, ...patch }));
+        }}
+      />
+
+      <div className="flex flex-wrap gap-2">
         {(
           [
             ["library", "Library"],
@@ -105,7 +125,7 @@ export function AdminConfigMediaLibraryPage({ token, restaurantId, venueName = "
         ).map(([id, label]) => (
           <button
             key={id}
-            type={"button"}
+            type="button"
             className={
               section === id
                 ? "rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white"
@@ -116,7 +136,7 @@ export function AdminConfigMediaLibraryPage({ token, restaurantId, venueName = "
             {label}
           </button>
         ))}
-        <div className={"ml-auto flex flex-wrap gap-2"}>
+        <div className="ml-auto flex flex-wrap gap-2">
           {canUpload ? (
             <AdminBtnPrimary onClick={() => setUploadOpen(true)}>Add media</AdminBtnPrimary>
           ) : null}
@@ -150,6 +170,7 @@ export function AdminConfigMediaLibraryPage({ token, restaurantId, venueName = "
           onRefresh={async () => {
             await reloadCollections();
             await reloadLibrary();
+            await reloadStats();
           }}
         />
       ) : null}
@@ -167,10 +188,12 @@ export function AdminConfigMediaLibraryPage({ token, restaurantId, venueName = "
         open={Boolean(detailsId)}
         canEdit={canEdit}
         canUpload={canUpload}
+        canDelete={canDelete}
         onClose={() => setDetailsId(null)}
         onChanged={() => {
           void reloadLibrary();
           void reloadCollections();
+          void reloadStats();
         }}
       />
 
@@ -180,9 +203,14 @@ export function AdminConfigMediaLibraryPage({ token, restaurantId, venueName = "
         token={token}
         restaurantId={restaurantId}
         canUpload={canUpload}
+        onReuseExisting={(assetId) => {
+          setSection("library");
+          setDetailsId(assetId);
+        }}
         onDone={() => {
           void reloadLibrary();
           void reloadJobs();
+          void reloadStats();
         }}
       />
     </div>

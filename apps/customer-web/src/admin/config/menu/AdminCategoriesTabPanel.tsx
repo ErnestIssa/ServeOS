@@ -40,6 +40,7 @@ type Props = {
   menus: MenuSurfaceRow[];
   can: (entity: keyof MenuCapabilitiesPayload["entities"], action: string) => boolean;
   onNavigateTab: (tab: MenuSectionTab) => void;
+  focusCategoryId?: string | null;
 };
 
 type PendingRowAction = {
@@ -104,7 +105,8 @@ export function AdminCategoriesTabPanel({
   venueName,
   menus,
   can,
-  onNavigateTab
+  onNavigateTab,
+  focusCategoryId = null
 }: Props) {
   const { pushToast } = useAdminToast();
   const [createOpen, setCreateOpen] = useState(false);
@@ -131,6 +133,14 @@ export function AdminCategoriesTabPanel({
     const mocks = UI_MOCK_CATEGORIES.map((c) => toCategoryListRow(c as MenuTree["categories"][number], menus));
     return [...real, ...mocks];
   }, [treeCategories, menus]);
+
+  useEffect(() => {
+    if (!focusCategoryId) return;
+    const category = categories.find((c) => c.id === focusCategoryId);
+    if (!category) return;
+    setDetailsCategory(category);
+    setDetailsOpen(true);
+  }, [focusCategoryId, categories]);
 
   const realCategories = useMemo(() => categories.filter((c) => !isUiOnlyListId(c.id)), [categories]);
 

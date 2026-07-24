@@ -42,6 +42,7 @@ type Props = {
   venueName: string;
   initialLoading: boolean;
   can: (entity: keyof MenuCapabilitiesPayload["entities"], action: string) => boolean;
+  focusMenuId?: string | null;
 };
 
 function menuDescription(menu: MenuSurfaceRow, venueName: string) {
@@ -376,7 +377,8 @@ export function AdminMenusTabPanel({
   restaurantId,
   venueName,
   initialLoading,
-  can
+  can,
+  focusMenuId = null
 }: Props) {
   const { pushToast } = useAdminToast();
   const copy = sectionCopy(variant);
@@ -407,6 +409,14 @@ export function AdminMenusTabPanel({
     Array<{ id: string; label: string; hint?: string }>
   >([]);
   const [templatesOpen, setTemplatesOpen] = useState(false);
+
+  useEffect(() => {
+    if (!focusMenuId) return;
+    const menu = menusApi.menus.find((m) => m.id === focusMenuId);
+    if (!menu) return;
+    setDrawerMenu(menu);
+    setDrawerOpen(true);
+  }, [focusMenuId, menusApi.menus]);
 
   useEffect(() => {
     let cancelled = false;

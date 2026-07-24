@@ -89,6 +89,7 @@ export function VenueProfilePage({ venueName, venueId, token = null, onSelectVen
               persist={api.persist}
               onSelectVenue={onSelectVenue}
               createLocation={api.createLocation}
+              token={token}
             />
           </div>
         )}

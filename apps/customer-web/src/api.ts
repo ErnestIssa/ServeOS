@@ -1045,16 +1045,20 @@ export async function uploadMenuMediaBase64(
     width?: number;
     height?: number;
     durationMs?: number;
+    forceNewAsset?: boolean;
   }
 ) {
-  return apiFetch<{ ok: boolean; media?: { id: string }; assetId?: string | null; error?: string }>(
-    "/media/upload",
-    {
-      method: "POST",
-      headers: authJsonHeaders(token),
-      body: JSON.stringify(body)
-    }
-  );
+  return apiFetch<{
+    ok: boolean;
+    media?: { id: string };
+    assetId?: string | null;
+    reused?: boolean;
+    error?: string;
+  }>("/media/upload", {
+    method: "POST",
+    headers: authJsonHeaders(token),
+    body: JSON.stringify(body)
+  });
 }
 
 export async function completeMenuMediaUpload(
@@ -1067,16 +1071,21 @@ export async function completeMenuMediaUpload(
     menuItemId?: string;
     originalName?: string;
     uploadJobId?: string;
+    sha256Hex?: string;
+    forceNewAsset?: boolean;
   }
 ) {
-  return apiFetch<{ ok: boolean; media?: { id: string }; assetId?: string | null; error?: string }>(
-    "/media/complete",
-    {
-      method: "POST",
-      headers: authJsonHeaders(token),
-      body: JSON.stringify(body)
-    }
-  );
+  return apiFetch<{
+    ok: boolean;
+    media?: { id: string };
+    assetId?: string | null;
+    reused?: boolean;
+    error?: string;
+  }>("/media/complete", {
+    method: "POST",
+    headers: authJsonHeaders(token),
+    body: JSON.stringify(body)
+  });
 }
 
 export type OrderRow = {
@@ -1294,6 +1303,9 @@ export type MediaAssetRow = {
     unused: boolean;
     largeFile: boolean;
     processingFailed: boolean;
+    hasThumb?: boolean;
+    hasWebp?: boolean;
+    hasBlurHash?: boolean;
   };
 };
 
@@ -1307,6 +1319,18 @@ export type MediaLibraryAsset = MediaAssetRow & {
   currentVersionNumber?: number;
   updatedAt?: string;
   collectionIds?: string[];
+};
+
+export type MediaUsageGraphNode = {
+  id: string;
+  targetType: string;
+  targetId: string;
+  role: string;
+  sortOrder: number;
+  createdAt: string;
+  label?: string;
+  group?: "Menus" | "Items" | "Categories" | "Venue" | string;
+  hrefHint?: string;
 };
 
 export type MediaLibraryDetail = MediaLibraryAsset & {
@@ -1325,15 +1349,39 @@ export type MediaLibraryDetail = MediaLibraryAsset & {
     createdAt: string;
   }>;
   collections?: Array<{ id: string; name: string }>;
-  usages?: Array<{
-    id: string;
-    targetType: string;
-    targetId: string;
-    role: string;
-    sortOrder: number;
-    createdAt: string;
-    label?: string;
-  }>;
+  usages?: MediaUsageGraphNode[];
+};
+
+export type MediaLibraryStats = {
+  totalAssets: number;
+  storageBytes: number;
+  unusedCount: number;
+  duplicateGroupCount: number;
+  videosProcessing: number;
+  imageCount: number;
+  videoCount: number;
+  missingAltCount: number;
+  libraryHealthScore: number;
+};
+
+export type MediaDeleteImpact = {
+  assetId: string;
+  displayName: string;
+  total: number;
+  canHardDelete: boolean;
+  byType: Record<string, number>;
+  byGroup: Record<string, number>;
+  usages: MediaUsageGraphNode[];
+};
+
+export type MediaDuplicateCheckAsset = {
+  id: string;
+  displayName: string;
+  contentType: string;
+  byteSize: number;
+  sha256Hex: string | null;
+  createdAt: string;
+  url: string | null;
 };
 
 export type MediaCollectionRow = {
@@ -1374,6 +1422,8 @@ export type MediaLibraryListQuery = {
   needsAlt?: boolean;
   largeFiles?: boolean;
   recentlyUploaded?: boolean;
+  duplicates?: boolean;
+  processing?: boolean;
   collectionId?: string;
 };
 
@@ -1461,6 +1511,8 @@ export async function listMediaLibrary(
   if (query.needsAlt) qs.set("needsAlt", "true");
   if (query.largeFiles) qs.set("largeFiles", "true");
   if (query.recentlyUploaded) qs.set("recentlyUploaded", "true");
+  if (query.duplicates) qs.set("duplicates", "true");
+  if (query.processing) qs.set("processing", "true");
   if (query.collectionId) qs.set("collectionId", query.collectionId);
   const suffix = qs.toString() ? `?${qs.toString()}` : "";
   return apiFetch<{
@@ -1476,6 +1528,59 @@ export async function listMediaLibrary(
   }>(`/restaurants/${encodeURIComponent(restaurantId)}/media/library${suffix}`, {
     headers: authHeaders(token)
   });
+}
+
+export async function getMediaLibraryStats(token: string, restaurantId: string) {
+  return apiFetch<{ ok: boolean; stats?: MediaLibraryStats; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/media/library/stats`,
+    { headers: authHeaders(token) }
+  );
+}
+
+export async function checkMediaDuplicate(token: string, restaurantId: string, sha256Hex: string) {
+  const qs = new URLSearchParams({ sha256Hex });
+  return apiFetch<{
+    ok: boolean;
+    exists?: boolean;
+    asset?: MediaDuplicateCheckAsset | null;
+    error?: string;
+    message?: string;
+  }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/media/library/check-duplicate?${qs.toString()}`,
+    { headers: authHeaders(token) }
+  );
+}
+
+export async function getMediaDeleteImpact(token: string, restaurantId: string, assetId: string) {
+  return apiFetch<{ ok: boolean; impact?: MediaDeleteImpact; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/media/library/${encodeURIComponent(assetId)}/delete-impact`,
+    { headers: authHeaders(token) }
+  );
+}
+
+export async function deleteMediaLibraryAsset(token: string, restaurantId: string, assetId: string) {
+  return apiFetch<{
+    ok: boolean;
+    deleted?: boolean;
+    error?: string;
+    message?: string;
+    impact?: MediaDeleteImpact;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/media/library/${encodeURIComponent(assetId)}`, {
+    method: "DELETE",
+    headers: authHeaders(token)
+  });
+}
+
+export async function detachMediaLibraryUsages(
+  token: string,
+  restaurantId: string,
+  assetId: string,
+  usageIds: string[]
+) {
+  return apiFetch<{ ok: boolean; detached?: number; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/media/library/${encodeURIComponent(assetId)}/detach-many`,
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify({ usageIds }) }
+  );
 }
 
 export async function getMediaLibraryAsset(token: string, restaurantId: string, assetId: string) {
@@ -1526,7 +1631,21 @@ export async function attachMediaLibraryAsset(
   restaurantId: string,
   assetId: string,
   body: {
-    targetType: "MENU_COVER" | "MENU_ITEM" | "CATEGORY" | "VENUE_LOGO" | "VENUE_COVER";
+    targetType:
+      | "MENU_COVER"
+      | "MENU_ITEM"
+      | "CATEGORY"
+      | "VENUE_LOGO"
+      | "VENUE_COVER"
+      | "STAFF_AVATAR"
+      | "CUSTOMER_AVATAR"
+      | "MODIFIER_OPTION"
+      | "QR_HERO"
+      | "MARKETING_CAMPAIGN"
+      | "LOYALTY_REWARD"
+      | "RECEIPT_BRANDING"
+      | "RESERVATION"
+      | "GIFT_CARD";
     targetId: string;
     role?: "PRIMARY" | "GALLERY" | "COVER";
   }

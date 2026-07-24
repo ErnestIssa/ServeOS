@@ -319,6 +319,24 @@ export async function putObjectBuffer(params: {
   };
 }
 
+export async function getObjectBuffer(objectKey: string): Promise<Buffer | null> {
+  if (!isObjectStorageConfigured()) return null;
+  const client = getS3Client();
+  try {
+    const result = await client.send(
+      new GetObjectCommand({
+        Bucket: awsBucket(),
+        Key: objectKey
+      })
+    );
+    if (!result.Body) return null;
+    const bytes = await result.Body.transformToByteArray();
+    return Buffer.from(bytes);
+  } catch {
+    return null;
+  }
+}
+
 export async function deleteObject(objectKey: string): Promise<void> {
   if (!isObjectStorageConfigured()) return;
   const client = getS3Client();

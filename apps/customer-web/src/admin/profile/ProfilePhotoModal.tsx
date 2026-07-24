@@ -134,7 +134,7 @@ export function ProfilePhotoModal({ open, busy, currentImageUrl, onClose, onSave
       open={open}
       onClose={onClose}
       title="Profile photo"
-      description="Upload a clear photo of yourself. Drag to reposition and use the slider to zoom before saving."
+      description="Crop and save — stored through the ServeOS Media Platform (processing, versions, and shared usage)."
       titleId="profile-photo-modal-title"
       busy={busy}
       maxWidthClass="max-w-lg"

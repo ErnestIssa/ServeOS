@@ -19,24 +19,59 @@ export type EnsureAssetInput = {
   altText?: string | null;
   description?: string | null;
   tags?: string[];
+  /** When true, always create a new asset even if the same hash exists for this venue. */
+  forceNewAsset?: boolean;
 };
+
+export type EnsureAssetResult = {
+  asset: {
+    id: string;
+    objectKey: string;
+    contentType: string;
+    byteSize: number;
+    sha256Hex: string | null;
+    originalName: string | null;
+    displayName: string | null;
+    visibility: StoredMediaVisibility;
+    createdByUserId: string | null;
+    restaurantId: string | null;
+    durationMs: number | null;
+    archivedAt: Date | null;
+  };
+  reused: boolean;
+};
+
+function venueHashWhere(restaurantId: string | null | undefined, sha: string) {
+  if (!restaurantId) {
+    return { sha256Hex: sha, archivedAt: null };
+  }
+  return {
+    sha256Hex: sha,
+    archivedAt: null,
+    OR: [{ restaurantId }, { usages: { some: { restaurantId } } }]
+  };
+}
 
 /**
  * Resolve or create a MediaAsset for an uploaded object.
- * Prefer sha256 match (same bytes = same asset) so duplicate uploads do not double S3.
+ * Prefer restaurant-scoped sha256 match unless forceNewAsset is set.
  */
-export async function ensureAssetFromUpload(prisma: Db, input: EnsureAssetInput) {
+export async function ensureAssetFromUpload(
+  prisma: Db,
+  input: EnsureAssetInput
+): Promise<EnsureAssetResult> {
   const sha = input.sha256Hex?.trim() || null;
+  const forceNew = Boolean(input.forceNewAsset);
 
-  if (sha) {
+  if (sha && !forceNew) {
     const byHash = await prisma.mediaAsset.findFirst({
-      where: { sha256Hex: sha, archivedAt: null }
+      where: venueHashWhere(input.restaurantId, sha)
     });
-    if (byHash) return byHash;
+    if (byHash) return { asset: byHash, reused: true };
   }
 
   const byKey = await prisma.mediaAsset.findUnique({ where: { objectKey: input.objectKey } });
-  if (byKey) return byKey;
+  if (byKey) return { asset: byKey, reused: true };
 
   const displayName =
     input.displayName?.trim() ||
@@ -81,12 +116,14 @@ export async function ensureAssetFromUpload(prisma: Db, input: EnsureAssetInput)
       }
     });
 
-    return asset;
+    return { asset, reused: false };
   } catch {
     const again =
-      (sha && (await prisma.mediaAsset.findFirst({ where: { sha256Hex: sha } }))) ||
+      (sha &&
+        !forceNew &&
+        (await prisma.mediaAsset.findFirst({ where: venueHashWhere(input.restaurantId, sha) }))) ||
       (await prisma.mediaAsset.findUnique({ where: { objectKey: input.objectKey } }));
-    if (again) return again;
+    if (again) return { asset: again, reused: true };
     throw new Error("media_asset_create_failed");
   }
 }
@@ -129,9 +166,91 @@ export async function attachUsage(
 export async function detachUsage(prisma: PrismaClient, usageId: string) {
   const usage = await prisma.mediaUsage.findUnique({ where: { id: usageId } });
   if (!usage) return { ok: false as const, error: "usage_not_found" };
+
+  const asset = await prisma.mediaAsset.findUnique({
+    where: { id: usage.assetId },
+    select: { objectKey: true }
+  });
+
   await prisma.mediaUsage.delete({ where: { id: usageId } });
-  await deleteAssetIfUnused(prisma, usage.assetId);
+
+  // Clear domain pointers when this asset was the active cover/image. Never hard-delete on detach.
+  if (asset) {
+    if (usage.targetType === "MENU_COVER") {
+      await prisma.menu.updateMany({
+        where: {
+          id: usage.targetId,
+          restaurantId: usage.restaurantId,
+          coverMediaKey: asset.objectKey
+        },
+        data: { coverMediaKey: null }
+      });
+    }
+    if (usage.targetType === "MENU_ITEM") {
+      await prisma.menuItem.updateMany({
+        where: { id: usage.targetId, imageKey: asset.objectKey },
+        data: { imageKey: null }
+      });
+      await prisma.storedMedia.deleteMany({
+        where: {
+          restaurantId: usage.restaurantId,
+          menuItemId: usage.targetId,
+          objectKey: asset.objectKey,
+          scope: { in: ["MENU_IMAGE", "VIDEO"] }
+        }
+      });
+    }
+    if (usage.targetType === "VENUE_LOGO") {
+      await prisma.restaurant.updateMany({
+        where: { id: usage.restaurantId, logoImageKey: asset.objectKey },
+        data: { logoImageKey: null }
+      });
+    }
+    if (usage.targetType === "VENUE_COVER") {
+      await prisma.restaurant.updateMany({
+        where: { id: usage.restaurantId, coverImageKey: asset.objectKey },
+        data: { coverImageKey: null }
+      });
+    }
+    if (usage.targetType === "STAFF_AVATAR" || usage.targetType === "CUSTOMER_AVATAR") {
+      await prisma.userAccountProfile.updateMany({
+        where: { userId: usage.targetId, profileImageKey: asset.objectKey },
+        data: { profileImageKey: null, profileImageUrl: null }
+      });
+    }
+  }
+
   return { ok: true as const };
+}
+
+/** Explicit hard delete — only when the asset has zero usages. */
+export async function hardDeleteLibraryAsset(
+  prisma: PrismaClient,
+  assetId: string,
+  restaurantId: string
+) {
+  const asset = await prisma.mediaAsset.findFirst({
+    where: {
+      id: assetId,
+      OR: [{ restaurantId }, { usages: { some: { restaurantId } } }]
+    },
+    include: { _count: { select: { usages: true } } }
+  });
+  if (!asset) return { ok: false as const, error: "asset_not_found" };
+  if (asset._count.usages > 0) {
+    return { ok: false as const, error: "asset_in_use" as const, usageCount: asset._count.usages };
+  }
+
+  await prisma.mediaAsset.delete({ where: { id: assetId } });
+  try {
+    await deleteObject(asset.objectKey);
+    if (asset.originalObjectKey !== asset.objectKey) {
+      await deleteObject(asset.originalObjectKey);
+    }
+  } catch {
+    /* best-effort S3 cleanup */
+  }
+  return { ok: true as const, deleted: true as const };
 }
 
 export async function assetUsageCount(prisma: Db, assetId: string) {
@@ -250,6 +369,21 @@ export async function duplicateUsage(
     });
   }
 
+  if (params.targetType === "STAFF_AVATAR" || params.targetType === "CUSTOMER_AVATAR") {
+    await prisma.userAccountProfile.upsert({
+      where: { userId: params.targetId },
+      create: {
+        userId: params.targetId,
+        profileImageKey: asset.objectKey,
+        profileImageUrl: null
+      },
+      update: {
+        profileImageKey: asset.objectKey,
+        profileImageUrl: null
+      }
+    });
+  }
+
   return { ok: true as const, usage, asset, storedMediaId };
 }
 
@@ -295,9 +429,10 @@ export async function syncAssetFromStoredMedia(
     menuItemId?: string | null;
     sortOrder?: number;
     durationMs?: number | null;
+    forceNewAsset?: boolean;
   }
 ) {
-  const asset = await ensureAssetFromUpload(prisma, {
+  const { asset, reused } = await ensureAssetFromUpload(prisma, {
     objectKey: media.objectKey,
     contentType: media.contentType,
     byteSize: media.byteSize,
@@ -306,7 +441,8 @@ export async function syncAssetFromStoredMedia(
     visibility: media.visibility,
     createdByUserId: media.uploadedById,
     restaurantId: media.restaurantId,
-    durationMs: media.durationMs
+    durationMs: media.durationMs,
+    forceNewAsset: media.forceNewAsset
   });
 
   if (media.restaurantId && media.menuItemId) {
@@ -320,7 +456,7 @@ export async function syncAssetFromStoredMedia(
     });
   }
 
-  return asset;
+  return { asset, reused };
 }
 
 export async function cloneItemMediaViaAssets(
@@ -336,7 +472,7 @@ export async function cloneItemMediaViaAssets(
   });
 
   for (const row of rows) {
-    const asset = await ensureAssetFromUpload(tx, {
+    const { asset } = await ensureAssetFromUpload(tx, {
       objectKey: row.objectKey,
       contentType: row.contentType,
       byteSize: row.byteSize,

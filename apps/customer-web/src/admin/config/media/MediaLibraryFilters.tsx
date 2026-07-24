@@ -7,8 +7,21 @@ type Props = {
   onChange: (q: MediaLibraryListQuery) => void;
 };
 
+const CLEAR: Partial<MediaLibraryListQuery> = {
+  type: "all",
+  used: false,
+  unused: false,
+  favorite: false,
+  archived: false,
+  needsAlt: false,
+  largeFiles: false,
+  recentlyUploaded: false,
+  duplicates: false,
+  processing: false
+};
+
 const FILTERS: Array<{ id: string; label: string; patch: Partial<MediaLibraryListQuery> }> = [
-  { id: "all", label: "All", patch: { type: "all", used: false, unused: false, favorite: false, archived: false, needsAlt: false, largeFiles: false, recentlyUploaded: false } },
+  { id: "all", label: "All", patch: { ...CLEAR } },
   { id: "images", label: "Images", patch: { type: "image" } },
   { id: "videos", label: "Videos", patch: { type: "video" } },
   { id: "unused", label: "Unused", patch: { unused: true, used: false } },
@@ -17,6 +30,8 @@ const FILTERS: Array<{ id: string; label: string; patch: Partial<MediaLibraryLis
   { id: "recent", label: "Recently uploaded", patch: { recentlyUploaded: true } },
   { id: "needsAlt", label: "Missing alt text", patch: { needsAlt: true } },
   { id: "large", label: "Large files", patch: { largeFiles: true } },
+  { id: "duplicates", label: "Duplicates", patch: { duplicates: true } },
+  { id: "processing", label: "Processing", patch: { processing: true } },
   { id: "archived", label: "Archived", patch: { archived: true } }
 ];
 
@@ -44,6 +59,8 @@ export function MediaLibraryFilters({ query, collections, total, onChange }: Pro
                 !query.needsAlt &&
                 !query.largeFiles &&
                 !query.recentlyUploaded &&
+                !query.duplicates &&
+                !query.processing &&
                 (!query.type || query.type === "all")
               : f.id === "images"
                 ? query.type === "image"
@@ -61,7 +78,11 @@ export function MediaLibraryFilters({ query, collections, total, onChange }: Pro
                             ? Boolean(query.needsAlt)
                             : f.id === "large"
                               ? Boolean(query.largeFiles)
-                              : Boolean(query.archived);
+                              : f.id === "duplicates"
+                                ? Boolean(query.duplicates)
+                                : f.id === "processing"
+                                  ? Boolean(query.processing)
+                                  : Boolean(query.archived);
           return (
             <button
               key={f.id}
@@ -71,14 +92,7 @@ export function MediaLibraryFilters({ query, collections, total, onChange }: Pro
                 onChange({
                   ...query,
                   page: 1,
-                  type: "all",
-                  used: false,
-                  unused: false,
-                  favorite: false,
-                  archived: false,
-                  needsAlt: false,
-                  largeFiles: false,
-                  recentlyUploaded: false,
+                  ...CLEAR,
                   ...f.patch
                 })
               }

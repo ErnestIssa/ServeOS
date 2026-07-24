@@ -30,6 +30,13 @@ export function buildNavHref(workspaceId: WorkspaceId, presetId: string): string
   return `#ws-${workspaceId}/${presetId}`;
 }
 
+/** Query string embedded in the hash (`#ws-config/menu?tab=items&itemId=…`). */
+export function parseAdminHashQuery(hash = typeof window !== "undefined" ? window.location.hash : ""): URLSearchParams {
+  const qIndex = hash.indexOf("?");
+  if (qIndex < 0) return new URLSearchParams();
+  return new URLSearchParams(hash.slice(qIndex + 1));
+}
+
 export function parseAdminRoute(hash: string): AdminRoute {
   const normalized = (hash || DEFAULT_ADMIN_HASH).split("?")[0]!;
   if (normalized === ADMIN_TOP_HASHES.notifications) {

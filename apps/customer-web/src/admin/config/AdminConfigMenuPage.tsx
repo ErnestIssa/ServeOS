@@ -9,13 +9,23 @@ import {
 } from "../AdminUi";
 import { AdminSkeletonStatGrid, AdminStaleContent } from "../AdminSkeleton";
 import { usePageRecoverySync, useSilentRevalidate } from "../sync/adminPageSync";
-import { CONFIG_PRESET_DESCRIPTIONS, MENU_TAB_LABELS, MENU_TABS, type MenuSectionTab } from "./configRouting";
+import { ADMIN_NAV_SYNC_EVENT, parseAdminHashQuery } from "../adminWorkspaceRouting";
+import {
+  CONFIG_PRESET_DESCRIPTIONS,
+  MENU_TAB_LABELS,
+  MENU_TABS,
+  type MenuSectionTab
+} from "./configRouting";
 import { AdminMenuTabContent } from "./menu/AdminMenuTabContent";
 import { AdminMenusTabPanel } from "./menu/AdminMenusTabPanel";
 import { MenuQrCodesPanel } from "./menu/MenuQrCodesPanel";
 import { useAdminMenu } from "./useAdminMenu";
 import { useAdminMenus } from "./useAdminMenus";
 import { useMenuCapabilities } from "./useMenuCapabilities";
+
+function isMenuTab(value: string | null): value is MenuSectionTab {
+  return Boolean(value && (MENU_TABS as string[]).includes(value));
+}
 
 const TAB_TRANSITION = { duration: 0.34, ease: [0.22, 1, 0.36, 1] as const };
 
@@ -38,6 +48,9 @@ function StatTile({ label, value, hint }: { label: string; value: string; hint?:
 
 export function AdminConfigMenuPage({ token, restaurantId, venueName, initialTab = null }: Props) {
   const [tab, setTab] = useState<MenuSectionTab>(initialTab ?? "menus");
+  const [focusMenuId, setFocusMenuId] = useState<string | null>(null);
+  const [focusItemId, setFocusItemId] = useState<string | null>(null);
+  const [focusCategoryId, setFocusCategoryId] = useState<string | null>(null);
   const api = useAdminMenu(token, restaurantId);
   const menusApi = useAdminMenus(token, restaurantId, "active");
   const liveMenusApi = useAdminMenus(token, restaurantId, "PUBLISHED", tab === "live");
@@ -47,6 +60,24 @@ export function AdminConfigMenuPage({ token, restaurantId, venueName, initialTab
   useEffect(() => {
     if (initialTab) setTab(initialTab);
   }, [initialTab]);
+
+  useEffect(() => {
+    const applyHashFocus = () => {
+      const q = parseAdminHashQuery();
+      const nextTab = q.get("tab");
+      if (isMenuTab(nextTab)) setTab(nextTab);
+      setFocusMenuId(q.get("menuId"));
+      setFocusItemId(q.get("itemId"));
+      setFocusCategoryId(q.get("categoryId"));
+    };
+    applyHashFocus();
+    window.addEventListener("hashchange", applyHashFocus);
+    window.addEventListener(ADMIN_NAV_SYNC_EVENT, applyHashFocus as EventListener);
+    return () => {
+      window.removeEventListener("hashchange", applyHashFocus);
+      window.removeEventListener(ADMIN_NAV_SYNC_EVENT, applyHashFocus as EventListener);
+    };
+  }, []);
 
   const refreshTree = api.refresh;
   const refreshMenus = menusApi.refresh;
@@ -159,6 +190,7 @@ export function AdminConfigMenuPage({ token, restaurantId, venueName, initialTab
                   venueName={venueName}
                   initialLoading={api.meta.initialLoading}
                   can={menuCaps.can}
+                  focusMenuId={focusMenuId}
                 />
               ) : tab === "live" ? (
                 <AdminMenusTabPanel
@@ -169,6 +201,7 @@ export function AdminConfigMenuPage({ token, restaurantId, venueName, initialTab
                   venueName={venueName}
                   initialLoading={liveMenusApi.meta.initialLoading}
                   can={menuCaps.can}
+                  focusMenuId={focusMenuId}
                 />
               ) : tab === "archived" ? (
                 <AdminMenusTabPanel
@@ -179,6 +212,7 @@ export function AdminConfigMenuPage({ token, restaurantId, venueName, initialTab
                   venueName={venueName}
                   initialLoading={archivedMenusApi.meta.initialLoading}
                   can={menuCaps.can}
+                  focusMenuId={focusMenuId}
                 />
               ) : tab === "qr-codes" ? (
                 <MenuQrCodesPanel token={token} restaurantId={restaurantId} />
@@ -195,6 +229,8 @@ export function AdminConfigMenuPage({ token, restaurantId, venueName, initialTab
                   menus={menusApi.menus}
                   onNavigateTab={setTab}
                   onMenusRefresh={() => void menusApi.refresh()}
+                  focusItemId={focusItemId}
+                  focusCategoryId={focusCategoryId}
                 />
               )}
             </div>

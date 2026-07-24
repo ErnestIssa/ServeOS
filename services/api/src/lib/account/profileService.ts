@@ -151,6 +151,46 @@ export async function saveProfileImage(
     }
   });
 
+  // Dual-write into Media Platform so avatars share assets / processing / usage graph.
+  try {
+    const { ensureAssetFromUpload, attachUsage } = await import("../media/library/assetService.js");
+    const { runMediaProcessingPipeline } = await import("../media/library/processingPipeline.js");
+    const { asset } = await ensureAssetFromUpload(prisma, {
+      objectKey: stored.objectKey,
+      contentType: params.contentType,
+      byteSize: stored.byteSize,
+      sha256Hex: stored.sha256Hex,
+      originalName: "profile-photo.jpg",
+      displayName: "Profile photo",
+      visibility: "PRIVATE",
+      createdByUserId: userId
+    });
+    // Profile avatars are user-scoped; restaurantId may be null on the asset.
+    // Attach usage requires restaurantId — use first active membership when present.
+    const membership = await prisma.membership.findFirst({
+      where: { userId, status: "ACTIVE" },
+      select: { restaurantId: true, role: true }
+    });
+    if (membership?.restaurantId) {
+      await attachUsage(prisma, {
+        assetId: asset.id,
+        restaurantId: membership.restaurantId,
+        targetType: "STAFF_AVATAR",
+        targetId: userId,
+        role: "PRIMARY",
+        sortOrder: 0
+      });
+      void runMediaProcessingPipeline(prisma, {
+        assetId: asset.id,
+        restaurantId: membership.restaurantId,
+        objectKey: stored.objectKey,
+        contentType: params.contentType
+      }).catch(() => undefined);
+    }
+  } catch {
+    /* platform dual-write best-effort */
+  }
+
   const profileImageUrl = await resolveProfileImageUrl(stored.objectKey);
 
   await logSecurityActivity(prisma, { userId, type: "PROFILE_UPDATED", ipMasked, metadata: { field: "avatar" } });

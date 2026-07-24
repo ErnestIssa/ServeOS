@@ -104,7 +104,8 @@ export function registerMediaRoutes(app: FastifyInstance, prisma: PrismaClient) 
         altText: z.string().max(500).optional(),
         width: z.number().int().optional(),
         height: z.number().int().optional(),
-        durationMs: z.number().int().optional()
+        durationMs: z.number().int().optional(),
+        forceNewAsset: z.boolean().optional()
       })
       .parse(req.body);
 
@@ -146,10 +147,16 @@ export function registerMediaRoutes(app: FastifyInstance, prisma: PrismaClient) 
       altText: body.altText,
       width: body.width,
       height: body.height,
-      durationMs: body.durationMs
+      durationMs: body.durationMs,
+      forceNewAsset: body.forceNewAsset
     });
     if (!result.ok) return reply.status(400).send(result);
-    return { ok: true, media: result.media, assetId: result.assetId ?? null };
+    return {
+      ok: true,
+      media: result.media,
+      assetId: result.assetId ?? null,
+      reused: result.reused ?? false
+    };
   });
 
   app.post("/media/complete", async (req, reply) => {
@@ -164,7 +171,8 @@ export function registerMediaRoutes(app: FastifyInstance, prisma: PrismaClient) 
         chatRoomId: z.string().optional(),
         originalName: z.string().max(200).optional(),
         uploadJobId: z.string().optional(),
-        sha256Hex: z.string().optional()
+        sha256Hex: z.string().optional(),
+        forceNewAsset: z.boolean().optional()
       })
       .parse(req.body);
 
@@ -187,10 +195,16 @@ export function registerMediaRoutes(app: FastifyInstance, prisma: PrismaClient) 
       chatRoomId: body.chatRoomId,
       originalName: body.originalName,
       uploadJobId: body.uploadJobId,
-      sha256Hex: body.sha256Hex
+      sha256Hex: body.sha256Hex,
+      forceNewAsset: body.forceNewAsset
     });
     if (!result.ok) return reply.status(400).send(result);
-    return { ok: true, media: result.media, assetId: result.assetId ?? null };
+    return {
+      ok: true,
+      media: result.media,
+      assetId: result.assetId ?? null,
+      reused: result.reused ?? false
+    };
   });
 
   app.get("/media/:mediaId/url", async (req, reply) => {

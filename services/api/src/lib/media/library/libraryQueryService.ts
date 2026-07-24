@@ -13,6 +13,8 @@ export type LibraryListQuery = {
   needsAlt?: boolean;
   largeFiles?: boolean;
   recentlyUploaded?: boolean;
+  duplicates?: boolean;
+  processing?: boolean;
   collectionId?: string;
 };
 
@@ -64,6 +66,29 @@ export async function queryLibraryAssets(prisma: PrismaClient, restaurantId: str
     where.usages = { none: { restaurantId } };
   }
 
+  if (query.duplicates) {
+    const venueAssets = await prisma.mediaAsset.findMany({
+      where: {
+        archivedAt: null,
+        sha256Hex: { not: null },
+        OR: [{ restaurantId }, { usages: { some: { restaurantId } } }]
+      },
+      select: { sha256Hex: true }
+    });
+    const counts = new Map<string, number>();
+    for (const row of venueAssets) {
+      const sha = row.sha256Hex;
+      if (!sha) continue;
+      counts.set(sha, (counts.get(sha) ?? 0) + 1);
+    }
+    const duplicateHashes = [...counts.entries()].filter(([, n]) => n >= 2).map(([sha]) => sha);
+    where.sha256Hex = { in: duplicateHashes.length ? duplicateHashes : ["__none__"] };
+  }
+
+  if (query.processing) {
+    where.processingStatus = "PROCESSING";
+  }
+
   if (query.collectionId) {
     where.collections = { some: { collectionId: query.collectionId } };
   }
@@ -92,7 +117,8 @@ export async function queryLibraryAssets(prisma: PrismaClient, restaurantId: str
       take: pageSize,
       include: {
         _count: { select: { usages: true } },
-        collections: { select: { collectionId: true } }
+        collections: { select: { collectionId: true } },
+        renditions: { select: { kind: true, objectKey: true, blurHash: true } }
       }
     })
   ]);
@@ -102,9 +128,14 @@ export async function queryLibraryAssets(prisma: PrismaClient, restaurantId: str
     pageSize,
     total,
     totalPages: Math.max(1, Math.ceil(total / pageSize)),
-    assets: rows.map((a) => ({
+    assets: rows.map((a) => {
+      const thumb = a.renditions.find((r) => r.kind === "THUMB");
+      const webp = a.renditions.find((r) => r.kind === "WEBP");
+      const deliverableKey = thumb?.objectKey ?? webp?.objectKey ?? a.objectKey;
+      return {
       id: a.id,
       objectKey: a.objectKey,
+      deliverableObjectKey: deliverableKey,
       contentType: a.contentType,
       byteSize: a.byteSize,
       originalName: a.originalName,
@@ -115,6 +146,7 @@ export async function queryLibraryAssets(prisma: PrismaClient, restaurantId: str
       width: a.width,
       height: a.height,
       durationMs: a.durationMs,
+      blurHash: a.blurHash,
       favorite: a.favorite,
       archivedAt: a.archivedAt?.toISOString() ?? null,
       processingStatus: a.processingStatus,
@@ -125,13 +157,18 @@ export async function queryLibraryAssets(prisma: PrismaClient, restaurantId: str
       updatedAt: a.updatedAt.toISOString(),
       usageCount: a._count.usages,
       collectionIds: a.collections.map((c) => c.collectionId),
+      renditions: a.renditions.map((r) => ({ kind: r.kind, objectKey: r.objectKey })),
       health: {
         missingAlt: !a.altText?.trim(),
         unused: a._count.usages === 0,
         largeFile: a.byteSize >= LARGE_FILE_BYTES,
-        processingFailed: a.processingStatus === "FAILED"
+        processingFailed: a.processingStatus === "FAILED",
+        hasThumb: Boolean(thumb),
+        hasWebp: Boolean(webp),
+        hasBlurHash: Boolean(a.blurHash)
       }
-    }))
+    };
+    })
   };
 }
 
@@ -150,15 +187,21 @@ export async function getLibraryAssetDetail(prisma: PrismaClient, restaurantId: 
       usages: {
         where: { restaurantId },
         orderBy: { createdAt: "desc" }
-      }
+      },
+      renditions: { orderBy: { createdAt: "asc" } }
     }
   });
   if (!asset) return null;
+
+  const thumb = asset.renditions.find((r) => r.kind === "THUMB");
+  const webp = asset.renditions.find((r) => r.kind === "WEBP");
+  const deliverableKey = thumb?.objectKey ?? webp?.objectKey ?? asset.objectKey;
 
   return {
     id: asset.id,
     objectKey: asset.objectKey,
     originalObjectKey: asset.originalObjectKey,
+    deliverableObjectKey: deliverableKey,
     contentType: asset.contentType,
     byteSize: asset.byteSize,
     originalName: asset.originalName,
@@ -169,6 +212,7 @@ export async function getLibraryAssetDetail(prisma: PrismaClient, restaurantId: 
     width: asset.width,
     height: asset.height,
     durationMs: asset.durationMs,
+    blurHash: asset.blurHash,
     favorite: asset.favorite,
     archivedAt: asset.archivedAt?.toISOString() ?? null,
     processingStatus: asset.processingStatus,
@@ -194,6 +238,7 @@ export async function getLibraryAssetDetail(prisma: PrismaClient, restaurantId: 
       id: c.collection.id,
       name: c.collection.name
     })),
+    // Labels / graph fields are filled by listAssetUsages in the route layer.
     usages: asset.usages.map((u) => ({
       id: u.id,
       targetType: u.targetType,
@@ -202,11 +247,25 @@ export async function getLibraryAssetDetail(prisma: PrismaClient, restaurantId: 
       sortOrder: u.sortOrder,
       createdAt: u.createdAt.toISOString()
     })),
+    renditions: asset.renditions.map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      objectKey: r.objectKey,
+      contentType: r.contentType,
+      byteSize: r.byteSize,
+      width: r.width,
+      height: r.height,
+      blurHash: r.blurHash,
+      createdAt: r.createdAt.toISOString()
+    })),
     health: {
       missingAlt: !asset.altText?.trim(),
       unused: asset._count.usages === 0,
       largeFile: asset.byteSize >= LARGE_FILE_BYTES,
-      processingFailed: asset.processingStatus === "FAILED"
+      processingFailed: asset.processingStatus === "FAILED",
+      hasThumb: Boolean(thumb),
+      hasWebp: Boolean(webp),
+      hasBlurHash: Boolean(asset.blurHash)
     }
   };
 }

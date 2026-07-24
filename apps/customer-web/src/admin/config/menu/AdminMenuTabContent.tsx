@@ -68,6 +68,8 @@ type Props = {
   menus: MenuSurfaceRow[];
   onNavigateTab: (tab: MenuSectionTab) => void;
   onMenusRefresh: () => void;
+  focusItemId?: string | null;
+  focusCategoryId?: string | null;
 };
 
 export function AdminMenuTabContent({
@@ -81,7 +83,9 @@ export function AdminMenuTabContent({
   can,
   menus,
   onNavigateTab,
-  onMenusRefresh
+  onMenusRefresh,
+  focusItemId = null,
+  focusCategoryId = null
 }: Props) {
   const { pushToast } = useAdminToast();
   const [busy, setBusy] = useState(false);
@@ -290,6 +294,7 @@ export function AdminMenuTabContent({
         menus={menus}
         can={can}
         onNavigateTab={onNavigateTab}
+        focusCategoryId={focusCategoryId}
       />
     );
   }
@@ -305,6 +310,7 @@ export function AdminMenuTabContent({
         can={can}
         capabilities={capabilities}
         onNavigateTab={onNavigateTab}
+        focusItemId={focusItemId}
       />
     );
   }

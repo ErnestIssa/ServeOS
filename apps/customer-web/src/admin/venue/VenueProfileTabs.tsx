@@ -4,6 +4,7 @@ import { AdminBtnPrimary, AdminBtnSecondary, AdminCopyField, AdminEmptyState } f
 import { ADMIN_TOP_HASHES } from "../adminTopHashes";
 import { buildNavHref } from "../adminWorkspaceRouting";
 import { useAdminToast } from "../AdminToast";
+import { MediaPickerModal } from "../config/media/MediaPickerModal";
 import type { VenueProfileAccess } from "./venueProfileAccess";
 import {
   computeSetupProgress,
@@ -43,6 +44,7 @@ type TabProps = {
   persist: (next: VenueProfileSettings | ((p: VenueProfileSettings) => VenueProfileSettings)) => void;
   onSelectVenue?: (id: string) => void;
   createLocation: (name: string) => Promise<{ ok: boolean; error?: string; id?: string }>;
+  token?: string | null;
 };
 
 function roleLabel(role: string) {
@@ -191,10 +193,12 @@ function OverviewTab({ displayName, venueId, companyId, settings, access, persis
   );
 }
 
-function ProfileBusinessTab({ settings, access, persist }: TabProps) {
+function ProfileBusinessTab({ settings, access, persist, venueId, token }: TabProps) {
   const canEditProfile = access.can("editProfile");
   const canEditBusiness = access.can("editBusiness");
   const { profile, business, address } = settings;
+  const { pushToast } = useAdminToast();
+  const [pickerKind, setPickerKind] = useState<"logo" | "cover" | null>(null);
 
   const patch = (section: "profile" | "business" | "address", key: string, value: string) => {
     persist((p) => ({ ...p, [section]: { ...p[section], [key]: value } }));
@@ -234,19 +238,55 @@ function ProfileBusinessTab({ settings, access, persist }: TabProps) {
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <div className="admin-venue-media-slot">
               <p className="admin-venue-field-label">Logo</p>
-              <p className="admin-venue-text-subtle mt-2 text-sm">Upload via media API when editing is enabled for your role.</p>
-              <AdminBtnSecondary className="mt-3" disabled={!canEditProfile}>
-                Upload logo
+              <p className="admin-venue-text-subtle mt-2 text-sm">
+                Choose from the Media Library or upload new — shared Media Platform.
+              </p>
+              <AdminBtnSecondary
+                className="mt-3"
+                disabled={!canEditProfile || !token}
+                onClick={() => setPickerKind("logo")}
+              >
+                Choose logo
               </AdminBtnSecondary>
             </div>
             <div className="admin-venue-media-slot">
               <p className="admin-venue-field-label">Cover image</p>
               <p className="admin-venue-text-subtle mt-2 text-sm">Hero image for guest ordering surfaces.</p>
-              <AdminBtnSecondary className="mt-3" disabled={!canEditProfile}>
-                Upload cover
+              <AdminBtnSecondary
+                className="mt-3"
+                disabled={!canEditProfile || !token}
+                onClick={() => setPickerKind("cover")}
+              >
+                Choose cover
               </AdminBtnSecondary>
             </div>
           </div>
+          {token ? (
+            <MediaPickerModal
+              open={Boolean(pickerKind)}
+              onClose={() => setPickerKind(null)}
+              token={token}
+              restaurantId={venueId}
+              canUpload={canEditProfile}
+              accept="image/*"
+              title={pickerKind === "logo" ? "Venue logo" : "Venue cover"}
+              description="Attach a library asset or upload new. Replace updates everywhere this usage points."
+              attachTarget={
+                pickerKind === "logo"
+                  ? { targetType: "VENUE_LOGO", targetId: venueId }
+                  : pickerKind === "cover"
+                    ? { targetType: "VENUE_COVER", targetId: venueId }
+                    : null
+              }
+              onAttached={() => {
+                pushToast(
+                  pickerKind === "logo" ? "Venue logo updated." : "Venue cover updated.",
+                  "success"
+                );
+                setPickerKind(null);
+              }}
+            />
+          ) : null}
         </VenuePermissionGate>
       </VenueSection>
 

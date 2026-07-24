@@ -1,7 +1,19 @@
 import type { PrismaClient } from "@prisma/client";
-import { runPostUploadHooks } from "./processingHooks.js";
+import { runMediaProcessingPipeline, type PipelineStage } from "./processingPipeline.js";
 
-const STAGES = ["queued", "uploading", "hashing", "thumbnail_meta", "cdn", "ready"] as const;
+const STAGES = [
+  "queued",
+  "uploading",
+  "hashing",
+  "validate_magic",
+  "strip_exif_orient",
+  "thumb",
+  "webp",
+  "blurhash",
+  "store_meta",
+  "cdn",
+  "ready"
+] as const;
 
 export async function createUploadJob(
   prisma: PrismaClient,
@@ -67,7 +79,7 @@ export async function advanceUploadJob(
   });
 }
 
-/** Run real post-upload stages (no AI). */
+/** Run Media Platform post-upload pipeline (validate → renditions → CDN). */
 export async function finalizeUploadJobProcessing(
   prisma: PrismaClient,
   params: {
@@ -86,22 +98,37 @@ export async function finalizeUploadJobProcessing(
     objectKey: params.objectKey
   });
 
-  await advanceUploadJob(prisma, params.jobId, {
-    stage: "thumbnail_meta",
-    progress: 75
-  });
-
-  await runPostUploadHooks({
+  const result = await runMediaProcessingPipeline(prisma, {
     assetId: params.assetId,
+    restaurantId: params.restaurantId,
     objectKey: params.objectKey,
     contentType: params.contentType,
-    restaurantId: params.restaurantId
+    onStage: async (stage: PipelineStage, progress: number) => {
+      if (stage === "failed") {
+        await advanceUploadJob(prisma, params.jobId, {
+          status: "FAILED",
+          stage,
+          progress,
+          error: "processing_failed"
+        });
+        return;
+      }
+      await advanceUploadJob(prisma, params.jobId, {
+        status: stage === "ready" ? "READY" : "PROCESSING",
+        stage,
+        progress
+      });
+    }
   });
 
-  await advanceUploadJob(prisma, params.jobId, {
-    stage: "cdn",
-    progress: 90
-  });
+  if (!result.ok) {
+    return advanceUploadJob(prisma, params.jobId, {
+      status: "FAILED",
+      stage: result.stage,
+      progress: 100,
+      error: result.error
+    });
+  }
 
   return advanceUploadJob(prisma, params.jobId, {
     status: "READY",

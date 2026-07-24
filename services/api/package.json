@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "prisma:generate": "prisma generate --schema ../../core/database/prisma/schema.prisma",
     "postinstall": "prisma generate --schema ../../core/database/prisma/schema.prisma",
-    "build": "npm run prisma:generate && esbuild src/index.ts --bundle --platform=node --format=cjs --target=node22 --outfile=dist/index.cjs --external:@prisma/client --external:@upstash/redis --external:bcrypt --external:jsonwebtoken --external:otplib --external:@aws-sdk/client-s3 --external:@aws-sdk/s3-request-presigner --external:@sentry/node --external:firebase-admin",
+    "build": "npm run prisma:generate && esbuild src/index.ts --bundle --platform=node --format=cjs --target=node22 --outfile=dist/index.cjs --external:@prisma/client --external:@upstash/redis --external:bcrypt --external:jsonwebtoken --external:otplib --external:@aws-sdk/client-s3 --external:@aws-sdk/s3-request-presigner --external:@sentry/node --external:firebase-admin --external:sharp",
     "start": "node dist/index.cjs",
     "start:backend": "node dist/index.cjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -19,6 +19,7 @@
     "@fastify/cors": "^10.0.2",
     "@fastify/websocket": "^11.2.0",
     "@prisma/client": "^6.16.1",
+    "@sentry/node": "^9.47.0",
     "@serveos/core-env": "^0.0.0",
     "@serveos/core-shared": "^0.0.0",
     "@serveos/core-upstash": "^0.0.0",
@@ -26,17 +27,19 @@
     "@types/bcrypt": "^5.0.2",
     "@types/jsonwebtoken": "^9.0.10",
     "bcrypt": "^5.1.1",
+    "blurhash": "^2.0.5",
     "esbuild": "0.27.2",
     "fastify": "^5.3.3",
     "fastify-plugin": "^5.0.1",
+    "firebase-admin": "^13.4.0",
     "jsonwebtoken": "^9.0.2",
     "otplib": "^12.0.1",
-    "firebase-admin": "^13.4.0",
     "prisma": "^6.16.1",
-    "@sentry/node": "^9.47.0",
+    "sharp": "^0.35.3",
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@types/sharp": "^0.31.1",
     "tsx": "^4.20.5",
     "typescript": "^5.7.3"
   }

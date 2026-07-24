@@ -115,7 +115,7 @@ export async function runDuplicateMenuJob(
       orderBy: { createdAt: "asc" }
     });
     if (coverRow) {
-      const asset = await ensureAssetFromUpload(prisma, {
+      const { asset } = await ensureAssetFromUpload(prisma, {
         objectKey: coverRow.objectKey,
         contentType: coverRow.contentType,
         byteSize: coverRow.byteSize,
@@ -434,7 +434,7 @@ export async function runApplyTemplateJob(
       }
 
       for (const m of item.media ?? []) {
-        const asset = await ensureAssetFromUpload(prisma, {
+        const { asset } = await ensureAssetFromUpload(prisma, {
           objectKey: m.objectKey,
           contentType: m.contentType,
           byteSize: m.byteSize,

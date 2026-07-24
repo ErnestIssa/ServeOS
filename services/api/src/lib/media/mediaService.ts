@@ -67,6 +67,7 @@ export async function uploadMediaBase64(
     width?: number;
     height?: number;
     durationMs?: number;
+    forceNewAsset?: boolean;
   }
 ) {
   if (params.uploadJobId) {
@@ -117,15 +118,18 @@ export async function uploadMediaBase64(
   });
 
   let assetId: string | null = null;
+  let reused = false;
   try {
-    const asset = await syncAssetFromStoredMedia(prisma, {
+    const synced = await syncAssetFromStoredMedia(prisma, {
       ...media,
-      durationMs: params.durationMs ?? media.durationMs
+      durationMs: params.durationMs ?? media.durationMs,
+      forceNewAsset: params.forceNewAsset
     });
-    assetId = asset.id;
-    if (params.displayName || params.altText || params.width || params.height) {
+    assetId = synced.asset.id;
+    reused = synced.reused;
+    if (!reused && (params.displayName || params.altText || params.width || params.height)) {
       await prisma.mediaAsset.update({
-        where: { id: asset.id },
+        where: { id: synced.asset.id },
         data: {
           ...(params.displayName ? { displayName: params.displayName.trim() } : {}),
           ...(params.altText ? { altText: params.altText.trim() } : {}),
@@ -148,7 +152,7 @@ export async function uploadMediaBase64(
     }).catch(() => undefined);
   }
 
-  return { ok: true as const, media, assetId };
+  return { ok: true as const, media, assetId, reused };
 }
 
 export async function recordUploadedObject(
@@ -166,6 +170,7 @@ export async function recordUploadedObject(
     originalName?: string;
     uploadJobId?: string;
     sha256Hex?: string;
+    forceNewAsset?: boolean;
   }
 ) {
   if (params.uploadJobId) {
@@ -215,9 +220,14 @@ export async function recordUploadedObject(
   });
 
   let assetId: string | null = null;
+  let reused = false;
   try {
-    const asset = await syncAssetFromStoredMedia(prisma, media);
-    assetId = asset.id;
+    const synced = await syncAssetFromStoredMedia(prisma, {
+      ...media,
+      forceNewAsset: params.forceNewAsset
+    });
+    assetId = synced.asset.id;
+    reused = synced.reused;
   } catch {
     /* dual-write best-effort */
   }
@@ -237,7 +247,7 @@ export async function recordUploadedObject(
     }).catch(() => undefined);
   }
 
-  return { ok: true as const, media, assetId };
+  return { ok: true as const, media, assetId, reused };
 }
 
 export async function refreshMediaCdnCache(prisma: PrismaClient, mediaId: string) {

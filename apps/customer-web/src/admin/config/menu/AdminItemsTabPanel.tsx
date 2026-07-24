@@ -49,6 +49,7 @@ type Props = {
   can: (entity: keyof MenuCapabilitiesPayload["entities"], action: string) => boolean;
   capabilities?: MenuCapabilitiesPayload | null;
   onNavigateTab: (tab: MenuSectionTab) => void;
+  focusItemId?: string | null;
 };
 
 type PendingRowAction = {
@@ -157,7 +158,8 @@ export function AdminItemsTabPanel({
   menus,
   can,
   capabilities = null,
-  onNavigateTab
+  onNavigateTab,
+  focusItemId = null
 }: Props) {
   const { pushToast } = useAdminToast();
   const [createOpen, setCreateOpen] = useState(false);
@@ -189,6 +191,14 @@ export function AdminItemsTabPanel({
     const mocks = UI_MOCK_ITEMS.map((i) => enrichItemRow(i, menus));
     return [...real, ...mocks];
   }, [api.flatItems, menus]);
+
+  useEffect(() => {
+    if (!focusItemId) return;
+    const item = items.find((i) => i.id === focusItemId);
+    if (!item) return;
+    setItemDrawerItem(item);
+    setItemDrawerOpen(true);
+  }, [focusItemId, items]);
 
   const realItems = useMemo(() => items.filter((i) => !isUiOnlyListId(i.id)), [items]);
 

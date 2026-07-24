@@ -6,11 +6,19 @@ import { requireMenuVenueMembership } from "../lib/menu/menuMembership.js";
 import { assertMenuEntityPermission } from "../lib/menu/menuPermissions.js";
 import {
   duplicateUsage,
+  hardDeleteLibraryAsset,
   listVenueAssets,
   updateAssetMetadata
 } from "../lib/media/library/assetService.js";
-import { detachUsage, detachUsageByTarget, listAssetUsages } from "../lib/media/library/usageService.js";
+import {
+  detachManyUsages,
+  detachUsage,
+  detachUsageByTarget,
+  getDeleteImpact,
+  listAssetUsages
+} from "../lib/media/library/usageService.js";
 import { getLibraryAssetDetail, queryLibraryAssets } from "../lib/media/library/libraryQueryService.js";
+import { findAssetByHash, getLibraryStats } from "../lib/media/library/libraryStatsService.js";
 import {
   addAssetsToCollection,
   createCollection,
@@ -28,6 +36,23 @@ import {
 } from "../lib/media/library/uploadJobService.js";
 import { CLOUD_IMPORT_SOURCES } from "../lib/media/library/processingHooks.js";
 import { getMediaSignedUrl } from "../lib/media/mediaService.js";
+
+const MEDIA_USAGE_TARGET_TYPES = [
+  "MENU_COVER",
+  "MENU_ITEM",
+  "CATEGORY",
+  "VENUE_LOGO",
+  "VENUE_COVER",
+  "STAFF_AVATAR",
+  "CUSTOMER_AVATAR",
+  "MODIFIER_OPTION",
+  "QR_HERO",
+  "MARKETING_CAMPAIGN",
+  "LOYALTY_REWARD",
+  "RECEIPT_BRANDING",
+  "RESERVATION",
+  "GIFT_CARD"
+] as const;
 
 async function signedUrlForObjectKey(prisma: PrismaClient, objectKey: string) {
   if (!isObjectStorageConfigured()) return null;
@@ -48,6 +73,38 @@ async function signedUrlForObjectKey(prisma: PrismaClient, objectKey: string) {
 }
 
 export function registerMediaLibraryRoutes(app: FastifyInstance, prisma: PrismaClient) {
+  app.get("/restaurants/:restaurantId/media/library/stats", async (req) => {
+    const params = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
+    const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("media", "view", membership);
+    const stats = await getLibraryStats(prisma, params.restaurantId);
+    return { ok: true, stats };
+  });
+
+  app.get("/restaurants/:restaurantId/media/library/check-duplicate", async (req, reply) => {
+    const params = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
+    const q = z.object({ sha256Hex: z.string().min(16) }).parse(req.query ?? {});
+    const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("media", "view", membership);
+
+    const asset = await findAssetByHash(prisma, params.restaurantId, q.sha256Hex);
+    if (!asset) return { ok: true, exists: false as const, asset: null };
+    const url = await signedUrlForObjectKey(prisma, asset.objectKey);
+    return {
+      ok: true,
+      exists: true as const,
+      asset: {
+        id: asset.id,
+        displayName: asset.displayName ?? asset.originalName ?? "Untitled",
+        contentType: asset.contentType,
+        byteSize: asset.byteSize,
+        sha256Hex: asset.sha256Hex,
+        createdAt: asset.createdAt.toISOString(),
+        url
+      }
+    };
+  });
+
   app.get("/restaurants/:restaurantId/media/library", async (req, reply) => {
     const params = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
     const q = z
@@ -63,6 +120,8 @@ export function registerMediaLibraryRoutes(app: FastifyInstance, prisma: PrismaC
         needsAlt: z.enum(["true", "false"]).optional(),
         largeFiles: z.enum(["true", "false"]).optional(),
         recentlyUploaded: z.enum(["true", "false"]).optional(),
+        duplicates: z.enum(["true", "false"]).optional(),
+        processing: z.enum(["true", "false"]).optional(),
         collectionId: z.string().optional()
       })
       .parse(req.query ?? {});
@@ -82,16 +141,67 @@ export function registerMediaLibraryRoutes(app: FastifyInstance, prisma: PrismaC
       needsAlt: q.needsAlt === "true",
       largeFiles: q.largeFiles === "true",
       recentlyUploaded: q.recentlyUploaded === "true",
+      duplicates: q.duplicates === "true",
+      processing: q.processing === "true",
       collectionId: q.collectionId
     });
 
     const assets = [];
     for (const a of result.assets) {
-      const url = await signedUrlForObjectKey(prisma, a.objectKey);
+      const url = await signedUrlForObjectKey(
+        prisma,
+        (a as { deliverableObjectKey?: string }).deliverableObjectKey ?? a.objectKey
+      );
       assets.push({ ...a, url });
     }
 
     return { ok: true, ...result, assets, cloudSources: CLOUD_IMPORT_SOURCES };
+  });
+
+  app.get("/restaurants/:restaurantId/media/library/:assetId/delete-impact", async (req, reply) => {
+    const params = z
+      .object({ restaurantId: z.string().min(1), assetId: z.string().min(1) })
+      .parse(req.params);
+    const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("media", "view", membership);
+    const impact = await getDeleteImpact(prisma, params.assetId, params.restaurantId);
+    if (!impact) return reply.status(404).send({ ok: false, error: "asset_not_found" });
+    return { ok: true, impact };
+  });
+
+  app.delete("/restaurants/:restaurantId/media/library/:assetId", async (req, reply) => {
+    const params = z
+      .object({ restaurantId: z.string().min(1), assetId: z.string().min(1) })
+      .parse(req.params);
+    const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("media", "delete", membership);
+
+    const result = await hardDeleteLibraryAsset(prisma, params.assetId, params.restaurantId);
+    if (!result.ok) {
+      if (result.error === "asset_in_use") {
+        const impact = await getDeleteImpact(prisma, params.assetId, params.restaurantId);
+        return reply.status(409).send({ ok: false, error: result.error, impact });
+      }
+      return reply.status(404).send({ ok: false, error: result.error });
+    }
+    return { ok: true, deleted: true };
+  });
+
+  app.post("/restaurants/:restaurantId/media/library/:assetId/detach-many", async (req, reply) => {
+    const params = z
+      .object({ restaurantId: z.string().min(1), assetId: z.string().min(1) })
+      .parse(req.params);
+    const body = z.object({ usageIds: z.array(z.string().min(1)).min(1).max(200) }).parse(req.body ?? {});
+    const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("media", "remove", membership);
+
+    const result = await detachManyUsages(prisma, {
+      assetId: params.assetId,
+      restaurantId: params.restaurantId,
+      usageIds: body.usageIds
+    });
+    if (!result.ok) return reply.status(400).send({ ok: false, error: result.error });
+    return { ok: true, detached: result.detached };
   });
 
   app.get("/restaurants/:restaurantId/media/library/:assetId", async (req, reply) => {
@@ -107,8 +217,29 @@ export function registerMediaLibraryRoutes(app: FastifyInstance, prisma: PrismaC
     }
 
     const usages = await listAssetUsages(prisma, params.assetId, params.restaurantId);
-    const url = await signedUrlForObjectKey(prisma, detail.objectKey);
-    return { ok: true, asset: { ...detail, usages, url } };
+    const url = await signedUrlForObjectKey(
+      prisma,
+      (detail as { deliverableObjectKey?: string }).deliverableObjectKey ?? detail.objectKey
+    );
+    const originalUrl = await signedUrlForObjectKey(prisma, detail.objectKey);
+    return { ok: true, asset: { ...detail, usages, url, originalUrl } };
+  });
+
+  app.get("/restaurants/:restaurantId/media/library/:assetId/renditions", async (req, reply) => {
+    const params = z
+      .object({ restaurantId: z.string().min(1), assetId: z.string().min(1) })
+      .parse(req.params);
+    const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("media", "view", membership);
+    const detail = await getLibraryAssetDetail(prisma, params.restaurantId, params.assetId);
+    if (!detail) return reply.status(404).send({ ok: false, error: "asset_not_found" });
+    const rows = [];
+    for (const r of detail.renditions ?? []) {
+      const url =
+        r.kind === "BLUR" ? null : await signedUrlForObjectKey(prisma, r.objectKey);
+      rows.push({ ...r, url });
+    }
+    return { ok: true, renditions: rows, blurHash: detail.blurHash ?? null };
   });
 
   app.patch("/restaurants/:restaurantId/media/library/:assetId", async (req, reply) => {
@@ -197,7 +328,7 @@ export function registerMediaLibraryRoutes(app: FastifyInstance, prisma: PrismaC
       .parse(req.params);
     const body = z
       .object({
-        targetType: z.enum(["MENU_COVER", "MENU_ITEM", "CATEGORY", "VENUE_LOGO", "VENUE_COVER"]),
+        targetType: z.enum(MEDIA_USAGE_TARGET_TYPES),
         targetId: z.string().min(1),
         role: z.enum(["PRIMARY", "GALLERY", "COVER"]).optional(),
         sortOrder: z.number().int().optional()
@@ -234,7 +365,7 @@ export function registerMediaLibraryRoutes(app: FastifyInstance, prisma: PrismaC
     const body = z
       .object({
         usageId: z.string().optional(),
-        targetType: z.enum(["MENU_COVER", "MENU_ITEM", "CATEGORY", "VENUE_LOGO", "VENUE_COVER"]).optional(),
+        targetType: z.enum(MEDIA_USAGE_TARGET_TYPES).optional(),
         targetId: z.string().optional(),
         role: z.string().optional()
       })
@@ -270,7 +401,7 @@ export function registerMediaLibraryRoutes(app: FastifyInstance, prisma: PrismaC
       .parse(req.params);
     const body = z
       .object({
-        targetType: z.enum(["MENU_COVER", "MENU_ITEM", "CATEGORY", "VENUE_LOGO", "VENUE_COVER"]),
+        targetType: z.enum(MEDIA_USAGE_TARGET_TYPES),
         targetId: z.string().min(1),
         role: z.enum(["PRIMARY", "GALLERY", "COVER"]).optional(),
         sortOrder: z.number().int().optional()
@@ -450,7 +581,7 @@ export function registerMediaLibraryRoutes(app: FastifyInstance, prisma: PrismaC
       .parse(req.params);
     const body = z
       .object({
-        targetType: z.enum(["MENU_COVER", "MENU_ITEM", "CATEGORY", "VENUE_LOGO", "VENUE_COVER"]),
+        targetType: z.enum(MEDIA_USAGE_TARGET_TYPES),
         targetId: z.string().min(1),
         role: z.enum(["PRIMARY", "GALLERY", "COVER"]).optional(),
         sortOrder: z.number().int().optional()

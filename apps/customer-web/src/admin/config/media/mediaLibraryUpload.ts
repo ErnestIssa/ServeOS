@@ -18,6 +18,7 @@ export async function uploadLibraryMediaFile(
     displayName?: string;
     altText?: string;
     purpose?: string;
+    forceNewAsset?: boolean;
     onJobId?: (jobId: string) => void;
   }
 ) {
@@ -74,7 +75,8 @@ export async function uploadLibraryMediaFile(
     altText: opts.altText,
     width,
     height,
-    durationMs
+    durationMs,
+    forceNewAsset: opts.forceNewAsset
   });
 
   if (!uploaded.ok || !uploaded.media?.id) {
@@ -84,7 +86,8 @@ export async function uploadLibraryMediaFile(
       contentType,
       restaurantId: opts.restaurantId,
       originalName: opts.file.name,
-      uploadJobId: jobId
+      uploadJobId: jobId,
+      forceNewAsset: opts.forceNewAsset
     });
     if (!completed.ok || !completed.media?.id) {
       return {
@@ -100,6 +103,7 @@ export async function uploadLibraryMediaFile(
       ok: true as const,
       mediaId: completed.media.id,
       assetId: completed.assetId ?? null,
+      reused: completed.reused ?? false,
       jobId
     };
   }
@@ -112,6 +116,7 @@ export async function uploadLibraryMediaFile(
     ok: true as const,
     mediaId: uploaded.media.id,
     assetId: uploaded.assetId ?? null,
+    reused: uploaded.reused ?? false,
     jobId
   };
 }

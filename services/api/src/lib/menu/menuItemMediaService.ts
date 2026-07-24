@@ -309,7 +309,7 @@ export async function attachMenuSurfaceCoverMedia(
   try {
     const full = await prisma.storedMedia.findUnique({ where: { id: media.id } });
     if (full) {
-      const asset = await ensureAssetFromUpload(prisma, {
+      const { asset } = await ensureAssetFromUpload(prisma, {
         objectKey: full.objectKey,
         contentType: full.contentType,
         byteSize: full.byteSize,
