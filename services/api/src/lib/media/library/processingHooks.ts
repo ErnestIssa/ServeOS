@@ -1,6 +1,6 @@
 /**
- * Extension hooks for future virus scan / AI / cloud import.
- * Media Platform always returns skipped for product scanners until a real provider ships.
+ * Extension hooks for virus scan / AI.
+ * Cloud drives are Import Connectors (copy into ServeOS) — never storage providers.
  */
 
 export type ProcessingHookResult = {
@@ -14,22 +14,31 @@ export async function runPostUploadHooks(ctx: {
   objectKey: string;
   contentType: string;
   restaurantId: string;
+  importSource?: string | null;
 }): Promise<ProcessingHookResult> {
-  // Intentionally no-op product features — do not invent virus/AI results.
-  console.info("[media-platform] post-upload hooks skipped", {
+  const cloud =
+    ctx.importSource === "GOOGLE_DRIVE" ||
+    ctx.importSource === "DROPBOX" ||
+    ctx.importSource === "ONEDRIVE"
+      ? ("done" as const)
+      : ("skipped" as const);
+  // Virus / AI product scanners stay honest until a real provider ships.
+  console.info("[media-platform] post-upload hooks", {
     assetId: ctx.assetId,
     contentType: ctx.contentType,
-    restaurantId: ctx.restaurantId
+    restaurantId: ctx.restaurantId,
+    cloudImport: cloud
   });
   return {
     virusScan: "skipped",
     ai: "skipped",
-    cloudImport: "skipped"
+    cloudImport: cloud
   };
 }
 
+/** Cloud providers are import sources only — files are copied into the Media Platform. */
 export const CLOUD_IMPORT_SOURCES = [
-  { id: "google_drive", label: "Google Drive", available: false },
-  { id: "dropbox", label: "Dropbox", available: false },
-  { id: "onedrive", label: "OneDrive", available: false }
+  { id: "google_drive", label: "Google Drive", available: true, importSource: "GOOGLE_DRIVE" as const },
+  { id: "dropbox", label: "Dropbox", available: true, importSource: "DROPBOX" as const },
+  { id: "onedrive", label: "OneDrive", available: true, importSource: "ONEDRIVE" as const }
 ] as const;

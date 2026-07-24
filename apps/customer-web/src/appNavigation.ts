@@ -35,9 +35,14 @@ function guestSessionIdFromPath(pathname: string): string | null {
   return match?.[1] ?? null;
 }
 
+function guestQrPublicCodeFromPath(pathname: string): string | null {
+  const match = pathname.match(/^\/q\/([^/]+)$/);
+  return match?.[1] ?? null;
+}
+
 export function viewFromPath(pathname: string): AppView {
   const path = pathname.replace(/\/+$/, "") || "/";
-  if (guestSessionIdFromPath(path)) return "guest-order";
+  if (guestSessionIdFromPath(path) || guestQrPublicCodeFromPath(path)) return "guest-order";
   if (path === "/how-it-works") return "how-it-works";
   if (path === "/signup" || path === "/no-business-yet") return "signup";
   if (path === "/login") return "login";
@@ -52,6 +57,10 @@ export function viewFromPath(pathname: string): AppView {
 
 export function guestSessionIdFromPathname(pathname: string): string | null {
   return guestSessionIdFromPath(pathname);
+}
+
+export function guestQrPublicCodeFromPathname(pathname: string): string | null {
+  return guestQrPublicCodeFromPath(pathname);
 }
 
 export function pathForView(view: AppView, legalSlug: LegalSlug = "center"): string {

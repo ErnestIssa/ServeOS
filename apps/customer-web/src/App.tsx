@@ -26,7 +26,8 @@ import { SupportPopup } from "./marketing/SupportPopup";
 import { useSupportPopup } from "./marketing/useSupportPopup";
 import { scrollToId } from "./marketing/ui";
 import { GuestOrderingPage } from "./guest/GuestOrderingPage";
-import { guestSessionIdFromPathname } from "./appNavigation";
+import { GuestQrResolvePage } from "./guest/GuestQrResolvePage";
+import { guestQrPublicCodeFromPathname, guestSessionIdFromPathname } from "./appNavigation";
 import { useForbidButtonTitleTooltips } from "./lib/forbidButtonTitleTooltips";
 
 export function App() {
@@ -167,10 +168,17 @@ export function App() {
       ) : null}
       {view === "admin" ? <AdminDashboardPage onAfterLogout={() => goLanding("top")} /> : null}
       {view === "guest-order" ? (
-        <GuestOrderingPage
-          sessionId={guestSessionIdFromPathname(window.location.pathname) ?? ""}
-          onHome={() => goLanding("top")}
-        />
+        guestQrPublicCodeFromPathname(window.location.pathname) ? (
+          <GuestQrResolvePage
+            publicCode={guestQrPublicCodeFromPathname(window.location.pathname) ?? ""}
+            onHome={() => goLanding("top")}
+          />
+        ) : (
+          <GuestOrderingPage
+            sessionId={guestSessionIdFromPathname(window.location.pathname) ?? ""}
+            onHome={() => goLanding("top")}
+          />
+        )
       ) : null}
 
       <SupportPopup

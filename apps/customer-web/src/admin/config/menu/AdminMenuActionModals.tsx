@@ -11,7 +11,6 @@ import {
   MenuPageModalShell
 } from "./menuPageModalShell";
 import { DuplicateEntityModal } from "./DuplicateEntityModal";
-import { MenuQrGeneratorContent } from "./MenuQrGeneratorContent";
 export { ContentTemplatesPanel } from "./ContentTemplatesPanel";
 
 type BaseProps = {
@@ -246,36 +245,6 @@ export function ScheduleMenuModal({
         busy={busy}
         confirmDisabled={!menu || !date}
       />
-    </MenuPageModalShell>
-  );
-}
-
-export function MenuQrGeneratorModal({
-  open,
-  token,
-  restaurantId,
-  onClose
-}: {
-  open: boolean;
-  token: string;
-  restaurantId: string;
-  onClose: () => void;
-}) {
-  return (
-    <MenuPageModalShell
-      open={open}
-      onClose={onClose}
-      title="QR menu generator"
-      description="Create a guest ordering link and download a printable QR code."
-      titleId="menu-qr-title"
-      stackLevel="overlay"
-    >
-      <MenuQrGeneratorContent token={token} restaurantId={restaurantId} compact />
-      <div className="mt-6 flex justify-end">
-        <AdminBtnSecondary type="button" onClick={onClose}>
-          Close
-        </AdminBtnSecondary>
-      </div>
     </MenuPageModalShell>
   );
 }

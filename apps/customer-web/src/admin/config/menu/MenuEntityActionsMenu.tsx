@@ -50,10 +50,9 @@ function scrollByDelta(trigger: HTMLElement, deltaY: number) {
 }
 
 function estimateMenuSize(actionCount: number, hideHeader: boolean) {
+  const body = actionCount > 0 ? actionCount * 40 + 16 : 48;
   return {
-    height: hideHeader
-      ? Math.max(48, actionCount * 40 + 16)
-      : Math.max(96, actionCount * 40 + 72),
+    height: hideHeader ? Math.max(48, body) : Math.max(96, body + 56),
     width: 220
   };
 }
@@ -224,7 +223,7 @@ export function MenuEntityActionsMenu({
         </button>
       </div>
 
-      {open && coords && actions.length > 0
+      {open && coords
         ? createPortal(
             <div
               ref={panelRef}
@@ -252,21 +251,25 @@ export function MenuEntityActionsMenu({
                   </div>
                 ) : null}
                 <div className="admin-bubble-body admin-bubble-body--menu">
-                  {actions.map((action) => (
-                    <button
-                      key={action.id}
-                      type="button"
-                      role="menuitem"
-                      className={`admin-bubble-menu-item w-full text-left${action.danger ? " admin-bubble-menu-item--danger" : ""}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onToggle();
-                        onAction(action.id);
-                      }}
-                    >
-                      <span className="admin-bubble-item-title">{action.label}</span>
-                    </button>
-                  ))}
+                  {actions.length > 0 ? (
+                    actions.map((action) => (
+                      <button
+                        key={action.id}
+                        type="button"
+                        role="menuitem"
+                        className={`admin-bubble-menu-item w-full text-left${action.danger ? " admin-bubble-menu-item--danger" : ""}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggle();
+                          onAction(action.id);
+                        }}
+                      >
+                        <span className="admin-bubble-item-title">{action.label}</span>
+                      </button>
+                    ))
+                  ) : (
+                    <p className="admin-bubble-desc px-3 py-2">No actions yet</p>
+                  )}
                 </div>
               </div>
             </div>,

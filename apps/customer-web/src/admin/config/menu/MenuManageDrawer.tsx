@@ -9,7 +9,6 @@ import {
 } from "./menuPageModalShell";
 import { buildNavHref, syncAdminNavHash } from "../../adminWorkspaceRouting";
 import { useAdminToast } from "../../AdminToast";
-import { MenuQrGeneratorModal } from "./AdminMenuActionModals";
 import {
   BulkArchiveConfirmModal,
   BulkDeleteDraftConfirmModal,
@@ -80,9 +79,7 @@ export function MenuManageDrawer({
   const [deleteDraftOpen, setDeleteDraftOpen] = useState(false);
   const [deleteMenuOpen, setDeleteMenuOpen] = useState(false);
   const [dangerConfirmMenus, setDangerConfirmMenus] = useState<MenuSurfaceRow[]>([]);
-  const [qrPickerOpen, setQrPickerOpen] = useState(false);
   const [editPickerOpen, setEditPickerOpen] = useState(false);
-  const [qrOpen, setQrOpen] = useState(false);
   const [insightsOpen, setInsightsOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [publishBusy, setPublishBusy] = useState(false);
@@ -289,11 +286,8 @@ export function MenuManageDrawer({
       return;
     }
     if (actionId === "qr") {
-      if (targets.length === 1) {
-        setQrOpen(true);
-      } else {
-        setQrPickerOpen(true);
-      }
+      onClose();
+      syncAdminNavHash(buildNavHref("config", "qr-codes"));
       return;
     }
     if (actionId === "insights") {
@@ -475,19 +469,6 @@ export function MenuManageDrawer({
         onPick={(menu) => openEditForMenu(menu)}
       />
 
-      <MenuSinglePickerModal
-        open={qrPickerOpen}
-        title="Choose menu for QR"
-        description="Pick one menu to generate a guest ordering QR code."
-        menus={targets}
-        confirmLabel="Continue"
-        onClose={() => setQrPickerOpen(false)}
-        onPick={() => {
-          setQrPickerOpen(false);
-          setQrOpen(true);
-        }}
-      />
-
       <MenuInsightsPickerModal
         open={insightsOpen}
         menus={targets.length > 0 ? targets : menus}
@@ -516,13 +497,6 @@ export function MenuManageDrawer({
           }
           setMoveOpen(false);
         }}
-      />
-
-      <MenuQrGeneratorModal
-        open={qrOpen}
-        token={token}
-        restaurantId={restaurantId}
-        onClose={() => setQrOpen(false)}
       />
         </>
       ) : null}

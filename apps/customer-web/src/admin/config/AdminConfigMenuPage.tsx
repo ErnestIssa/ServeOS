@@ -18,7 +18,6 @@ import {
 } from "./configRouting";
 import { AdminMenuTabContent } from "./menu/AdminMenuTabContent";
 import { AdminMenusTabPanel } from "./menu/AdminMenusTabPanel";
-import { MenuQrCodesPanel } from "./menu/MenuQrCodesPanel";
 import { useAdminMenu } from "./useAdminMenu";
 import { useAdminMenus } from "./useAdminMenus";
 import { useMenuCapabilities } from "./useMenuCapabilities";
@@ -214,8 +213,6 @@ export function AdminConfigMenuPage({ token, restaurantId, venueName, initialTab
                   can={menuCaps.can}
                   focusMenuId={focusMenuId}
                 />
-              ) : tab === "qr-codes" ? (
-                <MenuQrCodesPanel token={token} restaurantId={restaurantId} />
               ) : (
                 <AdminMenuTabContent
                   tab={tab}

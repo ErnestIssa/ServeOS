@@ -24,6 +24,7 @@ export function GuestOrderingPage({ sessionId, onHome }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [venueName, setVenueName] = useState("");
   const [paymentMode, setPaymentMode] = useState("PAY_AT_VENUE");
+  const [allowOrdering, setAllowOrdering] = useState(true);
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [cart, setCart] = useState<SessionCartPayload | null>(null);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
@@ -57,6 +58,7 @@ export function GuestOrderingPage({ sessionId, onHome }: Props) {
       return;
     }
     setPaymentMode(sessionRes.session.paymentMode);
+    setAllowOrdering(sessionRes.session.allowOrdering !== false);
     const menuRes = await fetchSessionMenu(sessionId);
     setLoading(false);
     if (!menuRes.ok) {
@@ -99,6 +101,10 @@ export function GuestOrderingPage({ sessionId, onHome }: Props) {
 
   const addToCart = async () => {
     if (!selectedItem) return;
+    if (!allowOrdering) {
+      setError("This QR is browse-only. Ask staff to order.");
+      return;
+    }
     for (const g of selectedItem.modifierGroups ?? []) {
       const picked = modifierSelections[g.id]?.length ?? 0;
       if (picked < g.minSelect) {
@@ -123,6 +129,7 @@ export function GuestOrderingPage({ sessionId, onHome }: Props) {
   };
 
   const placeOrder = async () => {
+    if (!allowOrdering) return;
     if (!cart?.lines.length) return;
     setBusy(true);
     const session = await fetchOrderingSession(sessionId);
@@ -231,6 +238,7 @@ export function GuestOrderingPage({ sessionId, onHome }: Props) {
         ))}
       </main>
 
+      {allowOrdering ? (
       <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/10 bg-slate-950/95 px-4 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
           <div>
@@ -249,6 +257,11 @@ export function GuestOrderingPage({ sessionId, onHome }: Props) {
           </button>
         </div>
       </div>
+      ) : (
+        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/10 bg-slate-950/95 px-4 py-3 text-center text-sm text-white/70 backdrop-blur">
+          Browse only — ask staff to place an order.
+        </div>
+      )}
 
       {selectedItem ? (
         <div className="fixed inset-0 z-40 flex items-end bg-black/60 sm:items-center sm:justify-center sm:p-4">

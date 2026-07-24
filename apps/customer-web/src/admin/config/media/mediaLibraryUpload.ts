@@ -3,11 +3,18 @@ import {
   createMenuMediaUploadSession,
   getMediaUploadJob,
   uploadMenuMediaBase64,
-  completeMenuMediaUpload
+  completeMenuMediaUpload,
+  type MediaImportSource
 } from "../../../api";
 import { readFileAsDataUrl, readVideoDurationMs } from "../menu/menuMediaUpload";
 
 export { readFileAsDataUrl, readVideoDurationMs };
+
+export type LibraryUploadImportMeta = {
+  importSource?: MediaImportSource;
+  importSourceId?: string;
+  importOriginalPath?: string;
+};
 
 export async function uploadLibraryMediaFile(
   token: string,
@@ -19,12 +26,15 @@ export async function uploadLibraryMediaFile(
     altText?: string;
     purpose?: string;
     forceNewAsset?: boolean;
+    importMeta?: LibraryUploadImportMeta;
     onJobId?: (jobId: string) => void;
+    onStage?: (label: string) => void;
   }
 ) {
   const scope = opts.kind === "image" ? "menu" : "video";
   const contentType = opts.file.type || (opts.kind === "image" ? "image/jpeg" : "video/mp4");
 
+  opts.onStage?.("Queuing upload…");
   const jobRes = await createMediaUploadJob(token, opts.restaurantId, {
     originalName: opts.file.name,
     contentType,
@@ -33,6 +43,7 @@ export async function uploadLibraryMediaFile(
   const jobId = jobRes.ok && jobRes.job ? jobRes.job.id : undefined;
   if (jobId) opts.onJobId?.(jobId);
 
+  opts.onStage?.("Preparing storage…");
   const session = await createMenuMediaUploadSession(token, {
     scope,
     contentType,
@@ -62,6 +73,7 @@ export async function uploadLibraryMediaFile(
     }
   }
 
+  opts.onStage?.("Uploading original…");
   const dataBase64 = await readFileAsDataUrl(opts.file);
   const uploaded = await uploadMenuMediaBase64(token, {
     scope,
@@ -76,7 +88,10 @@ export async function uploadLibraryMediaFile(
     width,
     height,
     durationMs,
-    forceNewAsset: opts.forceNewAsset
+    forceNewAsset: opts.forceNewAsset,
+    importSource: opts.importMeta?.importSource,
+    importSourceId: opts.importMeta?.importSourceId,
+    importOriginalPath: opts.importMeta?.importOriginalPath
   });
 
   if (!uploaded.ok || !uploaded.media?.id) {
@@ -97,6 +112,7 @@ export async function uploadLibraryMediaFile(
       };
     }
     if (jobId) {
+      opts.onStage?.("Processing · validate · thumb · WebP…");
       await pollJobUntilSettled(token, opts.restaurantId, jobId);
     }
     return {
@@ -109,6 +125,7 @@ export async function uploadLibraryMediaFile(
   }
 
   if (jobId) {
+    opts.onStage?.("Processing · validate · thumb · WebP…");
     await pollJobUntilSettled(token, opts.restaurantId, jobId);
   }
 

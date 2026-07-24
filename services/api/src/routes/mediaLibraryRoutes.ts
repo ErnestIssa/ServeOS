@@ -122,7 +122,8 @@ export function registerMediaLibraryRoutes(app: FastifyInstance, prisma: PrismaC
         recentlyUploaded: z.enum(["true", "false"]).optional(),
         duplicates: z.enum(["true", "false"]).optional(),
         processing: z.enum(["true", "false"]).optional(),
-        collectionId: z.string().optional()
+        collectionId: z.string().optional(),
+        sort: z.string().optional()
       })
       .parse(req.query ?? {});
 
@@ -143,7 +144,8 @@ export function registerMediaLibraryRoutes(app: FastifyInstance, prisma: PrismaC
       recentlyUploaded: q.recentlyUploaded === "true",
       duplicates: q.duplicates === "true",
       processing: q.processing === "true",
-      collectionId: q.collectionId
+      collectionId: q.collectionId,
+      sort: q.sort
     });
 
     const assets = [];

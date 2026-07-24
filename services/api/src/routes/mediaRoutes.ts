@@ -105,7 +105,12 @@ export function registerMediaRoutes(app: FastifyInstance, prisma: PrismaClient) 
         width: z.number().int().optional(),
         height: z.number().int().optional(),
         durationMs: z.number().int().optional(),
-        forceNewAsset: z.boolean().optional()
+        forceNewAsset: z.boolean().optional(),
+        importSource: z
+          .enum(["DEVICE", "CAMERA", "GOOGLE_DRIVE", "DROPBOX", "ONEDRIVE", "URL", "CLIPBOARD"])
+          .optional(),
+        importSourceId: z.string().max(500).optional(),
+        importOriginalPath: z.string().max(1000).optional()
       })
       .parse(req.body);
 
@@ -148,7 +153,10 @@ export function registerMediaRoutes(app: FastifyInstance, prisma: PrismaClient) 
       width: body.width,
       height: body.height,
       durationMs: body.durationMs,
-      forceNewAsset: body.forceNewAsset
+      forceNewAsset: body.forceNewAsset,
+      importSource: body.importSource,
+      importSourceId: body.importSourceId,
+      importOriginalPath: body.importOriginalPath
     });
     if (!result.ok) return reply.status(400).send(result);
     return {

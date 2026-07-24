@@ -697,7 +697,9 @@ export function AdminMenuTabContent({
             </div>
           </MenuPreviewFrame>
           <MenuPreviewFrame label="QR preview" aspect="qr">
-            <p className="p-4 text-center text-xs text-white/70">Use QR codes on the Menus tab to generate a scannable guest link.</p>
+            <p className="p-4 text-center text-xs text-white/70">
+              Manage permanent QR identities under Configuration → QR codes.
+            </p>
           </MenuPreviewFrame>
         </div>
       </MenuSection>

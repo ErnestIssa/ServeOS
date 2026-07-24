@@ -157,8 +157,8 @@ export function buildMenuManageActions(input: {
   if (panelVariant !== "archived" && canView) {
     actions.push({
       id: "qr",
-      label: "Share QR code",
-      description: targets.length > 1 ? "Choose one menu for the QR code." : "Generate a guest ordering QR code."
+      label: "Open QR codes",
+      description: "Manage permanent QR identities under Configuration → QR codes."
     });
   }
 

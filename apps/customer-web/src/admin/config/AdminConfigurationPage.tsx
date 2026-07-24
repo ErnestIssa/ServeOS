@@ -3,6 +3,7 @@ import { resolveWorkspacePreset, WORKSPACE_META } from "../adminWorkspaceRouting
 import { AdminConfigMenuPage } from "./AdminConfigMenuPage";
 import { AdminConfigPaymentsPage } from "./AdminConfigPaymentsPage";
 import { AdminConfigMediaLibraryPage } from "./media/AdminConfigMediaLibraryPage";
+import { AdminConfigQrCodesPage } from "./qr/AdminConfigQrCodesPage";
 import {
   CONFIG_PRESET_DESCRIPTIONS,
   menuTabFromLegacyPreset,
@@ -47,6 +48,10 @@ export function AdminConfigurationPage({
           restaurantId={restaurantId}
           venueName={venueName}
         />
+      );
+    case "qr-codes":
+      return (
+        <AdminConfigQrCodesPage token={token} restaurantId={restaurantId} venueName={venueName} />
       );
     case "payments":
       return <AdminConfigPaymentsPage token={token} restaurantId={restaurantId} />;

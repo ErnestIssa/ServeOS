@@ -80,6 +80,8 @@ export type PlaceOrderInput = {
   /** Source session traceability (QR scan, staff device, walk-in, reservation). */
   sourceSessionId?: string | null;
   sourceSessionType?: string | null;
+  /** Permanent QR identity when order originated from a scanned QR. */
+  qrCodeId?: string | null;
   deviceId?: string | null;
   reservationId?: string | null;
   /** Delivery partner registry */

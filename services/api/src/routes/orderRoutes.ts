@@ -58,6 +58,7 @@ import {
   placementDefaultsFromSession
 } from "../lib/ordering/orderingSessionService.js";
 import { loadSessionCartLinesForOrder, clearSessionCart } from "../lib/ordering/sessionCartService.js";
+import { recordQrOrderPlaced } from "../lib/qr/qrResolveService.js";
 import {
   completeOrderCheckout,
   createOrderCheckout,
@@ -347,6 +348,7 @@ export async function registerOrderRoutes(
     let sourceSessionId = body.sourceSessionId;
     let sourceSessionType = body.sourceSessionType;
     let tableLabel: string | undefined;
+    let qrCodeId: string | undefined;
     let initialStatus: PlaceOrderInput["initialStatus"];
     let paymentStatus: PlaceOrderInput["paymentStatus"];
 
@@ -356,9 +358,13 @@ export async function registerOrderRoutes(
         throw Object.assign(new Error(session.error), { statusCode: 400 });
       }
       const defaults = placementDefaultsFromSession(session.session);
+      if (defaults.allowOrdering === false) {
+        throw Object.assign(new Error("ordering_disabled"), { statusCode: 400 });
+      }
       if (!source) source = defaults.source;
       sourceSessionType = sourceSessionType ?? defaults.sourceSessionType;
       tableLabel = defaults.tableLabel;
+      qrCodeId = defaults.qrCodeId;
       if (!body.source) {
         initialStatus = defaults.initialStatus;
         paymentStatus = defaults.paymentStatus;
@@ -379,6 +385,7 @@ export async function registerOrderRoutes(
         source,
         sourceSessionId,
         sourceSessionType,
+        qrCodeId,
         tableLabel,
         initialStatus,
         paymentStatus,
@@ -400,6 +407,10 @@ export async function registerOrderRoutes(
 
       if (body.fromSessionCart && body.sourceSessionId?.trim()) {
         await clearSessionCart(prisma, body.sourceSessionId.trim());
+      }
+
+      if (qrCodeId) {
+        await recordQrOrderPlaced(prisma, qrCodeId);
       }
 
     const identityPolicy = await loadRestaurantIdentityPolicy(prisma, order.restaurantId);

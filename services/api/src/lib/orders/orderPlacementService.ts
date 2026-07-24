@@ -83,6 +83,7 @@ async function createOrderRecord(
         displayPeriodKey: identity.displayPeriodKey,
         sourceSessionId: identity.sourceSessionId,
         sourceSessionType: identity.sourceSessionType,
+        qrCodeId: input.qrCodeId?.trim() || null,
         deviceId: input.deviceId?.trim() || null,
         reservationId: input.reservationId?.trim() || null,
         source,

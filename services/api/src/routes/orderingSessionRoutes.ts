@@ -66,7 +66,10 @@ export function registerOrderingSessionRoutes(app: FastifyInstance, prisma: Pris
     if (!browsable) {
       return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
     }
-    const menu = await buildPublishedPublicMenu(prisma, session.session.restaurantId);
+    const menu = await buildPublishedPublicMenu(prisma, session.session.restaurantId, {
+      menuId: session.session.menuId,
+      channel: "QR"
+    });
     if (!menu) {
       return reply.status(404).send({ ok: false, error: "menu_not_published" });
     }

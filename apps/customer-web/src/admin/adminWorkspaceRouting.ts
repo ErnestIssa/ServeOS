@@ -171,7 +171,7 @@ export const WORKSPACE_META: Record<
   config: {
     eyebrow: "Configuration",
     title: "Configuration",
-    description: "Menu and payments for your active venue.",
+    description: "Menu, QR ordering, media, and payments for your active venue.",
     icon: "/icons/configuration-svgrepo-com.svg"
   },
   business: {
@@ -246,6 +246,12 @@ export const WORKSPACE_PRESETS: Record<WorkspaceId, WorkspacePreset[]> = {
       label: "Menu",
       tab: "menu",
       description: "Menus, categories, items, and modifiers"
+    },
+    {
+      id: "qr-codes",
+      label: "QR codes",
+      tab: "qr",
+      description: "Permanent QR identities and guest ordering entry points"
     },
     {
       id: "media-library",

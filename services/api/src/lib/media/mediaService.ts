@@ -68,6 +68,16 @@ export async function uploadMediaBase64(
     height?: number;
     durationMs?: number;
     forceNewAsset?: boolean;
+    importSource?:
+      | "DEVICE"
+      | "CAMERA"
+      | "GOOGLE_DRIVE"
+      | "DROPBOX"
+      | "ONEDRIVE"
+      | "URL"
+      | "CLIPBOARD";
+    importSourceId?: string;
+    importOriginalPath?: string;
   }
 ) {
   if (params.uploadJobId) {
@@ -123,7 +133,12 @@ export async function uploadMediaBase64(
     const synced = await syncAssetFromStoredMedia(prisma, {
       ...media,
       durationMs: params.durationMs ?? media.durationMs,
-      forceNewAsset: params.forceNewAsset
+      forceNewAsset: params.forceNewAsset,
+      importSource: params.importSource ?? null,
+      importSourceId: params.importSourceId ?? null,
+      importOriginalPath: params.importOriginalPath ?? null,
+      importedAt: params.importSource ? new Date() : null,
+      importedByUserId: params.uploadedById ?? null
     });
     assetId = synced.asset.id;
     reused = synced.reused;

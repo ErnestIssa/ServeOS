@@ -35,6 +35,7 @@ import { assertBearerUserStillActive } from "./lib/auth/authAccessGuard.js";
 import { registerMeRoutes } from "./routes/meRoutes.js";
 import { registerMediaRoutes } from "./routes/mediaRoutes.js";
 import { registerMediaLibraryRoutes } from "./routes/mediaLibraryRoutes.js";
+import { registerQrCodeRoutes } from "./routes/qrCodeRoutes.js";
 import { captureApiError, captureException, flushSentry } from "./lib/integrations/sentry.js";
 import { isCloudflareCdnConfigured } from "./lib/integrations/cloudflareCdn.js";
 import { isObjectStorageConfigured } from "./lib/integrations/objectStorage.js";
@@ -227,6 +228,7 @@ async function main() {
   registerMeRoutes(app, prisma);
   registerMediaRoutes(app, prisma);
   registerMediaLibraryRoutes(app, prisma);
+  registerQrCodeRoutes(app, prisma);
   registerMobileExperienceRoutes(app, prisma);
   registerMobileWorkspaceRoutes(app, prisma, chatBus, domainEventBus);
   registerStaffAccessRoutes(app, prisma, domainEventBus);

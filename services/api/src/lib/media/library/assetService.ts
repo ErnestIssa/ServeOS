@@ -1,4 +1,11 @@
-import type { MediaUsageRole, MediaUsageTargetType, Prisma, PrismaClient, StoredMediaVisibility } from "@prisma/client";
+import type {
+  MediaImportSource,
+  MediaUsageRole,
+  MediaUsageTargetType,
+  Prisma,
+  PrismaClient,
+  StoredMediaVisibility
+} from "@prisma/client";
 import { deleteObject } from "../../integrations/objectStorage.js";
 
 type Db = PrismaClient | Prisma.TransactionClient;
@@ -21,6 +28,11 @@ export type EnsureAssetInput = {
   tags?: string[];
   /** When true, always create a new asset even if the same hash exists for this venue. */
   forceNewAsset?: boolean;
+  importSource?: MediaImportSource | null;
+  importSourceId?: string | null;
+  importOriginalPath?: string | null;
+  importedAt?: Date | null;
+  importedByUserId?: string | null;
 };
 
 export type EnsureAssetResult = {
@@ -98,6 +110,11 @@ export async function ensureAssetFromUpload(
         visibility: input.visibility ?? "PRIVATE",
         createdByUserId: input.createdByUserId ?? null,
         restaurantId: input.restaurantId ?? null,
+        importSource: input.importSource ?? null,
+        importSourceId: input.importSourceId ?? null,
+        importOriginalPath: input.importOriginalPath ?? null,
+        importedAt: input.importedAt ?? (input.importSource ? new Date() : null),
+        importedByUserId: input.importedByUserId ?? input.createdByUserId ?? null,
         processingStatus: "READY",
         currentVersionNumber: 1
       }
@@ -430,6 +447,11 @@ export async function syncAssetFromStoredMedia(
     sortOrder?: number;
     durationMs?: number | null;
     forceNewAsset?: boolean;
+    importSource?: MediaImportSource | null;
+    importSourceId?: string | null;
+    importOriginalPath?: string | null;
+    importedAt?: Date | null;
+    importedByUserId?: string | null;
   }
 ) {
   const { asset, reused } = await ensureAssetFromUpload(prisma, {
@@ -442,7 +464,12 @@ export async function syncAssetFromStoredMedia(
     createdByUserId: media.uploadedById,
     restaurantId: media.restaurantId,
     durationMs: media.durationMs,
-    forceNewAsset: media.forceNewAsset
+    forceNewAsset: media.forceNewAsset,
+    importSource: media.importSource,
+    importSourceId: media.importSourceId,
+    importOriginalPath: media.importOriginalPath,
+    importedAt: media.importedAt,
+    importedByUserId: media.importedByUserId
   });
 
   if (media.restaurantId && media.menuItemId) {

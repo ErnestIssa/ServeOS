@@ -305,6 +305,12 @@ model MediaAsset {
   aiQualityScore       Float?
   aiTags               String[]               @default([])
   visibility           StoredMediaVisibility  @default(PRIVATE)
+  /// Import connector provenance — never link to cloud drives; always a ServeOS-owned copy.
+  importSource         MediaImportSource?
+  importSourceId       String?
+  importOriginalPath   String?
+  importedAt           DateTime?
+  importedByUserId     String?
   createdByUserId      String?
   restaurantId         String?
   createdAt            DateTime               @default(now())
@@ -322,6 +328,18 @@ model MediaAsset {
   @@index([restaurantId, archivedAt])
   @@index([restaurantId, favorite])
   @@index([restaurantId, processingStatus])
+  @@index([restaurantId, importSource])
+}
+
+/// Where a MediaAsset copy was acquired from. Cloud providers are import sources only.
+enum MediaImportSource {
+  DEVICE
+  CAMERA
+  GOOGLE_DRIVE
+  DROPBOX
+  ONEDRIVE
+  URL
+  CLIPBOARD
 }
 
 enum MediaProcessingStatus {
@@ -601,6 +619,7 @@ model Restaurant {
   menuCategories MenuCategory[]
   menus          Menu[]
   orderingSessions OrderingSession[]
+  qrCodes        QrCode[]
   orders         Order[]
   orderCounter   RestaurantOrderCounter?
   shoppingCarts  ShoppingCart[]
@@ -819,6 +838,7 @@ model Menu {
   categories    MenuCategory[]
   versions      MenuVersion[]
   activeVersion MenuVersion?  @relation("ActiveMenuVersion", fields: [activeVersionId], references: [id], onDelete: SetNull)
+  qrCodes       QrCode[]
 
   @@index([restaurantId, status])
   @@index([restaurantId, sortOrder])
@@ -864,26 +884,99 @@ enum OrderingPaymentMode {
   HYBRID
 }
 
+enum QrCodeType {
+  TABLE
+  MENU
+  TAKEAWAY
+  STAFF
+  MARKETING
+  FEEDBACK
+}
+
+enum QrCodeStatus {
+  ACTIVE
+  INACTIVE
+  ROTATED
+}
+
+/// What the guest experience should do after scan (destination layer).
+enum QrExperience {
+  ORDERING
+  MENU_BROWSE
+  FEEDBACK
+  PROMOTION
+  RESERVATION
+}
+
+/// Permanent digital location identity — printed QR points here forever (until rotated).
+/// Temporary OrderingSession rows are created on each scan; the QR itself is durable.
+model QrCode {
+  id                  String                @id @default(cuid())
+  restaurantId        String
+  /// Opaque public token used in /q/{publicCode} — never embed internal IDs in the printed URL.
+  publicCode          String                @unique
+  name                String
+  type                QrCodeType
+  status              QrCodeStatus          @default(ACTIVE)
+  experience          QrExperience          @default(ORDERING)
+  locationLabel       String?
+  areaLabel           String?
+  tableLabel          String?
+  /// Future FK to a Tables system; free-form until that lands.
+  tableId             String?
+  seatCount           Int?
+  paymentMode         OrderingPaymentMode   @default(PAY_AT_VENUE)
+  menuId              String?
+  allowOrdering       Boolean               @default(true)
+  headline            String?               @default("Scan to order")
+  showRestaurantLogo  Boolean               @default(true)
+  showServeosBranding Boolean               @default(false)
+  createdByUserId     String?
+  scanCount           Int                   @default(0)
+  orderCount          Int                   @default(0)
+  lastUsedAt          DateTime?
+  deactivatedAt       DateTime?
+  replacedById        String?
+  replacesId          String?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  restaurant Restaurant         @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  menu       Menu?              @relation(fields: [menuId], references: [id], onDelete: SetNull)
+  sessions   OrderingSession[]
+  orders     Order[]
+
+  @@index([restaurantId, status])
+  @@index([restaurantId, type])
+  @@index([restaurantId, lastUsedAt])
+  @@index([menuId])
+}
+
 /// Guest / QR ordering context — ties menu browse, cart, and placement together.
 model OrderingSession {
-  id           String                @id @default(cuid())
-  restaurantId String
-  sessionType  OrderingSessionType     @default(QR_SESSION)
-  status       OrderingSessionStatus   @default(ACTIVE)
-  entryMode    String?
-  tableId      String?
-  tableLabel   String?
-  locationId   String?
-  paymentMode  OrderingPaymentMode     @default(PREPAY)
-  expiresAt    DateTime
-  lastActiveAt DateTime              @default(now())
-  createdAt    DateTime              @default(now())
+  id            String                 @id @default(cuid())
+  restaurantId  String
+  qrCodeId      String?
+  menuId        String?
+  sessionType   OrderingSessionType    @default(QR_SESSION)
+  status        OrderingSessionStatus  @default(ACTIVE)
+  entryMode     String?
+  tableId       String?
+  tableLabel    String?
+  locationId    String?
+  paymentMode   OrderingPaymentMode    @default(PREPAY)
+  allowOrdering Boolean                @default(true)
+  expiresAt     DateTime
+  lastActiveAt  DateTime               @default(now())
+  createdAt     DateTime               @default(now())
 
   restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  qrCode     QrCode?    @relation(fields: [qrCodeId], references: [id], onDelete: SetNull)
   cart       SessionCart?
 
   @@index([restaurantId, status])
   @@index([expiresAt])
+  @@index([qrCodeId])
 }
 
 /// Guest cart scoped to an ordering session (QR / link flows).
@@ -1124,6 +1217,8 @@ model Order {
   /// Session / source traceability (QR, staff device, walk-in, reservation).
   sourceSessionId   String?
   sourceSessionType String?
+  /// Permanent QR identity that spawned the ordering session (when applicable).
+  qrCodeId          String?
   /// Device that originated the order (staff tablet, kiosk).
   deviceId          String?
   /// Linked reservation when order originated from a booking.
@@ -1166,6 +1261,7 @@ model Order {
 
   restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   customer   User?      @relation("CustomerOrders", fields: [customerUserId], references: [id], onDelete: SetNull)
+  qrCode     QrCode?    @relation(fields: [qrCodeId], references: [id], onDelete: SetNull)
   lines      OrderLineItem[]
   chatRoom   ChatRoom?
   statusHistory OrderStatusHistory[]
@@ -1184,6 +1280,7 @@ model Order {
   @@index([customerUserId])
   @@index([createdByUserId])
   @@index([sourceSessionId])
+  @@index([qrCodeId])
   @@index([receiptSearchHash])
   @@index([reservationId])
   @@index([deviceId])

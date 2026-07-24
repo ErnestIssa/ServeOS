@@ -1,4 +1,4 @@
-export type ConfigPresetId = "menu" | "payments" | "media-library";
+export type ConfigPresetId = "menu" | "payments" | "media-library" | "qr-codes";
 
 export type MenuSectionTab =
   | "menus"
@@ -9,7 +9,6 @@ export type MenuSectionTab =
   | "availability"
   | "preview"
   | "import-export"
-  | "qr-codes"
   | "archived"
   | "live";
 
@@ -25,11 +24,18 @@ const LEGACY_CONFIG_PRESET_MAP: Record<string, ConfigPresetId> = {
   "payment-methods": "payments",
   images: "media-library",
   "menu-images": "media-library",
-  media: "media-library"
+  media: "media-library",
+  qr: "qr-codes",
+  "qr-codes": "qr-codes"
 };
 
 export function normalizeConfigPresetId(presetId: string): ConfigPresetId {
-  if (presetId === "menu" || presetId === "payments" || presetId === "media-library") {
+  if (
+    presetId === "menu" ||
+    presetId === "payments" ||
+    presetId === "media-library" ||
+    presetId === "qr-codes"
+  ) {
     return presetId;
   }
   return LEGACY_CONFIG_PRESET_MAP[presetId] ?? "menu";
@@ -44,7 +50,7 @@ export function menuTabFromLegacyPreset(presetId: string): MenuSectionTab | null
   if (presetId === "images" || presetId === "menu-images") return null;
   if (presetId === "preview" || presetId === "menu-preview") return "preview";
   if (presetId === "import-export") return "import-export";
-  if (presetId === "qr-codes" || presetId === "qr") return "qr-codes";
+  if (presetId === "qr-codes" || presetId === "qr") return null;
   if (presetId === "archived") return "archived";
   if (presetId === "live") return "live";
   if (presetId === "menu-builder" || presetId === "menus") return "menus";
@@ -55,7 +61,9 @@ export const CONFIG_PRESET_DESCRIPTIONS: Record<ConfigPresetId, string> = {
   menu: "Everything related to products — menus, categories, items, modifiers, and availability.",
   payments: "Everything related to money — providers, methods, payouts, taxes, and security.",
   "media-library":
-    "Restaurant-wide media library — images and videos for menus, items, covers, and future surfaces."
+    "Restaurant-wide media library — images and videos for menus, items, covers, and future surfaces.",
+  "qr-codes":
+    "Permanent QR identities for table ordering, menus, takeaway, and future guest experiences. Sessions are temporary; the QR is not."
 };
 
 export const MENU_TAB_LABELS: Record<MenuSectionTab, string> = {
@@ -67,7 +75,6 @@ export const MENU_TAB_LABELS: Record<MenuSectionTab, string> = {
   availability: "Availability",
   preview: "Preview",
   "import-export": "Import / export",
-  "qr-codes": "QR codes",
   archived: "Archived",
   live: "Live"
 };
@@ -81,7 +88,6 @@ export const MENU_TABS: MenuSectionTab[] = [
   "availability",
   "preview",
   "import-export",
-  "qr-codes",
   "archived",
   "live"
 ];

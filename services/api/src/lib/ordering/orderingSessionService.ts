@@ -5,6 +5,8 @@ const DEFAULT_SESSION_HOURS = 4;
 export type OrderingSessionRow = {
   id: string;
   restaurantId: string;
+  qrCodeId: string | null;
+  menuId: string | null;
   sessionType: OrderingSessionType;
   status: OrderingSessionStatus;
   entryMode: string | null;
@@ -12,6 +14,7 @@ export type OrderingSessionRow = {
   tableLabel: string | null;
   locationId: string | null;
   paymentMode: OrderingPaymentMode;
+  allowOrdering: boolean;
   expiresAt: string;
   lastActiveAt: string;
   menuUrl: string;
@@ -38,6 +41,9 @@ export async function createOrderingSession(
     locationId?: string;
     paymentMode?: OrderingPaymentMode;
     ttlHours?: number;
+    qrCodeId?: string | null;
+    menuId?: string | null;
+    allowOrdering?: boolean;
   }
 ) {
   const restaurant = await prisma.restaurant.findUnique({ where: { id: params.restaurantId }, select: { id: true } });
@@ -52,6 +58,9 @@ export async function createOrderingSession(
       tableLabel: params.tableLabel?.trim() || null,
       locationId: params.locationId?.trim() || null,
       paymentMode: params.paymentMode ?? "PREPAY",
+      qrCodeId: params.qrCodeId?.trim() || null,
+      menuId: params.menuId?.trim() || null,
+      allowOrdering: params.allowOrdering ?? true,
       expiresAt: expiresAtFromNow(params.ttlHours)
     }
   });
@@ -62,6 +71,8 @@ export async function createOrderingSession(
 function serializeSession(row: {
   id: string;
   restaurantId: string;
+  qrCodeId?: string | null;
+  menuId?: string | null;
   sessionType: OrderingSessionType;
   status: OrderingSessionStatus;
   entryMode: string | null;
@@ -69,12 +80,15 @@ function serializeSession(row: {
   tableLabel: string | null;
   locationId: string | null;
   paymentMode: OrderingPaymentMode;
+  allowOrdering?: boolean;
   expiresAt: Date;
   lastActiveAt: Date;
 }): OrderingSessionRow {
   return {
     id: row.id,
     restaurantId: row.restaurantId,
+    qrCodeId: row.qrCodeId ?? null,
+    menuId: row.menuId ?? null,
     sessionType: row.sessionType,
     status: row.status,
     entryMode: row.entryMode,
@@ -82,6 +96,7 @@ function serializeSession(row: {
     tableLabel: row.tableLabel,
     locationId: row.locationId,
     paymentMode: row.paymentMode,
+    allowOrdering: row.allowOrdering ?? true,
     expiresAt: row.expiresAt.toISOString(),
     lastActiveAt: row.lastActiveAt.toISOString(),
     menuUrl: sessionMenuPath(row.id)
@@ -127,14 +142,19 @@ export function placementDefaultsFromSession(session: {
   paymentMode: OrderingPaymentMode;
   sessionType: OrderingSessionType;
   tableLabel: string | null;
+  qrCodeId?: string | null;
+  allowOrdering?: boolean;
 }) {
+  const qrCodeId = session.qrCodeId ?? undefined;
   if (session.paymentMode === "PAY_AT_VENUE") {
     return {
       source: "WALK_IN" as const,
       sourceSessionType: mapSessionType(session.sessionType),
       initialStatus: "CREATED" as const,
       paymentStatus: "UNPAID" as const,
-      tableLabel: session.tableLabel ?? undefined
+      tableLabel: session.tableLabel ?? undefined,
+      qrCodeId,
+      allowOrdering: session.allowOrdering ?? true
     };
   }
   if (session.paymentMode === "HYBRID") {
@@ -143,7 +163,9 @@ export function placementDefaultsFromSession(session: {
       sourceSessionType: mapSessionType(session.sessionType),
       initialStatus: "PENDING_PAYMENT" as const,
       paymentStatus: "PENDING" as const,
-      tableLabel: session.tableLabel ?? undefined
+      tableLabel: session.tableLabel ?? undefined,
+      qrCodeId,
+      allowOrdering: session.allowOrdering ?? true
     };
   }
   return {
@@ -151,7 +173,9 @@ export function placementDefaultsFromSession(session: {
     sourceSessionType: mapSessionType(session.sessionType),
     initialStatus: "PENDING_PAYMENT" as const,
     paymentStatus: "PENDING" as const,
-    tableLabel: session.tableLabel ?? undefined
+    tableLabel: session.tableLabel ?? undefined,
+    qrCodeId,
+    allowOrdering: session.allowOrdering ?? true
   };
 }
 

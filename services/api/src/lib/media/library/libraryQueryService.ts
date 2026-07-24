@@ -16,7 +16,26 @@ export type LibraryListQuery = {
   duplicates?: boolean;
   processing?: boolean;
   collectionId?: string;
+  sort?: string;
 };
+
+function orderByForSort(sort?: string): Prisma.MediaAssetOrderByWithRelationInput[] {
+  switch (sort) {
+    case "oldest":
+      return [{ createdAt: "asc" }];
+    case "name_asc":
+      return [{ displayName: "asc" }, { originalName: "asc" }, { createdAt: "desc" }];
+    case "name_desc":
+      return [{ displayName: "desc" }, { originalName: "desc" }, { createdAt: "desc" }];
+    case "size_desc":
+      return [{ byteSize: "desc" }, { createdAt: "desc" }];
+    case "size_asc":
+      return [{ byteSize: "asc" }, { createdAt: "desc" }];
+    case "newest":
+    default:
+      return [{ createdAt: "desc" }];
+  }
+}
 
 export async function queryLibraryAssets(prisma: PrismaClient, restaurantId: string, query: LibraryListQuery) {
   const page = Math.max(1, query.page ?? 1);
@@ -112,7 +131,7 @@ export async function queryLibraryAssets(prisma: PrismaClient, restaurantId: str
     prisma.mediaAsset.count({ where }),
     prisma.mediaAsset.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      orderBy: orderByForSort(query.sort),
       skip,
       take: pageSize,
       include: {
@@ -222,6 +241,11 @@ export async function getLibraryAssetDetail(prisma: PrismaClient, restaurantId: 
     sha256Hex: asset.sha256Hex,
     visibility: asset.visibility,
     createdByUserId: asset.createdByUserId,
+    importSource: asset.importSource,
+    importSourceId: asset.importSourceId,
+    importOriginalPath: asset.importOriginalPath,
+    importedAt: asset.importedAt?.toISOString() ?? null,
+    importedByUserId: asset.importedByUserId,
     createdAt: asset.createdAt.toISOString(),
     updatedAt: asset.updatedAt.toISOString(),
     usageCount: asset._count.usages,
