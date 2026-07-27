@@ -26,18 +26,24 @@ export type QrCodeRow = {
   menuId: string | null;
   menuName: string | null;
   allowOrdering: boolean;
+  orderingPaused: boolean;
+  sessionTtlHours: number | null;
+  description: string | null;
   headline: string | null;
   showRestaurantLogo: boolean;
   showServeosBranding: boolean;
+  createdByUserId: string | null;
   scanCount: number;
   orderCount: number;
   lastUsedAt: string | null;
   deactivatedAt: string | null;
+  archivedAt: string | null;
   replacedById: string | null;
   replacesId: string | null;
   publicUrl: string;
   qrImageUrl: string;
   pngDownloadUrl: string;
+  svgDownloadUrl: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -50,6 +56,35 @@ export type QrDashboardStats = {
   revenueTodayCents: number;
   totalScans: number;
   totalOrders: number;
+};
+
+export type QrManageActionDescriptor = {
+  id: string;
+  label: string;
+  description?: string;
+  danger?: boolean;
+};
+
+export type QrManageContext = {
+  targets: QrCodeRow[];
+  actions: QrManageActionDescriptor[];
+};
+
+export type QrAnalyticsSummary = {
+  scans: number;
+  orders: number;
+  revenueCents: number;
+  conversionRate: number;
+  lastOrderAt: string | null;
+};
+
+export type BulkQrCodePatch = {
+  status?: "ACTIVE" | "INACTIVE";
+  orderingPaused?: boolean;
+  menuId?: string | null;
+  paymentMode?: OrderingPaymentMode;
+  locationLabel?: string | null;
+  areaLabel?: string | null;
 };
 
 function customerWebBase() {
@@ -68,7 +103,8 @@ export function buildQrArtifactUrls(publicCode: string) {
   return {
     publicUrl,
     qrImageUrl,
-    pngDownloadUrl: `${qrImageUrl}&format=png`
+    pngDownloadUrl: `${qrImageUrl}&format=png`,
+    svgDownloadUrl: `${qrImageUrl}&format=svg`
   };
 }
 
@@ -98,13 +134,18 @@ function serializeQr(
     paymentMode: OrderingPaymentMode;
     menuId: string | null;
     allowOrdering: boolean;
+    orderingPaused: boolean;
+    sessionTtlHours: number | null;
+    description: string | null;
     headline: string | null;
     showRestaurantLogo: boolean;
     showServeosBranding: boolean;
+    createdByUserId: string | null;
     scanCount: number;
     orderCount: number;
     lastUsedAt: Date | null;
     deactivatedAt: Date | null;
+    archivedAt: Date | null;
     replacedById: string | null;
     replacesId: string | null;
     createdAt: Date;
@@ -130,13 +171,18 @@ function serializeQr(
     menuId: row.menuId,
     menuName: row.menu?.name ?? null,
     allowOrdering: row.allowOrdering,
+    orderingPaused: row.orderingPaused,
+    sessionTtlHours: row.sessionTtlHours,
+    description: row.description,
     headline: row.headline,
     showRestaurantLogo: row.showRestaurantLogo,
     showServeosBranding: row.showServeosBranding,
+    createdByUserId: row.createdByUserId,
     scanCount: row.scanCount,
     orderCount: row.orderCount,
     lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
     deactivatedAt: row.deactivatedAt?.toISOString() ?? null,
+    archivedAt: row.archivedAt?.toISOString() ?? null,
     replacedById: row.replacedById,
     replacesId: row.replacesId,
     ...artifacts,
@@ -178,6 +224,12 @@ function defaultPaymentForType(type: QrCodeType): OrderingPaymentMode {
   return "PAY_AT_VENUE";
 }
 
+function assertMutableStatus(status: QrCodeStatus) {
+  if (status === "ROTATED") return "qr_rotated" as const;
+  if (status === "ARCHIVED") return "qr_archived" as const;
+  return null;
+}
+
 export type CreateQrCodeInput = {
   restaurantId: string;
   name: string;
@@ -191,6 +243,9 @@ export type CreateQrCodeInput = {
   paymentMode?: OrderingPaymentMode;
   menuId?: string | null;
   allowOrdering?: boolean;
+  orderingPaused?: boolean;
+  sessionTtlHours?: number | null;
+  description?: string | null;
   headline?: string | null;
   showRestaurantLogo?: boolean;
   showServeosBranding?: boolean;
@@ -234,6 +289,9 @@ export async function createQrCode(prisma: PrismaClient, input: CreateQrCodeInpu
       paymentMode,
       menuId: input.menuId ?? null,
       allowOrdering,
+      orderingPaused: input.orderingPaused ?? false,
+      sessionTtlHours: input.sessionTtlHours ?? null,
+      description: input.description?.trim() || null,
       headline: input.headline?.trim() || "Scan to order",
       showRestaurantLogo: input.showRestaurantLogo ?? true,
       showServeosBranding: input.showServeosBranding ?? false,
@@ -256,6 +314,9 @@ export type UpdateQrCodeInput = {
   paymentMode?: OrderingPaymentMode;
   menuId?: string | null;
   allowOrdering?: boolean;
+  orderingPaused?: boolean;
+  sessionTtlHours?: number | null;
+  description?: string | null;
   headline?: string | null;
   showRestaurantLogo?: boolean;
   showServeosBranding?: boolean;
@@ -272,7 +333,8 @@ export async function updateQrCode(
     select: { id: true, status: true }
   });
   if (!existing) return { ok: false as const, error: "qr_not_found" as const };
-  if (existing.status === "ROTATED") return { ok: false as const, error: "qr_rotated" as const };
+  const blocked = assertMutableStatus(existing.status);
+  if (blocked) return { ok: false as const, error: blocked };
 
   if (input.menuId) {
     const menu = await prisma.menu.findFirst({
@@ -295,6 +357,9 @@ export async function updateQrCode(
       ...(input.paymentMode !== undefined ? { paymentMode: input.paymentMode } : {}),
       ...(input.menuId !== undefined ? { menuId: input.menuId } : {}),
       ...(input.allowOrdering !== undefined ? { allowOrdering: input.allowOrdering } : {}),
+      ...(input.orderingPaused !== undefined ? { orderingPaused: input.orderingPaused } : {}),
+      ...(input.sessionTtlHours !== undefined ? { sessionTtlHours: input.sessionTtlHours } : {}),
+      ...(input.description !== undefined ? { description: input.description?.trim() || null } : {}),
       ...(input.headline !== undefined ? { headline: input.headline?.trim() || null } : {}),
       ...(input.showRestaurantLogo !== undefined ? { showRestaurantLogo: input.showRestaurantLogo } : {}),
       ...(input.showServeosBranding !== undefined ? { showServeosBranding: input.showServeosBranding } : {})
@@ -313,7 +378,7 @@ export async function listQrCodes(
   const rows = await prisma.qrCode.findMany({
     where: {
       restaurantId,
-      ...(opts?.status ? { status: opts.status } : { status: { not: "ROTATED" } }),
+      ...(opts?.status ? { status: opts.status } : { status: { notIn: ["ROTATED", "ARCHIVED"] } }),
       ...(opts?.type ? { type: opts.type } : {}),
       ...(opts?.q?.trim()
         ? {
@@ -348,7 +413,8 @@ export async function deactivateQrCode(prisma: PrismaClient, restaurantId: strin
     select: { id: true, status: true }
   });
   if (!existing) return { ok: false as const, error: "qr_not_found" as const };
-  if (existing.status === "ROTATED") return { ok: false as const, error: "qr_rotated" as const };
+  const blocked = assertMutableStatus(existing.status);
+  if (blocked) return { ok: false as const, error: blocked };
 
   const row = await prisma.qrCode.update({
     where: { id: qrCodeId },
@@ -365,6 +431,7 @@ export async function reactivateQrCode(prisma: PrismaClient, restaurantId: strin
   });
   if (!existing) return { ok: false as const, error: "qr_not_found" as const };
   if (existing.status === "ROTATED") return { ok: false as const, error: "qr_rotated" as const };
+  if (existing.status === "ARCHIVED") return { ok: false as const, error: "qr_archived" as const };
 
   const row = await prisma.qrCode.update({
     where: { id: qrCodeId },
@@ -372,6 +439,274 @@ export async function reactivateQrCode(prisma: PrismaClient, restaurantId: strin
     include: qrInclude
   });
   return { ok: true as const, qr: serializeQr(row) };
+}
+
+export async function archiveQrCode(prisma: PrismaClient, restaurantId: string, qrCodeId: string) {
+  const existing = await prisma.qrCode.findFirst({
+    where: { id: qrCodeId, restaurantId },
+    select: { id: true, status: true }
+  });
+  if (!existing) return { ok: false as const, error: "qr_not_found" as const };
+  if (existing.status === "ROTATED") return { ok: false as const, error: "qr_rotated" as const };
+  if (existing.status === "ARCHIVED") return { ok: false as const, error: "qr_archived" as const };
+
+  const row = await prisma.qrCode.update({
+    where: { id: qrCodeId },
+    data: { status: "ARCHIVED", archivedAt: new Date() },
+    include: qrInclude
+  });
+  return { ok: true as const, qr: serializeQr(row) };
+}
+
+export async function restoreQrCode(prisma: PrismaClient, restaurantId: string, qrCodeId: string) {
+  const existing = await prisma.qrCode.findFirst({
+    where: { id: qrCodeId, restaurantId },
+    select: { id: true, status: true }
+  });
+  if (!existing) return { ok: false as const, error: "qr_not_found" as const };
+  if (existing.status !== "ARCHIVED") {
+    return { ok: false as const, error: "qr_not_archived" as const };
+  }
+
+  const row = await prisma.qrCode.update({
+    where: { id: qrCodeId },
+    data: { status: "ACTIVE", archivedAt: null, deactivatedAt: null },
+    include: qrInclude
+  });
+  return { ok: true as const, qr: serializeQr(row) };
+}
+
+export async function pauseQrOrdering(prisma: PrismaClient, restaurantId: string, qrCodeId: string) {
+  const existing = await prisma.qrCode.findFirst({
+    where: { id: qrCodeId, restaurantId },
+    select: { id: true, status: true, orderingPaused: true }
+  });
+  if (!existing) return { ok: false as const, error: "qr_not_found" as const };
+  const blocked = assertMutableStatus(existing.status);
+  if (blocked) return { ok: false as const, error: blocked };
+
+  const row = await prisma.qrCode.update({
+    where: { id: qrCodeId },
+    data: { orderingPaused: true },
+    include: qrInclude
+  });
+  return { ok: true as const, qr: serializeQr(row) };
+}
+
+export async function resumeQrOrdering(prisma: PrismaClient, restaurantId: string, qrCodeId: string) {
+  const existing = await prisma.qrCode.findFirst({
+    where: { id: qrCodeId, restaurantId },
+    select: { id: true, status: true }
+  });
+  if (!existing) return { ok: false as const, error: "qr_not_found" as const };
+  const blocked = assertMutableStatus(existing.status);
+  if (blocked) return { ok: false as const, error: blocked };
+
+  const row = await prisma.qrCode.update({
+    where: { id: qrCodeId },
+    data: { orderingPaused: false },
+    include: qrInclude
+  });
+  return { ok: true as const, qr: serializeQr(row) };
+}
+
+export async function bulkUpdateQrCodes(
+  prisma: PrismaClient,
+  restaurantId: string,
+  ids: string[],
+  patch: BulkQrCodePatch
+) {
+  const uniqueIds = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+  if (uniqueIds.length === 0) return { ok: false as const, error: "qr_ids_required" as const };
+
+  if (patch.menuId) {
+    const menu = await prisma.menu.findFirst({
+      where: { id: patch.menuId, restaurantId },
+      select: { id: true }
+    });
+    if (!menu) return { ok: false as const, error: "menu_not_found" as const };
+  }
+
+  const existing = await prisma.qrCode.findMany({
+    where: { restaurantId, id: { in: uniqueIds } },
+    select: { id: true, status: true }
+  });
+  if (existing.length !== uniqueIds.length) {
+    return { ok: false as const, error: "qr_not_found" as const };
+  }
+  if (existing.some((row) => row.status === "ROTATED" || row.status === "ARCHIVED")) {
+    return { ok: false as const, error: "qr_not_mutable" as const };
+  }
+
+  const data: {
+    status?: "ACTIVE" | "INACTIVE";
+    deactivatedAt?: Date | null;
+    orderingPaused?: boolean;
+    menuId?: string | null;
+    paymentMode?: OrderingPaymentMode;
+    locationLabel?: string | null;
+    areaLabel?: string | null;
+  } = {};
+
+  if (patch.status === "ACTIVE") {
+    data.status = "ACTIVE";
+    data.deactivatedAt = null;
+  } else if (patch.status === "INACTIVE") {
+    data.status = "INACTIVE";
+    data.deactivatedAt = new Date();
+  }
+  if (patch.orderingPaused !== undefined) data.orderingPaused = patch.orderingPaused;
+  if (patch.menuId !== undefined) data.menuId = patch.menuId;
+  if (patch.paymentMode !== undefined) data.paymentMode = patch.paymentMode;
+  if (patch.locationLabel !== undefined) data.locationLabel = patch.locationLabel?.trim() || null;
+  if (patch.areaLabel !== undefined) data.areaLabel = patch.areaLabel?.trim() || null;
+
+  if (Object.keys(data).length === 0) {
+    const items = await listQrCodesByIds(prisma, restaurantId, uniqueIds);
+    return { ok: true as const, items };
+  }
+
+  await prisma.qrCode.updateMany({
+    where: { restaurantId, id: { in: uniqueIds } },
+    data
+  });
+
+  const items = await listQrCodesByIds(prisma, restaurantId, uniqueIds);
+  return { ok: true as const, items };
+}
+
+async function listQrCodesByIds(prisma: PrismaClient, restaurantId: string, ids: string[]) {
+  const rows = await prisma.qrCode.findMany({
+    where: { restaurantId, id: { in: ids } },
+    include: qrInclude,
+    orderBy: [{ status: "asc" }, { name: "asc" }]
+  });
+  return rows.map(serializeQr);
+}
+
+function buildQrManageActions(targets: QrCodeRow[]): QrManageActionDescriptor[] {
+  const actions: QrManageActionDescriptor[] = [];
+  if (targets.length === 0) return actions;
+
+  if (targets.length === 1) {
+    const qr = targets[0]!;
+    actions.push(
+      { id: "edit-general", label: "Edit general", description: "Name, notes, location labels" },
+      { id: "edit-destination", label: "Edit destination", description: "Experience, menu, payment" },
+      { id: "edit-ordering", label: "Edit ordering", description: "Allow ordering, pause, session TTL" },
+      { id: "download-png", label: "Download PNG" },
+      { id: "download-svg", label: "Download SVG" },
+      { id: "copy-link", label: "Copy link" },
+      { id: "view-analytics", label: "View analytics" }
+    );
+
+    if (qr.status === "ACTIVE") {
+      actions.push({ id: "deactivate", label: "Deactivate" });
+    } else if (qr.status === "INACTIVE") {
+      actions.push({ id: "activate", label: "Activate" });
+    }
+
+    if (qr.status !== "ROTATED" && qr.status !== "ARCHIVED") {
+      if (qr.orderingPaused) {
+        actions.push({ id: "resume-ordering", label: "Resume ordering" });
+      } else {
+        actions.push({ id: "pause-ordering", label: "Pause ordering" });
+      }
+      actions.push({ id: "rotate", label: "Rotate", description: "Invalidate printed URL", danger: true });
+      actions.push({ id: "archive", label: "Archive", danger: true });
+    }
+
+    return actions;
+  }
+
+  const mutable = targets.filter((t) => t.status !== "ROTATED" && t.status !== "ARCHIVED");
+  if (mutable.length === 0) return actions;
+
+  if (mutable.some((t) => t.status === "INACTIVE")) {
+    actions.push({ id: "activate", label: "Activate" });
+  }
+  if (mutable.some((t) => t.status === "ACTIVE")) {
+    actions.push({ id: "deactivate", label: "Deactivate" });
+  }
+  if (mutable.some((t) => !t.orderingPaused)) {
+    actions.push({ id: "pause-ordering", label: "Pause ordering" });
+  }
+  if (mutable.some((t) => t.orderingPaused)) {
+    actions.push({ id: "resume-ordering", label: "Resume ordering" });
+  }
+  actions.push({
+    id: "assign-menu",
+    label: "Assign menu",
+    description: "Assign menu — set in panel"
+  });
+  actions.push({
+    id: "assign-payment",
+    label: "Assign payment",
+    description: "Set payment mode for selected codes"
+  });
+  actions.push({ id: "archive", label: "Archive", danger: true });
+
+  return actions;
+}
+
+export async function getQrManageContext(
+  prisma: PrismaClient,
+  restaurantId: string,
+  qrIds?: string[]
+): Promise<QrManageContext> {
+  const requestedIds = qrIds?.map((id) => id.trim()).filter(Boolean) ?? [];
+
+  let targets: QrCodeRow[];
+  if (requestedIds.length > 0) {
+    targets = await listQrCodesByIds(prisma, restaurantId, requestedIds);
+  } else {
+    targets = await listQrCodes(prisma, restaurantId);
+  }
+
+  return {
+    targets,
+    actions: buildQrManageActions(targets)
+  };
+}
+
+export async function getQrAnalyticsSummary(
+  prisma: PrismaClient,
+  restaurantId: string,
+  qrCodeId: string
+): Promise<{ ok: true; summary: QrAnalyticsSummary } | { ok: false; error: "qr_not_found" }> {
+  const qr = await prisma.qrCode.findFirst({
+    where: { id: qrCodeId, restaurantId },
+    select: { id: true, scanCount: true, orderCount: true }
+  });
+  if (!qr) return { ok: false, error: "qr_not_found" };
+
+  const [orderAgg, lastOrder] = await Promise.all([
+    prisma.order.aggregate({
+      where: { restaurantId, qrCodeId },
+      _sum: { totalCents: true },
+      _count: { _all: true }
+    }),
+    prisma.order.findFirst({
+      where: { restaurantId, qrCodeId },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true }
+    })
+  ]);
+
+  const scans = qr.scanCount;
+  const orders = orderAgg._count._all;
+  const revenueCents = orderAgg._sum.totalCents ?? 0;
+
+  return {
+    ok: true,
+    summary: {
+      scans,
+      orders,
+      revenueCents,
+      conversionRate: scans > 0 ? orders / scans : 0,
+      lastOrderAt: lastOrder?.createdAt.toISOString() ?? null
+    }
+  };
 }
 
 /** Invalidate printed URL; create replacement with new publicCode (stolen/old QR defense). */
@@ -385,7 +720,8 @@ export async function rotateQrCode(
     where: { id: qrCodeId, restaurantId }
   });
   if (!existing) return { ok: false as const, error: "qr_not_found" as const };
-  if (existing.status === "ROTATED") return { ok: false as const, error: "qr_rotated" as const };
+  const blocked = assertMutableStatus(existing.status);
+  if (blocked) return { ok: false as const, error: blocked };
 
   const publicCode = await allocatePublicCode(prisma);
   const replacement = await prisma.$transaction(async (tx) => {
@@ -405,6 +741,9 @@ export async function rotateQrCode(
         paymentMode: existing.paymentMode,
         menuId: existing.menuId,
         allowOrdering: existing.allowOrdering,
+        orderingPaused: existing.orderingPaused,
+        sessionTtlHours: existing.sessionTtlHours,
+        description: existing.description,
         headline: existing.headline,
         showRestaurantLogo: existing.showRestaurantLogo,
         showServeosBranding: existing.showServeosBranding,
@@ -447,6 +786,9 @@ export async function duplicateQrCode(
     paymentMode: existing.paymentMode,
     menuId: existing.menuId,
     allowOrdering: existing.allowOrdering,
+    orderingPaused: existing.orderingPaused,
+    sessionTtlHours: existing.sessionTtlHours,
+    description: existing.description,
     headline: existing.headline,
     showRestaurantLogo: existing.showRestaurantLogo,
     showServeosBranding: existing.showServeosBranding,
@@ -465,7 +807,7 @@ export async function getQrDashboardStats(
     prisma.qrCode.count({ where: { restaurantId, status: "ACTIVE" } }),
     prisma.qrCode.count({ where: { restaurantId, status: "ACTIVE", type: "TABLE" } }),
     prisma.qrCode.aggregate({
-      where: { restaurantId, status: { not: "ROTATED" } },
+      where: { restaurantId, status: { notIn: ["ROTATED", "ARCHIVED"] } },
       _sum: { scanCount: true, orderCount: true }
     }),
     prisma.qrCode.count({
@@ -499,8 +841,18 @@ export function mapQrCodeError(code: string): string {
       return "This QR code was rotated. Use the replacement code instead.";
     case "qr_inactive":
       return "This QR code is deactivated.";
+    case "qr_archived":
+      return "This QR code is archived.";
+    case "qr_not_archived":
+      return "This QR code is not archived.";
+    case "qr_not_mutable":
+      return "One or more QR codes cannot be updated (rotated or archived).";
+    case "qr_ids_required":
+      return "Select at least one QR code.";
     case "qr_unavailable":
       return "This table is unavailable. Please ask staff.";
+    case "ordering_paused":
+      return "Ordering is paused for this QR code.";
     case "menu_not_found":
       return "Selected menu was not found.";
     case "experience_not_ready":

@@ -1931,7 +1931,7 @@ export type PublicOrderingSession = {
 };
 
 export type QrCodeType = "TABLE" | "MENU" | "TAKEAWAY" | "STAFF" | "MARKETING" | "FEEDBACK";
-export type QrCodeStatus = "ACTIVE" | "INACTIVE" | "ROTATED";
+export type QrCodeStatus = "ACTIVE" | "INACTIVE" | "ROTATED" | "ARCHIVED";
 export type QrExperience = "ORDERING" | "MENU_BROWSE" | "FEEDBACK" | "PROMOTION" | "RESERVATION";
 export type QrPaymentMode = "PAY_AT_VENUE" | "PREPAY" | "HYBRID";
 
@@ -1952,15 +1952,22 @@ export type QrCodeRow = {
   menuId: string | null;
   menuName: string | null;
   allowOrdering: boolean;
+  orderingPaused: boolean;
+  sessionTtlHours: number | null;
+  description: string | null;
   headline: string | null;
   showRestaurantLogo: boolean;
   showServeosBranding: boolean;
+  createdByUserId: string | null;
   scanCount: number;
   orderCount: number;
   lastUsedAt: string | null;
+  deactivatedAt?: string | null;
+  archivedAt: string | null;
   publicUrl: string;
   qrImageUrl: string;
   pngDownloadUrl: string;
+  svgDownloadUrl: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -1986,9 +1993,32 @@ export type CreateQrCodeBody = {
   paymentMode?: QrPaymentMode;
   menuId?: string | null;
   allowOrdering?: boolean;
+  orderingPaused?: boolean;
+  sessionTtlHours?: number | null;
+  description?: string | null;
   headline?: string | null;
   showRestaurantLogo?: boolean;
   showServeosBranding?: boolean;
+};
+
+export type QrManageActionDescriptor = {
+  id: string;
+  label: string;
+  description?: string;
+  danger?: boolean;
+};
+
+export type QrManageContextPayload = {
+  targets: QrCodeRow[];
+  actions: QrManageActionDescriptor[];
+};
+
+export type QrAnalyticsSummary = {
+  scans: number;
+  orders: number;
+  revenueCents: number;
+  conversionRate: number;
+  lastOrderAt: string | null;
 };
 
 export async function listQrCodes(
@@ -2058,6 +2088,87 @@ export async function duplicateQrCode(token: string, restaurantId: string, qrCod
   return apiFetch<{ ok: boolean; qr?: QrCodeRow; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/qr-codes/${encodeURIComponent(qrCodeId)}/duplicate`,
     { method: "POST", headers: authJsonHeaders(token) }
+  );
+}
+
+export async function getQrManageContext(
+  token: string,
+  restaurantId: string,
+  qrIds?: string[]
+) {
+  const qs = qrIds?.length ? `?qrIds=${qrIds.map(encodeURIComponent).join(",")}` : "";
+  return apiFetch<{
+    ok: boolean;
+    context?: QrManageContextPayload;
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/qr-codes/manage-context${qs}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export async function getQrAnalytics(
+  token: string,
+  restaurantId: string,
+  qrCodeId: string
+) {
+  return apiFetch<{
+    ok: boolean;
+    summary?: QrAnalyticsSummary;
+    error?: string;
+    message?: string;
+  }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/qr-codes/${encodeURIComponent(qrCodeId)}/analytics`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function archiveQrCode(token: string, restaurantId: string, qrCodeId: string) {
+  return apiFetch<{ ok: boolean; qr?: QrCodeRow; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/qr-codes/${encodeURIComponent(qrCodeId)}/archive`,
+    { method: "POST", headers: authJsonHeaders(token) }
+  );
+}
+
+export async function restoreQrCode(token: string, restaurantId: string, qrCodeId: string) {
+  return apiFetch<{ ok: boolean; qr?: QrCodeRow; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/qr-codes/${encodeURIComponent(qrCodeId)}/restore`,
+    { method: "POST", headers: authJsonHeaders(token) }
+  );
+}
+
+export async function pauseQrOrdering(token: string, restaurantId: string, qrCodeId: string) {
+  return apiFetch<{ ok: boolean; qr?: QrCodeRow; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/qr-codes/${encodeURIComponent(qrCodeId)}/pause-ordering`,
+    { method: "POST", headers: authJsonHeaders(token) }
+  );
+}
+
+export async function resumeQrOrdering(token: string, restaurantId: string, qrCodeId: string) {
+  return apiFetch<{ ok: boolean; qr?: QrCodeRow; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/qr-codes/${encodeURIComponent(qrCodeId)}/resume-ordering`,
+    { method: "POST", headers: authJsonHeaders(token) }
+  );
+}
+
+export async function bulkUpdateQrCodes(
+  token: string,
+  restaurantId: string,
+  body: {
+    qrIds: string[];
+    patch: Partial<{
+      status: "ACTIVE" | "INACTIVE";
+      orderingPaused: boolean;
+      menuId: string | null;
+      paymentMode: QrPaymentMode;
+      locationLabel: string | null;
+      areaLabel: string | null;
+    }>;
+  }
+) {
+  return apiFetch<{ ok: boolean; items?: QrCodeRow[]; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/qr-codes/bulk`,
+    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body) }
   );
 }
 

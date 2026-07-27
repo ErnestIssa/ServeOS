@@ -51,7 +51,7 @@ export async function resolveQrPublicCode(
   if (qr.status === "ROTATED") {
     return { ok: false, error: "qr_rotated", message: mapQrCodeError("qr_rotated") };
   }
-  if (qr.status === "INACTIVE") {
+  if (qr.status === "INACTIVE" || qr.status === "ARCHIVED") {
     return { ok: false, error: "qr_unavailable", message: mapQrCodeError("qr_unavailable") };
   }
 
@@ -63,6 +63,8 @@ export async function resolveQrPublicCode(
     return { ok: false, error: "experience_not_ready", message: mapQrCodeError("experience_not_ready") };
   }
 
+  const allowOrdering = qr.allowOrdering && !qr.orderingPaused;
+
   const session = await createOrderingSession(prisma, {
     restaurantId: qr.restaurantId,
     sessionType: "QR_SESSION",
@@ -72,7 +74,8 @@ export async function resolveQrPublicCode(
     paymentMode: qr.paymentMode,
     qrCodeId: qr.id,
     menuId: qr.menuId ?? undefined,
-    allowOrdering: qr.allowOrdering
+    allowOrdering,
+    ...(qr.sessionTtlHours != null ? { ttlHours: qr.sessionTtlHours } : {})
   });
 
   if (!session.ok) {
@@ -103,7 +106,7 @@ export async function resolveQrPublicCode(
       areaLabel: qr.areaLabel,
       locationLabel: qr.locationLabel,
       headline: qr.headline,
-      allowOrdering: qr.allowOrdering,
+      allowOrdering,
       paymentMode: qr.paymentMode,
       publicCode: qr.publicCode
     }

@@ -1,15 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatMoneyCents } from "@serveos/core-shared/currency";
 import {
+  archiveQrCode,
   createQrCode,
   deactivateQrCode,
   duplicateQrCode,
   getQrCodeStats,
   listRestaurantMenus,
   listQrCodes,
+  pauseQrOrdering,
   reactivateQrCode,
-  rotateQrCode,
-  updateQrCode,
+  resumeQrOrdering,
   type CreateQrCodeBody,
   type MenuSurfaceRow,
   type QrCodeRow,
@@ -28,12 +29,20 @@ import {
   AdminRefreshButton,
   AdminSectionHeader
 } from "../../AdminUi";
-import { AdminSkeletonStatGrid, AdminStaleContent } from "../../AdminSkeleton";
+import { AdminSkeletonStatGrid, AdminSkeletonTable, AdminStaleContent } from "../../AdminSkeleton";
 import { useAdminToast } from "../../AdminToast";
 import { useMenuCapabilities } from "../useMenuCapabilities";
 import { CONFIG_PRESET_DESCRIPTIONS } from "../configRouting";
-import { MenuSection, MenuToolbarButton } from "../menu/MenuPageUi";
-import { MenuPageModalShell, ProfileModalAlert, ProfileModalFooter } from "../menu/menuPageModalShell";
+import { MenuListSearchField, MenuToolbarButton } from "../menu/MenuPageUi";
+import { MenuEntityActionsMenu } from "../menu/MenuEntityActionsMenu";
+import { MenuPageModalShell, ProfileModalAlert } from "../menu/menuPageModalShell";
+import { MENU_LIST_PAGE_SIZE, useMenuListPagination } from "../menu/useMenuListPagination";
+import { MenuSurfacePagination } from "../menu/MenuSurfacePagination";
+import { applyQrListFilters, applyQrListSort, matchesQrSearch, QR_LIST_QUERY } from "./qrListQuery";
+import { isUiOnlyQrId, UI_MOCK_QR_CODES } from "./qrListUiMocks";
+import { buildQrCardActions, type QrCardActionId } from "./qrCardActions";
+import { QrManageDrawer, type QrManageInitialFocus } from "./QrManageDrawer";
+import { QrDetailsModal } from "./QrDetailsModal";
 
 type Props = {
   token: string | null;
@@ -50,6 +59,41 @@ const TYPE_LABEL: Record<QrCodeType, string> = {
   FEEDBACK: "Feedback"
 };
 
+function qrStatusLabel(row: QrCodeRow) {
+  if (row.status === "ACTIVE") return "Active";
+  if (row.status === "INACTIVE") return "Inactive";
+  if (row.status === "ARCHIVED") return "Archived";
+  return "Rotated";
+}
+
+function qrStatusClass(row: QrCodeRow) {
+  if (row.status === "ACTIVE") return "admin-menu-surface-status--live";
+  if (row.status === "INACTIVE") return "admin-menu-surface-status--archived";
+  if (row.status === "ARCHIVED") return "admin-menu-surface-status--retired";
+  return "admin-menu-surface-status--retired";
+}
+
+function qrCardDescription(row: QrCodeRow) {
+  const bits = [row.areaLabel, row.tableLabel, row.locationLabel].filter(Boolean);
+  if (bits.length) return bits.join(" · ");
+  return `${TYPE_LABEL[row.type]} QR identity`;
+}
+
+function qrCardMeta(row: QrCodeRow) {
+  const orderingHint = row.orderingPaused
+    ? "Ordering paused"
+    : row.allowOrdering
+      ? "Ordering on"
+      : "Browse only";
+  return [
+    TYPE_LABEL[row.type],
+    row.menuName ? row.menuName : row.experience === "ORDERING" ? "Auto menu" : row.experience.replace(/_/g, " "),
+    `${row.scanCount} scans`,
+    `${row.orderCount} orders`,
+    orderingHint
+  ].join(" · ");
+}
+
 function StatTile({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="admin-stat-card rounded-xl border p-4 shadow-sm">
@@ -65,22 +109,29 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
   const caps = useMenuCapabilities(token, restaurantId);
   const canView = caps.can("menu", "view");
   const canManage = caps.can("menu", "publish");
+  const selectAllRef = useRef<HTMLInputElement>(null);
 
-  const [items, setItems] = useState<QrCodeRow[]>([]);
+  const [apiItems, setApiItems] = useState<QrCodeRow[]>([]);
   const [stats, setStats] = useState<QrDashboardStats | null>(null);
   const [menus, setMenus] = useState<MenuSurfaceRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [activeSort, setActiveSort] = useState(QR_LIST_QUERY.defaultSort);
   const [createOpen, setCreateOpen] = useState(false);
-  const [manageQr, setManageQr] = useState<QrCodeRow | null>(null);
+  const [manageOpen, setManageOpen] = useState(false);
+  const [detailsQr, setDetailsQr] = useState<QrCodeRow | null>(null);
+  const [manageFocus, setManageFocus] = useState<QrManageInitialFocus>(null);
+  const [selectedQrIds, setSelectedQrIds] = useState<Set<string>>(() => new Set());
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     if (!token || !restaurantId) return;
     setLoading(true);
     setError(null);
     const [listRes, statsRes, menusRes] = await Promise.all([
-      listQrCodes(token, restaurantId, q.trim() ? { q: q.trim() } : undefined),
+      listQrCodes(token, restaurantId),
       getQrCodeStats(token, restaurantId),
       listRestaurantMenus(token, restaurantId, "PUBLISHED")
     ]);
@@ -89,14 +140,186 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
       setError(listRes.message ?? listRes.error ?? "Could not load QR codes");
       return;
     }
-    setItems(listRes.items ?? []);
+    const nextItems = listRes.items ?? [];
+    setApiItems(nextItems);
     if (statsRes.ok && statsRes.stats) setStats(statsRes.stats);
     if (menusRes.ok) setMenus(menusRes.menus ?? []);
-  }, [token, restaurantId, q]);
+    setSelectedQrIds((prev) => {
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (nextItems.some((i) => i.id === id)) next.add(id);
+      }
+      return next;
+    });
+  }, [token, restaurantId]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  const items = useMemo(() => [...apiItems, ...UI_MOCK_QR_CODES], [apiItems]);
+  const realItems = useMemo(() => items.filter((r) => !isUiOnlyQrId(r.id)), [items]);
+
+  const filteredItems = useMemo(() => {
+    const searched = items.filter((r) => matchesQrSearch(r, searchQuery));
+    const filtered = applyQrListFilters(searched, activeFilters);
+    return applyQrListSort(filtered, activeSort);
+  }, [items, searchQuery, activeFilters, activeSort]);
+
+  const pager = useMenuListPagination(filteredItems, {
+    pageSize: MENU_LIST_PAGE_SIZE,
+    resetKey: `${searchQuery.trim().toLowerCase()}:${activeFilters.join(",")}:${activeSort}:${apiItems.length}`
+  });
+  const pagedItems = pager.pagedItems;
+  const selectablePaged = useMemo(() => pagedItems.filter((r) => !isUiOnlyQrId(r.id)), [pagedItems]);
+
+  const allPageSelected =
+    selectablePaged.length > 0 && selectablePaged.every((r) => selectedQrIds.has(r.id));
+  const somePageSelected = selectablePaged.some((r) => selectedQrIds.has(r.id));
+  const hasSelection = selectedQrIds.size > 0;
+
+  useEffect(() => {
+    const el = selectAllRef.current;
+    if (!el) return;
+    el.indeterminate = somePageSelected && !allPageSelected;
+  }, [somePageSelected, allPageSelected]);
+
+  const toggleQrSelection = (qrId: string, nextChecked?: boolean) => {
+    if (isUiOnlyQrId(qrId)) return;
+    setSelectedQrIds((prev) => {
+      const next = new Set(prev);
+      const shouldCheck = nextChecked ?? !next.has(qrId);
+      if (shouldCheck) next.add(qrId);
+      else next.delete(qrId);
+      return next;
+    });
+  };
+
+  const toggleSelectAllPaged = (checked: boolean) => {
+    setSelectedQrIds((prev) => {
+      const next = new Set(prev);
+      for (const row of selectablePaged) {
+        if (checked) next.add(row.id);
+        else next.delete(row.id);
+      }
+      return next;
+    });
+  };
+
+  const openManage = (focus: QrManageInitialFocus = null, selectId?: string) => {
+    if (selectId && !isUiOnlyQrId(selectId)) {
+      setSelectedQrIds(new Set([selectId]));
+    }
+    setManageFocus(focus);
+    setManageOpen(true);
+  };
+
+  const runCardAction = async (row: QrCodeRow, actionId: QrCardActionId) => {
+    setOpenMenuId(null);
+
+    if (actionId === "view_details") {
+      setDetailsQr(row);
+      return;
+    }
+    if (actionId === "preview_guest" || actionId === "open_destination" || actionId === "test_scan") {
+      window.open(row.publicUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (actionId === "view_ordering_rules") {
+      openManage("ordering", row.id);
+      return;
+    }
+    if (actionId === "edit_qr") {
+      openManage("general", row.id);
+      return;
+    }
+    if (actionId === "download_png") {
+      window.open(row.pngDownloadUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (actionId === "download_svg") {
+      window.open(row.svgDownloadUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (actionId === "copy_link") {
+      await navigator.clipboard.writeText(row.publicUrl);
+      pushToast("Link copied.", "success");
+      return;
+    }
+    if (actionId === "copy_public_code") {
+      await navigator.clipboard.writeText(row.publicCode);
+      pushToast("Public code copied.", "success");
+      return;
+    }
+    if (actionId === "print_qr") {
+      const win = window.open(row.pngDownloadUrl, "_blank", "noopener,noreferrer");
+      try {
+        win?.print?.();
+      } catch {
+        /* open alone is enough */
+      }
+      return;
+    }
+    if (actionId === "view_analytics" || actionId === "view_activity") {
+      openManage("analytics", row.id);
+      return;
+    }
+    if (actionId === "open_manager") {
+      openManage(null, row.id);
+      return;
+    }
+
+    const mutating: QrCardActionId[] = [
+      "activate",
+      "deactivate",
+      "pause_ordering",
+      "resume_ordering",
+      "duplicate",
+      "archive"
+    ];
+    if (mutating.includes(actionId)) {
+      if (isUiOnlyQrId(row.id)) {
+        pushToast("Preview-only QR — create a real one to use this action.", "error");
+        return;
+      }
+      if (!token || !restaurantId || !canManage) return;
+
+      let res: { ok: boolean; qr?: QrCodeRow; message?: string; error?: string };
+      let okMsg = "Done.";
+      if (actionId === "activate") {
+        res = await reactivateQrCode(token, restaurantId, row.id);
+        okMsg = "QR activated.";
+      } else if (actionId === "deactivate") {
+        res = await deactivateQrCode(token, restaurantId, row.id);
+        okMsg = "QR deactivated.";
+      } else if (actionId === "pause_ordering") {
+        res = await pauseQrOrdering(token, restaurantId, row.id);
+        okMsg = "Ordering paused.";
+      } else if (actionId === "resume_ordering") {
+        res = await resumeQrOrdering(token, restaurantId, row.id);
+        okMsg = "Ordering resumed.";
+      } else if (actionId === "duplicate") {
+        res = await duplicateQrCode(token, restaurantId, row.id);
+        okMsg = "QR duplicated.";
+      } else if (actionId === "archive") {
+        res = await archiveQrCode(token, restaurantId, row.id);
+        okMsg = "QR archived.";
+      } else {
+        return;
+      }
+      if (!res.ok || !res.qr) {
+        pushToast(res.message ?? res.error ?? "Action failed", "error");
+        return;
+      }
+      pushToast(okMsg, "success");
+      if (actionId === "duplicate") {
+        setSelectedQrIds(new Set([res.qr.id]));
+        setManageFocus(null);
+        setManageOpen(true);
+      }
+      void reload();
+    }
+  };
 
   if (!token || !restaurantId) {
     return (
@@ -122,19 +345,10 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
         eyebrowText="Configuration"
         title="QR codes"
         description={CONFIG_PRESET_DESCRIPTIONS["qr-codes"]}
-        action={
-          <div className="flex flex-wrap gap-2">
-            <AdminRefreshButton onRefresh={() => void reload()} refreshing={loading} />
-            {canManage ? (
-              <MenuToolbarButton primary onClick={() => setCreateOpen(true)}>
-                Create QR
-              </MenuToolbarButton>
-            ) : null}
-          </div>
-        }
+        action={<AdminRefreshButton onRefresh={() => void reload()} refreshing={loading} />}
       />
 
-      <AdminStaleContent refreshing={loading && items.length > 0}>
+      <AdminStaleContent refreshing={loading && apiItems.length > 0}>
         {loading && !stats ? (
           <AdminSkeletonStatGrid count={4} />
         ) : stats ? (
@@ -150,89 +364,149 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
           </div>
         ) : null}
 
-        <MenuSection
-          title="QR identities"
-          description="Permanent digital locations. Guests scan → temporary ordering session. Print packs and abuse alerts come later."
-        >
-          <div className="mb-4 flex flex-wrap gap-2">
-            <AdminInput
-              className="max-w-xs"
-              placeholder="Search name, table, code…"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
-          </div>
+        {error ? <p className="mb-3 text-sm text-rose-600">{error}</p> : null}
 
-          {error ? <p className="mb-3 text-sm text-rose-600">{error}</p> : null}
+        {loading && apiItems.length === 0 ? (
+          <AdminSkeletonTable rows={6} columns={4} />
+        ) : (
+          <div className="admin-menu-surface-board">
+            <div className="admin-menu-surface-board-head">
+              <div className="min-w-0">
+                <h3 className="admin-menu-surface-board-title">QR identities</h3>
+                <p className="admin-menu-surface-board-desc">
+                  Permanent digital locations. Guests scan → temporary ordering session. Print packs and abuse alerts come later.
+                </p>
+              </div>
+              <div className="admin-menu-surface-board-actions">
+                {realItems.length > 0 ? (
+                  <MenuToolbarButton
+                    onClick={() => {
+                      setManageFocus(null);
+                      setManageOpen(true);
+                    }}
+                  >
+                    {hasSelection ? "Manage selected" : "Manage"}
+                  </MenuToolbarButton>
+                ) : null}
+                {canManage ? (
+                  <MenuToolbarButton primary onClick={() => setCreateOpen(true)}>
+                    Create QR
+                  </MenuToolbarButton>
+                ) : null}
+              </div>
+            </div>
 
-          {items.length === 0 && !loading ? (
-            <div className="space-y-3">
-              <AdminEmptyState>
+            {items.length > 0 ? (
+              <MenuListSearchField
+                value={searchQuery}
+                onChange={setSearchQuery}
+                placeholder="Search QR codes by name, table, type, or code…"
+                aria-label="Search QR codes"
+                filterGroups={QR_LIST_QUERY.filterGroups}
+                sortOptions={QR_LIST_QUERY.sortOptions}
+                defaultSort={QR_LIST_QUERY.defaultSort}
+                activeFilters={activeFilters}
+                activeSort={activeSort}
+                totalCount={items.length}
+                resultCount={filteredItems.length}
+                onFiltersChange={setActiveFilters}
+                onSortChange={setActiveSort}
+                filterTitle="Filter QR codes"
+                filterSubtitle="Narrow identities using type, status, and rules."
+                sortTitle="Sort QR codes"
+                sortSubtitle="Changes apply to the list instantly."
+              />
+            ) : null}
+
+            {items.length === 0 ? (
+              <p className="admin-config-text-muted py-2 text-sm">
                 No QR codes yet. Create a permanent table or menu QR — the printed link stays valid; each scan starts a fresh session.
-              </AdminEmptyState>
-              {canManage ? (
-                <AdminBtnPrimary type="button" onClick={() => setCreateOpen(true)}>
-                  Create first QR
-                </AdminBtnPrimary>
-              ) : null}
-            </div>
-          ) : (
-            <div className="overflow-x-auto rounded-xl border">
-              <table className="min-w-full text-left text-sm">
-                <thead className="admin-config-text-muted border-b bg-black/[0.02] text-[10px] font-bold uppercase tracking-[0.12em]">
-                  <tr>
-                    <th className="px-3 py-2.5">Name</th>
-                    <th className="px-3 py-2.5">Type</th>
-                    <th className="px-3 py-2.5">Location</th>
-                    <th className="px-3 py-2.5">Destination</th>
-                    <th className="px-3 py-2.5">Scans</th>
-                    <th className="px-3 py-2.5">Orders</th>
-                    <th className="px-3 py-2.5">Status</th>
-                    <th className="px-3 py-2.5" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((row) => (
-                    <tr key={row.id} className="border-b last:border-0">
-                      <td className="px-3 py-3 font-medium">{row.name}</td>
-                      <td className="px-3 py-3">{TYPE_LABEL[row.type]}</td>
-                      <td className="px-3 py-3 admin-config-text-subtle">
-                        {[row.areaLabel, row.tableLabel || row.locationLabel].filter(Boolean).join(" · ") || "—"}
-                      </td>
-                      <td className="px-3 py-3 admin-config-text-subtle">
-                        {row.menuName ?? (row.experience === "ORDERING" ? "Auto menu" : row.experience.replace("_", " "))}
-                      </td>
-                      <td className="px-3 py-3">{row.scanCount}</td>
-                      <td className="px-3 py-3">{row.orderCount}</td>
-                      <td className="px-3 py-3">
-                        <span
-                          className={
-                            row.status === "ACTIVE"
-                              ? "text-emerald-700"
-                              : row.status === "INACTIVE"
-                                ? "text-amber-700"
-                                : "admin-config-text-muted"
-                          }
-                        >
-                          {row.status}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3 text-right">
-                        <button
-                          type="button"
-                          className="admin-btn-secondary text-xs"
-                          onClick={() => setManageQr(row)}
-                        >
-                          Manage
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </MenuSection>
+              </p>
+            ) : filteredItems.length === 0 ? (
+              <p className="admin-config-text-muted py-2 text-sm">No QR codes match your search or filters.</p>
+            ) : (
+              <>
+                <label className="admin-menu-surface-select-all">
+                  <input
+                    ref={selectAllRef}
+                    type="checkbox"
+                    className="admin-menu-surface-checkbox"
+                    checked={allPageSelected}
+                    aria-label="Select all QR codes on this page"
+                    onChange={(e) => toggleSelectAllPaged(e.target.checked)}
+                  />
+                  <span className="admin-menu-surface-select-all-label">Select all on page</span>
+                </label>
+
+                <ul className={`admin-menu-surface-list ${pager.pageClassName}`} key={pager.pageKey}>
+                  {pagedItems.map((row, index) => {
+                    const uiOnly = isUiOnlyQrId(row.id);
+                    const isSelected = selectedQrIds.has(row.id);
+                    return (
+                      <li
+                        key={row.id}
+                        className="admin-menu-surface-list-item"
+                        style={{ animationDelay: `${Math.min(index, 12) * 40}ms` }}
+                      >
+                        <div className={`admin-menu-surface-card${isSelected ? " is-selected" : ""}`}>
+                          <label className="admin-menu-surface-checkbox-wrap">
+                            <input
+                              type="checkbox"
+                              className="admin-menu-surface-checkbox"
+                              checked={isSelected}
+                              disabled={uiOnly}
+                              aria-label={uiOnly ? `${row.name} (preview only)` : `Select ${row.name}`}
+                              onChange={(e) => toggleQrSelection(row.id, e.target.checked)}
+                            />
+                          </label>
+
+                          <span className={`admin-menu-surface-status ${qrStatusClass(row)}`}>
+                            {qrStatusLabel(row)}
+                          </span>
+
+                          <div className="admin-menu-surface-main">
+                            <span className="admin-menu-surface-name">{row.name}</span>
+                            <span className="admin-menu-surface-sep" aria-hidden>
+                              ·
+                            </span>
+                            <span className="admin-menu-surface-desc">{qrCardDescription(row)}</span>
+                            <span className="admin-menu-surface-sep" aria-hidden>
+                              ·
+                            </span>
+                            <span className="admin-menu-surface-meta">{qrCardMeta(row)}</span>
+                          </div>
+
+                          <div className="admin-menu-surface-actions">
+                            <MenuEntityActionsMenu
+                              entityName={row.name}
+                              subtitle={TYPE_LABEL[row.type]}
+                              hideHeader
+                              open={openMenuId === row.id}
+                              actions={buildQrCardActions(row, { canView, canManage })}
+                              onToggle={() => setOpenMenuId((cur) => (cur === row.id ? null : row.id))}
+                              onAction={(id) => void runCardAction(row, id as QrCardActionId)}
+                            />
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+
+                {pager.showPagination ? (
+                  <MenuSurfacePagination
+                    page={pager.page}
+                    totalPages={pager.totalPages}
+                    totalItems={pager.totalItems}
+                    pageSize={pager.pageSize}
+                    onPageChange={pager.goToPage}
+                    label="QR codes pagination"
+                  />
+                ) : null}
+              </>
+            )}
+          </div>
+        )}
       </AdminStaleContent>
 
       <QrCreateWizardModal
@@ -243,26 +517,33 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
         onClose={() => setCreateOpen(false)}
         onCreated={(qr) => {
           setCreateOpen(false);
-          setManageQr(qr);
+          setSelectedQrIds(new Set([qr.id]));
+          setManageFocus(null);
+          setManageOpen(true);
           pushToast("QR identity created.", "success");
           void reload();
         }}
       />
 
-      <QrManageModal
-        open={Boolean(manageQr)}
-        qr={manageQr}
+      <QrManageDrawer
+        open={manageOpen}
+        venueName={venueName}
         token={token}
         restaurantId={restaurantId}
+        items={realItems}
+        selectedQrIds={selectedQrIds}
         menus={menus}
         canManage={canManage}
-        onClose={() => setManageQr(null)}
-        onChanged={(qr) => {
-          setManageQr(qr);
-          void reload();
+        onClose={() => {
+          setManageOpen(false);
+          setManageFocus(null);
         }}
-        onToast={(msg, tone) => pushToast(msg, tone)}
+        onRefresh={() => void reload()}
+        onClearSelection={() => setSelectedQrIds(new Set())}
+        initialFocus={manageFocus}
       />
+
+      <QrDetailsModal open={Boolean(detailsQr)} qr={detailsQr} onClose={() => setDetailsQr(null)} />
     </AdminPanel>
   );
 }
@@ -363,7 +644,7 @@ function QrCreateWizardModal({
       open={open}
       onClose={onClose}
       title="Create QR identity"
-      description="Permanent digital location — guests get a fresh session on every scan."
+      description="Permanent digital location â€” guests get a fresh session on every scan."
       titleId="qr-create-title"
       stackLevel="overlay"
     >
@@ -495,185 +776,10 @@ function QrCreateWizardModal({
           </AdminBtnPrimary>
         ) : (
           <AdminBtnPrimary type="button" disabled={busy} onClick={() => void submit()}>
-            {busy ? "Creating…" : "Create QR"}
+            {busy ? "Creatingâ€¦" : "Create QR"}
           </AdminBtnPrimary>
         )}
       </div>
-    </MenuPageModalShell>
-  );
-}
-
-function QrManageModal({
-  open,
-  qr,
-  token,
-  restaurantId,
-  menus,
-  canManage,
-  onClose,
-  onChanged,
-  onToast
-}: {
-  open: boolean;
-  qr: QrCodeRow | null;
-  token: string;
-  restaurantId: string;
-  menus: MenuSurfaceRow[];
-  canManage: boolean;
-  onClose: () => void;
-  onChanged: (qr: QrCodeRow) => void;
-  onToast: (msg: string, tone: "success" | "error") => void;
-}) {
-  const [name, setName] = useState("");
-  const [paymentMode, setPaymentMode] = useState<QrPaymentMode>("PAY_AT_VENUE");
-  const [menuId, setMenuId] = useState("");
-  const [allowOrdering, setAllowOrdering] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!qr) return;
-    setName(qr.name);
-    setPaymentMode(qr.paymentMode);
-    setMenuId(qr.menuId ?? "");
-    setAllowOrdering(qr.allowOrdering);
-    setError(null);
-  }, [qr]);
-
-  const run = async (fn: () => Promise<{ ok: boolean; qr?: QrCodeRow; message?: string; error?: string }>, okMsg: string) => {
-    setBusy(true);
-    setError(null);
-    const res = await fn();
-    setBusy(false);
-    if (!res.ok || !res.qr) {
-      setError(res.message ?? res.error ?? "Action failed");
-      onToast(res.message ?? "Action failed", "error");
-      return;
-    }
-    onChanged(res.qr);
-    onToast(okMsg, "success");
-  };
-
-  if (!qr) return null;
-
-  return (
-    <MenuPageModalShell
-      open={open}
-      onClose={onClose}
-      title={qr.name}
-      description={`${TYPE_LABEL[qr.type]} · /q/${qr.publicCode}`}
-      titleId="qr-manage-title"
-      stackLevel="overlay"
-    >
-      <div className="admin-menu-qr-preview mb-4 rounded-xl border p-4 text-center">
-        <img src={qr.qrImageUrl} alt="" className="mx-auto h-44 w-44 rounded-lg border bg-white p-2" />
-        <p className="admin-config-text-subtle mt-3 break-all text-xs">{qr.publicUrl}</p>
-        <div className="mt-3 flex flex-wrap justify-center gap-2">
-          <a className="admin-btn-secondary inline-flex" href={qr.pngDownloadUrl} download={`${qr.name}-qr.png`} target="_blank" rel="noreferrer">
-            Download PNG
-          </a>
-          <button type="button" className="admin-btn-secondary" onClick={() => void navigator.clipboard.writeText(qr.publicUrl)}>
-            Copy link
-          </button>
-        </div>
-      </div>
-
-      {canManage ? (
-        <div className="space-y-3">
-          <AdminLabel>
-            <span className="text-xs admin-config-text-muted">Name</span>
-            <AdminInput className="mt-1" value={name} onChange={(e) => setName(e.target.value)} />
-          </AdminLabel>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={allowOrdering} onChange={(e) => setAllowOrdering(e.target.checked)} />
-            Allow ordering
-          </label>
-          <AdminLabel>
-            <span className="text-xs admin-config-text-muted">Payment</span>
-            <select className="admin-input mt-1 w-full" value={paymentMode} onChange={(e) => setPaymentMode(e.target.value as QrPaymentMode)}>
-              <option value="PAY_AT_VENUE">Pay at venue</option>
-              <option value="PREPAY">Pay online</option>
-              <option value="HYBRID">Both</option>
-            </select>
-          </AdminLabel>
-          <AdminLabel>
-            <span className="text-xs admin-config-text-muted">Menu</span>
-            <select className="admin-input mt-1 w-full" value={menuId} onChange={(e) => setMenuId(e.target.value)}>
-              <option value="">Auto (first published)</option>
-              {menus.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          </AdminLabel>
-        </div>
-      ) : null}
-
-      {error ? <ProfileModalAlert tone="error">{error}</ProfileModalAlert> : null}
-
-      <div className="mt-4 flex flex-wrap gap-2">
-        {canManage ? (
-          <>
-            <button
-              type="button"
-              className="admin-btn-secondary"
-              disabled={busy}
-              onClick={() =>
-                void run(
-                  () =>
-                    updateQrCode(token, restaurantId, qr.id, {
-                      name,
-                      paymentMode,
-                      menuId: menuId || null,
-                      allowOrdering
-                    }),
-                  "QR updated."
-                )
-              }
-            >
-              Save changes
-            </button>
-            {qr.status === "ACTIVE" ? (
-              <button
-                type="button"
-                className="admin-btn-secondary"
-                disabled={busy}
-                onClick={() => void run(() => deactivateQrCode(token, restaurantId, qr.id), "QR deactivated.")}
-              >
-                Deactivate
-              </button>
-            ) : qr.status === "INACTIVE" ? (
-              <button
-                type="button"
-                className="admin-btn-secondary"
-                disabled={busy}
-                onClick={() => void run(() => reactivateQrCode(token, restaurantId, qr.id), "QR reactivated.")}
-              >
-                Reactivate
-              </button>
-            ) : null}
-            <button
-              type="button"
-              className="admin-btn-secondary"
-              disabled={busy}
-              onClick={() => void run(() => rotateQrCode(token, restaurantId, qr.id), "QR rotated — reprint the new code.")}
-            >
-              Rotate
-            </button>
-            <button
-              type="button"
-              className="admin-btn-secondary"
-              disabled={busy}
-              onClick={() => void run(() => duplicateQrCode(token, restaurantId, qr.id), "QR duplicated.")}
-            >
-              Duplicate
-            </button>
-          </>
-        ) : null}
-      </div>
-
-      <ProfileModalFooter onCancel={onClose} confirmLabel="Close" onConfirm={onClose} />
     </MenuPageModalShell>
   );
 }

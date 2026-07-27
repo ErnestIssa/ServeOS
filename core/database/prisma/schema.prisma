@@ -897,6 +897,7 @@ enum QrCodeStatus {
   ACTIVE
   INACTIVE
   ROTATED
+  ARCHIVED
 }
 
 /// What the guest experience should do after scan (destination layer).
@@ -928,6 +929,12 @@ model QrCode {
   paymentMode         OrderingPaymentMode   @default(PAY_AT_VENUE)
   menuId              String?
   allowOrdering       Boolean               @default(true)
+  /// Soft pause: QR stays active for browse, but new orders are blocked.
+  orderingPaused      Boolean               @default(false)
+  /// Optional override for guest session TTL (hours). Null = platform default.
+  sessionTtlHours     Int?
+  /// Internal staff notes (not guest-facing).
+  description         String?
   headline            String?               @default("Scan to order")
   showRestaurantLogo  Boolean               @default(true)
   showServeosBranding Boolean               @default(false)
@@ -936,6 +943,7 @@ model QrCode {
   orderCount          Int                   @default(0)
   lastUsedAt          DateTime?
   deactivatedAt       DateTime?
+  archivedAt          DateTime?
   replacedById        String?
   replacesId          String?
   createdAt           DateTime              @default(now())
