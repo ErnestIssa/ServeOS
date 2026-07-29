@@ -1989,6 +1989,7 @@ export type CreateQrCodeBody = {
   locationLabel?: string | null;
   areaLabel?: string | null;
   tableLabel?: string | null;
+  tableId?: string | null;
   seatCount?: number | null;
   paymentMode?: QrPaymentMode;
   menuId?: string | null;
@@ -2134,6 +2135,13 @@ export async function restoreQrCode(token: string, restaurantId: string, qrCodeI
   return apiFetch<{ ok: boolean; qr?: QrCodeRow; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/qr-codes/${encodeURIComponent(qrCodeId)}/restore`,
     { method: "POST", headers: authJsonHeaders(token) }
+  );
+}
+
+export async function deleteQrCode(token: string, restaurantId: string, qrCodeId: string) {
+  return apiFetch<{ ok: boolean; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/qr-codes/${encodeURIComponent(qrCodeId)}`,
+    { method: "DELETE", headers: authJsonHeaders(token) }
   );
 }
 

@@ -21,17 +21,25 @@ import {
   type QrPaymentMode
 } from "../../../api";
 import { useModalScrollLock } from "../../../lib/modalScrollLock";
-import { AdminBtnPrimary, AdminBtnSecondary, AdminInput, AdminLabel, AdminSelect } from "../../AdminUi";
+import { AdminBtnPrimary, AdminBtnSecondary, AdminLabel, AdminSelect } from "../../AdminUi";
 import { useAdminToast } from "../../AdminToast";
 import {
   MENU_PAGE_DRAWER_BACKDROP_CLASS,
   MENU_PAGE_DRAWER_SHELL_CLASS
 } from "../menu/menuPageModalShell";
-import { MenuSurfacePagination } from "../menu/MenuSurfacePagination";
-import { useMenuListPagination } from "../menu/useMenuListPagination";
 import { isUiOnlyQrId } from "./qrListUiMocks";
-
-const SCOPE_PAGE_SIZE = 8;
+import { QrInScopeGrid } from "./QrInScopeGrid";
+import { QrBusyOverlay } from "./QrRequestLoading";
+import {
+  buildQrLabelOptions,
+  buildQrLabelSuggestions,
+  QrHoverEditDuration,
+  QrHoverEditPick,
+  QrHoverEditReadonly,
+  QrHoverEditSuggestText,
+  QrHoverEditText,
+  QrHoverEditToggle
+} from "./QrHoverEditField";
 
 const EXPERIENCE_OPTIONS: { value: QrExperience; label: string }[] = [
   { value: "ORDERING", label: "Ordering" },
@@ -67,27 +75,11 @@ type Props = {
   onClose: () => void;
   onRefresh: () => void;
   onClearSelection: () => void;
+  /** Keep parent selection in sync after rotate (new QR id). */
+  onReplaceSelection?: (ids: string[]) => void;
   initialFocus?: QrManageInitialFocus;
+  onRequestPrint?: (qr: QrCodeRow) => void;
 };
-
-function scopeTone(status: QrCodeRow["status"]) {
-  if (status === "ACTIVE") return "live";
-  if (status === "INACTIVE") return "draft";
-  return "retired";
-}
-
-function ScopeChip({ qr }: { qr: QrCodeRow }) {
-  return (
-    <li>
-      <span
-        className={`admin-menu-manage-scope-chip admin-menu-manage-scope-chip--${scopeTone(qr.status)}`}
-        title={`${qr.name} — ${qr.status}`}
-      >
-        {qr.name}
-      </span>
-    </li>
-  );
-}
 
 function buildLocalManageActions(targets: QrCodeRow[]): QrManageActionDescriptor[] {
   const actions: QrManageActionDescriptor[] = [];
@@ -96,19 +88,13 @@ function buildLocalManageActions(targets: QrCodeRow[]): QrManageActionDescriptor
   if (targets.length === 1) {
     const qr = targets[0]!;
     actions.push(
-      { id: "edit-general", label: "Edit general", description: "Name, notes, location labels" },
-      { id: "edit-destination", label: "Edit destination", description: "Experience, menu, payment" },
-      { id: "edit-ordering", label: "Edit ordering", description: "Allow ordering, pause, session TTL" },
-      { id: "download-png", label: "Download PNG" },
-      { id: "download-svg", label: "Download SVG" },
-      { id: "copy-link", label: "Copy link" },
+      { id: "edit-settings", label: "Edit QR", description: "General, destination, and ordering" },
+      { id: "download-assets", label: "Download", description: "PNG or SVG" },
       { id: "view-analytics", label: "View analytics" }
     );
-    if (qr.status === "ACTIVE") actions.push({ id: "deactivate", label: "Deactivate" });
-    else if (qr.status === "INACTIVE") actions.push({ id: "activate", label: "Activate" });
+    if (qr.status === "INACTIVE") actions.push({ id: "activate", label: "Activate" });
     if (qr.status !== "ROTATED" && qr.status !== "ARCHIVED") {
       if (qr.orderingPaused) actions.push({ id: "resume-ordering", label: "Resume ordering" });
-      else actions.push({ id: "pause-ordering", label: "Pause ordering" });
       actions.push({ id: "rotate", label: "Rotate", description: "Invalidate printed URL", danger: true });
       actions.push({ id: "archive", label: "Archive", danger: true });
     }
@@ -154,7 +140,9 @@ export function QrManageDrawer({
   onClose,
   onRefresh,
   onClearSelection,
-  initialFocus = null
+  onReplaceSelection,
+  initialFocus = null,
+  onRequestPrint
 }: Props) {
   const { pushToast } = useAdminToast();
   const [mounted, setMounted] = useState(false);
@@ -165,6 +153,7 @@ export function QrManageDrawer({
   const [context, setContext] = useState<QrManageContextPayload | null>(null);
   const [contextLoading, setContextLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [busyLabel, setBusyLabel] = useState("Working…");
   const [analytics, setAnalytics] = useState<QrAnalyticsSummary | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
@@ -185,24 +174,54 @@ export function QrManageDrawer({
 
   const [bulkPaymentMode, setBulkPaymentMode] = useState<QrPaymentMode>("PAY_AT_VENUE");
   const [bulkMenuId, setBulkMenuId] = useState("");
+  const [idCopied, setIdCopied] = useState(false);
+  const [previewIndex, setPreviewIndex] = useState(0);
+  const [draftEpoch, setDraftEpoch] = useState(0);
+  const [toggleConfirm, setToggleConfirm] = useState<{
+    title: string;
+    consequence: string;
+    apply: () => void;
+  } | null>(null);
+  const baselineRef = useRef<{
+    name: string;
+    description: string;
+    locationLabel: string;
+    areaLabel: string;
+    tableLabel: string;
+    experience: QrExperience;
+    menuId: string;
+    paymentMode: QrPaymentMode;
+    sessionTtlHours: string;
+    headline: string;
+  } | null>(null);
 
   const targets = context?.targets ?? [];
   const actions: QrManageActionDescriptor[] = context?.actions ?? [];
-  const safeActions = useMemo(() => actions.filter((a) => !a.danger), [actions]);
   const dangerActions = useMemo(() => actions.filter((a) => a.danger), [actions]);
   const single = targets.length === 1 ? targets[0]! : null;
   const realTargets = useMemo(() => targets.filter((t) => !isUiOnlyQrId(t.id)), [targets]);
   const allUiOnly = targets.length > 0 && realTargets.length === 0;
 
   const selectedKey = useMemo(() => [...selectedQrIds].sort().join(","), [selectedQrIds]);
-
-  const scopePager = useMenuListPagination(targets, {
-    pageSize: SCOPE_PAGE_SIZE,
-    resetKey: `${open ? "open" : "closed"}:${targets.map((q) => q.id).join(",")}`
-  });
+  const previewQr = targets.length > 0 ? targets[Math.min(previewIndex, targets.length - 1)]! : null;
+  const previewCanPage = targets.length > 1;
 
   const selectionLabel =
     selectedQrIds.size > 0 ? `${selectedQrIds.size} selected` : `${items.length} in list`;
+
+  const locationOptions = useMemo(
+    () => buildQrLabelOptions(items, "locationLabel", locationLabel),
+    [items, locationLabel]
+  );
+  const areaSuggestions = useMemo(() => buildQrLabelSuggestions(items, "areaLabel"), [items]);
+  const tableSuggestions = useMemo(() => buildQrLabelSuggestions(items, "tableLabel"), [items]);
+  const menuOptions = useMemo(
+    () => [
+      { value: "", label: "Auto (first published)" },
+      ...menus.map((m) => ({ value: m.id, label: m.name }))
+    ],
+    [menus]
+  );
 
   const scrollToSection = (key: NonNullable<QrManageInitialFocus>) => {
     const el = sectionRefs.current[key];
@@ -242,6 +261,12 @@ export function QrManageDrawer({
 
   useEffect(() => {
     if (!open) return;
+    setPreviewIndex(0);
+    setIdCopied(false);
+  }, [open, selectedKey]);
+
+  useEffect(() => {
+    if (!open) return;
     setContextLoading(true);
     setAnalytics(null);
 
@@ -271,22 +296,37 @@ export function QrManageDrawer({
   }, [open, token, restaurantId, selectedKey, items, selectedQrIds, pushToast]);
 
   useEffect(() => {
-    if (!single) return;
-    setName(single.name);
-    setDescription(single.description ?? "");
-    setLocationLabel(single.locationLabel ?? "");
-    setAreaLabel(single.areaLabel ?? "");
-    setTableLabel(single.tableLabel ?? "");
-    setExperience(single.experience);
-    setMenuId(single.menuId ?? "");
-    setPaymentMode(single.paymentMode);
+    if (!open || !single) return;
+    const next = {
+      name: single.name,
+      description: single.description ?? "",
+      locationLabel: single.locationLabel ?? "",
+      areaLabel: single.areaLabel ?? "",
+      tableLabel: single.tableLabel ?? "",
+      experience: single.experience,
+      menuId: single.menuId ?? "",
+      paymentMode: single.paymentMode,
+      sessionTtlHours: single.sessionTtlHours != null ? String(single.sessionTtlHours) : "",
+      headline: single.headline ?? ""
+    };
+    setName(next.name);
+    setDescription(next.description);
+    setLocationLabel(next.locationLabel);
+    setAreaLabel(next.areaLabel);
+    setTableLabel(next.tableLabel);
+    setExperience(next.experience);
+    setMenuId(next.menuId);
+    setPaymentMode(next.paymentMode);
     setAllowOrdering(single.allowOrdering);
     setOrderingPaused(single.orderingPaused);
-    setSessionTtlHours(single.sessionTtlHours != null ? String(single.sessionTtlHours) : "");
-    setHeadline(single.headline ?? "");
+    setSessionTtlHours(next.sessionTtlHours);
+    setHeadline(next.headline);
     setShowRestaurantLogo(single.showRestaurantLogo);
     setShowServeosBranding(single.showServeosBranding);
-  }, [single]);
+    baselineRef.current = next;
+    setDraftEpoch((n) => n + 1);
+    setToggleConfirm(null);
+  }, [open, single?.id]);
 
   useEffect(() => {
     if (!open || !single || isUiOnlyQrId(single.id)) {
@@ -302,7 +342,7 @@ export function QrManageDrawer({
       }
       setAnalytics(res.summary);
     });
-  }, [open, single, token, restaurantId]);
+  }, [open, single?.id, token, restaurantId]);
 
   useEffect(() => {
     if (!visible || !initialFocus || contextLoading) return;
@@ -315,11 +355,22 @@ export function QrManageDrawer({
   useEffect(() => {
     if (!visible) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      if (toggleConfirm) {
+        setToggleConfirm(null);
+        return;
+      }
+      if (busy) return;
+      onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [visible, onClose]);
+  }, [visible, onClose, toggleConfirm, busy]);
+
+  const beginBusy = (label = "Working…") => {
+    setBusyLabel(label);
+    setBusy(true);
+  };
 
   const doneOk = (msg: string) => {
     pushToast(msg, "success");
@@ -342,25 +393,32 @@ export function QrManageDrawer({
       message?: string;
       error?: string;
     }>,
-    okMsg: string
+    okMsg: string,
+    opts?: { busyLabel?: string; closeAfter?: boolean; clearSelectionAfter?: boolean }
   ) => {
-    if (!single) return;
-    if (guardUiOnly([single.id])) return;
+    if (!single) return false;
+    if (guardUiOnly([single.id])) return false;
     const priorId = single.id;
-    setBusy(true);
+    beginBusy(opts?.busyLabel ?? "Saving…");
     const res = await fn();
     setBusy(false);
     if (!res.ok || !res.qr) {
       pushToast(res.message ?? res.error ?? "Action failed.", "error");
-      return;
+      return false;
     }
     const matchId = res.previousId ?? priorId;
+    if (res.previousId && res.qr.id !== priorId) {
+      onReplaceSelection?.([res.qr.id]);
+    }
     setContext((prev) => {
       if (!prev) return prev;
       const nextTargets = prev.targets.map((t) => (t.id === matchId || t.id === res.qr!.id ? res.qr! : t));
       return { targets: nextTargets, actions: buildLocalManageActions(nextTargets) };
     });
     doneOk(okMsg);
+    if (opts?.clearSelectionAfter) onClearSelection();
+    if (opts?.closeAfter) onClose();
+    return true;
   };
 
   const runBulkStatus = async (
@@ -373,7 +431,7 @@ export function QrManageDrawer({
       return;
     }
     if (guardUiOnly(ids)) return;
-    setBusy(true);
+    beginBusy("Updating…");
     const res = await bulkUpdateQrCodes(token, restaurantId, { qrIds: ids, patch });
     setBusy(false);
     if (!res.ok) {
@@ -387,14 +445,15 @@ export function QrManageDrawer({
   const runPerId = async (
     ids: string[],
     fn: (id: string) => Promise<{ ok: boolean; message?: string; error?: string }>,
-    okLabel: string
+    okLabel: string,
+    opts?: { closeAfter?: boolean }
   ) => {
     const realIds = ids.filter((id) => !isUiOnlyQrId(id));
     if (realIds.length === 0) {
       pushToast(previewOnlyToast(), "error");
       return;
     }
-    setBusy(true);
+    beginBusy(`${okLabel}…`);
     let ok = 0;
     let failed = 0;
     for (const id of realIds) {
@@ -407,6 +466,7 @@ export function QrManageDrawer({
       pushToast(ok === 1 ? `${okLabel} completed.` : `${ok} QR codes updated.`, "success");
       onRefresh();
       onClearSelection();
+      if (opts?.closeAfter) onClose();
     }
     if (failed > 0) pushToast(`${failed} could not be updated.`, "error");
   };
@@ -423,39 +483,46 @@ export function QrManageDrawer({
   const copyLink = async (url: string) => {
     try {
       await navigator.clipboard.writeText(url);
-      pushToast("Link copied.", "success");
+      pushToast("QR link copied.", "success");
     } catch {
       pushToast("Could not copy link.", "error");
     }
   };
 
+  const copyPublicCode = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setIdCopied(true);
+      pushToast("QR ID copied.", "success");
+      window.setTimeout(() => setIdCopied(false), 1800);
+    } catch {
+      pushToast("Could not copy QR ID.", "error");
+    }
+  };
+
   const handleAction = (actionId: string) => {
-    if (actionId === "edit-general") {
+    if (
+      actionId === "edit-settings" ||
+      actionId === "edit-general" ||
+      actionId === "edit-destination" ||
+      actionId === "edit-ordering"
+    ) {
       scrollToSection("general");
-      return;
-    }
-    if (actionId === "edit-destination") {
-      scrollToSection("destination");
-      return;
-    }
-    if (actionId === "edit-ordering") {
-      scrollToSection("ordering");
       return;
     }
     if (actionId === "view-analytics") {
       scrollToSection("analytics");
       return;
     }
-    if (actionId === "download-png" && single) {
+    if (
+      (actionId === "download-assets" || actionId === "download-png" || actionId === "download-svg") &&
+      single
+    ) {
+      if (onRequestPrint) {
+        onRequestPrint(single);
+        return;
+      }
       downloadUrl(single.pngDownloadUrl, `${single.name}-qr.png`);
-      return;
-    }
-    if (actionId === "download-svg" && single) {
-      downloadUrl(single.svgDownloadUrl, `${single.name}-qr.svg`);
-      return;
-    }
-    if (actionId === "copy-link" && single) {
-      void copyLink(single.publicUrl);
       return;
     }
     if (actionId === "assign-menu") {
@@ -476,11 +543,25 @@ export function QrManageDrawer({
     }
     if (actionId === "deactivate") {
       if (single) {
-        if (!window.confirm(`Deactivate “${single.name}”? New scans will be blocked.`)) return;
-        void runSingle(() => deactivateQrCode(token, restaurantId, single.id), "QR deactivated.");
+        requestToggle(
+          `Deactivate “${single.name}”?`,
+          "New scans will be blocked. Existing guest sessions continue until they expire.",
+          () => {
+            void runSingle(
+              () => deactivateQrCode(token, restaurantId, single.id),
+              "QR deactivated.",
+              { busyLabel: "Deactivating…" }
+            );
+          }
+        );
       } else {
-        if (!window.confirm(`Deactivate ${targets.length} QR codes? New scans will be blocked.`)) return;
-        void runBulkStatus({ status: "INACTIVE" }, "QR codes deactivated.");
+        requestToggle(
+          `Deactivate ${targets.length} QR codes?`,
+          "New scans will be blocked for the selected codes.",
+          () => {
+            void runBulkStatus({ status: "INACTIVE" }, "QR codes deactivated.");
+          }
+        );
       }
       return;
     }
@@ -502,75 +583,129 @@ export function QrManageDrawer({
     }
     if (actionId === "rotate") {
       if (!single) return;
-      if (!window.confirm(`Rotate “${single.name}”? Printed codes with the old URL will stop working.`)) return;
-      void runSingle(() => rotateQrCode(token, restaurantId, single.id), "QR rotated — reprint the new code.");
+      requestToggle(
+        `Rotate “${single.name}”?`,
+        "Issues a new public code. Existing prints and bookmarks with the old URL will stop working.",
+        () => {
+          void runSingle(
+            () => rotateQrCode(token, restaurantId, single.id),
+            "QR rotated — reprint the new code.",
+            { busyLabel: "Rotating…" }
+          );
+        }
+      );
       return;
     }
     if (actionId === "archive") {
       const ids = targets.map((t) => t.id);
       if (single) {
-        if (!window.confirm(`Archive “${single.name}”?`)) return;
-        void runSingle(() => archiveQrCode(token, restaurantId, single.id), "QR archived.");
+        requestToggle(
+          `Archive “${single.name}”?`,
+          "Hides this QR from normal lists. Scans will no longer open ordering until it is restored.",
+          () => {
+            void runSingle(
+              () => archiveQrCode(token, restaurantId, single.id),
+              "QR archived.",
+              { busyLabel: "Archiving…", closeAfter: true, clearSelectionAfter: true }
+            );
+          }
+        );
         return;
       }
-      if (!window.confirm(`Archive ${ids.length} QR codes?`)) return;
-      void runPerId(ids, (id) => archiveQrCode(token, restaurantId, id), "Archive");
+      requestToggle(
+        `Archive ${ids.length} QR codes?`,
+        "Selected codes will be hidden from normal lists and stop opening ordering until restored.",
+        () => {
+          void runPerId(ids, (id) => archiveQrCode(token, restaurantId, id), "Archive", {
+            closeAfter: true
+          });
+        }
+      );
     }
   };
 
-  const saveGeneral = () => {
+  const patchSingle = (
+    patch: Parameters<typeof updateQrCode>[3],
+    okMsg = "Saved."
+  ) => {
     if (!single || !canManage) return;
-    void runSingle(
+    void runSingle(() => updateQrCode(token, restaurantId, single.id, patch), okMsg);
+  };
+
+  const draftDirty = useMemo(() => {
+    const b = baselineRef.current;
+    if (!b || !single) return false;
+    return (
+      name !== b.name ||
+      description !== b.description ||
+      locationLabel !== b.locationLabel ||
+      areaLabel !== b.areaLabel ||
+      tableLabel !== b.tableLabel ||
+      experience !== b.experience ||
+      menuId !== b.menuId ||
+      paymentMode !== b.paymentMode ||
+      sessionTtlHours !== b.sessionTtlHours ||
+      headline !== b.headline
+    );
+    // draftEpoch forces recompute after hydrate
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    draftEpoch,
+    name,
+    description,
+    locationLabel,
+    areaLabel,
+    tableLabel,
+    experience,
+    menuId,
+    paymentMode,
+    sessionTtlHours,
+    headline,
+    single
+  ]);
+
+  const saveDraftChanges = async () => {
+    if (!single || !canManage || !draftDirty) return;
+    if (!name.trim()) {
+      pushToast("Name is required.", "error");
+      return;
+    }
+    const ttl = sessionTtlHours.trim() === "" ? null : Number(sessionTtlHours);
+    const ok = await runSingle(
       () =>
         updateQrCode(token, restaurantId, single.id, {
           name: name.trim(),
-          description: description.trim() || null
-        }),
-      "General settings saved."
-    );
-  };
-
-  const saveDestination = () => {
-    if (!single || !canManage) return;
-    void runSingle(
-      () =>
-        updateQrCode(token, restaurantId, single.id, {
+          description: description.trim() || null,
+          locationLabel: locationLabel.trim() || null,
+          areaLabel: areaLabel.trim() || null,
+          tableLabel: tableLabel.trim() || null,
           experience,
           menuId: menuId || null,
           paymentMode,
-          locationLabel: locationLabel.trim() || null,
-          areaLabel: areaLabel.trim() || null,
-          tableLabel: tableLabel.trim() || null
+          sessionTtlHours: ttl != null && Number.isFinite(ttl) && ttl > 0 ? ttl : null,
+          headline: headline.trim() || null
         }),
-      "Destination saved."
+      "Changes saved.",
+      { busyLabel: "Saving changes…" }
     );
+    if (!ok) return;
+    baselineRef.current = {
+      name: name.trim(),
+      description: description.trim(),
+      locationLabel: locationLabel.trim(),
+      areaLabel: areaLabel.trim(),
+      tableLabel: tableLabel.trim(),
+      experience,
+      menuId,
+      paymentMode,
+      sessionTtlHours,
+      headline: headline.trim()
+    };
+    setDraftEpoch((n) => n + 1);
   };
 
-  const saveOrdering = () => {
-    if (!single || !canManage) return;
-    const ttl = sessionTtlHours.trim() === "" ? null : Number(sessionTtlHours);
-    void runSingle(
-      () =>
-        updateQrCode(token, restaurantId, single.id, {
-          allowOrdering,
-          orderingPaused,
-          sessionTtlHours: ttl != null && Number.isFinite(ttl) ? ttl : null
-        }),
-      "Ordering rules saved."
-    );
-  };
-
-  const saveAppearance = () => {
-    if (!single || !canManage) return;
-    void runSingle(
-      () =>
-        updateQrCode(token, restaurantId, single.id, {
-          headline: headline.trim() || null,
-          showRestaurantLogo,
-          showServeosBranding
-        }),
-      "Appearance saved."
-    );
+  const requestToggle = (title: string, consequence: string, apply: () => void) => {
+    setToggleConfirm({ title, consequence, apply });
   };
 
   const applyBulkPayment = () => {
@@ -594,7 +729,9 @@ export function QrManageDrawer({
         className={`${MENU_PAGE_DRAWER_BACKDROP_CLASS}${visible ? " is-active" : ""}`}
         aria-label="Close manage QR codes"
         tabIndex={visible ? 0 : -1}
-        onClick={onClose}
+        onClick={() => {
+          if (!busy) onClose();
+        }}
       />
 
       <div
@@ -603,6 +740,11 @@ export function QrManageDrawer({
         aria-label="Manage QR codes"
         className={`admin-staff-profile-panel admin-menu-item-profile-panel ${visible ? "admin-staff-profile-panel--open" : ""}`}
       >
+        <QrBusyOverlay
+          show={busy || contextLoading}
+          title={contextLoading ? "Loading…" : busyLabel}
+          sub={contextLoading ? "Fetching manage options" : "Please wait"}
+        />
         <header className="admin-staff-profile-header">
           <div className="min-w-0 flex-1">
             <h3 className="admin-staff-profile-title">Manage QR codes</h3>
@@ -610,6 +752,15 @@ export function QrManageDrawer({
               {selectionLabel} at {venueName}
             </p>
           </div>
+          {single && canManage && draftDirty ? (
+            <AdminBtnPrimary
+              className="admin-qr-manage-save-btn shrink-0"
+              disabled={busy}
+              onClick={() => void saveDraftChanges()}
+            >
+              {busy ? "Saving…" : "Save changes"}
+            </AdminBtnPrimary>
+          ) : null}
           <button type="button" className="admin-staff-profile-close" onClick={onClose} aria-label="Close">
             <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
               <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
@@ -626,43 +777,90 @@ export function QrManageDrawer({
             <>
               <section className="admin-staff-drawer-section">
                 <h4 className="admin-staff-drawer-section-title">In scope</h4>
-                <ul className={`admin-menu-manage-scope-list ${scopePager.pageClassName}`} key={scopePager.pageKey}>
-                  {scopePager.pagedItems.map((q) => (
-                    <ScopeChip key={q.id} qr={q} />
-                  ))}
-                </ul>
-                {scopePager.showPagination ? (
-                  <MenuSurfacePagination
-                    page={scopePager.page}
-                    totalPages={scopePager.totalPages}
-                    totalItems={scopePager.totalItems}
-                    pageSize={scopePager.pageSize}
-                    onPageChange={scopePager.goToPage}
-                    label="In-scope QR codes pagination"
-                    size="compact"
-                  />
-                ) : null}
+                <QrInScopeGrid items={targets} />
               </section>
 
-              <section className="admin-staff-drawer-section">
-                <h4 className="admin-staff-drawer-section-title">Actions</h4>
-                <div className="admin-menu-manage-actions">
-                  {safeActions.map((action) => (
-                    <button
-                      key={action.id}
-                      type="button"
-                      className="admin-menu-manage-action"
+              {previewQr ? (
+                <section className="admin-staff-drawer-section">
+                  <h4 className="admin-staff-drawer-section-title">QR code</h4>
+                  <div className="admin-qr-manage-preview">
+                    {previewCanPage ? (
+                      <div className="admin-qr-manage-preview-nav" role="group" aria-label="Browse QR codes in scope">
+                        <button
+                          type="button"
+                          className="admin-qr-manage-preview-nav-btn"
+                          aria-label="Previous QR code"
+                          disabled={busy}
+                          onClick={() => {
+                            setIdCopied(false);
+                            setPreviewIndex((i) => (i - 1 + targets.length) % targets.length);
+                          }}
+                        >
+                          <svg viewBox="0 0 20 20" fill="none" aria-hidden className="admin-qr-manage-preview-nav-icon">
+                            <path d="M12.5 4.5 7 10l5.5 5.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </button>
+                        <span className="admin-qr-manage-preview-nav-meta">
+                          {Math.min(previewIndex, targets.length - 1) + 1} / {targets.length}
+                        </span>
+                        <button
+                          type="button"
+                          className="admin-qr-manage-preview-nav-btn"
+                          aria-label="Next QR code"
+                          disabled={busy}
+                          onClick={() => {
+                            setIdCopied(false);
+                            setPreviewIndex((i) => (i + 1) % targets.length);
+                          }}
+                        >
+                          <svg viewBox="0 0 20 20" fill="none" aria-hidden className="admin-qr-manage-preview-nav-icon">
+                            <path d="M7.5 4.5 13 10l-5.5 5.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </button>
+                      </div>
+                    ) : null}
+                    {previewCanPage ? (
+                      <p className="admin-qr-manage-preview-name" title={previewQr.name}>
+                        {previewQr.name}
+                      </p>
+                    ) : null}
+                    <img
+                      src={previewQr.qrImageUrl}
+                      alt={`QR for ${previewQr.name}`}
+                      className="admin-qr-manage-preview-img"
+                    />
+                    <div className="admin-qr-manage-preview-id">
+                      <span className="admin-qr-manage-preview-id-label">QR ID</span>
+                      <code className="admin-qr-manage-preview-id-value">{previewQr.publicCode}</code>
+                      <button
+                        type="button"
+                        className="admin-qr-manage-preview-id-copy"
+                        aria-label={idCopied ? "Copied" : "Copy QR ID"}
+                        title={idCopied ? "Copied" : "Copy QR ID"}
+                        onClick={() => void copyPublicCode(previewQr.publicCode)}
+                      >
+                        {idCopied ? (
+                          <svg className="h-3.5 w-3.5 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        ) : (
+                          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                            <rect x="9" y="9" width="13" height="13" rx="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
+                    <AdminBtnPrimary
+                      className="admin-qr-manage-preview-link-btn"
                       disabled={busy}
-                      onClick={() => handleAction(action.id)}
+                      onClick={() => void copyLink(previewQr.publicUrl)}
                     >
-                      <span className="admin-menu-manage-action-label">{action.label}</span>
-                      {action.description ? (
-                        <span className="admin-menu-manage-action-desc">{action.description}</span>
-                      ) : null}
-                    </button>
-                  ))}
-                </div>
-              </section>
+                      Copy QR link
+                    </AdminBtnPrimary>
+                  </div>
+                </section>
+              ) : null}
 
               {targets.length > 1 && canManage ? (
                 <section
@@ -763,54 +961,38 @@ export function QrManageDrawer({
                     }}
                   >
                     <h4 className="admin-staff-drawer-section-title">General</h4>
-                    <div className="grid gap-3">
-                      <AdminLabel>
-                        Name
-                        <AdminInput className="mt-1" value={name} onChange={(e) => setName(e.target.value)} disabled={busy} />
-                      </AdminLabel>
-                      <AdminLabel>
-                        Description / internal notes
-                        <AdminInput
-                          className="mt-1"
-                          value={description}
-                          onChange={(e) => setDescription(e.target.value)}
-                          disabled={busy}
-                          placeholder="e.g. QR replaced after physical damage"
-                        />
-                      </AdminLabel>
-                      <dl className="grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
-                        <div>
-                          <dt className="text-[11px] font-bold uppercase tracking-wide text-slate-500">QR type</dt>
-                          <dd>{single.type}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Status</dt>
-                          <dd>{single.status}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Public code</dt>
-                          <dd className="break-all font-mono text-xs">{single.publicCode}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Created</dt>
-                          <dd>{formatWhen(single.createdAt)}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Last scan</dt>
-                          <dd>{formatWhen(single.lastUsedAt)}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Orders</dt>
-                          <dd>{single.orderCount}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Scans</dt>
-                          <dd>{single.scanCount}</dd>
-                        </div>
-                      </dl>
-                      <AdminBtnPrimary disabled={busy || !name.trim()} onClick={saveGeneral}>
-                        {busy ? "Saving…" : "Save general"}
-                      </AdminBtnPrimary>
+                    <div className="admin-qr-hover-edit-fields">
+                      <QrHoverEditText
+                        label="Name"
+                        value={name}
+                        disabled={busy}
+                        onCommit={(next) => {
+                          if (!next) {
+                            pushToast("Name is required.", "error");
+                            return;
+                          }
+                          setName(next);
+                        }}
+                      />
+                      <QrHoverEditText
+                        label="Description / internal notes"
+                        value={description}
+                        displayValue={description || "—"}
+                        placeholder="e.g. QR replaced after physical damage"
+                        disabled={busy}
+                        onCommit={(next) => setDescription(next)}
+                      />
+                      <div className="admin-qr-hover-edit-fields admin-qr-hover-edit-fields--2">
+                        <QrHoverEditReadonly label="QR type">{single.type}</QrHoverEditReadonly>
+                        <QrHoverEditReadonly label="Status">{single.status}</QrHoverEditReadonly>
+                        <QrHoverEditReadonly label="Public code">
+                          <span className="font-mono text-xs">{single.publicCode}</span>
+                        </QrHoverEditReadonly>
+                        <QrHoverEditReadonly label="Created">{formatWhen(single.createdAt)}</QrHoverEditReadonly>
+                        <QrHoverEditReadonly label="Last scan">{formatWhen(single.lastUsedAt)}</QrHoverEditReadonly>
+                        <QrHoverEditReadonly label="Orders">{single.orderCount}</QrHoverEditReadonly>
+                        <QrHoverEditReadonly label="Scans">{single.scanCount}</QrHoverEditReadonly>
+                      </div>
                     </div>
                   </section>
 
@@ -821,83 +1003,57 @@ export function QrManageDrawer({
                     }}
                   >
                     <h4 className="admin-staff-drawer-section-title">Destination</h4>
-                    <div className="grid gap-3">
-                      <AdminLabel>
-                        Destination type
-                        <AdminSelect
-                          className="mt-1"
-                          value={experience}
-                          onChange={(e) => setExperience(e.target.value as QrExperience)}
-                          disabled={busy}
-                        >
-                          {EXPERIENCE_OPTIONS.map((o) => (
-                            <option key={o.value} value={o.value}>
-                              {o.label}
-                            </option>
-                          ))}
-                        </AdminSelect>
-                      </AdminLabel>
-                      <AdminLabel>
-                        Default menu
-                        <AdminSelect
-                          className="mt-1"
-                          value={menuId}
-                          onChange={(e) => setMenuId(e.target.value)}
-                          disabled={busy}
-                        >
-                          <option value="">Auto (first published)</option>
-                          {menus.map((m) => (
-                            <option key={m.id} value={m.id}>
-                              {m.name}
-                            </option>
-                          ))}
-                        </AdminSelect>
-                      </AdminLabel>
-                      <AdminLabel>
-                        Location
-                        <AdminInput
-                          className="mt-1"
+                    <div className="admin-qr-hover-edit-fields">
+                      <QrHoverEditPick
+                        label="Destination type"
+                        value={experience}
+                        disabled={busy}
+                        options={EXPERIENCE_OPTIONS}
+                        onCommit={(next) => setExperience(next as QrExperience)}
+                      />
+                      <QrHoverEditPick
+                        label="Default menu"
+                        value={menuId}
+                        disabled={busy}
+                        options={menuOptions}
+                        emptyHint="No published menus yet"
+                        onCommit={(next) => setMenuId(next)}
+                      />
+                      <div className="admin-qr-hover-edit-fields admin-qr-hover-edit-fields--2">
+                        <QrHoverEditPick
+                          label="Location"
                           value={locationLabel}
-                          onChange={(e) => setLocationLabel(e.target.value)}
                           disabled={busy}
+                          options={locationOptions}
+                          emptyHint="No locations on existing QR codes yet"
+                          onCommit={(next) => setLocationLabel(next)}
                         />
-                      </AdminLabel>
-                      <AdminLabel>
-                        Area
-                        <AdminInput
-                          className="mt-1"
+                        <QrHoverEditSuggestText
+                          label="Area"
                           value={areaLabel}
-                          onChange={(e) => setAreaLabel(e.target.value)}
                           disabled={busy}
+                          placeholder="e.g. Patio, Bar"
+                          suggestions={areaSuggestions}
+                          suggestionsTitle="Recently used areas"
+                          onCommit={(next) => setAreaLabel(next)}
                         />
-                      </AdminLabel>
-                      <AdminLabel>
-                        Table
-                        <AdminInput
-                          className="mt-1"
+                        <QrHoverEditSuggestText
+                          label="Table"
                           value={tableLabel}
-                          onChange={(e) => setTableLabel(e.target.value)}
                           disabled={busy}
+                          placeholder="e.g. 12, A3"
+                          suggestions={tableSuggestions}
+                          suggestionsTitle="Recently used tables"
+                          onCommit={(next) => setTableLabel(next)}
                         />
-                      </AdminLabel>
-                      <AdminLabel>
-                        Payment mode
-                        <AdminSelect
-                          className="mt-1"
+                        <QrHoverEditPick
+                          label="Payment mode"
                           value={paymentMode}
-                          onChange={(e) => setPaymentMode(e.target.value as QrPaymentMode)}
                           disabled={busy}
-                        >
-                          {PAYMENT_OPTIONS.map((o) => (
-                            <option key={o.value} value={o.value}>
-                              {o.label}
-                            </option>
-                          ))}
-                        </AdminSelect>
-                      </AdminLabel>
-                      <AdminBtnPrimary disabled={busy} onClick={saveDestination}>
-                        {busy ? "Saving…" : "Save destination"}
-                      </AdminBtnPrimary>
+                          options={PAYMENT_OPTIONS}
+                          onCommit={(next) => setPaymentMode(next as QrPaymentMode)}
+                        />
+                      </div>
                     </div>
                   </section>
 
@@ -908,142 +1064,182 @@ export function QrManageDrawer({
                     }}
                   >
                     <h4 className="admin-staff-drawer-section-title">Ordering rules</h4>
-                    <div className="grid gap-3">
-                      <label className="flex items-center gap-2 text-sm text-slate-700">
-                        <input
-                          type="checkbox"
-                          checked={allowOrdering}
-                          onChange={(e) => setAllowOrdering(e.target.checked)}
+                    <div className="admin-qr-hover-edit-fields">
+                      <div className="admin-qr-hover-edit-fields admin-qr-hover-edit-fields--2">
+                        <QrHoverEditToggle
+                          label="Allow ordering"
+                          value={allowOrdering}
+                          onLabel="Enabled"
+                          offLabel="Disabled"
                           disabled={busy}
+                          onRequestChange={(next) =>
+                            requestToggle(
+                              next ? "Enable ordering?" : "Disable ordering?",
+                              next
+                                ? "Guests scanning this QR will be able to place orders again."
+                                : "Guests will browse the menu only — new orders will be blocked.",
+                              () => {
+                                setAllowOrdering(next);
+                                void patchSingle({ allowOrdering: next }, "Ordering rule updated.");
+                              }
+                            )
+                          }
                         />
-                        Allow ordering
-                      </label>
-                      <label className="flex items-center gap-2 text-sm text-slate-700">
-                        <input
-                          type="checkbox"
-                          checked={orderingPaused}
-                          onChange={(e) => setOrderingPaused(e.target.checked)}
+                        <QrHoverEditToggle
+                          label="Ordering paused"
+                          value={orderingPaused}
+                          onLabel="Paused"
+                          offLabel="Not paused"
                           disabled={busy}
+                          onRequestChange={(next) =>
+                            requestToggle(
+                              next ? "Pause ordering?" : "Resume ordering?",
+                              next
+                                ? "Useful during kitchen overload. Guests can still view the menu; new orders stop."
+                                : "Guests will be able to place orders from this QR again.",
+                              () => {
+                                setOrderingPaused(next);
+                                void patchSingle(
+                                  { orderingPaused: next },
+                                  next ? "Ordering paused." : "Ordering resumed."
+                                );
+                              }
+                            )
+                          }
                         />
-                        Ordering paused
-                      </label>
-                      <AdminLabel>
-                        Session TTL (hours)
-                        <AdminInput
-                          className="mt-1"
-                          type="number"
-                          min={1}
-                          step={1}
-                          value={sessionTtlHours}
-                          onChange={(e) => setSessionTtlHours(e.target.value)}
-                          disabled={busy}
-                          placeholder="Default"
-                        />
-                      </AdminLabel>
-                      <AdminBtnPrimary disabled={busy} onClick={saveOrdering}>
-                        {busy ? "Saving…" : "Save ordering"}
-                      </AdminBtnPrimary>
+                      </div>
+                      <QrHoverEditDuration
+                        label="Session TTL"
+                        value={sessionTtlHours}
+                        disabled={busy}
+                        onCommit={(next) => setSessionTtlHours(next)}
+                      />
                     </div>
                   </section>
 
                   <section className="admin-staff-drawer-section">
                     <h4 className="admin-staff-drawer-section-title">Availability</h4>
-                    <dl className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
-                      <div>
-                        <dt className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Active now</dt>
-                        <dd>{single.status === "ACTIVE" && !single.orderingPaused ? "Yes" : "No"}</dd>
+                    <div className="admin-qr-hover-edit-fields">
+                      <div className="admin-qr-hover-edit-fields admin-qr-hover-edit-fields--2">
+                        <QrHoverEditToggle
+                          label="Active now"
+                          value={single.status === "ACTIVE"}
+                          onLabel="Active"
+                          offLabel="Inactive"
+                          disabled={busy || single.status === "ROTATED" || single.status === "ARCHIVED"}
+                          onRequestChange={(next) =>
+                            requestToggle(
+                              next ? "Activate this QR?" : "Deactivate this QR?",
+                              next
+                                ? "New scans will work again using the current public code."
+                                : "New scans will be blocked. Existing guest sessions continue until they expire.",
+                              () => {
+                                if (next) {
+                                  void runSingle(
+                                    () => reactivateQrCode(token, restaurantId, single.id),
+                                    "QR activated."
+                                  );
+                                } else {
+                                  void runSingle(
+                                    () => deactivateQrCode(token, restaurantId, single.id),
+                                    "QR deactivated."
+                                  );
+                                }
+                              }
+                            )
+                          }
+                        />
+                        <QrHoverEditToggle
+                          label="Ordering"
+                          value={allowOrdering && !orderingPaused}
+                          onLabel="Enabled"
+                          offLabel={allowOrdering ? "Paused" : "Disabled"}
+                          disabled={busy || single.status !== "ACTIVE"}
+                          onRequestChange={(next) =>
+                            requestToggle(
+                              next ? "Enable ordering?" : "Pause ordering?",
+                              next
+                                ? "Guests can place orders from this QR."
+                                : "Menu browse stays available; new orders are blocked until you resume.",
+                              () => {
+                                if (next) {
+                                  setAllowOrdering(true);
+                                  setOrderingPaused(false);
+                                  void patchSingle(
+                                    { allowOrdering: true, orderingPaused: false },
+                                    "Ordering enabled."
+                                  );
+                                } else {
+                                  setOrderingPaused(true);
+                                  void patchSingle({ orderingPaused: true }, "Ordering paused.");
+                                }
+                              }
+                            )
+                          }
+                        />
                       </div>
-                      <div>
-                        <dt className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Status</dt>
-                        <dd>{single.status}</dd>
+                      <div className="admin-qr-hover-edit-fields admin-qr-hover-edit-fields--2">
+                        <QrHoverEditReadonly label="Status">{single.status}</QrHoverEditReadonly>
+                        <QrHoverEditReadonly label="Deactivated">
+                          {formatWhen(single.deactivatedAt ?? null)}
+                        </QrHoverEditReadonly>
                       </div>
-                      <div>
-                        <dt className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Ordering</dt>
-                        <dd>
-                          {!single.allowOrdering
-                            ? "Disabled"
-                            : single.orderingPaused
-                              ? "Paused (browse only)"
-                              : "Enabled"}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Deactivated</dt>
-                        <dd>{formatWhen(single.deactivatedAt ?? null)}</dd>
-                      </div>
-                    </dl>
-                    <p className="admin-staff-drawer-hint mt-2">
-                      Scheduled activation, channel and geo restrictions ship with Locations / scheduling.
-                    </p>
+                      <p className="admin-staff-drawer-hint">
+                        Scheduled activation, channel and geo restrictions ship with Locations / scheduling.
+                      </p>
+                    </div>
                   </section>
 
                   <section className="admin-staff-drawer-section">
                     <h4 className="admin-staff-drawer-section-title">Appearance</h4>
-                    <div className="grid gap-3">
-                      <AdminLabel>
-                        Headline
-                        <AdminInput
-                          className="mt-1"
-                          value={headline}
-                          onChange={(e) => setHeadline(e.target.value)}
+                    <div className="admin-qr-hover-edit-fields">
+                      <QrHoverEditText
+                        label="Headline"
+                        value={headline}
+                        disabled={busy}
+                        onCommit={(next) => setHeadline(next)}
+                      />
+                      <div className="admin-qr-hover-edit-fields admin-qr-hover-edit-fields--2">
+                        <QrHoverEditToggle
+                          label="Restaurant logo"
+                          value={showRestaurantLogo}
+                          onLabel="Shown"
+                          offLabel="Hidden"
                           disabled={busy}
+                          onRequestChange={(next) =>
+                            requestToggle(
+                              next ? "Show restaurant logo?" : "Hide restaurant logo?",
+                              next
+                                ? "The restaurant logo will appear on guest-facing QR landing."
+                                : "The restaurant logo will be hidden on guest-facing QR landing.",
+                              () => {
+                                setShowRestaurantLogo(next);
+                                void patchSingle({ showRestaurantLogo: next }, "Appearance updated.");
+                              }
+                            )
+                          }
                         />
-                      </AdminLabel>
-                      <label className="flex items-center gap-2 text-sm text-slate-700">
-                        <input
-                          type="checkbox"
-                          checked={showRestaurantLogo}
-                          onChange={(e) => setShowRestaurantLogo(e.target.checked)}
+                        <QrHoverEditToggle
+                          label="ServeOS branding"
+                          value={showServeosBranding}
+                          onLabel="Shown"
+                          offLabel="Hidden"
                           disabled={busy}
+                          onRequestChange={(next) =>
+                            requestToggle(
+                              next ? "Show ServeOS branding?" : "Hide ServeOS branding?",
+                              next
+                                ? "ServeOS branding will appear on the guest QR experience."
+                                : "ServeOS branding will be removed from the guest QR experience.",
+                              () => {
+                                setShowServeosBranding(next);
+                                void patchSingle({ showServeosBranding: next }, "Appearance updated.");
+                              }
+                            )
+                          }
                         />
-                        Show restaurant logo
-                      </label>
-                      <label className="flex items-center gap-2 text-sm text-slate-700">
-                        <input
-                          type="checkbox"
-                          checked={showServeosBranding}
-                          onChange={(e) => setShowServeosBranding(e.target.checked)}
-                          disabled={busy}
-                        />
-                        Show ServeOS branding
-                      </label>
-                      <AdminBtnPrimary disabled={busy} onClick={saveAppearance}>
-                        {busy ? "Saving…" : "Save appearance"}
-                      </AdminBtnPrimary>
+                      </div>
                     </div>
-                  </section>
-
-                  <section className="admin-staff-drawer-section">
-                    <h4 className="admin-staff-drawer-section-title">Printing</h4>
-                    <div className="flex flex-wrap gap-2">
-                      <a
-                        className="admin-btn-secondary inline-flex"
-                        href={single.pngDownloadUrl}
-                        download={`${single.name}-qr.png`}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Download PNG
-                      </a>
-                      <a
-                        className="admin-btn-secondary inline-flex"
-                        href={single.svgDownloadUrl}
-                        download={`${single.name}-qr.svg`}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Download SVG
-                      </a>
-                      <AdminBtnSecondary
-                        onClick={() => window.open(single.pngDownloadUrl, "_blank", "noopener,noreferrer")}
-                      >
-                        Print
-                      </AdminBtnSecondary>
-                      <AdminBtnSecondary onClick={() => void copyLink(single.publicUrl)}>Copy link</AdminBtnSecondary>
-                    </div>
-                    <p className="admin-staff-drawer-hint mt-2">
-                      PDF print packs, label / sticker / table-tent templates come next.
-                    </p>
                   </section>
 
                   <section
@@ -1157,75 +1353,73 @@ export function QrManageDrawer({
                       }}
                     >
                       <h4 className="admin-staff-drawer-section-title admin-menu-manage-danger-title">Danger Zone</h4>
-                      <div className="admin-menu-manage-danger-row" role="group" aria-label="Dangerous QR actions">
+                      <div className="admin-qr-danger-row" role="group" aria-label="Dangerous QR actions">
                         <button
                           type="button"
-                          className="admin-menu-manage-danger-btn"
+                          className="admin-qr-danger-btn"
                           disabled={busy}
-                          onClick={() => handleAction("rotate")}
+                          onClick={() =>
+                            requestToggle(
+                              `Rotate “${single.name}”?`,
+                              "Issues a new public code. Existing prints and bookmarks with the old URL will stop working.",
+                              () => {
+                                void runSingle(
+                                  () => rotateQrCode(token, restaurantId, single.id),
+                                  "QR rotated — reprint the new code.",
+                                  { busyLabel: "Rotating…" }
+                                );
+                              }
+                            )
+                          }
                         >
-                          <span className="admin-menu-manage-danger-btn-label">Rotate QR</span>
-                          <span className="admin-menu-manage-danger-btn-desc">
-                            New public code — old prints stop working
-                          </span>
-                        </button>
-                        {single.status === "ACTIVE" ? (
-                          <button
-                            type="button"
-                            className="admin-menu-manage-danger-btn"
-                            disabled={busy}
-                            onClick={() => handleAction("deactivate")}
-                          >
-                            <span className="admin-menu-manage-danger-btn-label">Deactivate</span>
-                            <span className="admin-menu-manage-danger-btn-desc">Block new scans</span>
-                          </button>
-                        ) : null}
-                        {single.status === "ACTIVE" && !single.orderingPaused ? (
-                          <button
-                            type="button"
-                            className="admin-menu-manage-danger-btn"
-                            disabled={busy}
-                            onClick={() => handleAction("pause-ordering")}
-                          >
-                            <span className="admin-menu-manage-danger-btn-label">Pause ordering</span>
-                            <span className="admin-menu-manage-danger-btn-desc">Menu browse still allowed</span>
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          className="admin-menu-manage-danger-btn"
-                          disabled={busy}
-                          onClick={() => {
-                            if (
-                              !window.confirm(
-                                `Unlink destination for “${single.name}”? Guests will see an unavailable page until reconfigured.`
-                              )
-                            ) {
-                              return;
-                            }
-                            void runSingle(
-                              () =>
-                                updateQrCode(token, restaurantId, single.id, {
-                                  menuId: null,
-                                  locationLabel: null,
-                                  areaLabel: null,
-                                  tableLabel: null
-                                }),
-                              "Destination unlinked."
-                            );
-                          }}
-                        >
-                          <span className="admin-menu-manage-danger-btn-label">Unlink destination</span>
-                          <span className="admin-menu-manage-danger-btn-desc">Clear menu / table links</span>
+                          Rotate
                         </button>
                         <button
                           type="button"
-                          className="admin-menu-manage-danger-btn"
+                          className="admin-qr-danger-btn"
                           disabled={busy}
-                          onClick={() => handleAction("archive")}
+                          onClick={() =>
+                            requestToggle(
+                              `Unlink destination for “${single.name}”?`,
+                              "Clears menu and table links. Guests will see an unavailable page until you reconfigure this QR.",
+                              () => {
+                                void runSingle(
+                                  () =>
+                                    updateQrCode(token, restaurantId, single.id, {
+                                      menuId: null,
+                                      locationLabel: null,
+                                      areaLabel: null,
+                                      tableLabel: null,
+                                      tableId: null
+                                    }),
+                                  "Destination unlinked.",
+                                  { busyLabel: "Unlinking…" }
+                                );
+                              }
+                            )
+                          }
                         >
-                          <span className="admin-menu-manage-danger-btn-label">Archive</span>
-                          <span className="admin-menu-manage-danger-btn-desc">Hide from normal lists</span>
+                          Unlink
+                        </button>
+                        <button
+                          type="button"
+                          className="admin-qr-danger-btn"
+                          disabled={busy}
+                          onClick={() =>
+                            requestToggle(
+                              `Archive “${single.name}”?`,
+                              "Hides this QR from normal lists. Scans will no longer open ordering until it is restored.",
+                              () => {
+                                void runSingle(
+                                  () => archiveQrCode(token, restaurantId, single.id),
+                                  "QR archived.",
+                                  { busyLabel: "Archiving…", closeAfter: true, clearSelectionAfter: true }
+                                );
+                              }
+                            )
+                          }
+                        >
+                          Archive
                         </button>
                       </div>
                     </section>
@@ -1241,19 +1435,33 @@ export function QrManageDrawer({
                   }}
                 >
                   <h4 className="admin-staff-drawer-section-title admin-menu-manage-danger-title">Danger Zone</h4>
-                  <div className="admin-menu-manage-danger-row" role="group" aria-label="Dangerous QR actions">
+                  <div className="admin-qr-danger-row" role="group" aria-label="Dangerous QR actions">
                     {dangerActions.map((action) => (
                       <button
                         key={action.id}
                         type="button"
-                        className="admin-menu-manage-danger-btn"
+                        className="admin-qr-danger-btn"
                         disabled={busy}
-                        onClick={() => handleAction(action.id)}
+                        onClick={() => {
+                          if (action.id === "archive") {
+                            requestToggle(
+                              `Archive ${targets.length} QR codes?`,
+                              "Selected codes will be hidden from normal lists and stop opening ordering until restored.",
+                              () => {
+                                void runPerId(
+                                  targets.map((t) => t.id),
+                                  (id) => archiveQrCode(token, restaurantId, id),
+                                  "Archive",
+                                  { closeAfter: true }
+                                );
+                              }
+                            );
+                            return;
+                          }
+                          handleAction(action.id);
+                        }}
                       >
-                        <span className="admin-menu-manage-danger-btn-label">{action.label}</span>
-                        {action.description ? (
-                          <span className="admin-menu-manage-danger-btn-desc">{action.description}</span>
-                        ) : null}
+                        {action.label}
                       </button>
                     ))}
                   </div>
@@ -1262,6 +1470,31 @@ export function QrManageDrawer({
             </>
           )}
         </div>
+        {toggleConfirm ? (
+          <div className="admin-qr-toggle-confirm" role="alertdialog" aria-modal="true" aria-labelledby="qr-toggle-confirm-title">
+            <div className="admin-qr-toggle-confirm-card">
+              <h4 id="qr-toggle-confirm-title" className="admin-qr-toggle-confirm-title">
+                {toggleConfirm.title}
+              </h4>
+              <p className="admin-qr-toggle-confirm-consequence">{toggleConfirm.consequence}</p>
+              <div className="admin-qr-toggle-confirm-actions">
+                <AdminBtnSecondary disabled={busy} onClick={() => setToggleConfirm(null)}>
+                  Cancel
+                </AdminBtnSecondary>
+                <AdminBtnPrimary
+                  disabled={busy}
+                  onClick={() => {
+                    const apply = toggleConfirm.apply;
+                    setToggleConfirm(null);
+                    apply();
+                  }}
+                >
+                  Confirm
+                </AdminBtnPrimary>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>,
     document.body

@@ -1,16 +1,15 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { formatMoneyCents } from "@serveos/core-shared/currency";
 import {
-  archiveQrCode,
   createQrCode,
-  deactivateQrCode,
+  deleteQrCode,
   duplicateQrCode,
   getQrCodeStats,
   listRestaurantMenus,
   listQrCodes,
-  pauseQrOrdering,
   reactivateQrCode,
-  resumeQrOrdering,
+  restoreQrCode,
   type CreateQrCodeBody,
   type MenuSurfaceRow,
   type QrCodeRow,
@@ -35,14 +34,20 @@ import { useMenuCapabilities } from "../useMenuCapabilities";
 import { CONFIG_PRESET_DESCRIPTIONS } from "../configRouting";
 import { MenuListSearchField, MenuToolbarButton } from "../menu/MenuPageUi";
 import { MenuEntityActionsMenu } from "../menu/MenuEntityActionsMenu";
-import { MenuPageModalShell, ProfileModalAlert } from "../menu/menuPageModalShell";
+import {
+  MenuPageModalShell,
+  ProfileModalAlert,
+  ProfileModalFooter
+} from "../menu/menuPageModalShell";
 import { MENU_LIST_PAGE_SIZE, useMenuListPagination } from "../menu/useMenuListPagination";
 import { MenuSurfacePagination } from "../menu/MenuSurfacePagination";
 import { applyQrListFilters, applyQrListSort, matchesQrSearch, QR_LIST_QUERY } from "./qrListQuery";
 import { isUiOnlyQrId, UI_MOCK_QR_CODES } from "./qrListUiMocks";
-import { buildQrCardActions, type QrCardActionId } from "./qrCardActions";
+import { buildQrArchivedCardActions, buildQrCardActions, type QrCardActionId } from "./qrCardActions";
 import { QrManageDrawer, type QrManageInitialFocus } from "./QrManageDrawer";
 import { QrDetailsModal } from "./QrDetailsModal";
+import { QrPrintConfirmModal } from "./QrPrintConfirmModal";
+import { QrRequestLoading } from "./QrRequestLoading";
 
 type Props = {
   token: string | null;
@@ -122,16 +127,29 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
   const [createOpen, setCreateOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
   const [detailsQr, setDetailsQr] = useState<QrCodeRow | null>(null);
+  const [printQr, setPrintQr] = useState<QrCodeRow | null>(null);
   const [manageFocus, setManageFocus] = useState<QrManageInitialFocus>(null);
   const [selectedQrIds, setSelectedQrIds] = useState<Set<string>>(() => new Set());
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [listMode, setListMode] = useState<"active" | "archived">("active");
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionBusyLabel, setActionBusyLabel] = useState("Working…");
+  const [confirmAction, setConfirmAction] = useState<{
+    title: string;
+    consequence: string;
+    confirmLabel: string;
+    danger?: boolean;
+    run: () => Promise<void>;
+  } | null>(null);
+
+  const isArchivedView = listMode === "archived";
 
   const reload = useCallback(async () => {
     if (!token || !restaurantId) return;
     setLoading(true);
     setError(null);
     const [listRes, statsRes, menusRes] = await Promise.all([
-      listQrCodes(token, restaurantId),
+      listQrCodes(token, restaurantId, isArchivedView ? { status: "ARCHIVED" } : undefined),
       getQrCodeStats(token, restaurantId),
       listRestaurantMenus(token, restaurantId, "PUBLISHED")
     ]);
@@ -151,13 +169,16 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
       }
       return next;
     });
-  }, [token, restaurantId]);
+  }, [token, restaurantId, isArchivedView]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
-  const items = useMemo(() => [...apiItems, ...UI_MOCK_QR_CODES], [apiItems]);
+  const items = useMemo(
+    () => (isArchivedView ? apiItems : [...apiItems, ...UI_MOCK_QR_CODES]),
+    [apiItems, isArchivedView]
+  );
   const realItems = useMemo(() => items.filter((r) => !isUiOnlyQrId(r.id)), [items]);
 
   const filteredItems = useMemo(() => {
@@ -207,7 +228,7 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
   };
 
   const openManage = (focus: QrManageInitialFocus = null, selectId?: string) => {
-    if (selectId && !isUiOnlyQrId(selectId)) {
+    if (selectId) {
       setSelectedQrIds(new Set([selectId]));
     }
     setManageFocus(focus);
@@ -221,97 +242,93 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
       setDetailsQr(row);
       return;
     }
-    if (actionId === "preview_guest" || actionId === "open_destination" || actionId === "test_scan") {
+    if (actionId === "preview_guest" || actionId === "test_scan") {
       window.open(row.publicUrl, "_blank", "noopener,noreferrer");
       return;
     }
-    if (actionId === "view_ordering_rules") {
-      openManage("ordering", row.id);
-      return;
-    }
-    if (actionId === "edit_qr") {
-      openManage("general", row.id);
-      return;
-    }
-    if (actionId === "download_png") {
-      window.open(row.pngDownloadUrl, "_blank", "noopener,noreferrer");
-      return;
-    }
-    if (actionId === "download_svg") {
-      window.open(row.svgDownloadUrl, "_blank", "noopener,noreferrer");
-      return;
-    }
     if (actionId === "copy_link") {
-      await navigator.clipboard.writeText(row.publicUrl);
-      pushToast("Link copied.", "success");
-      return;
-    }
-    if (actionId === "copy_public_code") {
-      await navigator.clipboard.writeText(row.publicCode);
-      pushToast("Public code copied.", "success");
-      return;
-    }
-    if (actionId === "print_qr") {
-      const win = window.open(row.pngDownloadUrl, "_blank", "noopener,noreferrer");
       try {
-        win?.print?.();
+        await navigator.clipboard.writeText(row.publicUrl);
+        pushToast("QR link copied.", "success");
       } catch {
-        /* open alone is enough */
+        pushToast("Could not copy link.", "error");
       }
       return;
     }
-    if (actionId === "view_analytics" || actionId === "view_activity") {
-      openManage("analytics", row.id);
+    if (actionId === "print_qr") {
+      setPrintQr(row);
       return;
     }
-    if (actionId === "open_manager") {
+    if (actionId === "manage") {
       openManage(null, row.id);
       return;
     }
 
-    const mutating: QrCardActionId[] = [
-      "activate",
-      "deactivate",
-      "pause_ordering",
-      "resume_ordering",
-      "duplicate",
-      "archive"
-    ];
-    if (mutating.includes(actionId)) {
+    if (actionId === "unarchive") {
+      if (!token || !restaurantId || !canManage) return;
+      setConfirmAction({
+        title: `Unarchive “${row.name}”?`,
+        consequence: "This QR returns to the active list as Active and can accept scans again.",
+        confirmLabel: "Unarchive",
+        run: async () => {
+          setActionBusyLabel("Unarchiving…");
+          setActionBusy(true);
+          const res = await restoreQrCode(token, restaurantId, row.id);
+          setActionBusy(false);
+          if (!res.ok || !res.qr) {
+            pushToast(res.message ?? res.error ?? "Could not unarchive.", "error");
+            return;
+          }
+          pushToast("QR unarchived.", "success");
+          void reload();
+        }
+      });
+      return;
+    }
+
+    if (actionId === "delete") {
+      if (!token || !restaurantId || !canManage) return;
+      setConfirmAction({
+        title: `Delete “${row.name}”?`,
+        consequence:
+          "Permanently removes this archived QR identity. Historical orders keep their references, but the code cannot be restored.",
+        confirmLabel: "Delete forever",
+        danger: true,
+        run: async () => {
+          setActionBusyLabel("Deleting…");
+          setActionBusy(true);
+          const res = await deleteQrCode(token, restaurantId, row.id);
+          setActionBusy(false);
+          if (!res.ok) {
+            pushToast(res.message ?? res.error ?? "Could not delete.", "error");
+            return;
+          }
+          pushToast("QR deleted.", "success");
+          void reload();
+        }
+      });
+      return;
+    }
+
+    if (actionId === "activate" || actionId === "duplicate") {
       if (isUiOnlyQrId(row.id)) {
         pushToast("Preview-only QR — create a real one to use this action.", "error");
         return;
       }
       if (!token || !restaurantId || !canManage) return;
 
-      let res: { ok: boolean; qr?: QrCodeRow; message?: string; error?: string };
-      let okMsg = "Done.";
-      if (actionId === "activate") {
-        res = await reactivateQrCode(token, restaurantId, row.id);
-        okMsg = "QR activated.";
-      } else if (actionId === "deactivate") {
-        res = await deactivateQrCode(token, restaurantId, row.id);
-        okMsg = "QR deactivated.";
-      } else if (actionId === "pause_ordering") {
-        res = await pauseQrOrdering(token, restaurantId, row.id);
-        okMsg = "Ordering paused.";
-      } else if (actionId === "resume_ordering") {
-        res = await resumeQrOrdering(token, restaurantId, row.id);
-        okMsg = "Ordering resumed.";
-      } else if (actionId === "duplicate") {
-        res = await duplicateQrCode(token, restaurantId, row.id);
-        okMsg = "QR duplicated.";
-      } else if (actionId === "archive") {
-        res = await archiveQrCode(token, restaurantId, row.id);
-        okMsg = "QR archived.";
-      } else {
-        return;
-      }
+      setActionBusyLabel(actionId === "activate" ? "Activating…" : "Duplicating…");
+      setActionBusy(true);
+      const res =
+        actionId === "activate"
+          ? await reactivateQrCode(token, restaurantId, row.id)
+          : await duplicateQrCode(token, restaurantId, row.id);
+      setActionBusy(false);
       if (!res.ok || !res.qr) {
         pushToast(res.message ?? res.error ?? "Action failed", "error");
         return;
       }
-      pushToast(okMsg, "success");
+      pushToast(actionId === "activate" ? "QR activated." : "QR duplicated.", "success");
       if (actionId === "duplicate") {
         setSelectedQrIds(new Set([res.qr.id]));
         setManageFocus(null);
@@ -372,13 +389,17 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
           <div className="admin-menu-surface-board">
             <div className="admin-menu-surface-board-head">
               <div className="min-w-0">
-                <h3 className="admin-menu-surface-board-title">QR identities</h3>
+                <h3 className="admin-menu-surface-board-title">
+                  {isArchivedView ? "Archived QR codes" : "QR identities"}
+                </h3>
                 <p className="admin-menu-surface-board-desc">
-                  Permanent digital locations. Guests scan → temporary ordering session. Print packs and abuse alerts come later.
+                  {isArchivedView
+                    ? "Restore archived identities or permanently delete them. Scans stay blocked until unarchived."
+                    : "Permanent digital locations. Guests scan → temporary ordering session. Print packs and abuse alerts come later."}
                 </p>
               </div>
               <div className="admin-menu-surface-board-actions">
-                {realItems.length > 0 ? (
+                {!isArchivedView && realItems.length > 0 ? (
                   <MenuToolbarButton
                     onClick={() => {
                       setManageFocus(null);
@@ -388,11 +409,32 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
                     {hasSelection ? "Manage selected" : "Manage"}
                   </MenuToolbarButton>
                 ) : null}
-                {canManage ? (
+                {!isArchivedView && canManage ? (
                   <MenuToolbarButton primary onClick={() => setCreateOpen(true)}>
                     Create QR
                   </MenuToolbarButton>
                 ) : null}
+                <MenuEntityActionsMenu
+                  entityName="QR board"
+                  hideHeader
+                  dotsOrientation="vertical"
+                  open={openMenuId === "__board__"}
+                  actions={
+                    isArchivedView
+                      ? [{ id: "active", label: "Active QR codes" }]
+                      : [{ id: "archived", label: "Archived QR codes" }]
+                  }
+                  onToggle={() => setOpenMenuId((cur) => (cur === "__board__" ? null : "__board__"))}
+                  onAction={(id) => {
+                    setOpenMenuId(null);
+                    setSelectedQrIds(new Set());
+                    setManageOpen(false);
+                    setSearchQuery("");
+                    setActiveFilters([]);
+                    if (id === "archived") setListMode("archived");
+                    else setListMode("active");
+                  }}
+                />
               </div>
             </div>
 
@@ -420,28 +462,35 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
 
             {items.length === 0 ? (
               <p className="admin-config-text-muted py-2 text-sm">
-                No QR codes yet. Create a permanent table or menu QR — the printed link stays valid; each scan starts a fresh session.
+                {isArchivedView
+                  ? "No archived QR codes."
+                  : "No QR codes yet. Create a permanent table or menu QR — the printed link stays valid; each scan starts a fresh session."}
               </p>
             ) : filteredItems.length === 0 ? (
               <p className="admin-config-text-muted py-2 text-sm">No QR codes match your search or filters.</p>
             ) : (
               <>
-                <label className="admin-menu-surface-select-all">
-                  <input
-                    ref={selectAllRef}
-                    type="checkbox"
-                    className="admin-menu-surface-checkbox"
-                    checked={allPageSelected}
-                    aria-label="Select all QR codes on this page"
-                    onChange={(e) => toggleSelectAllPaged(e.target.checked)}
-                  />
-                  <span className="admin-menu-surface-select-all-label">Select all on page</span>
-                </label>
+                {!isArchivedView ? (
+                  <label className="admin-menu-surface-select-all">
+                    <input
+                      ref={selectAllRef}
+                      type="checkbox"
+                      className="admin-menu-surface-checkbox"
+                      checked={allPageSelected}
+                      aria-label="Select all QR codes on this page"
+                      onChange={(e) => toggleSelectAllPaged(e.target.checked)}
+                    />
+                    <span className="admin-menu-surface-select-all-label">Select all on page</span>
+                  </label>
+                ) : null}
 
                 <ul className={`admin-menu-surface-list ${pager.pageClassName}`} key={pager.pageKey}>
                   {pagedItems.map((row, index) => {
                     const uiOnly = isUiOnlyQrId(row.id);
                     const isSelected = selectedQrIds.has(row.id);
+                    const cardActions = isArchivedView
+                      ? buildQrArchivedCardActions({ canView, canManage })
+                      : buildQrCardActions(row, { canView, canManage });
                     return (
                       <li
                         key={row.id}
@@ -449,16 +498,18 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
                         style={{ animationDelay: `${Math.min(index, 12) * 40}ms` }}
                       >
                         <div className={`admin-menu-surface-card${isSelected ? " is-selected" : ""}`}>
-                          <label className="admin-menu-surface-checkbox-wrap">
-                            <input
-                              type="checkbox"
-                              className="admin-menu-surface-checkbox"
-                              checked={isSelected}
-                              disabled={uiOnly}
-                              aria-label={uiOnly ? `${row.name} (preview only)` : `Select ${row.name}`}
-                              onChange={(e) => toggleQrSelection(row.id, e.target.checked)}
-                            />
-                          </label>
+                          {!isArchivedView ? (
+                            <label className="admin-menu-surface-checkbox-wrap">
+                              <input
+                                type="checkbox"
+                                className="admin-menu-surface-checkbox"
+                                checked={isSelected}
+                                disabled={uiOnly}
+                                aria-label={uiOnly ? `${row.name} (preview only)` : `Select ${row.name}`}
+                                onChange={(e) => toggleQrSelection(row.id, e.target.checked)}
+                              />
+                            </label>
+                          ) : null}
 
                           <span className={`admin-menu-surface-status ${qrStatusClass(row)}`}>
                             {qrStatusLabel(row)}
@@ -477,15 +528,17 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
                           </div>
 
                           <div className="admin-menu-surface-actions">
-                            <MenuEntityActionsMenu
-                              entityName={row.name}
-                              subtitle={TYPE_LABEL[row.type]}
-                              hideHeader
-                              open={openMenuId === row.id}
-                              actions={buildQrCardActions(row, { canView, canManage })}
-                              onToggle={() => setOpenMenuId((cur) => (cur === row.id ? null : row.id))}
-                              onAction={(id) => void runCardAction(row, id as QrCardActionId)}
-                            />
+                            {cardActions.length > 0 ? (
+                              <MenuEntityActionsMenu
+                                entityName={row.name}
+                                subtitle={TYPE_LABEL[row.type]}
+                                hideHeader
+                                open={openMenuId === row.id}
+                                actions={cardActions}
+                                onToggle={() => setOpenMenuId((cur) => (cur === row.id ? null : row.id))}
+                                onAction={(id) => void runCardAction(row, id as QrCardActionId)}
+                              />
+                            ) : null}
                           </div>
                         </div>
                       </li>
@@ -526,7 +579,7 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
       />
 
       <QrManageDrawer
-        open={manageOpen}
+        open={manageOpen && !isArchivedView}
         venueName={venueName}
         token={token}
         restaurantId={restaurantId}
@@ -540,10 +593,71 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
         }}
         onRefresh={() => void reload()}
         onClearSelection={() => setSelectedQrIds(new Set())}
+        onReplaceSelection={(ids) => setSelectedQrIds(new Set(ids))}
         initialFocus={manageFocus}
+        onRequestPrint={(qr) => setPrintQr(qr)}
       />
 
-      <QrDetailsModal open={Boolean(detailsQr)} qr={detailsQr} onClose={() => setDetailsQr(null)} />
+      <QrDetailsModal
+        open={Boolean(detailsQr)}
+        qr={detailsQr}
+        venueName={venueName}
+        onClose={() => setDetailsQr(null)}
+        onOpenManage={
+          detailsQr && !isArchivedView
+            ? () => {
+                const id = detailsQr.id;
+                setDetailsQr(null);
+                openManage(null, id);
+              }
+            : undefined
+        }
+      />
+
+      <QrPrintConfirmModal open={Boolean(printQr)} qr={printQr} onClose={() => setPrintQr(null)} />
+
+      {confirmAction ? (
+        <MenuPageModalShell
+          open
+          onClose={() => {
+            if (!actionBusy) setConfirmAction(null);
+          }}
+          title={confirmAction.title}
+          description={confirmAction.consequence}
+          titleId="qr-confirm-action-title"
+          busy={actionBusy}
+          stackLevel="overlay"
+        >
+          {actionBusy ? (
+            <QrRequestLoading title={actionBusyLabel} sub="Updating QR codes" />
+          ) : (
+            <ProfileModalFooter
+              cancelLabel="Cancel"
+              confirmLabel={confirmAction.confirmLabel}
+              danger={confirmAction.danger}
+              onCancel={() => setConfirmAction(null)}
+              onConfirm={() => {
+                const run = confirmAction.run;
+                void (async () => {
+                  await run();
+                  setConfirmAction(null);
+                })();
+              }}
+            />
+          )}
+        </MenuPageModalShell>
+      ) : null}
+
+      {actionBusy && !confirmAction
+        ? createPortal(
+            <div className="admin-qr-page-busy" role="alertdialog" aria-busy="true" aria-label={actionBusyLabel}>
+              <div className="admin-qr-page-busy-card">
+                <QrRequestLoading title={actionBusyLabel} sub="Please wait" />
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
     </AdminPanel>
   );
 }
@@ -644,10 +758,15 @@ function QrCreateWizardModal({
       open={open}
       onClose={onClose}
       title="Create QR identity"
-      description="Permanent digital location â€” guests get a fresh session on every scan."
+      description="Permanent digital location — guests get a fresh session on every scan."
       titleId="qr-create-title"
       stackLevel="overlay"
+      busy={busy}
     >
+      {busy ? (
+        <QrRequestLoading title="Creating QR…" sub="Allocating public code and assets" />
+      ) : (
+        <>
       <div className="mb-4 flex gap-2 text-xs font-semibold uppercase tracking-wide admin-config-text-muted">
         {[1, 2, 3, 4].map((n) => (
           <span key={n} className={step === n ? "text-[var(--admin-accent,#0f766e)]" : ""}>
@@ -776,10 +895,12 @@ function QrCreateWizardModal({
           </AdminBtnPrimary>
         ) : (
           <AdminBtnPrimary type="button" disabled={busy} onClick={() => void submit()}>
-            {busy ? "Creatingâ€¦" : "Create QR"}
+            Create QR
           </AdminBtnPrimary>
         )}
       </div>
+        </>
+      )}
     </MenuPageModalShell>
   );
 }

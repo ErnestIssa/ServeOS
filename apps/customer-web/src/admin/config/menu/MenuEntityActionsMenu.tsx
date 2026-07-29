@@ -5,7 +5,28 @@ export type EntityMenuAction = {
   id: string;
   label: string;
   danger?: boolean;
+  /** Opens a new tab/window — show external-link affordance. */
+  external?: boolean;
 };
+
+function ExternalLinkIcon() {
+  return (
+    <svg
+      className="admin-bubble-item-external-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+      <polyline points="15 3 21 3 21 9" />
+      <line x1="10" y1="14" x2="21" y2="3" />
+    </svg>
+  );
+}
 
 type Props = {
   entityName: string;
@@ -14,6 +35,8 @@ type Props = {
   open: boolean;
   actions: EntityMenuAction[];
   titleGradient?: boolean;
+  /** Horizontal ⋯ (default) or vertical ⋮. */
+  dotsOrientation?: "horizontal" | "vertical";
   onToggle: () => void;
   onAction: (actionId: string) => void;
 };
@@ -64,6 +87,7 @@ export function MenuEntityActionsMenu({
   open,
   actions,
   titleGradient = true,
+  dotsOrientation = "horizontal",
   onToggle,
   onAction
 }: Props) {
@@ -210,7 +234,7 @@ export function MenuEntityActionsMenu({
         <button
           ref={triggerRef}
           type="button"
-          className={`admin-staff-actions-trigger${open ? " is-open" : ""}`}
+          className={`admin-staff-actions-trigger${open ? " is-open" : ""}${dotsOrientation === "vertical" ? " is-vertical-dots" : ""}`}
           aria-expanded={open}
           aria-haspopup="menu"
           aria-label={`More options for ${entityName}`}
@@ -219,7 +243,7 @@ export function MenuEntityActionsMenu({
             onToggle();
           }}
         >
-          ⋯
+          {dotsOrientation === "vertical" ? "⋮" : "⋯"}
         </button>
       </div>
 
@@ -257,7 +281,8 @@ export function MenuEntityActionsMenu({
                         key={action.id}
                         type="button"
                         role="menuitem"
-                        className={`admin-bubble-menu-item w-full text-left${action.danger ? " admin-bubble-menu-item--danger" : ""}`}
+                        className={`admin-bubble-menu-item w-full text-left${action.danger ? " admin-bubble-menu-item--danger" : ""}${action.external ? " admin-bubble-menu-item--external" : ""}`}
+                        title={action.external ? `${action.label} (opens in a new tab)` : undefined}
                         onClick={(e) => {
                           e.stopPropagation();
                           onToggle();
@@ -265,6 +290,7 @@ export function MenuEntityActionsMenu({
                         }}
                       >
                         <span className="admin-bubble-item-title">{action.label}</span>
+                        {action.external ? <ExternalLinkIcon /> : null}
                       </button>
                     ))
                   ) : (

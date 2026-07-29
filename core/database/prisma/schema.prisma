@@ -931,8 +931,8 @@ model QrCode {
   allowOrdering       Boolean               @default(true)
   /// Soft pause: QR stays active for browse, but new orders are blocked.
   orderingPaused      Boolean               @default(false)
-  /// Optional override for guest session TTL (hours). Null = platform default.
-  sessionTtlHours     Int?
+  /// Optional override for guest session TTL (hours; fractional allowed for minutes). Null = platform default.
+  sessionTtlHours     Float?
   /// Internal staff notes (not guest-facing).
   description         String?
   headline            String?               @default("Scan to order")

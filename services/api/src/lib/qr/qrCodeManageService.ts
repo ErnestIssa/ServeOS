@@ -476,6 +476,21 @@ export async function restoreQrCode(prisma: PrismaClient, restaurantId: string, 
   return { ok: true as const, qr: serializeQr(row) };
 }
 
+/** Permanently remove an archived QR identity. Orders/sessions keep history via SetNull FKs. */
+export async function deleteQrCode(prisma: PrismaClient, restaurantId: string, qrCodeId: string) {
+  const existing = await prisma.qrCode.findFirst({
+    where: { id: qrCodeId, restaurantId },
+    select: { id: true, status: true }
+  });
+  if (!existing) return { ok: false as const, error: "qr_not_found" as const };
+  if (existing.status !== "ARCHIVED") {
+    return { ok: false as const, error: "qr_not_archived" as const };
+  }
+
+  await prisma.qrCode.delete({ where: { id: qrCodeId } });
+  return { ok: true as const };
+}
+
 export async function pauseQrOrdering(prisma: PrismaClient, restaurantId: string, qrCodeId: string) {
   const existing = await prisma.qrCode.findFirst({
     where: { id: qrCodeId, restaurantId },
@@ -591,26 +606,18 @@ function buildQrManageActions(targets: QrCodeRow[]): QrManageActionDescriptor[] 
   if (targets.length === 1) {
     const qr = targets[0]!;
     actions.push(
-      { id: "edit-general", label: "Edit general", description: "Name, notes, location labels" },
-      { id: "edit-destination", label: "Edit destination", description: "Experience, menu, payment" },
-      { id: "edit-ordering", label: "Edit ordering", description: "Allow ordering, pause, session TTL" },
-      { id: "download-png", label: "Download PNG" },
-      { id: "download-svg", label: "Download SVG" },
-      { id: "copy-link", label: "Copy link" },
+      { id: "edit-settings", label: "Edit QR", description: "General, destination, and ordering" },
+      { id: "download-assets", label: "Download", description: "PNG or SVG" },
       { id: "view-analytics", label: "View analytics" }
     );
 
-    if (qr.status === "ACTIVE") {
-      actions.push({ id: "deactivate", label: "Deactivate" });
-    } else if (qr.status === "INACTIVE") {
+    if (qr.status === "INACTIVE") {
       actions.push({ id: "activate", label: "Activate" });
     }
 
     if (qr.status !== "ROTATED" && qr.status !== "ARCHIVED") {
       if (qr.orderingPaused) {
         actions.push({ id: "resume-ordering", label: "Resume ordering" });
-      } else {
-        actions.push({ id: "pause-ordering", label: "Pause ordering" });
       }
       actions.push({ id: "rotate", label: "Rotate", description: "Invalidate printed URL", danger: true });
       actions.push({ id: "archive", label: "Archive", danger: true });
@@ -845,6 +852,8 @@ export function mapQrCodeError(code: string): string {
       return "This QR code is archived.";
     case "qr_not_archived":
       return "This QR code is not archived.";
+    case "qr_delete_forbidden":
+      return "Only archived QR codes can be permanently deleted.";
     case "qr_not_mutable":
       return "One or more QR codes cannot be updated (rotated or archived).";
     case "qr_ids_required":

@@ -8,6 +8,7 @@ import {
   bulkUpdateQrCodes,
   createQrCode,
   deactivateQrCode,
+  deleteQrCode,
   duplicateQrCode,
   getQrAnalyticsSummary,
   getQrCode,
@@ -42,7 +43,7 @@ const createBodySchema = z.object({
   menuId: z.string().min(1).nullable().optional(),
   allowOrdering: z.boolean().optional(),
   orderingPaused: z.boolean().optional(),
-  sessionTtlHours: z.number().int().min(1).max(168).nullable().optional(),
+  sessionTtlHours: z.number().min(1 / 60).max(168).nullable().optional(),
   description: z.string().trim().max(2000).nullable().optional(),
   headline: z.string().trim().max(80).nullable().optional(),
   showRestaurantLogo: z.boolean().optional(),
@@ -298,6 +299,23 @@ export function registerQrCodeRoutes(app: FastifyInstance, prisma: PrismaClient)
       });
     }
     return { ok: true, qr: result.qr };
+  });
+
+  app.delete("/restaurants/:restaurantId/qr-codes/:qrCodeId", async (req, reply) => {
+    const params = z
+      .object({ restaurantId: z.string().min(1), qrCodeId: z.string().min(1) })
+      .parse(req.params);
+    const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("menu", "publish", membership);
+    const result = await deleteQrCode(prisma, params.restaurantId, params.qrCodeId);
+    if (!result.ok) {
+      return reply.status(qrActionErrorStatus(result.error)).send({
+        ok: false,
+        error: result.error,
+        message: mapQrCodeError(result.error)
+      });
+    }
+    return { ok: true };
   });
 
   app.post("/restaurants/:restaurantId/qr-codes/:qrCodeId/pause-ordering", async (req, reply) => {
