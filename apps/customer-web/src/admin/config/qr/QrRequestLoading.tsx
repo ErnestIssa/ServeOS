@@ -1,4 +1,6 @@
-/** Branded request loading — same animation language as Media Library uploads. */
+/** Branded request loading — same animation language as Media Library uploads.
+ * Renders inline in the content body (no overlay / blur / separate modal card).
+ */
 export function QrRequestLoading({
   title,
   sub,
@@ -15,25 +17,6 @@ export function QrRequestLoading({
         {title}
       </p>
       {sub ? <p className="media-upload-loading-sub">{sub}</p> : null}
-    </div>
-  );
-}
-
-export function QrBusyOverlay({
-  show,
-  title = "Working…",
-  sub
-}: {
-  show: boolean;
-  title?: string;
-  sub?: string;
-}) {
-  if (!show) return null;
-  return (
-    <div className="admin-qr-busy-overlay" aria-busy="true">
-      <div className="admin-qr-busy-overlay-card">
-        <QrRequestLoading title={title} sub={sub} />
-      </div>
     </div>
   );
 }

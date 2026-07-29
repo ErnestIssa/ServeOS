@@ -1,5 +1,4 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { formatMoneyCents } from "@serveos/core-shared/currency";
 import {
   createQrCode,
@@ -167,9 +166,11 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
       for (const id of prev) {
         if (nextItems.some((i) => i.id === id)) next.add(id);
       }
+      // Keep selection while Manage is open (e.g. just archived — row left the active list).
+      if (manageOpen && prev.size > 0 && next.size === 0) return prev;
       return next;
     });
-  }, [token, restaurantId, isArchivedView]);
+  }, [token, restaurantId, isArchivedView, manageOpen]);
 
   useEffect(() => {
     void reload();
@@ -460,7 +461,9 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
               />
             ) : null}
 
-            {items.length === 0 ? (
+            {actionBusy && !confirmAction ? (
+              <QrRequestLoading title={actionBusyLabel} sub="Please wait" />
+            ) : items.length === 0 ? (
               <p className="admin-config-text-muted py-2 text-sm">
                 {isArchivedView
                   ? "No archived QR codes."
@@ -647,17 +650,6 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
           )}
         </MenuPageModalShell>
       ) : null}
-
-      {actionBusy && !confirmAction
-        ? createPortal(
-            <div className="admin-qr-page-busy" role="alertdialog" aria-busy="true" aria-label={actionBusyLabel}>
-              <div className="admin-qr-page-busy-card">
-                <QrRequestLoading title={actionBusyLabel} sub="Please wait" />
-              </div>
-            </div>,
-            document.body
-          )
-        : null}
     </AdminPanel>
   );
 }
