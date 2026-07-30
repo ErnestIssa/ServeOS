@@ -334,7 +334,7 @@ export function CategoryManageDrawer({
                         }}
                       >
                         <span className="admin-menu-manage-action-label">Move to another menu</span>
-                        <span className="admin-menu-manage-action-desc">Attach selected categories to a different menu surface.</span>
+                        <span className="admin-menu-manage-action-desc">Move selected categories to a different menu.</span>
                       </button>
                       <button type="button" className="admin-menu-manage-action" onClick={handleEdit}>
                         <span className="admin-menu-manage-action-label">
@@ -371,7 +371,7 @@ export function CategoryManageDrawer({
                       {visibleTargets.length > 0 ? (
                         <button type="button" className="admin-menu-manage-danger-btn" onClick={() => setDangerKind("unpublish")}>
                           <span className="admin-menu-manage-danger-btn-label">Hide</span>
-                          <span className="admin-menu-manage-danger-btn-desc">Hide visible categories in the draft workspace.</span>
+                          <span className="admin-menu-manage-danger-btn-desc">Hide visible categories in your draft.</span>
                         </button>
                       ) : null}
                     </div>
@@ -387,7 +387,7 @@ export function CategoryManageDrawer({
         open={moveOpen}
         onClose={moveBusy ? () => undefined : () => setMoveOpen(false)}
         title="Move to another menu"
-        description="Choose the menu surface these categories should belong to."
+        description="Choose which menu these categories should belong to."
         titleId="move-category-menu-title"
         stackLevel="overlay"
       >
@@ -432,7 +432,7 @@ export function CategoryManageDrawer({
         open={dangerKind === "unpublish"}
         onClose={dangerBusy ? () => undefined : () => setDangerKind(null)}
         title="Hide categories?"
-        description="Visible categories will be hidden in the draft workspace until you show them again. Guests still see the last published menu version."
+        description="Visible categories will be hidden in your draft until you show them again. Guests still see the last published menu."
         titleId="hide-category-title"
         stackLevel="overlay"
       >

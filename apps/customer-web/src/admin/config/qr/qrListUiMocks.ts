@@ -44,7 +44,7 @@ function mockQr(partial: {
     description: null,
     headline: "Scan to order",
     showRestaurantLogo: true,
-    showServeosBranding: false,
+    showServeosBranding: true,
     createdByUserId: null,
     scanCount: partial.scanCount ?? 0,
     orderCount: partial.orderCount ?? 0,

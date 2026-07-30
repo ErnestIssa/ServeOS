@@ -287,7 +287,7 @@ export function MenuMediaDestinationModal({
         <div className="admin-search-modal-body flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-5 sm:px-7 sm:py-6">
           {activeMenus.length === 0 ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-4 py-8 text-center">
-              <p className="text-sm admin-config-text-subtle">Create a menu surface first — then you can add cover photos and item media.</p>
+              <p className="text-sm admin-config-text-subtle">Create a menu first — then you can add cover photos and item photos.</p>
               <AdminBtnPrimary
                 onClick={() => {
                   closeAll();

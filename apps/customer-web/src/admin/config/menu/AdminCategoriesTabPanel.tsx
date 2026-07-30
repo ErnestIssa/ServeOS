@@ -200,7 +200,7 @@ export function AdminCategoriesTabPanel({
     });
   };
 
-  const toastPreview = () => pushToast("Preview category only — not connected to the backend.", "error");
+  const toastPreview = () => pushToast("This is a preview category — changes here are not saved.", "error");
 
   const setVisibility = async (category: CategoryListRow, isActive: boolean) => {
     if (isUiOnlyListId(category.id)) {

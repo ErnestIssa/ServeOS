@@ -9,7 +9,12 @@ import {
 } from "../AdminUi";
 import { AdminSkeletonStatGrid, AdminStaleContent } from "../AdminSkeleton";
 import { usePageRecoverySync, useSilentRevalidate } from "../sync/adminPageSync";
-import { ADMIN_NAV_SYNC_EVENT, parseAdminHashQuery } from "../adminWorkspaceRouting";
+import {
+  ADMIN_NAV_SYNC_EVENT,
+  buildNavHref,
+  parseAdminHashQuery,
+  syncAdminNavHash
+} from "../adminWorkspaceRouting";
 import {
   CONFIG_PRESET_DESCRIPTIONS,
   MENU_TAB_LABELS,
@@ -64,6 +69,10 @@ export function AdminConfigMenuPage({ token, restaurantId, venueName, initialTab
     const applyHashFocus = () => {
       const q = parseAdminHashQuery();
       const nextTab = q.get("tab");
+      if (nextTab === "import-export") {
+        syncAdminNavHash(buildNavHref("config", "imports-exports"));
+        return;
+      }
       if (isMenuTab(nextTab)) setTab(nextTab);
       setFocusMenuId(q.get("menuId"));
       setFocusItemId(q.get("itemId"));

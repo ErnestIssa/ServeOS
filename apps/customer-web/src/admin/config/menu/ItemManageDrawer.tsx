@@ -691,7 +691,7 @@ export function ItemManageDrawer({
                 }}
               >
                 <span className="admin-menu-manage-action-label">Another menu</span>
-                <span className="admin-menu-manage-action-desc">Choose a menu surface, then a category on it.</span>
+                <span className="admin-menu-manage-action-desc">Choose a menu, then a category on that menu.</span>
               </button>
             </div>
             <div className="mt-6 flex justify-end">

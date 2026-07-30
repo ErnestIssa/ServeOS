@@ -251,7 +251,7 @@ export const WORKSPACE_PRESETS: Record<WorkspaceId, WorkspacePreset[]> = {
       id: "qr-codes",
       label: "QR codes",
       tab: "qr",
-      description: "Permanent QR identities and guest ordering entry points"
+      description: "QR codes guests scan to open the menu and place orders"
     },
     {
       id: "media-library",
@@ -264,6 +264,12 @@ export const WORKSPACE_PRESETS: Record<WorkspaceId, WorkspacePreset[]> = {
       label: "Payments",
       tab: "payments",
       description: "Providers, methods, payouts, and payment rules"
+    },
+    {
+      id: "imports-exports",
+      label: "Imports & Exports",
+      tab: "imports-exports",
+      description: "Import, export, templates, migrations, and transfer history"
     }
   ],
   business: [

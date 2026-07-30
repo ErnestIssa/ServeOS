@@ -66,7 +66,7 @@ export const MENU_LIST_QUERY: MenuListQueryPreset = {
       label: "Status",
       hint: "Match any selected publish state.",
       options: [
-        { id: "status:draft", label: "Draft", description: "Still in the draft workspace" },
+        { id: "status:draft", label: "Draft", description: "Not published to guests yet" },
         { id: "status:published", label: "Published", description: "Live for guests" },
         { id: "status:retired", label: "Retired", description: "Retired from guest ordering" },
         { id: "status:archived", label: "Archived", description: "Stored / archived menus" }
@@ -103,7 +103,7 @@ export const MENU_LIST_QUERY: MenuListQueryPreset = {
     }
   ],
   sortOptions: [
-    { id: "sort_order_asc", label: "Default order", description: "Menu sort order from the backend" },
+    { id: "sort_order_asc", label: "Default order", description: "Your saved menu order" },
     { id: "name_asc", label: "Name A–Z" },
     { id: "name_desc", label: "Name Z–A" },
     { id: "updated_desc", label: "Recently updated" },
@@ -222,7 +222,7 @@ export const CATEGORY_LIST_QUERY: MenuListQueryPreset = {
     }
   ],
   sortOptions: [
-    { id: "sort_order_asc", label: "Sort order", description: "Category sort from the backend" },
+    { id: "sort_order_asc", label: "Sort order", description: "Your saved category order" },
     { id: "name_asc", label: "Name A–Z" },
     { id: "name_desc", label: "Name Z–A" },
     { id: "items_desc", label: "Most items" },

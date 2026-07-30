@@ -9,6 +9,7 @@ import { PrismaClient } from "@prisma/client";
 import { authPlugin } from "./plugins/auth.js";
 import { registerAuthRoutes } from "./routes/authRoutes.js";
 import { registerMenuRoutes } from "./routes/menuRoutes.js";
+import { registerImportExportRoutes } from "./routes/importExportRoutes.js";
 import { registerVenuePaymentRoutes } from "./routes/venuePaymentRoutes.js";
 import { registerOrderingSessionRoutes } from "./routes/orderingSessionRoutes.js";
 import { registerRestaurantRoutes } from "./routes/restaurantRoutes.js";
@@ -234,6 +235,7 @@ async function main() {
   registerStaffAccessRoutes(app, prisma, domainEventBus);
   registerRestaurantRoutes(app, prisma);
   registerMenuRoutes(app, prisma);
+  registerImportExportRoutes(app, prisma);
   registerReplicationRoutes(app, prisma);
   registerVenuePaymentRoutes(app, prisma);
   registerOrderingSessionRoutes(app, prisma);

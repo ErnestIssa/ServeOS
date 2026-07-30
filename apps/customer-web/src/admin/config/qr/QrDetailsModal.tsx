@@ -151,7 +151,7 @@ export function QrDetailsModal({ open, qr, venueName = "", onClose, onOpenManage
               <DetailRow label="Name" value={qr.name} />
               <DetailRow label="Type" value={TYPE_LABEL[qr.type]} />
               <DetailRow label="Status" value={statusLabel(qr.status)} />
-              <DetailRow label="Public code" value={qr.publicCode} />
+              <DetailRow label="Code on print" value={qr.publicCode} />
               <DetailRow label="Public URL" value={qr.publicUrl} />
               <DetailRow label="Payment" value={PAYMENT_LABEL[qr.paymentMode]} />
               <DetailRow label="Location" value={locationBits.length ? locationBits.join(" · ") : "—"} />

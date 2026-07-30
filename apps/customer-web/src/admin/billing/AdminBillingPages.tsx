@@ -152,7 +152,7 @@ function UsageLayout() {
     { label: "Menu size", used: "—", limit: "—" },
     { label: "Devices / KDS", used: "—", limit: "—" },
     { label: "Storage (images)", used: "—", limit: "—" },
-    { label: "API usage", used: "Future", limit: "—" }
+    { label: "Integrations usage", used: "Future", limit: "—" }
   ];
   return (
     <div className="admin-bill-layout admin-bill-layout--usage">
@@ -210,7 +210,7 @@ function FeaturesLayout() {
     { name: "Advanced analytics", enabled: false },
     { name: "Priority support", enabled: false },
     { name: "Custom roles", enabled: false },
-    { name: "API access", enabled: false }
+    { name: "Integrations access", enabled: false }
   ];
   return (
     <div className="admin-bill-layout admin-bill-layout--features">

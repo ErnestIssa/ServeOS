@@ -552,16 +552,16 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
               </div>
             </PaySection>
 
-            <PaySection className="mt-5" title="Payment security" description="Webhooks, API health, and fraud monitoring.">
+            <PaySection className="mt-5" title="Payment security" description="Connection status, payment health, and fraud monitoring.">
               <ul className="admin-payments-security-list">
                 <li className="admin-payments-security-row">
-                  <span className="font-semibold admin-config-text">Webhook status</span>
+                  <span className="font-semibold admin-config-text">Provider connection</span>
                   <PayChip tone={providers.stripe.connected || providers.swish.connected ? "success" : "muted"}>
-                    {providers.stripe.connected || providers.swish.connected ? "Active" : "Awaiting provider"}
+                    {providers.stripe.connected || providers.swish.connected ? "Connected" : "Not connected yet"}
                   </PayChip>
                 </li>
                 <li className="admin-payments-security-row">
-                  <span className="font-semibold admin-config-text">API keys health</span>
+                  <span className="font-semibold admin-config-text">Payment connection health</span>
                   <PayChip tone="success">Healthy</PayChip>
                 </li>
                 <li className="admin-payments-security-row">

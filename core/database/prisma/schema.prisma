@@ -636,6 +636,7 @@ model Restaurant {
   replicationJobsTarget ReplicationJob[] @relation("ReplicationJobTargetVenue")
   contentTemplates   ContentTemplate[]
   staffAuditLogs     StaffAuditLog[]
+  dataTransferJobs   DataTransferJob[]
 
   @@index([companyId])
 }
@@ -936,8 +937,10 @@ model QrCode {
   /// Internal staff notes (not guest-facing).
   description         String?
   headline            String?               @default("Scan to order")
+  /// Always shown on guest QR experiences — not editable per QR.
   showRestaurantLogo  Boolean               @default(true)
-  showServeosBranding Boolean               @default(false)
+  /// Always shown on guest QR experiences — not editable per QR.
+  showServeosBranding Boolean               @default(true)
   createdByUserId     String?
   scanCount           Int                   @default(0)
   orderCount          Int                   @default(0)
@@ -1886,5 +1889,55 @@ model StaffAuditLog {
   @@index([restaurantId, createdAt])
   @@index([targetUserId])
   @@index([targetMembershipId])
+}
+
+enum DataTransferDirection {
+  IMPORT
+  EXPORT
+}
+
+enum DataTransferJobStatus {
+  QUEUED
+  RUNNING
+  VALIDATING
+  COMPLETED
+  FAILED
+  CANCELLED
+  ROLLED_BACK
+}
+
+/// Platform-wide import/export job — menu CSV is the first registered target.
+model DataTransferJob {
+  id              String                 @id @default(cuid())
+  restaurantId    String
+  direction       DataTransferDirection
+  status          DataTransferJobStatus  @default(QUEUED)
+  targetKey       String
+  sourceFormat    String?
+  fileName        String?
+  fileHash        String?
+  fileSizeBytes   Int?
+  rowCount        Int                    @default(0)
+  importedCount   Int                    @default(0)
+  updatedCount    Int                    @default(0)
+  skippedCount    Int                    @default(0)
+  failedCount     Int                    @default(0)
+  warningCount    Int                    @default(0)
+  dryRun          Boolean                @default(false)
+  summary         Json?
+  error           String?
+  startedByUserId String?
+  startedAt       DateTime               @default(now())
+  finishedAt      DateTime?
+  undoExpiresAt   DateTime?
+  undoAvailable   Boolean                @default(false)
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId, createdAt])
+  @@index([restaurantId, status])
+  @@index([restaurantId, direction])
 }
 

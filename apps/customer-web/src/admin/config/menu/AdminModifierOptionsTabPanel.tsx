@@ -246,7 +246,7 @@ export function AdminModifierOptionsTabPanel({
     });
   };
 
-  const toastPreview = () => pushToast("Preview option only — not connected to the backend.", "error");
+  const toastPreview = () => pushToast("This is a preview option — changes here are not saved.", "error");
 
   const openEdit = (option: ModifierOptionListRow) => {
     setEditTarget(toEditTarget(option));

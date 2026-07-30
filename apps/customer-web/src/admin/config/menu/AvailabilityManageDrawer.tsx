@@ -296,7 +296,7 @@ export function AvailabilityManageDrawer({
               <div className="min-w-0 flex-1">
                 <h3 className="admin-staff-profile-title">Manage availability</h3>
                 <p className="admin-staff-profile-sub">
-                  {selectionLabel} · rule-based SSOT at {venueName}
+                  {selectionLabel} → availability at {venueName}
                 </p>
               </div>
               <button type="button" className="admin-staff-profile-close" onClick={onClose} aria-label="Close">
@@ -519,7 +519,7 @@ export function AvailabilityManageDrawer({
                       />
                       <ActionBtn
                         label="Apply to other menus"
-                        desc="Push rules onto selected menu surfaces."
+                        desc="Apply these rules to the menus you select."
                         onClick={() => {
                           setApplyMenuIds([]);
                           setPanel("apply_menus");
@@ -545,7 +545,7 @@ export function AvailabilityManageDrawer({
                       />
                       <ActionBtn label="Import schedule" desc="Merge a JSON schedule into a menu." onClick={() => setPanel("import")} />
                       <ActionBtn label="View rule history" desc="Recent mutations for the first scoped window." onClick={() => setPanel("history")} />
-                      <ActionBtn label="View audit log" desc="Same history trail — backend SSOT." onClick={() => setPanel("history")} />
+                      <ActionBtn label="View history" desc="See what changed and when." onClick={() => setPanel("history")} />
                       <ActionBtn label="Preview availability" desc="Open guest-facing explanation for one window." onClick={() => openSingle("preview")} />
                     </div>
                   </section>

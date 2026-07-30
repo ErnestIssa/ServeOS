@@ -11,7 +11,7 @@ export const QR_LIST_QUERY: MenuListQueryPreset = {
       options: [
         { id: "status:active", label: "Active", description: "Ready to scan" },
         { id: "status:inactive", label: "Inactive", description: "Temporarily disabled" },
-        { id: "status:rotated", label: "Rotated", description: "Replaced by a new public code" },
+        { id: "status:rotated", label: "Rotated", description: "Replaced by a new QR code" },
         { id: "status:archived", label: "Archived", description: "Hidden from normal lists" }
       ]
     },
@@ -19,11 +19,11 @@ export const QR_LIST_QUERY: MenuListQueryPreset = {
       id: "type",
       label: "Type",
       options: [
-        { id: "type:table", label: "Table", description: "Table ordering identities" },
-        { id: "type:menu", label: "Menu", description: "Menu / poster QRs" },
+        { id: "type:table", label: "Table", description: "Table ordering codes" },
+        { id: "type:menu", label: "Menu", description: "Menu or poster codes" },
         { id: "type:takeaway", label: "Takeaway", description: "Pickup / takeaway" },
-        { id: "type:staff", label: "Staff", description: "Staff pairing" },
-        { id: "type:marketing", label: "Marketing", description: "Promo destinations" },
+        { id: "type:staff", label: "Staff", description: "Staff use" },
+        { id: "type:marketing", label: "Marketing", description: "Promo codes" },
         { id: "type:feedback", label: "Feedback", description: "Guest feedback" }
       ]
     },
@@ -31,8 +31,8 @@ export const QR_LIST_QUERY: MenuListQueryPreset = {
       id: "experience",
       label: "Experience",
       options: [
-        { id: "exp:ordering", label: "Ordering", description: "Creates ordering sessions" },
-        { id: "exp:browse", label: "Menu browse", description: "Browse-only" },
+        { id: "exp:ordering", label: "Ordering", description: "Guests can place orders" },
+        { id: "exp:browse", label: "Menu browse", description: "Menu only — no ordering" },
         { id: "exp:other", label: "Other", description: "Feedback, promo, reservation" }
       ]
     },
@@ -41,12 +41,12 @@ export const QR_LIST_QUERY: MenuListQueryPreset = {
       label: "Rules",
       options: [
         { id: "rules:ordering_on", label: "Ordering enabled", description: "Guests can place orders" },
-        { id: "rules:ordering_off", label: "Ordering disabled", description: "Browse or non-order flows" },
+        { id: "rules:ordering_off", label: "Ordering disabled", description: "Menu only — no new orders" },
         { id: "rules:pay_venue", label: "Pay at venue", description: "Pay at table / counter" },
-        { id: "rules:prepay", label: "Pay online", description: "Prepay required" },
-        { id: "rules:hybrid", label: "Hybrid payment", description: "Both payment modes" },
-        { id: "rules:has_menu", label: "Has menu destination", description: "Bound to a specific menu" },
-        { id: "rules:auto_menu", label: "Auto menu", description: "Uses first published menu" }
+        { id: "rules:prepay", label: "Pay online", description: "Pay before the order is placed" },
+        { id: "rules:hybrid", label: "Hybrid payment", description: "Pay online or at the venue" },
+        { id: "rules:has_menu", label: "Has menu destination", description: "Opens a specific menu" },
+        { id: "rules:auto_menu", label: "Auto menu", description: "Uses your first published menu" }
       ]
     }
   ],

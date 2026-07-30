@@ -206,7 +206,7 @@ function ProfileBusinessTab({ settings, access, persist, venueId, token }: TabPr
 
   return (
     <div className="admin-venue-tab-stack">
-      <VenueSection title="Venue profile" description="Guest-facing identity and contact surfaces.">
+      <VenueSection title="Venue profile" description="How guests see your venue name and contact details.">
         <VenuePermissionGate access={access} action="editProfile">
           <VenueFieldGrid>
             <VenueFormField label="Venue name" value={profile.venueName} readOnly={!canEditProfile} onChange={(v) => patch("profile", "venueName", v)} />

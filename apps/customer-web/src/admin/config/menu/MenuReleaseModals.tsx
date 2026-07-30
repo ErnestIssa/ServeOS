@@ -125,7 +125,7 @@ export function MenuPublishReviewModal({
       titleId="menu-publish-review-title"
       stackLevel="overlay"
     >
-      {loading ? <p className="admin-config-text-muted text-sm">Checking draft workspace…</p> : null}
+      {loading ? <p className="admin-config-text-muted text-sm">Checking your draft…</p> : null}
       {error ? <ProfileModalAlert tone="error">{error}</ProfileModalAlert> : null}
 
       {preview ? (

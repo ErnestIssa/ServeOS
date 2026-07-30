@@ -46,7 +46,7 @@ function menuDescription(menu: MenuSurfaceRow, venueName: string) {
     case "seasonal":
       return "Rotating seasonal items and limited-time offers";
     default:
-      return `Draft menu surface for ${venueName || "this venue"}`;
+      return `Draft menu for ${venueName || "this venue"}`;
   }
 }
 
@@ -245,7 +245,7 @@ export function MenuProfileDrawer({
             </DetailsGrid>
             {variant === "active" && active.status === "DRAFT" ? (
               <p className="admin-staff-drawer-hint mt-3">
-                Edits stay in the draft workspace. Schedule a release or publish changes to go live.
+                Edits stay in draft until you schedule a release or publish them for guests.
               </p>
             ) : null}
             {active.status === "PUBLISHED" && active.hasUnpublishedChanges ? (

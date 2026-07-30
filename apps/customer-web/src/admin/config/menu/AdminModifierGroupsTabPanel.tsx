@@ -219,7 +219,7 @@ export function AdminModifierGroupsTabPanel({
     });
   };
 
-  const toastPreview = () => pushToast("Preview group only — not connected to the backend.", "error");
+  const toastPreview = () => pushToast("This is a preview group — changes here are not saved.", "error");
 
   const openEdit = (group: ModifierGroupListRow) => {
     if (isUiOnlyListId(group.id)) {

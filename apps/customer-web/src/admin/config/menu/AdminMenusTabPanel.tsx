@@ -59,7 +59,7 @@ function menuDescription(menu: MenuSurfaceRow, venueName: string) {
     case "seasonal":
       return "Rotating seasonal items and limited-time offers";
     default:
-      return `Draft menu surface for ${venueName || "this venue"}`;
+      return `Draft menu for ${venueName || "this venue"}`;
   }
 }
 
@@ -124,7 +124,7 @@ function sectionCopy(variant: MenuPanelVariant) {
   }
   return {
     title: "Menus",
-    description: "Draft workspace for each menu surface. Only Publish changes releases a new guest version.",
+    description: "Work on each menu in draft. Publish when you are ready for guests to see the new version.",
     empty: "No menus yet. Create your first draft menu.",
     searchPlaceholder: "Search menus by name, surface, or status…"
   };
@@ -499,7 +499,7 @@ export function AdminMenusTabPanel({
     setActionMenu(menu);
 
     if (actionId !== "details" && actionId !== "preview" && isUiOnlyMenu(menu)) {
-      pushToast("Preview menu only — not connected to the backend.", "error");
+      pushToast("This is a preview menu — changes here are not saved.", "error");
       return;
     }
 
@@ -554,7 +554,7 @@ export function AdminMenusTabPanel({
     const { menu, actionId } = pendingRowAction;
 
     if (isUiOnlyMenu(menu)) {
-      pushToast("Preview menu only — not connected to the backend.", "error");
+      pushToast("This is a preview menu — changes here are not saved.", "error");
       setPendingRowAction(null);
       return;
     }

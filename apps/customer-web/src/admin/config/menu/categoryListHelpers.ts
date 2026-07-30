@@ -41,7 +41,7 @@ export function categoryPublishLabel(status: MenuSurfaceRow["status"]) {
   if (status === "PUBLISHED") return "On live menu";
   if (status === "RETIRED") return "Menu retired";
   if (status === "ARCHIVED") return "Menu archived";
-  return "In draft workspace";
+  return "In draft";
 }
 
 export function categoryPublishClass(status: MenuSurfaceRow["status"]) {

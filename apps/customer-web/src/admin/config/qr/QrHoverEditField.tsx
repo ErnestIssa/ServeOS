@@ -362,9 +362,9 @@ export function ttlPartsToHours(hours: number, minutes: number): number | null {
 
 export function formatSessionTtlDisplay(hoursValue: string): string {
   const trimmed = hoursValue.trim();
-  if (!trimmed) return "Default";
+  if (!trimmed) return "Venue default";
   const n = Number(trimmed);
-  if (!Number.isFinite(n) || n <= 0) return "Default";
+  if (!Number.isFinite(n) || n <= 0) return "Venue default";
   const { hours, minutes } = hoursToTtlParts(n);
   if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
   if (hours > 0) return `${hours}h`;
@@ -721,7 +721,7 @@ export function QrHoverEditToggle({
   offLabel = "Off"
 }: ToggleProps) {
   return (
-    <div className={`admin-qr-hover-edit is-editable is-toggle${disabled ? " is-disabled" : ""}`}>
+    <div className={`admin-qr-hover-edit is-toggle${disabled ? " is-disabled" : ""}`}>
       <div className="admin-qr-hover-edit-toggle-row">
         <div className="admin-qr-hover-edit-toggle-copy">
           <span className="admin-qr-hover-edit-label">{label}</span>

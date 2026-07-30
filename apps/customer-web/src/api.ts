@@ -1865,27 +1865,199 @@ export async function manageAvailability(
   );
 }
 
-export async function exportMenuCsv(token: string, restaurantId: string) {
-  const res = await fetch(
-    `${getApiBaseUrl()}/restaurants/${encodeURIComponent(restaurantId)}/menu/export.csv`,
-    { headers: { Authorization: `Bearer ${token}` } }
+export type ImportExportCatalog = {
+  sections: Array<{ id: string; label: string; description: string }>;
+  targets: Array<{
+    key: string;
+    label: string;
+    description: string;
+    availability: "available" | "planned";
+    directions: Array<"import" | "export">;
+    formats: string[];
+    permissionEntity: string;
+  }>;
+  sources: Array<{ key: string; label: string; availability: "available" | "planned" }>;
+  formats: Array<{
+    key: string;
+    label: string;
+    availability: "available" | "planned";
+    extensions: string[];
+  }>;
+  migrationProviders: Array<{ key: string; label: string; availability: "available" | "planned" }>;
+  uploadOrigins: Array<{ key: string; label: string; availability: "available" | "planned" }>;
+  conflictStrategies: Array<{ key: string; label: string; availability: "available" | "planned" }>;
+  limits: { maxCsvBytes: number; maxCsvRows: number };
+};
+
+export type DataTransferJobRow = {
+  id: string;
+  restaurantId: string;
+  direction: "IMPORT" | "EXPORT";
+  status: string;
+  targetKey: string;
+  sourceFormat: string | null;
+  fileName: string | null;
+  fileHash: string | null;
+  fileSizeBytes: number | null;
+  rowCount: number;
+  importedCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  failedCount: number;
+  warningCount: number;
+  dryRun: boolean;
+  summary: unknown;
+  error: string | null;
+  startedByUserId: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  undoExpiresAt: string | null;
+  undoAvailable: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MenuCsvPreview = {
+  rowCount: number;
+  validRows: number;
+  warningCount: number;
+  errorCount: number;
+  issues: Array<{ line: number; code: string; message: string; severity: "error" | "warning" }>;
+  sample: Array<{
+    category: string;
+    item: string;
+    priceCents: number;
+    modifierGroup: string;
+    modifierOption: string;
+  }>;
+};
+
+export async function getImportExportCatalog(token: string, restaurantId: string) {
+  return apiFetch<{ ok: boolean; catalog?: ImportExportCatalog; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/import-export/catalog`,
+    { headers: authHeaders(token) }
   );
-  if (!res.ok) return { ok: false as const, error: "export_failed" };
-  const csv = await res.text();
-  return { ok: true as const, csv };
 }
 
-export async function importMenuCsv(token: string, restaurantId: string, csv: string) {
+export async function listDataTransferJobs(
+  token: string,
+  restaurantId: string,
+  opts?: { direction?: "IMPORT" | "EXPORT"; limit?: number }
+) {
+  const qs = new URLSearchParams();
+  if (opts?.direction) qs.set("direction", opts.direction);
+  if (opts?.limit) qs.set("limit", String(opts.limit));
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return apiFetch<{ ok: boolean; jobs?: DataTransferJobRow[]; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/import-export/jobs${suffix}`,
+    { headers: authHeaders(token) }
+  );
+}
+
+export async function exportDataTransferTarget(
+  token: string,
+  restaurantId: string,
+  targetKey: string,
+  format = "csv"
+) {
+  const res = await fetch(
+    `${getApiBaseUrl()}/restaurants/${encodeURIComponent(restaurantId)}/import-export/exports/${encodeURIComponent(targetKey)}?format=${encodeURIComponent(format)}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!res.ok) {
+    let message = "Export failed";
+    try {
+      const body = (await res.json()) as { message?: string };
+      if (body.message) message = body.message;
+    } catch {
+      /* ignore */
+    }
+    return { ok: false as const, error: "export_failed", message };
+  }
+  const csv = await res.text();
+  const jobId = res.headers.get("X-ServeOS-Transfer-Job-Id");
+  return { ok: true as const, csv, jobId };
+}
+
+export async function previewDataTransferImport(
+  token: string,
+  restaurantId: string,
+  targetKey: string,
+  body: { csv: string; sourceFormat?: string; fileName?: string }
+) {
   return apiFetch<{
     ok: boolean;
-    imported?: { categoriesCreated: number; itemsCreated: number; modifiersCreated: number; rows: number };
+    dryRun?: boolean;
+    jobId?: string;
+    preview?: MenuCsvPreview;
+    fileHash?: string;
+    fileSizeBytes?: number;
     error?: string;
     message?: string;
-  }>(`/restaurants/${encodeURIComponent(restaurantId)}/menu/import.csv`, {
-    method: "POST",
-    headers: authJsonHeaders(token),
-    body: JSON.stringify({ csv })
-  });
+  }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/import-export/imports/${encodeURIComponent(targetKey)}/preview`,
+    {
+      method: "POST",
+      headers: authJsonHeaders(token),
+      body: JSON.stringify(body)
+    }
+  );
+}
+
+export async function runDataTransferImport(
+  token: string,
+  restaurantId: string,
+  targetKey: string,
+  body: {
+    csv: string;
+    sourceFormat?: string;
+    fileName?: string;
+    dryRun?: boolean;
+    conflictStrategy?: "skip" | "replace" | "update" | "duplicate" | "ask";
+  }
+) {
+  return apiFetch<{
+    ok: boolean;
+    dryRun?: boolean;
+    jobId?: string;
+    preview?: MenuCsvPreview;
+    imported?: {
+      categoriesCreated: number;
+      itemsCreated: number;
+      modifiersCreated: number;
+      rows: number;
+      skippedExisting?: number;
+    } | null;
+    summary?: {
+      rows: number;
+      imported?: number;
+      valid?: number;
+      updated?: number;
+      skipped?: number;
+      failed?: number;
+      warnings?: number;
+      errors?: number;
+    };
+    error?: string;
+    message?: string;
+  }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/import-export/imports/${encodeURIComponent(targetKey)}`,
+    {
+      method: "POST",
+      headers: authJsonHeaders(token),
+      body: JSON.stringify(body)
+    }
+  );
+}
+
+/** @deprecated Prefer exportDataTransferTarget — kept for compatibility. */
+export async function exportMenuCsv(token: string, restaurantId: string) {
+  return exportDataTransferTarget(token, restaurantId, "menu", "csv");
+}
+
+/** @deprecated Prefer runDataTransferImport — kept for compatibility. */
+export async function importMenuCsv(token: string, restaurantId: string, csv: string) {
+  return runDataTransferImport(token, restaurantId, "menu", { csv, sourceFormat: "csv" });
 }
 
 export async function createOrderingSession(
@@ -2067,28 +2239,28 @@ export async function updateQrCode(
 export async function deactivateQrCode(token: string, restaurantId: string, qrCodeId: string) {
   return apiFetch<{ ok: boolean; qr?: QrCodeRow; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/qr-codes/${encodeURIComponent(qrCodeId)}/deactivate`,
-    { method: "POST", headers: authJsonHeaders(token) }
+    { method: "POST", headers: authJsonHeaders(token), body: "{}" }
   );
 }
 
 export async function reactivateQrCode(token: string, restaurantId: string, qrCodeId: string) {
   return apiFetch<{ ok: boolean; qr?: QrCodeRow; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/qr-codes/${encodeURIComponent(qrCodeId)}/reactivate`,
-    { method: "POST", headers: authJsonHeaders(token) }
+    { method: "POST", headers: authJsonHeaders(token), body: "{}" }
   );
 }
 
 export async function rotateQrCode(token: string, restaurantId: string, qrCodeId: string) {
   return apiFetch<{ ok: boolean; qr?: QrCodeRow; previousId?: string; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/qr-codes/${encodeURIComponent(qrCodeId)}/rotate`,
-    { method: "POST", headers: authJsonHeaders(token) }
+    { method: "POST", headers: authJsonHeaders(token), body: "{}" }
   );
 }
 
 export async function duplicateQrCode(token: string, restaurantId: string, qrCodeId: string) {
   return apiFetch<{ ok: boolean; qr?: QrCodeRow; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/qr-codes/${encodeURIComponent(qrCodeId)}/duplicate`,
-    { method: "POST", headers: authJsonHeaders(token) }
+    { method: "POST", headers: authJsonHeaders(token), body: "{}" }
   );
 }
 
@@ -2127,35 +2299,35 @@ export async function getQrAnalytics(
 export async function archiveQrCode(token: string, restaurantId: string, qrCodeId: string) {
   return apiFetch<{ ok: boolean; qr?: QrCodeRow; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/qr-codes/${encodeURIComponent(qrCodeId)}/archive`,
-    { method: "POST", headers: authJsonHeaders(token) }
+    { method: "POST", headers: authJsonHeaders(token), body: "{}" }
   );
 }
 
 export async function restoreQrCode(token: string, restaurantId: string, qrCodeId: string) {
   return apiFetch<{ ok: boolean; qr?: QrCodeRow; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/qr-codes/${encodeURIComponent(qrCodeId)}/restore`,
-    { method: "POST", headers: authJsonHeaders(token) }
+    { method: "POST", headers: authJsonHeaders(token), body: "{}" }
   );
 }
 
 export async function deleteQrCode(token: string, restaurantId: string, qrCodeId: string) {
   return apiFetch<{ ok: boolean; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/qr-codes/${encodeURIComponent(qrCodeId)}`,
-    { method: "DELETE", headers: authJsonHeaders(token) }
+    { method: "DELETE", headers: authHeaders(token) }
   );
 }
 
 export async function pauseQrOrdering(token: string, restaurantId: string, qrCodeId: string) {
   return apiFetch<{ ok: boolean; qr?: QrCodeRow; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/qr-codes/${encodeURIComponent(qrCodeId)}/pause-ordering`,
-    { method: "POST", headers: authJsonHeaders(token) }
+    { method: "POST", headers: authJsonHeaders(token), body: "{}" }
   );
 }
 
 export async function resumeQrOrdering(token: string, restaurantId: string, qrCodeId: string) {
   return apiFetch<{ ok: boolean; qr?: QrCodeRow; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/qr-codes/${encodeURIComponent(qrCodeId)}/resume-ordering`,
-    { method: "POST", headers: authJsonHeaders(token) }
+    { method: "POST", headers: authJsonHeaders(token), body: "{}" }
   );
 }
 

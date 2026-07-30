@@ -80,7 +80,7 @@ function qrStatusClass(row: QrCodeRow) {
 function qrCardDescription(row: QrCodeRow) {
   const bits = [row.areaLabel, row.tableLabel, row.locationLabel].filter(Boolean);
   if (bits.length) return bits.join(" · ");
-  return `${TYPE_LABEL[row.type]} QR identity`;
+  return `${TYPE_LABEL[row.type]} QR code`;
 }
 
 function qrCardMeta(row: QrCodeRow) {
@@ -292,7 +292,7 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
       setConfirmAction({
         title: `Delete “${row.name}”?`,
         consequence:
-          "Permanently removes this archived QR identity. Historical orders keep their references, but the code cannot be restored.",
+          "Permanently deletes this archived QR code. Past orders keep their history, but this code cannot be brought back.",
         confirmLabel: "Delete forever",
         danger: true,
         run: async () => {
@@ -343,7 +343,7 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
     return (
       <AdminPanel id="ws-config" className="admin-top-page admin-panel--edge admin-config-page">
         <AdminSectionHeader eyebrowText="Configuration" title="QR codes" description={CONFIG_PRESET_DESCRIPTIONS["qr-codes"]} />
-        <AdminEmptyState>Select a venue to manage QR ordering identities.</AdminEmptyState>
+        <AdminEmptyState>Select a venue to manage QR codes for ordering.</AdminEmptyState>
       </AdminPanel>
     );
   }
@@ -391,12 +391,12 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
             <div className="admin-menu-surface-board-head">
               <div className="min-w-0">
                 <h3 className="admin-menu-surface-board-title">
-                  {isArchivedView ? "Archived QR codes" : "QR identities"}
+                  {isArchivedView ? "Archived QR codes" : "QR codes"}
                 </h3>
                 <p className="admin-menu-surface-board-desc">
                   {isArchivedView
-                    ? "Restore archived identities or permanently delete them. Scans stay blocked until unarchived."
-                    : "Permanent digital locations. Guests scan → temporary ordering session. Print packs and abuse alerts come later."}
+                    ? "Restore archived codes or delete them for good. Guests cannot scan them until you restore them."
+                    : "Table and menu QR codes guests can scan to view the menu and order. Print packs come later."}
                 </p>
               </div>
               <div className="admin-menu-surface-board-actions">
@@ -455,7 +455,7 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
                 onFiltersChange={setActiveFilters}
                 onSortChange={setActiveSort}
                 filterTitle="Filter QR codes"
-                filterSubtitle="Narrow identities using type, status, and rules."
+                filterSubtitle="Narrow the list by type, status, and rules."
                 sortTitle="Sort QR codes"
                 sortSubtitle="Changes apply to the list instantly."
               />
@@ -467,7 +467,7 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
               <p className="admin-config-text-muted py-2 text-sm">
                 {isArchivedView
                   ? "No archived QR codes."
-                  : "No QR codes yet. Create a permanent table or menu QR — the printed link stays valid; each scan starts a fresh session."}
+                  : "No QR codes yet. Create a table or menu QR — the printed code stays the same, and each scan starts a fresh visit for the guest."}
               </p>
             ) : filteredItems.length === 0 ? (
               <p className="admin-config-text-muted py-2 text-sm">No QR codes match your search or filters.</p>
@@ -569,6 +569,7 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
         open={createOpen}
         token={token}
         restaurantId={restaurantId}
+        venueName={venueName}
         menus={menus}
         onClose={() => setCreateOpen(false)}
         onCreated={(qr) => {
@@ -576,7 +577,7 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
           setSelectedQrIds(new Set([qr.id]));
           setManageFocus(null);
           setManageOpen(true);
-          pushToast("QR identity created.", "success");
+          pushToast("QR code created.", "success");
           void reload();
         }}
       />
@@ -658,6 +659,7 @@ function QrCreateWizardModal({
   open,
   token,
   restaurantId,
+  venueName,
   menus,
   onClose,
   onCreated
@@ -665,6 +667,7 @@ function QrCreateWizardModal({
   open: boolean;
   token: string;
   restaurantId: string;
+  venueName: string;
   menus: MenuSurfaceRow[];
   onClose: () => void;
   onCreated: (qr: QrCodeRow) => void;
@@ -674,7 +677,6 @@ function QrCreateWizardModal({
   const [error, setError] = useState<string | null>(null);
   const [type, setType] = useState<QrCodeType>("TABLE");
   const [name, setName] = useState("");
-  const [locationLabel, setLocationLabel] = useState("");
   const [areaLabel, setAreaLabel] = useState("");
   const [tableLabel, setTableLabel] = useState("");
   const [experience, setExperience] = useState<QrExperience>("ORDERING");
@@ -689,7 +691,6 @@ function QrCreateWizardModal({
     setError(null);
     setType("TABLE");
     setName("");
-    setLocationLabel("");
     setAreaLabel("");
     setTableLabel("");
     setExperience("ORDERING");
@@ -728,7 +729,6 @@ function QrCreateWizardModal({
       name: name.trim() || tableLabel.trim() || TYPE_LABEL[type],
       type,
       experience,
-      locationLabel: locationLabel.trim() || null,
       areaLabel: areaLabel.trim() || null,
       tableLabel: tableLabel.trim() || null,
       paymentMode,
@@ -749,14 +749,14 @@ function QrCreateWizardModal({
     <MenuPageModalShell
       open={open}
       onClose={onClose}
-      title="Create QR identity"
-      description="Permanent digital location — guests get a fresh session on every scan."
+      title="Create QR code"
+      description="Create a QR guests can scan to open your menu and order."
       titleId="qr-create-title"
       stackLevel="overlay"
       busy={busy}
     >
       {busy ? (
-        <QrRequestLoading title="Creating QR…" sub="Allocating public code and assets" />
+        <QrRequestLoading title="Creating QR…" sub="Setting up your code" />
       ) : (
         <>
       <div className="mb-4 flex gap-2 text-xs font-semibold uppercase tracking-wide admin-config-text-muted">
@@ -789,7 +789,16 @@ function QrCreateWizardModal({
           </AdminLabel>
           <AdminLabel>
             <span className="text-xs admin-config-text-muted">Location</span>
-            <AdminInput className="mt-1" value={locationLabel} onChange={(e) => setLocationLabel(e.target.value)} placeholder="Main restaurant" />
+            <AdminInput
+              className="mt-1"
+              value={venueName || "Current venue"}
+              readOnly
+              disabled
+              title="Location is always your current venue"
+            />
+            <p className="mt-1 text-xs admin-config-text-subtle">
+              Always uses the venue you are managing right now.
+            </p>
           </AdminLabel>
           <AdminLabel>
             <span className="text-xs admin-config-text-muted">Area</span>
@@ -821,7 +830,7 @@ function QrCreateWizardModal({
             </select>
           </AdminLabel>
           <p className="text-xs admin-config-text-subtle">
-            Ordering and menu browse resolve to a guest session. Feedback / promo / reservation are creatable now and resolve later.
+            Ordering and menu browsing are ready for guests. Feedback, promotions, and reservations can be set up now and will work for guests soon.
           </p>
         </div>
       ) : null}
@@ -865,7 +874,7 @@ function QrCreateWizardModal({
             <AdminInput className="mt-1" value={headline} onChange={(e) => setHeadline(e.target.value)} />
           </AdminLabel>
           <p className="text-xs admin-config-text-subtle">
-            After create you can download PNG. SVG/PDF print sheets and logo overlays are next.
+            After you create it, you can download a PNG. Print sheets and logo overlays are coming next.
           </p>
         </div>
       ) : null}

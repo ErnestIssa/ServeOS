@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatMoneyCents } from "@serveos/core-shared/currency";
 import {
-  exportMenuCsv,
   getAvailabilityOverview,
-  importMenuCsv,
   manageAvailability,
   type AvailabilityCardPayload,
   type MenuCapabilitiesPayload,
@@ -33,7 +31,6 @@ import {
 } from "./availabilityHelpers";
 import { MenuEntityActionsMenu } from "./MenuEntityActionsMenu";
 import {
-  MenuActionRow,
   MenuChip,
   MenuListSearchField,
   MenuPreviewFrame,
@@ -89,7 +86,6 @@ export function AdminMenuTabContent({
 }: Props) {
   const { pushToast } = useAdminToast();
   const [busy, setBusy] = useState(false);
-  const [importBusy, setImportBusy] = useState(false);
   const [createAvailabilityOpen, setCreateAvailabilityOpen] = useState(false);
   const [manageAvailabilityOpen, setManageAvailabilityOpen] = useState(false);
   const [openAvailabilityMenuKey, setOpenAvailabilityMenuKey] = useState<string | null>(null);
@@ -191,7 +187,7 @@ export function AdminMenuTabContent({
   });
 
   const toastPreviewOnly = () => {
-    pushToast("Preview row only — not connected to the backend.", "error");
+    pushToast("This is a preview row — changes here are not saved.", "error");
   };
 
   const cardKeyOf = (card: AvailabilityCardPayload) => `${card.menuId}:${card.key}`;
@@ -348,7 +344,7 @@ export function AdminMenuTabContent({
         <div className="admin-menu-tab-stack">
           <MenuSection
             title="Availability"
-            description="Rule-based windows evaluated by the backend SSOT — schedule, stock, channels, locations, and visibility with clear reasons."
+            description="When items are available — by schedule, stock, ordering channel, location, and visibility — with clear reasons when something is unavailable."
             action={
               <div className="admin-menu-action-row">
                 {realCardCount > 0 ? (
@@ -698,92 +694,11 @@ export function AdminMenuTabContent({
           </MenuPreviewFrame>
           <MenuPreviewFrame label="QR preview" aspect="qr">
             <p className="p-4 text-center text-xs text-white/70">
-              Manage permanent QR identities under Configuration → QR codes.
+              Manage QR codes under Configuration → QR codes.
             </p>
           </MenuPreviewFrame>
         </div>
       </MenuSection>
-    );
-  }
-
-  if (tab === "import-export") {
-    const downloadCsv = async (filename: string) => {
-      setImportBusy(true);
-      const res = await exportMenuCsv(token, restaurantId);
-      setImportBusy(false);
-      if (!res.ok || !res.csv) {
-        pushToast("Export failed", "error");
-        return;
-      }
-      const blob = new Blob([res.csv], { type: "text/csv;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(url);
-      pushToast("Menu exported.", "success");
-    };
-
-    const importFromFile = async (file: File) => {
-      setImportBusy(true);
-      const csv = await file.text();
-      const res = await importMenuCsv(token, restaurantId, csv);
-      setImportBusy(false);
-      if (!res.ok) {
-        pushToast(res.message ?? res.error ?? "Import failed", "error");
-        return;
-      }
-      pushToast(`Imported ${res.imported?.rows ?? 0} rows.`, "success");
-      api.refresh();
-    };
-
-    return (
-      <div className="admin-menu-tab-stack">
-        <MenuSection title="Menu import / export" description="Move catalog data in and out — CSV and Excel-compatible export.">
-          <MenuActionRow>
-            <MenuToolbarButton disabled={importBusy} onClick={() => void downloadCsv(`menu-${restaurantId}.csv`)}>
-              Export CSV
-            </MenuToolbarButton>
-            <MenuToolbarButton disabled={importBusy}>
-              <label className="cursor-pointer">
-                Import CSV
-                <input
-                  type="file"
-                  accept=".csv,text/csv"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) void importFromFile(file);
-                    e.target.value = "";
-                  }}
-                />
-              </label>
-            </MenuToolbarButton>
-            <MenuToolbarButton disabled={importBusy} onClick={() => void downloadCsv(`menu-${restaurantId}.xlsx.csv`)}>
-              Export Excel
-            </MenuToolbarButton>
-            <MenuToolbarButton disabled={importBusy}>
-              <label className="cursor-pointer">
-                Import Excel
-                <input
-                  type="file"
-                  accept=".csv,.xlsx,text/csv"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) void importFromFile(file);
-                    e.target.value = "";
-                  }}
-                />
-              </label>
-            </MenuToolbarButton>
-          </MenuActionRow>
-        </MenuSection>
-        <MenuSection title="POS migration" description="Import a CSV export from your legacy POS to bootstrap categories and items.">
-          <p className="admin-config-text-subtle text-sm">Use Import CSV with a file that includes category, item, price_cents, and modifier columns.</p>
-        </MenuSection>
-      </div>
     );
   }
 

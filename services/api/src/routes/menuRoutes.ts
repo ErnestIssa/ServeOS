@@ -769,6 +769,7 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
     return { ok: true, coverMediaKey: result.coverMediaKey };
   });
 
+  /** @deprecated Prefer /import-export/exports/menu — kept for compatibility. */
   app.get("/restaurants/:restaurantId/menu/export.csv", async (req, reply) => {
     const { restaurantId } = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
     const { membership } = await requireMenuVenueMembership(prisma, req, restaurantId);
@@ -780,21 +781,23 @@ export function registerMenuRoutes(app: FastifyInstance, prisma: PrismaClient) {
     return reply.send(csv);
   });
 
+  /** @deprecated Prefer /import-export/imports/menu — kept for compatibility. */
   app.post("/restaurants/:restaurantId/menu/import.csv", async (req, reply) => {
     const { restaurantId } = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
-    const body = z.object({ csv: z.string().min(1) }).parse(req.body);
+    const body = z.object({ csv: z.string().min(1), dryRun: z.boolean().optional() }).parse(req.body);
     const { membership } = await requireMenuVenueMembership(prisma, req, restaurantId);
     assertMenuEntityPermission("menu", "edit", membership);
 
-    const result = await importMenuCsv(prisma, restaurantId, body.csv);
+    const result = await importMenuCsv(prisma, restaurantId, body.csv, { dryRun: body.dryRun === true });
     if (!result.ok) {
       return reply.status(400).send({
         ok: false,
         error: result.error,
-        message: mapImportExportError(result.error)
+        message: mapImportExportError(result.error),
+        preview: result.preview
       });
     }
-    return { ok: true, imported: result.imported };
+    return { ok: true, dryRun: result.dryRun, imported: result.imported, preview: result.preview };
   });
 
   app.get("/restaurants/:restaurantId/menu/items/:menuItemId/media", async (req, reply) => {

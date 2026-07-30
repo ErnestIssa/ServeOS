@@ -170,14 +170,14 @@ export function QrPrintConfirmModal({ open, qr, onClose }: Props) {
       open={open}
       onClose={busy ? () => undefined : onClose}
       title="Print QR"
-      description={`Print or download “${qr.name}”. Uses the live public code from the server.`}
+      description={`Print or download “${qr.name}”. This uses the current QR shown on the card.`}
       titleId="qr-print-confirm-title"
       maxWidthClass="max-w-md"
       stackLevel="overlay"
       busy={busy}
     >
       {busy ? (
-        <QrRequestLoading title="Preparing print…" sub="Loading QR image from the server" />
+        <QrRequestLoading title="Preparing print…" sub="Loading your QR image" />
       ) : (
         <>
       {error ? <ProfileModalAlert tone="error">{error}</ProfileModalAlert> : null}

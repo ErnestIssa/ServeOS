@@ -72,9 +72,9 @@ const TROUBLESHOOTING_ISSUES = [
     title: "Payments not syncing",
     checks: [
       "Verify payment provider connection under Configuration → Payments",
-      "Check Billing → Security for webhook health (platform billing vs guest payments)",
-      "Confirm order reached a paid status in order detail",
-      "Allow a few minutes for provider webhooks to reconcile"
+      "Check Billing → Security for payment connection health (platform billing vs guest payments)",
+      "Confirm the order shows as paid in order detail",
+      "Allow a few minutes for the payment provider to finish updating"
     ]
   },
   {

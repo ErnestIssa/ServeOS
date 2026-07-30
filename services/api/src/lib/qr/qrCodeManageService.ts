@@ -151,9 +151,12 @@ function serializeQr(
     createdAt: Date;
     updatedAt: Date;
     menu?: { name: string } | null;
+    restaurant?: { name: string } | null;
   }
 ): QrCodeRow {
   const artifacts = buildQrArtifactUrls(row.publicCode);
+  // Venue is the location — always surface restaurant name (SSOT), not a free-form edit.
+  const venueLocation = row.restaurant?.name?.trim() || row.locationLabel;
   return {
     id: row.id,
     restaurantId: row.restaurantId,
@@ -162,7 +165,7 @@ function serializeQr(
     type: row.type,
     status: row.status,
     experience: row.experience,
-    locationLabel: row.locationLabel,
+    locationLabel: venueLocation,
     areaLabel: row.areaLabel,
     tableLabel: row.tableLabel,
     tableId: row.tableId,
@@ -175,8 +178,9 @@ function serializeQr(
     sessionTtlHours: row.sessionTtlHours,
     description: row.description,
     headline: row.headline,
-    showRestaurantLogo: row.showRestaurantLogo,
-    showServeosBranding: row.showServeosBranding,
+    // Appearance flags are platform-fixed — always shown for guests.
+    showRestaurantLogo: true,
+    showServeosBranding: true,
     createdByUserId: row.createdByUserId,
     scanCount: row.scanCount,
     orderCount: row.orderCount,
@@ -191,7 +195,10 @@ function serializeQr(
   };
 }
 
-const qrInclude = { menu: { select: { name: true } } } as const;
+const qrInclude = {
+  menu: { select: { name: true } },
+  restaurant: { select: { name: true } }
+} as const;
 
 async function allocatePublicCode(prisma: PrismaClient) {
   for (let attempt = 0; attempt < 12; attempt++) {
@@ -255,7 +262,7 @@ export type CreateQrCodeInput = {
 export async function createQrCode(prisma: PrismaClient, input: CreateQrCodeInput) {
   const restaurant = await prisma.restaurant.findUnique({
     where: { id: input.restaurantId },
-    select: { id: true }
+    select: { id: true, name: true }
   });
   if (!restaurant) return { ok: false as const, error: "restaurant_not_found" as const };
 
@@ -273,6 +280,8 @@ export async function createQrCode(prisma: PrismaClient, input: CreateQrCodeInpu
     input.allowOrdering ?? (experience === "ORDERING" || experience === "MENU_BROWSE");
   const paymentMode = input.paymentMode ?? defaultPaymentForType(type);
   const publicCode = await allocatePublicCode(prisma);
+  // Location is the venue — ignore client-supplied locationLabel.
+  const locationLabel = restaurant.name.trim() || null;
 
   const row = await prisma.qrCode.create({
     data: {
@@ -281,7 +290,7 @@ export async function createQrCode(prisma: PrismaClient, input: CreateQrCodeInpu
       name: input.name.trim(),
       type,
       experience,
-      locationLabel: input.locationLabel?.trim() || null,
+      locationLabel,
       areaLabel: input.areaLabel?.trim() || null,
       tableLabel: input.tableLabel?.trim() || null,
       tableId: input.tableId?.trim() || null,
@@ -293,8 +302,9 @@ export async function createQrCode(prisma: PrismaClient, input: CreateQrCodeInpu
       sessionTtlHours: input.sessionTtlHours ?? null,
       description: input.description?.trim() || null,
       headline: input.headline?.trim() || "Scan to order",
-      showRestaurantLogo: input.showRestaurantLogo ?? true,
-      showServeosBranding: input.showServeosBranding ?? false,
+      // Appearance is platform-fixed — ignore client values.
+      showRestaurantLogo: true,
+      showServeosBranding: true,
       createdByUserId: input.createdByUserId ?? null
     },
     include: qrInclude
@@ -330,7 +340,7 @@ export async function updateQrCode(
 ) {
   const existing = await prisma.qrCode.findFirst({
     where: { id: qrCodeId, restaurantId },
-    select: { id: true, status: true }
+    select: { id: true, status: true, restaurant: { select: { name: true } } }
   });
   if (!existing) return { ok: false as const, error: "qr_not_found" as const };
   const blocked = assertMutableStatus(existing.status);
@@ -344,12 +354,18 @@ export async function updateQrCode(
     if (!menu) return { ok: false as const, error: "menu_not_found" as const };
   }
 
+  // Location is venue-bound — never accept client edits; keep row aligned to restaurant name.
+  const venueLocation = existing.restaurant.name.trim() || null;
+
   const row = await prisma.qrCode.update({
     where: { id: qrCodeId },
     data: {
+      locationLabel: venueLocation,
+      // Appearance is platform-fixed — always shown; ignore client patches.
+      showRestaurantLogo: true,
+      showServeosBranding: true,
       ...(input.name !== undefined ? { name: input.name.trim() } : {}),
       ...(input.experience !== undefined ? { experience: input.experience } : {}),
-      ...(input.locationLabel !== undefined ? { locationLabel: input.locationLabel?.trim() || null } : {}),
       ...(input.areaLabel !== undefined ? { areaLabel: input.areaLabel?.trim() || null } : {}),
       ...(input.tableLabel !== undefined ? { tableLabel: input.tableLabel?.trim() || null } : {}),
       ...(input.tableId !== undefined ? { tableId: input.tableId?.trim() || null } : {}),
@@ -360,9 +376,7 @@ export async function updateQrCode(
       ...(input.orderingPaused !== undefined ? { orderingPaused: input.orderingPaused } : {}),
       ...(input.sessionTtlHours !== undefined ? { sessionTtlHours: input.sessionTtlHours } : {}),
       ...(input.description !== undefined ? { description: input.description?.trim() || null } : {}),
-      ...(input.headline !== undefined ? { headline: input.headline?.trim() || null } : {}),
-      ...(input.showRestaurantLogo !== undefined ? { showRestaurantLogo: input.showRestaurantLogo } : {}),
-      ...(input.showServeosBranding !== undefined ? { showServeosBranding: input.showServeosBranding } : {})
+      ...(input.headline !== undefined ? { headline: input.headline?.trim() || null } : {})
     },
     include: qrInclude
   });
@@ -559,7 +573,6 @@ export async function bulkUpdateQrCodes(
     orderingPaused?: boolean;
     menuId?: string | null;
     paymentMode?: OrderingPaymentMode;
-    locationLabel?: string | null;
     areaLabel?: string | null;
   } = {};
 
@@ -573,7 +586,7 @@ export async function bulkUpdateQrCodes(
   if (patch.orderingPaused !== undefined) data.orderingPaused = patch.orderingPaused;
   if (patch.menuId !== undefined) data.menuId = patch.menuId;
   if (patch.paymentMode !== undefined) data.paymentMode = patch.paymentMode;
-  if (patch.locationLabel !== undefined) data.locationLabel = patch.locationLabel?.trim() || null;
+  // locationLabel is venue-bound — ignore client bulk patches
   if (patch.areaLabel !== undefined) data.areaLabel = patch.areaLabel?.trim() || null;
 
   if (Object.keys(data).length === 0) {
@@ -724,13 +737,15 @@ export async function rotateQrCode(
   createdByUserId?: string | null
 ) {
   const existing = await prisma.qrCode.findFirst({
-    where: { id: qrCodeId, restaurantId }
+    where: { id: qrCodeId, restaurantId },
+    include: { restaurant: { select: { name: true } } }
   });
   if (!existing) return { ok: false as const, error: "qr_not_found" as const };
   const blocked = assertMutableStatus(existing.status);
   if (blocked) return { ok: false as const, error: blocked };
 
   const publicCode = await allocatePublicCode(prisma);
+  const venueLocation = existing.restaurant.name.trim() || existing.locationLabel;
   const replacement = await prisma.$transaction(async (tx) => {
     const next = await tx.qrCode.create({
       data: {
@@ -740,7 +755,7 @@ export async function rotateQrCode(
         type: existing.type,
         status: "ACTIVE",
         experience: existing.experience,
-        locationLabel: existing.locationLabel,
+        locationLabel: venueLocation,
         areaLabel: existing.areaLabel,
         tableLabel: existing.tableLabel,
         tableId: existing.tableId,
@@ -752,8 +767,8 @@ export async function rotateQrCode(
         sessionTtlHours: existing.sessionTtlHours,
         description: existing.description,
         headline: existing.headline,
-        showRestaurantLogo: existing.showRestaurantLogo,
-        showServeosBranding: existing.showServeosBranding,
+        showRestaurantLogo: true,
+        showServeosBranding: true,
         createdByUserId: createdByUserId ?? existing.createdByUserId,
         replacesId: existing.id
       },
@@ -797,8 +812,6 @@ export async function duplicateQrCode(
     sessionTtlHours: existing.sessionTtlHours,
     description: existing.description,
     headline: existing.headline,
-    showRestaurantLogo: existing.showRestaurantLogo,
-    showServeosBranding: existing.showServeosBranding,
     createdByUserId
   });
 }

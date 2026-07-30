@@ -4,6 +4,7 @@ import { AdminConfigMenuPage } from "./AdminConfigMenuPage";
 import { AdminConfigPaymentsPage } from "./AdminConfigPaymentsPage";
 import { AdminConfigMediaLibraryPage } from "./media/AdminConfigMediaLibraryPage";
 import { AdminConfigQrCodesPage } from "./qr/AdminConfigQrCodesPage";
+import { AdminConfigImportsExportsPage } from "./importExport/AdminConfigImportsExportsPage";
 import {
   CONFIG_PRESET_DESCRIPTIONS,
   menuTabFromLegacyPreset,
@@ -55,6 +56,14 @@ export function AdminConfigurationPage({
       );
     case "payments":
       return <AdminConfigPaymentsPage token={token} restaurantId={restaurantId} />;
+    case "imports-exports":
+      return (
+        <AdminConfigImportsExportsPage
+          token={token}
+          restaurantId={restaurantId}
+          venueName={venueName}
+        />
+      );
     default:
       return (
         <AdminConfigMenuPage

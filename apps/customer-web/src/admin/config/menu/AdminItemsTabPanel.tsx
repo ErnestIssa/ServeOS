@@ -274,7 +274,7 @@ export function AdminItemsTabPanel({
     });
   };
 
-  const toastPreview = () => pushToast("Preview item only — not connected to the backend.", "error");
+  const toastPreview = () => pushToast("This is a preview item — changes here are not saved.", "error");
 
   const setVisibility = async (item: ItemListRow, isActive: boolean) => {
     if (isUiOnlyListId(item.id)) {

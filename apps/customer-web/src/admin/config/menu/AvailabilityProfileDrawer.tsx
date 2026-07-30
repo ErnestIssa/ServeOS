@@ -189,7 +189,7 @@ export function AvailabilityProfileDrawer({ card, open, timezone, venueName, onC
           </DetailsSection>
 
           {history.length > 0 ? (
-            <DetailsSection title="Recent audit" hint="Latest schedule events from the backend.">
+            <DetailsSection title="Recent changes" hint="Latest schedule updates for this rule.">
               <ul className="admin-menu-details-health-list">
                 {history.map((entry, idx) => (
                   <li key={`${entry.at}-${entry.action}-${idx}`}>

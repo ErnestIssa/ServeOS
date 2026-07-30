@@ -328,7 +328,7 @@ export function CreateAvailabilityModal({
         open={open && !confirmOpen}
         onClose={attemptClose}
         title="Create availability window"
-        description="Define a full rule set — schedule, channels, locations, visibility, stock, and business rules. Backend remains the SSOT."
+        description="Set when items are available — schedule, channels, locations, visibility, stock, and other rules."
         titleId="create-availability-title"
         maxWidthClass="max-w-none"
         maxHeightClass="admin-staff-invite-modal-max-h"
