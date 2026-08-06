@@ -6,11 +6,26 @@ import {
   getImportExportCatalog
 } from "../lib/importExport/importExportCatalog.js";
 import {
+  cancelDataTransferJob,
   completeDataTransferJob,
   createDataTransferJob,
+  deleteDataTransferJob,
+  getDataTransferActivitySeries,
   getDataTransferJob,
   listDataTransferJobs
 } from "../lib/importExport/dataTransferJobService.js";
+import {
+  createDataTransferMigrationRequest,
+  listDataTransferMigrationRequests
+} from "../lib/importExport/dataTransferMigrationService.js";
+import {
+  createDataTransferTemplate,
+  deleteDataTransferTemplate,
+  duplicateDataTransferTemplate,
+  getDataTransferTemplate,
+  listDataTransferTemplates,
+  updateDataTransferTemplate
+} from "../lib/importExport/dataTransferTemplateService.js";
 import { requireMenuVenueMembership } from "../lib/menu/menuMembership.js";
 import { assertMenuEntityPermission } from "../lib/menu/menuPermissions.js";
 import {
@@ -19,6 +34,8 @@ import {
   mapImportExportError,
   previewMenuCsv
 } from "../lib/menu/menuImportExportService.js";
+
+const templateStatusSchema = z.enum(["DRAFT", "ACTIVE", "ARCHIVED"]);
 
 export function registerImportExportRoutes(app: FastifyInstance, prisma: PrismaClient) {
   app.get("/restaurants/:restaurantId/import-export/catalog", async (req) => {
@@ -46,6 +63,227 @@ export function registerImportExportRoutes(app: FastifyInstance, prisma: PrismaC
     return { ok: true, jobs };
   });
 
+  app.get("/restaurants/:restaurantId/import-export/activity", async (req) => {
+    const { restaurantId } = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
+    const query = z
+      .object({
+        range: z.enum(["7d", "30d", "90d"]).default("90d")
+      })
+      .parse(req.query ?? {});
+    const { membership } = await requireMenuVenueMembership(prisma, req, restaurantId);
+    assertMenuEntityPermission("menu", "view", membership);
+
+    const activity = await getDataTransferActivitySeries(prisma, restaurantId, query.range);
+    return { ok: true, activity };
+  });
+
+  app.get("/restaurants/:restaurantId/import-export/migration-requests", async (req) => {
+    const { restaurantId } = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
+    const query = z
+      .object({ limit: z.coerce.number().int().min(1).max(100).optional() })
+      .parse(req.query ?? {});
+    const { membership } = await requireMenuVenueMembership(prisma, req, restaurantId);
+    assertMenuEntityPermission("menu", "view", membership);
+    const requests = await listDataTransferMigrationRequests(prisma, restaurantId, {
+      limit: query.limit
+    });
+    return { ok: true, requests };
+  });
+
+  app.post("/restaurants/:restaurantId/import-export/migration-requests", async (req, reply) => {
+    const { restaurantId } = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
+    const body = z
+      .object({
+        providerKey: z.string().min(1).max(80),
+        note: z.string().max(4000).nullable().optional()
+      })
+      .parse(req.body ?? {});
+    const { userId, membership } = await requireMenuVenueMembership(prisma, req, restaurantId);
+    assertMenuEntityPermission("menu", "edit", membership);
+
+    const result = await createDataTransferMigrationRequest(prisma, {
+      restaurantId,
+      providerKey: body.providerKey,
+      note: body.note,
+      requestedByUserId: userId
+    });
+    if (!result.ok) {
+      return reply.status(400).send({
+        ok: false,
+        error: result.error,
+        message: "Migration request note is too long."
+      });
+    }
+    return reply.status(201).send({ ok: true, request: result.request });
+  });
+
+  app.get("/restaurants/:restaurantId/import-export/templates", async (req) => {
+    const { restaurantId } = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
+    const query = z
+      .object({
+        includeArchived: z
+          .union([z.literal("1"), z.literal("true"), z.literal("0"), z.literal("false")])
+          .optional()
+      })
+      .parse(req.query ?? {});
+    const { membership } = await requireMenuVenueMembership(prisma, req, restaurantId);
+    assertMenuEntityPermission("menu", "view", membership);
+
+    const includeArchived = query.includeArchived === "1" || query.includeArchived === "true";
+    const templates = await listDataTransferTemplates(prisma, restaurantId, { includeArchived });
+    return { ok: true, templates };
+  });
+
+  app.get("/restaurants/:restaurantId/import-export/templates/:templateId", async (req, reply) => {
+    const params = z
+      .object({ restaurantId: z.string().min(1), templateId: z.string().min(1) })
+      .parse(req.params);
+    const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("menu", "view", membership);
+
+    const template = await getDataTransferTemplate(prisma, params.restaurantId, params.templateId);
+    if (!template) {
+      return reply.status(404).send({ ok: false, error: "template_not_found", message: "Template not found." });
+    }
+    return { ok: true, template };
+  });
+
+  app.get("/restaurants/:restaurantId/import-export/templates/:templateId/download", async (req, reply) => {
+    const params = z
+      .object({ restaurantId: z.string().min(1), templateId: z.string().min(1) })
+      .parse(req.params);
+    const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("menu", "view", membership);
+
+    const template = await getDataTransferTemplate(prisma, params.restaurantId, params.templateId);
+    if (!template) {
+      return reply.status(404).send({ ok: false, error: "template_not_found", message: "Template not found." });
+    }
+
+    const safeName = template.name.replace(/[^\w.-]+/g, "-").toLowerCase() || "template";
+    const filename = `${safeName}-v${template.version}.${template.format || "csv"}`;
+    reply.header("Content-Type", "text/csv; charset=utf-8");
+    reply.header("Content-Disposition", `attachment; filename="${filename}"`);
+    return reply.send(template.content);
+  });
+
+  app.post("/restaurants/:restaurantId/import-export/templates", async (req, reply) => {
+    const { restaurantId } = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
+    const body = z
+      .object({
+        name: z.string().min(2).max(120),
+        description: z.string().max(500).nullable().optional(),
+        targetKey: z.string().min(1),
+        format: z.string().default("csv"),
+        content: z.string().min(1).max(2_000_000),
+        status: templateStatusSchema.optional()
+      })
+      .parse(req.body);
+    const { userId, membership } = await requireMenuVenueMembership(prisma, req, restaurantId);
+    assertMenuEntityPermission("menu", "edit", membership);
+
+    const result = await createDataTransferTemplate(prisma, {
+      restaurantId,
+      name: body.name,
+      description: body.description,
+      targetKey: body.targetKey,
+      format: body.format,
+      content: body.content,
+      status: body.status,
+      createdByUserId: userId
+    });
+    if (!result.ok) {
+      const message =
+        result.error === "invalid_name"
+          ? "Enter a template name with at least 2 characters."
+          : result.error === "invalid_content"
+            ? "Template content cannot be empty."
+            : result.error === "format_unavailable"
+              ? "Only CSV templates are supported today."
+              : "That data type is not available for templates.";
+      return reply.status(400).send({ ok: false, error: result.error, message });
+    }
+    return reply.status(201).send({ ok: true, template: result.template });
+  });
+
+  app.patch("/restaurants/:restaurantId/import-export/templates/:templateId", async (req, reply) => {
+    const params = z
+      .object({ restaurantId: z.string().min(1), templateId: z.string().min(1) })
+      .parse(req.params);
+    const body = z
+      .object({
+        name: z.string().min(2).max(120).optional(),
+        description: z.string().max(500).nullable().optional(),
+        targetKey: z.string().min(1).optional(),
+        format: z.string().optional(),
+        content: z.string().min(1).max(2_000_000).optional(),
+        status: templateStatusSchema.optional()
+      })
+      .parse(req.body ?? {});
+    const { userId, membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("menu", "edit", membership);
+
+    const result = await updateDataTransferTemplate(prisma, params.restaurantId, params.templateId, {
+      ...body,
+      updatedByUserId: userId
+    });
+    if (!result.ok) {
+      if (result.error === "template_not_found") {
+        return reply.status(404).send({ ok: false, error: result.error, message: "Template not found." });
+      }
+      const message =
+        result.error === "invalid_name"
+          ? "Enter a template name with at least 2 characters."
+          : result.error === "invalid_content"
+            ? "Template content cannot be empty."
+            : result.error === "format_unavailable"
+              ? "Only CSV templates are supported today."
+              : "That data type is not available for templates.";
+      return reply.status(400).send({ ok: false, error: result.error, message });
+    }
+    return { ok: true, template: result.template };
+  });
+
+  app.post("/restaurants/:restaurantId/import-export/templates/:templateId/duplicate", async (req, reply) => {
+    const params = z
+      .object({ restaurantId: z.string().min(1), templateId: z.string().min(1) })
+      .parse(req.params);
+    const { userId, membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("menu", "edit", membership);
+
+    const result = await duplicateDataTransferTemplate(
+      prisma,
+      params.restaurantId,
+      params.templateId,
+      userId
+    );
+    if (!result.ok) {
+      return reply.status(404).send({ ok: false, error: result.error, message: "Template not found." });
+    }
+    return reply.status(201).send({ ok: true, template: result.template });
+  });
+
+  app.delete("/restaurants/:restaurantId/import-export/templates/:templateId", async (req, reply) => {
+    const params = z
+      .object({ restaurantId: z.string().min(1), templateId: z.string().min(1) })
+      .parse(req.params);
+    const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("menu", "edit", membership);
+
+    const result = await deleteDataTransferTemplate(prisma, params.restaurantId, params.templateId);
+    if (!result.ok) {
+      if (result.error === "template_not_found") {
+        return reply.status(404).send({ ok: false, error: result.error, message: "Template not found." });
+      }
+      return reply.status(400).send({
+        ok: false,
+        error: result.error,
+        message: "Platform templates cannot be deleted. Duplicate them to customize, or archive custom copies."
+      });
+    }
+    return { ok: true, id: result.id };
+  });
+
   app.get("/restaurants/:restaurantId/import-export/jobs/:jobId", async (req, reply) => {
     const params = z
       .object({ restaurantId: z.string().min(1), jobId: z.string().min(1) })
@@ -56,6 +294,44 @@ export function registerImportExportRoutes(app: FastifyInstance, prisma: PrismaC
     const job = await getDataTransferJob(prisma, params.restaurantId, params.jobId);
     if (!job) return reply.status(404).send({ ok: false, error: "job_not_found", message: "Job not found." });
     return { ok: true, job };
+  });
+
+  app.post("/restaurants/:restaurantId/import-export/jobs/:jobId/cancel", async (req, reply) => {
+    const params = z
+      .object({ restaurantId: z.string().min(1), jobId: z.string().min(1) })
+      .parse(req.params);
+    const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("menu", "edit", membership);
+
+    const result = await cancelDataTransferJob(prisma, params.restaurantId, params.jobId);
+    if (!result.ok) {
+      const status = result.error === "job_not_found" ? 404 : 400;
+      const message =
+        result.error === "job_not_found"
+          ? "Job not found."
+          : "Only queued, running, or validating jobs can be cancelled.";
+      return reply.status(status).send({ ok: false, error: result.error, message });
+    }
+    return { ok: true, job: result.job };
+  });
+
+  app.delete("/restaurants/:restaurantId/import-export/jobs/:jobId", async (req, reply) => {
+    const params = z
+      .object({ restaurantId: z.string().min(1), jobId: z.string().min(1) })
+      .parse(req.params);
+    const { membership } = await requireMenuVenueMembership(prisma, req, params.restaurantId);
+    assertMenuEntityPermission("menu", "edit", membership);
+
+    const result = await deleteDataTransferJob(prisma, params.restaurantId, params.jobId);
+    if (!result.ok) {
+      const status = result.error === "job_not_found" ? 404 : 400;
+      const message =
+        result.error === "job_not_found"
+          ? "Job not found."
+          : "Cancel the job before removing it from history.";
+      return reply.status(status).send({ ok: false, error: result.error, message });
+    }
+    return { ok: true, id: result.id };
   });
 
   app.get("/restaurants/:restaurantId/import-export/exports/:targetKey", async (req, reply) => {

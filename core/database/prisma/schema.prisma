@@ -636,7 +636,9 @@ model Restaurant {
   replicationJobsTarget ReplicationJob[] @relation("ReplicationJobTargetVenue")
   contentTemplates   ContentTemplate[]
   staffAuditLogs     StaffAuditLog[]
-  dataTransferJobs   DataTransferJob[]
+  dataTransferJobs              DataTransferJob[]
+  dataTransferTemplates         DataTransferTemplate[]
+  dataTransferMigrationRequests DataTransferMigrationRequest[]
 
   @@index([companyId])
 }
@@ -1939,5 +1941,62 @@ model DataTransferJob {
   @@index([restaurantId, createdAt])
   @@index([restaurantId, status])
   @@index([restaurantId, direction])
+}
+
+enum DataTransferTemplateStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+/// Venue-owned import/export spreadsheet templates (CSV first). Backend SSOT for Templates tab.
+model DataTransferTemplate {
+  id              String                     @id @default(cuid())
+  restaurantId    String
+  name            String
+  description     String?
+  targetKey       String
+  format          String                     @default("csv")
+  version         Int                        @default(1)
+  status          DataTransferTemplateStatus @default(ACTIVE)
+  content         String
+  /// Stable key for seeded platform defaults (e.g. menu-v1). Null for user-created templates.
+  systemKey       String?
+  isSystem        Boolean                    @default(false)
+  createdByUserId String?
+  updatedByUserId String?
+  createdAt       DateTime                   @default(now())
+  updatedAt       DateTime                   @updatedAt
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@unique([restaurantId, systemKey])
+  @@index([restaurantId, updatedAt])
+  @@index([restaurantId, targetKey])
+  @@index([restaurantId, status])
+}
+
+enum DataTransferMigrationRequestStatus {
+  PENDING
+  REVIEWING
+  CLOSED
+}
+
+/// Venue request for assisted / manual migration from another system.
+model DataTransferMigrationRequest {
+  id                String                             @id @default(cuid())
+  restaurantId      String
+  providerKey       String
+  providerLabel     String?
+  note              String?
+  status            DataTransferMigrationRequestStatus @default(PENDING)
+  requestedByUserId String?
+  createdAt         DateTime                           @default(now())
+  updatedAt         DateTime                           @updatedAt
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId, createdAt])
+  @@index([restaurantId, status])
 }
 

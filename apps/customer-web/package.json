@@ -10,16 +10,17 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@sentry/react": "^9.47.0",
     "@serveos/agents": "0.0.0",
     "@serveos/core-ambient": "0.0.0",
-    "@serveos/core-shared": "0.0.0",
     "@serveos/core-loading": "0.0.0",
+    "@serveos/core-shared": "0.0.0",
     "@serveos/core-theme": "0.0.0",
     "@serveos/email-templates": "0.0.0",
     "framer-motion": "^12.23.12",
     "react": "19.1.0",
     "react-dom": "19.1.0",
-    "@sentry/react": "^9.47.0"
+    "recharts": "^3.10.1"
   },
   "devDependencies": {
     "@types/react": "^19.1.6",
@@ -32,4 +33,3 @@
     "vite": "^6.0.11"
   }
 }
-

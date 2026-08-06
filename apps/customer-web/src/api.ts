@@ -1126,12 +1126,43 @@ export async function setActiveRestaurant(token: string, restaurantId: string) {
   );
 }
 
+export type PaymentProviderEnvReady = {
+  stripe: boolean;
+  swish: boolean;
+  webhook: boolean;
+  demoLedger: boolean;
+};
+
+export type PaymentMethodConfig = {
+  enabled: boolean;
+  provider?: "stripe" | "swish" | "terminal" | "manual" | "none";
+  currencies: string[];
+  capture: "automatic" | "manual";
+  refundsEnabled: boolean;
+  threeDSecure: "automatic" | "always" | "never";
+  minCents: number | null;
+  maxCents: number | null;
+};
+
 export type VenuePaymentSettings = {
   providers: {
-    stripe: { connected: boolean; accountId?: string; connectedAt?: string; displayName?: string };
-    swish: { connected: boolean; merchantId?: string; connectedAt?: string; displayName?: string };
+    stripe: {
+      connected: boolean;
+      accountId?: string;
+      connectedAt?: string;
+      displayName?: string;
+      environment?: "sandbox" | "production";
+    };
+    swish: {
+      connected: boolean;
+      merchantId?: string;
+      connectedAt?: string;
+      displayName?: string;
+      environment?: "sandbox" | "production";
+    };
   };
   methods: Record<string, boolean>;
+  methodConfig?: Record<string, PaymentMethodConfig>;
   rules: {
     payBeforeOrder: boolean;
     payAfterMeal: boolean;
@@ -1140,11 +1171,64 @@ export type VenuePaymentSettings = {
     maxOrderCents: number | null;
     defaultPaymentMode: "PAY_AT_VENUE" | "PREPAY" | "HYBRID";
   };
+  payAtVenue?: {
+    enabled: boolean;
+    timing: "before_served" | "when_ready" | "when_bill_requested" | "after_completed";
+    channels: {
+      qrOrders: boolean;
+      walkIns: boolean;
+      staffCreated: boolean;
+      reservations: boolean;
+      delivery: boolean;
+    };
+    settlementMethods: {
+      cash: boolean;
+      cardTerminal: boolean;
+      swish: boolean;
+      other: boolean;
+    };
+  };
+  qrPolicy?: {
+    defaultPaymentMode: "PAY_AT_VENUE" | "PREPAY" | "HYBRID";
+    allowSwitchToApp: boolean;
+    requirePaymentBeforePrep: boolean;
+    allowUnpaidOrders: boolean;
+    autoCloseUnpaidHours: number | null;
+    requireStaffConfirmation: boolean;
+  };
+  splits?: {
+    enabled: boolean;
+    maxSplits: number;
+    allowCustomerSelfSplit: boolean;
+    allowStaffSplit: boolean;
+    allowEqualSplit: boolean;
+    allowItemBasedSplit: boolean;
+    allowCustomAmount: boolean;
+  };
+  tips?: {
+    enabled: boolean;
+    suggestedPercents: number[];
+    customTip: boolean;
+    tipBeforePayment: boolean;
+    tipAfterPayment: boolean;
+    cashTipsMode: "track_manually" | "ignore";
+  };
+  failedPayment?: {
+    remainUnpaid: boolean;
+    allowRetry: boolean;
+    blockKitchen: boolean;
+    allowStaffAcceptUnpaid: boolean;
+  };
   refunds: {
     managerApproval: boolean;
     automaticRefund: boolean;
     manualRefund: boolean;
     refundTimeoutHours: number;
+  };
+  refundLimits?: {
+    staffMaxCents: number;
+    managerMaxCents: number;
+    ownerUnlimited: boolean;
   };
   taxes: {
     vatStandardPercent: number;
@@ -1152,7 +1236,20 @@ export type VenuePaymentSettings = {
     deliveryFeeCents: number;
     tipsEnabled: boolean;
   };
+  taxDisplay?: {
+    managedIn: "restaurant_taxes";
+    pricesIncludeTax: boolean;
+    calculation: "backend";
+  };
   bankAccount: { linked: boolean; lastFour?: string; holderName?: string };
+  auditLog?: Array<{
+    id: string;
+    at: string;
+    actorUserId?: string;
+    actorRole?: string;
+    action: string;
+    path: string;
+  }>;
 };
 
 export type PaymentStats = {
@@ -1166,11 +1263,163 @@ export type PaymentStats = {
   lastSyncAt: string | null;
 };
 
+export type PaymentHealthStatus = "operational" | "degraded" | "disabled" | "unknown";
+
+export type PaymentOverview = {
+  source: "live" | "demo";
+  currency: string;
+  health: {
+    paymentSystem: PaymentHealthStatus;
+    onlinePayments: PaymentHealthStatus;
+    payAtVenue: PaymentHealthStatus;
+    refunds: PaymentHealthStatus;
+    webhooks: PaymentHealthStatus;
+    settlement: PaymentHealthStatus;
+  };
+  today: {
+    paymentsCents: number;
+    pendingCents: number;
+    refundedCents: number;
+    failedCents: number;
+    payAtVenueCents: number;
+    onlineCents: number;
+    disputeCount: number;
+    reconAlertCount: number;
+  };
+  providerSummary: {
+    stripe: "connected" | "disconnected";
+    swish: "connected" | "disconnected";
+    terminalsConnected: number;
+  };
+};
+
+export type PaymentActivityRange = "7d" | "30d" | "90d";
+
+export type PaymentActivityPoint = {
+  date: string;
+  onlineCents: number;
+  venueCents: number;
+  refundedCents: number;
+  failedCents: number;
+};
+
+export type PaymentActivitySeries = {
+  source: "live" | "demo";
+  range: PaymentActivityRange;
+  currency: string;
+  points: PaymentActivityPoint[];
+};
+
+export type PaymentTxnStatus =
+  | "pending"
+  | "authorized"
+  | "captured"
+  | "failed"
+  | "cancelled"
+  | "partially_refunded"
+  | "refunded"
+  | "disputed"
+  | "charged_back";
+
+export type PaymentTransactionRow = {
+  id: string;
+  source: "live" | "demo";
+  orderId: string | null;
+  orderDisplay?: string | null;
+  customerLabel: string;
+  amountCents: number;
+  tipCents: number;
+  feeCents: number;
+  netCents: number;
+  currency: string;
+  method: string;
+  provider: string;
+  status: PaymentTxnStatus;
+  refundedCents: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PaymentTransactionDetail = PaymentTransactionRow & {
+  timeline: Array<{ at: string; type: string; label: string }>;
+};
+
+export type PaymentRefundRow = {
+  id: string;
+  source: "live" | "demo";
+  paymentId: string;
+  orderId: string | null;
+  amountCents: number;
+  currency: string;
+  reason: string;
+  requestedBy: string;
+  approvedBy: string | null;
+  provider: string;
+  status: "pending_approval" | "processing" | "completed" | "failed" | "partially_refunded";
+  createdAt: string;
+  completedAt: string | null;
+};
+
+export type PaymentReconciliation = {
+  source: "live" | "demo";
+  orders: number;
+  payments: number;
+  matched: number;
+  mismatched: number;
+  pendingProviderEvents: number;
+  mismatches: Array<{
+    id: string;
+    type: string;
+    summary: string;
+    orderId: string | null;
+    paymentId: string | null;
+    amountCents: number | null;
+    createdAt: string;
+  }>;
+};
+
+export type PaymentPayoutRow = {
+  id: string;
+  source: "live" | "demo";
+  status: "scheduled" | "in_transit" | "paid" | "failed";
+  grossCents: number;
+  feesCents: number;
+  refundsCents: number;
+  chargebacksCents: number;
+  tipsCents: number;
+  netCents: number;
+  currency: string;
+  expectedAt: string;
+  paidAt: string | null;
+  provider: string;
+};
+
+export type PaymentWebhookHealth = {
+  source: "live" | "demo";
+  status: "healthy" | "degraded" | "failing";
+  lastEventAt: string | null;
+  eventsToday: number;
+  failed: number;
+  retrying: number;
+  recentEvents: Array<{ id: string; type: string; at: string; ok: boolean }>;
+};
+
+export type PaymentLogRow = {
+  id: string;
+  source: "live" | "demo";
+  category: "webhook" | "payment" | "refund" | "security" | "config" | "reconciliation";
+  level: "info" | "warn" | "error";
+  message: string;
+  at: string;
+  meta?: Record<string, unknown>;
+};
+
 export async function getVenuePaymentSettings(token: string, restaurantId: string) {
   return apiFetch<{
     ok: boolean;
     settings?: VenuePaymentSettings;
     stats?: PaymentStats;
+    envReady?: PaymentProviderEnvReady;
     error?: string;
     message?: string;
   }>(`/restaurants/${encodeURIComponent(restaurantId)}/payment-settings`, {
@@ -1181,7 +1430,7 @@ export async function getVenuePaymentSettings(token: string, restaurantId: strin
 export async function patchVenuePaymentSettings(
   token: string,
   restaurantId: string,
-  body: Partial<Pick<VenuePaymentSettings, "methods" | "rules" | "refunds" | "taxes" | "bankAccount">>
+  body: Partial<VenuePaymentSettings>
 ) {
   return apiFetch<{ ok: boolean; settings?: VenuePaymentSettings; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/payment-settings`,
@@ -1194,10 +1443,18 @@ export async function connectVenuePaymentProvider(
   restaurantId: string,
   body: { provider: "stripe" | "swish"; accountId?: string; merchantId?: string; displayName?: string }
 ) {
-  return apiFetch<{ ok: boolean; settings?: VenuePaymentSettings; error?: string; message?: string }>(
-    `/restaurants/${encodeURIComponent(restaurantId)}/payment-settings/connect`,
-    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify(body) }
-  );
+  return apiFetch<{
+    ok: boolean;
+    settings?: VenuePaymentSettings;
+    needsEnv?: boolean;
+    envReady?: PaymentProviderEnvReady;
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/payment-settings/connect`, {
+    method: "POST",
+    headers: authJsonHeaders(token),
+    body: JSON.stringify(body)
+  });
 }
 
 export async function disconnectVenuePaymentProvider(
@@ -1209,6 +1466,96 @@ export async function disconnectVenuePaymentProvider(
     `/restaurants/${encodeURIComponent(restaurantId)}/payment-settings/disconnect`,
     { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify({ provider }) }
   );
+}
+
+export async function getVenuePaymentOverview(token: string, restaurantId: string) {
+  return apiFetch<{ ok: boolean; overview?: PaymentOverview; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/payments/overview`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function getVenuePaymentActivity(
+  token: string,
+  restaurantId: string,
+  range: PaymentActivityRange = "30d"
+) {
+  const q = new URLSearchParams({ range });
+  return apiFetch<{ ok: boolean; activity?: PaymentActivitySeries; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/payments/activity?${q}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function listVenuePaymentTransactions(token: string, restaurantId: string, limit = 100) {
+  const q = new URLSearchParams({ limit: String(limit) });
+  return apiFetch<{
+    ok: boolean;
+    source?: "live" | "demo";
+    transactions?: PaymentTransactionRow[];
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/payments/transactions?${q}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export async function getVenuePaymentTransaction(token: string, restaurantId: string, transactionId: string) {
+  return apiFetch<{ ok: boolean; transaction?: PaymentTransactionDetail; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/payments/transactions/${encodeURIComponent(transactionId)}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function listVenuePaymentRefunds(token: string, restaurantId: string) {
+  return apiFetch<{
+    ok: boolean;
+    source?: "live" | "demo";
+    refunds?: PaymentRefundRow[];
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/payments/refunds`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export async function getVenuePaymentReconciliation(token: string, restaurantId: string) {
+  return apiFetch<{ ok: boolean; reconciliation?: PaymentReconciliation; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/payments/reconciliation`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function listVenuePaymentPayouts(token: string, restaurantId: string) {
+  return apiFetch<{
+    ok: boolean;
+    source?: "live" | "demo";
+    payouts?: PaymentPayoutRow[];
+    summary?: { upcomingCents: number; lastCents: number; currency: string };
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/payments/payouts`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export async function getVenuePaymentWebhookHealth(token: string, restaurantId: string) {
+  return apiFetch<{ ok: boolean; health?: PaymentWebhookHealth; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/payments/webhooks/health`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function listVenuePaymentLogs(token: string, restaurantId: string) {
+  return apiFetch<{
+    ok: boolean;
+    source?: "live" | "demo";
+    logs?: PaymentLogRow[];
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/payments/logs`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
 }
 
 export async function archiveRestaurantMenu(
@@ -1865,6 +2212,13 @@ export async function manageAvailability(
   );
 }
 
+export type MigrationGuideStep = {
+  key: string;
+  title: string;
+  summary: string;
+  detail: string;
+};
+
 export type ImportExportCatalog = {
   sections: Array<{ id: string; label: string; description: string }>;
   targets: Array<{
@@ -1883,11 +2237,46 @@ export type ImportExportCatalog = {
     availability: "available" | "planned";
     extensions: string[];
   }>;
-  migrationProviders: Array<{ key: string; label: string; availability: "available" | "planned" }>;
+  migrationProviders: Array<{
+    key: string;
+    label: string;
+    availability: "available" | "planned";
+    description?: string;
+  }>;
+  migrationSteps?: MigrationGuideStep[];
   uploadOrigins: Array<{ key: string; label: string; availability: "available" | "planned" }>;
   conflictStrategies: Array<{ key: string; label: string; availability: "available" | "planned" }>;
   limits: { maxCsvBytes: number; maxCsvRows: number };
 };
+
+export type DataTransferMigrationRequestRow = {
+  id: string;
+  restaurantId: string;
+  providerKey: string;
+  providerLabel: string | null;
+  note: string | null;
+  status: string;
+  requestedByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function createDataTransferMigrationRequest(
+  token: string,
+  restaurantId: string,
+  body: { providerKey: string; note?: string | null }
+) {
+  return apiFetch<{
+    ok: boolean;
+    request?: DataTransferMigrationRequestRow;
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/import-export/migration-requests`, {
+    method: "POST",
+    headers: authJsonHeaders(token),
+    body: JSON.stringify(body)
+  });
+}
 
 export type DataTransferJobRow = {
   id: string;
@@ -1951,6 +2340,216 @@ export async function listDataTransferJobs(
   return apiFetch<{ ok: boolean; jobs?: DataTransferJobRow[]; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/import-export/jobs${suffix}`,
     { headers: authHeaders(token) }
+  );
+}
+
+export type DataTransferActivityRange = "7d" | "30d" | "90d";
+
+export type DataTransferActivityPoint = {
+  date: string;
+  imports: number;
+  exports: number;
+};
+
+export type DataTransferActivitySeries = {
+  range: DataTransferActivityRange;
+  days: number;
+  from: string;
+  to: string;
+  points: DataTransferActivityPoint[];
+  totals: { imports: number; exports: number; operations: number };
+};
+
+export async function getDataTransferActivity(
+  token: string,
+  restaurantId: string,
+  range: DataTransferActivityRange = "90d"
+) {
+  const qs = new URLSearchParams({ range });
+  return apiFetch<{
+    ok: boolean;
+    activity?: DataTransferActivitySeries;
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/import-export/activity?${qs}`, {
+    headers: authHeaders(token)
+  });
+}
+
+export type DataTransferTemplateStatus = "DRAFT" | "ACTIVE" | "ARCHIVED";
+
+export type DataTransferTemplateRow = {
+  id: string;
+  restaurantId: string;
+  name: string;
+  description: string | null;
+  targetKey: string;
+  targetLabel: string;
+  format: string;
+  version: number;
+  status: DataTransferTemplateStatus;
+  content: string;
+  systemKey: string | null;
+  isSystem: boolean;
+  rowEstimate: number;
+  createdByUserId: string | null;
+  updatedByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function listDataTransferTemplates(
+  token: string,
+  restaurantId: string,
+  opts?: { includeArchived?: boolean }
+) {
+  const qs = new URLSearchParams();
+  if (opts?.includeArchived) qs.set("includeArchived", "1");
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return apiFetch<{
+    ok: boolean;
+    templates?: DataTransferTemplateRow[];
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/import-export/templates${suffix}`, {
+    headers: authHeaders(token)
+  });
+}
+
+export async function getDataTransferTemplate(token: string, restaurantId: string, templateId: string) {
+  return apiFetch<{
+    ok: boolean;
+    template?: DataTransferTemplateRow;
+    error?: string;
+    message?: string;
+  }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/import-export/templates/${encodeURIComponent(templateId)}`,
+    { headers: authHeaders(token) }
+  );
+}
+
+export async function createDataTransferTemplate(
+  token: string,
+  restaurantId: string,
+  body: {
+    name: string;
+    description?: string | null;
+    targetKey: string;
+    format?: string;
+    content: string;
+    status?: DataTransferTemplateStatus;
+  }
+) {
+  return apiFetch<{
+    ok: boolean;
+    template?: DataTransferTemplateRow;
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/import-export/templates`, {
+    method: "POST",
+    headers: authJsonHeaders(token),
+    body: JSON.stringify(body)
+  });
+}
+
+export async function updateDataTransferTemplate(
+  token: string,
+  restaurantId: string,
+  templateId: string,
+  body: {
+    name?: string;
+    description?: string | null;
+    targetKey?: string;
+    format?: string;
+    content?: string;
+    status?: DataTransferTemplateStatus;
+  }
+) {
+  return apiFetch<{
+    ok: boolean;
+    template?: DataTransferTemplateRow;
+    error?: string;
+    message?: string;
+  }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/import-export/templates/${encodeURIComponent(templateId)}`,
+    {
+      method: "PATCH",
+      headers: authJsonHeaders(token),
+      body: JSON.stringify(body)
+    }
+  );
+}
+
+export async function duplicateDataTransferTemplate(
+  token: string,
+  restaurantId: string,
+  templateId: string
+) {
+  return apiFetch<{
+    ok: boolean;
+    template?: DataTransferTemplateRow;
+    error?: string;
+    message?: string;
+  }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/import-export/templates/${encodeURIComponent(templateId)}/duplicate`,
+    { method: "POST", headers: authJsonHeaders(token), body: "{}" }
+  );
+}
+
+export async function deleteDataTransferTemplate(
+  token: string,
+  restaurantId: string,
+  templateId: string
+) {
+  return apiFetch<{ ok: boolean; id?: string; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/import-export/templates/${encodeURIComponent(templateId)}`,
+    { method: "DELETE", headers: authHeaders(token) }
+  );
+}
+
+export async function downloadDataTransferTemplate(
+  token: string,
+  restaurantId: string,
+  templateId: string
+) {
+  const res = await fetch(
+    `${getApiBaseUrl()}/restaurants/${encodeURIComponent(restaurantId)}/import-export/templates/${encodeURIComponent(templateId)}/download`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!res.ok) {
+    let message = "Download failed";
+    try {
+      const body = (await res.json()) as { message?: string };
+      if (body.message) message = body.message;
+    } catch {
+      /* ignore */
+    }
+    return { ok: false as const, error: "download_failed", message };
+  }
+  const csv = await res.text();
+  const disposition = res.headers.get("Content-Disposition") ?? "";
+  const match = /filename="([^"]+)"/.exec(disposition);
+  return { ok: true as const, csv, fileName: match?.[1] ?? "template.csv" };
+}
+
+export async function getDataTransferJob(token: string, restaurantId: string, jobId: string) {
+  return apiFetch<{ ok: boolean; job?: DataTransferJobRow; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/import-export/jobs/${encodeURIComponent(jobId)}`,
+    { headers: authHeaders(token) }
+  );
+}
+
+export async function cancelDataTransferJob(token: string, restaurantId: string, jobId: string) {
+  return apiFetch<{ ok: boolean; job?: DataTransferJobRow; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/import-export/jobs/${encodeURIComponent(jobId)}/cancel`,
+    { method: "POST", headers: authJsonHeaders(token), body: "{}" }
+  );
+}
+
+export async function deleteDataTransferJob(token: string, restaurantId: string, jobId: string) {
+  return apiFetch<{ ok: boolean; id?: string; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/import-export/jobs/${encodeURIComponent(jobId)}`,
+    { method: "DELETE", headers: authHeaders(token) }
   );
 }
 

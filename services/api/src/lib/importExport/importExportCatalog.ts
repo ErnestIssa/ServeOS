@@ -36,6 +36,14 @@ export type MigrationProvider = {
   key: string;
   label: string;
   availability: DataTransferAvailability;
+  description?: string;
+};
+
+export type MigrationGuideStep = {
+  key: string;
+  title: string;
+  summary: string;
+  detail: string;
 };
 
 export type ImportExportCatalog = {
@@ -44,6 +52,7 @@ export type ImportExportCatalog = {
   sources: ImportExportSource[];
   formats: ImportExportFormat[];
   migrationProviders: MigrationProvider[];
+  migrationSteps: MigrationGuideStep[];
   uploadOrigins: Array<{ key: string; label: string; availability: DataTransferAvailability }>;
   conflictStrategies: Array<{ key: string; label: string; availability: DataTransferAvailability }>;
   limits: {
@@ -254,14 +263,105 @@ export function getImportExportCatalog(): ImportExportCatalog {
       }
     ],
     migrationProviders: [
-      { key: "toast", label: "Toast", availability: "planned" },
-      { key: "square", label: "Square", availability: "planned" },
-      { key: "lightspeed", label: "Lightspeed", availability: "planned" },
-      { key: "clover", label: "Clover", availability: "planned" },
-      { key: "sumup", label: "SumUp", availability: "planned" },
-      { key: "rekki", label: "Rekki", availability: "planned" },
-      { key: "excel", label: "Excel", availability: "planned" },
-      { key: "custom-csv", label: "Custom CSV", availability: "available" }
+      {
+        key: "toast",
+        label: "Toast",
+        availability: "planned",
+        description: "Toast POS export — connector coming soon."
+      },
+      {
+        key: "square",
+        label: "Square",
+        availability: "planned",
+        description: "Square catalog export — connector coming soon."
+      },
+      {
+        key: "lightspeed",
+        label: "Lightspeed",
+        availability: "planned",
+        description: "Lightspeed restaurant data — connector coming soon."
+      },
+      {
+        key: "clover",
+        label: "Clover",
+        availability: "planned",
+        description: "Clover items and modifiers — connector coming soon."
+      },
+      {
+        key: "sumup",
+        label: "SumUp",
+        availability: "planned",
+        description: "SumUp product lists — connector coming soon."
+      },
+      {
+        key: "rekki",
+        label: "Rekki",
+        availability: "planned",
+        description: "Rekki supplier catalogs — connector coming soon."
+      },
+      {
+        key: "excel",
+        label: "Excel",
+        availability: "planned",
+        description: "Excel workbooks (.xlsx) — planned after CSV."
+      },
+      {
+        key: "custom-csv",
+        label: "Custom CSV",
+        availability: "available",
+        description: "Migrate now with a CSV file through the import wizard."
+      }
+    ],
+    migrationSteps: [
+      {
+        key: "choose",
+        title: "Choose system",
+        summary: "Pick the POS or file source you’re leaving.",
+        detail:
+          "Use the Source system menu on this Migration panel. Custom CSV is available today; other providers can be requested for assisted migration until their connectors ship."
+      },
+      {
+        key: "upload",
+        title: "Upload / Connect",
+        summary: "Provide an export file or approve a connection.",
+        detail:
+          "For Custom CSV, Start migration opens the import wizard so you can upload your file. Connected POS providers will use a secure OAuth or export handshake when they become available."
+      },
+      {
+        key: "analyze",
+        title: "Analyze",
+        summary: "ServeOS inspects structure, IDs, and data quality.",
+        detail:
+          "We detect columns, external IDs, and obvious issues before anything is written. Analysis results appear in the wizard so you can fix problems early."
+      },
+      {
+        key: "map",
+        title: "Map",
+        summary: "Match source fields to ServeOS fields.",
+        detail:
+          "Map categories, items, prices, and modifiers to the ServeOS schema. Preserving external IDs here keeps future sync and re-imports safer."
+      },
+      {
+        key: "preview",
+        title: "Preview",
+        summary: "Review creates, updates, and skips before commit.",
+        detail:
+          "Preview shows what will change on this venue. Nothing live updates until you confirm — dry runs are available for menu CSV today."
+      },
+      {
+        key: "import",
+        title: "Import",
+        summary: "Apply the migration into this venue.",
+        detail:
+          "Confirmed imports run as tracked transfer jobs. You can follow progress under Overview and History, and download or retry when supported."
+      },
+      {
+        key: "verify",
+        title: "Verify",
+        summary: "Spot-check the venue and keep a backup export.",
+        detail:
+          "After import, check menus and key records in admin. Export a ServeOS backup when you’re happy so you have a restore point."
+      }
     ],
     uploadOrigins: [
       { key: "device", label: "Browse / drag files", availability: "available" },

@@ -17,11 +17,21 @@ export type MenuSectionTab =
   | "live";
 
 export type ImportsExportsSectionTab =
-  | "imports"
-  | "exports"
+  | "overview"
+  | "history"
   | "templates"
-  | "migration"
-  | "history";
+  | "migration";
+
+export type PaymentsSectionTab =
+  | "overview"
+  | "methods"
+  | "rules"
+  | "providers"
+  | "refunds"
+  | "reconciliation"
+  | "payouts"
+  | "transactions"
+  | "logs";
 
 const LEGACY_CONFIG_PRESET_MAP: Record<string, ConfigPresetId> = {
   "menu-builder": "menu",
@@ -76,13 +86,13 @@ export function menuTabFromLegacyPreset(presetId: string): MenuSectionTab | null
 
 export const CONFIG_PRESET_DESCRIPTIONS: Record<ConfigPresetId, string> = {
   menu: "Everything related to products — menus, categories, items, modifiers, and availability.",
-  payments: "Everything related to money — providers, methods, payouts, taxes, and security.",
+  payments:
+    "Venue money infrastructure — how this restaurant accepts, processes, refunds, reconciles, and settles guest payments (not ServeOS subscription billing).",
   "media-library":
     "Restaurant-wide media library — images and videos for menus, items, covers, and future surfaces.",
   "qr-codes":
     "QR codes for table ordering, menus, takeaway, and other guest experiences. The printed code stays the same; each guest visit is temporary.",
-  "imports-exports":
-    "Platform data transfer center — import, export, templates, migrations, and job history across ServeOS."
+  "imports-exports": "Import, export, and review venue data transfers."
 };
 
 export const MENU_TAB_LABELS: Record<MenuSectionTab, string> = {
@@ -110,17 +120,57 @@ export const MENU_TABS: MenuSectionTab[] = [
 ];
 
 export const IMPORTS_EXPORTS_TAB_LABELS: Record<ImportsExportsSectionTab, string> = {
-  imports: "Imports",
-  exports: "Exports",
+  overview: "Overview",
+  history: "History",
   templates: "Templates",
-  migration: "Migration",
-  history: "History"
+  migration: "Migration"
 };
 
 export const IMPORTS_EXPORTS_TABS: ImportsExportsSectionTab[] = [
-  "imports",
-  "exports",
+  "overview",
+  "history",
   "templates",
-  "migration",
-  "history"
+  "migration"
 ];
+
+/** Legacy hash tab values from older Imports & Exports URLs. */
+export function normalizeImportsExportsTab(value: string | null): ImportsExportsSectionTab | null {
+  if (!value) return null;
+  if ((IMPORTS_EXPORTS_TABS as string[]).includes(value)) return value as ImportsExportsSectionTab;
+  if (value === "imports" || value === "exports") return "overview";
+  return null;
+}
+
+export const PAYMENTS_TAB_LABELS: Record<PaymentsSectionTab, string> = {
+  overview: "Overview",
+  methods: "Payment methods",
+  rules: "Payment rules",
+  providers: "Providers",
+  refunds: "Refunds",
+  reconciliation: "Reconciliation",
+  payouts: "Payouts",
+  transactions: "Transactions",
+  logs: "Payment logs"
+};
+
+export const PAYMENTS_TABS: PaymentsSectionTab[] = [
+  "overview",
+  "methods",
+  "rules",
+  "providers",
+  "refunds",
+  "reconciliation",
+  "payouts",
+  "transactions",
+  "logs"
+];
+
+/** Legacy hash tab values from older Payments URLs. */
+export function normalizePaymentsTab(value: string | null): PaymentsSectionTab | null {
+  if (!value) return null;
+  if ((PAYMENTS_TABS as string[]).includes(value)) return value as PaymentsSectionTab;
+  if (value === "payment-methods" || value === "methods-config") return "methods";
+  if (value === "security" || value === "webhooks") return "providers";
+  if (value === "history") return "transactions";
+  return null;
+}

@@ -156,4 +156,119 @@ export async function getDataTransferJob(prisma: PrismaClient, restaurantId: str
   return job ? serializeJob(job) : null;
 }
 
+const CANCELLABLE: DataTransferJobStatus[] = ["QUEUED", "RUNNING", "VALIDATING"];
+
+export async function cancelDataTransferJob(prisma: PrismaClient, restaurantId: string, jobId: string) {
+  const existing = await prisma.dataTransferJob.findFirst({
+    where: { id: jobId, restaurantId }
+  });
+  if (!existing) return { ok: false as const, error: "job_not_found" as const };
+  if (!CANCELLABLE.includes(existing.status)) {
+    return { ok: false as const, error: "job_not_cancellable" as const };
+  }
+  const job = await prisma.dataTransferJob.update({
+    where: { id: jobId },
+    data: {
+      status: "CANCELLED",
+      finishedAt: new Date(),
+      error: existing.error ?? "Cancelled by user"
+    }
+  });
+  return { ok: true as const, job: serializeJob(job) };
+}
+
+/** Removes a finished transfer record from venue history. Does not reverse imported data. */
+export async function deleteDataTransferJob(prisma: PrismaClient, restaurantId: string, jobId: string) {
+  const existing = await prisma.dataTransferJob.findFirst({
+    where: { id: jobId, restaurantId }
+  });
+  if (!existing) return { ok: false as const, error: "job_not_found" as const };
+  if (CANCELLABLE.includes(existing.status)) {
+    return { ok: false as const, error: "job_still_active" as const };
+  }
+  await prisma.dataTransferJob.delete({ where: { id: jobId } });
+  return { ok: true as const, id: jobId };
+}
+
 export type SerializedDataTransferJob = ReturnType<typeof serializeJob>;
+
+export type DataTransferActivityRange = "7d" | "30d" | "90d";
+
+export type DataTransferActivityPoint = {
+  date: string;
+  imports: number;
+  exports: number;
+};
+
+function activityDays(range: DataTransferActivityRange): number {
+  if (range === "7d") return 7;
+  if (range === "30d") return 30;
+  return 90;
+}
+
+function utcDateKey(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+/** Daily import/export operation counts for the venue activity chart (SSOT). */
+export async function getDataTransferActivitySeries(
+  prisma: PrismaClient,
+  restaurantId: string,
+  range: DataTransferActivityRange = "90d"
+) {
+  const days = activityDays(range);
+  const end = new Date();
+  const start = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
+  start.setUTCDate(start.getUTCDate() - (days - 1));
+
+  const jobs = await prisma.dataTransferJob.findMany({
+    where: {
+      restaurantId,
+      createdAt: { gte: start }
+    },
+    select: {
+      direction: true,
+      createdAt: true
+    }
+  });
+
+  const buckets = new Map<string, { imports: number; exports: number }>();
+  for (let i = 0; i < days; i++) {
+    const d = new Date(start);
+    d.setUTCDate(start.getUTCDate() + i);
+    buckets.set(utcDateKey(d), { imports: 0, exports: 0 });
+  }
+
+  for (const job of jobs) {
+    const key = utcDateKey(job.createdAt);
+    const bucket = buckets.get(key);
+    if (!bucket) continue;
+    if (job.direction === "IMPORT") bucket.imports += 1;
+    else bucket.exports += 1;
+  }
+
+  const points: DataTransferActivityPoint[] = Array.from(buckets.entries()).map(([date, counts]) => ({
+    date,
+    imports: counts.imports,
+    exports: counts.exports
+  }));
+
+  const totals = points.reduce(
+    (acc, p) => {
+      acc.imports += p.imports;
+      acc.exports += p.exports;
+      acc.operations += p.imports + p.exports;
+      return acc;
+    },
+    { imports: 0, exports: 0, operations: 0 }
+  );
+
+  return {
+    range,
+    days,
+    from: start.toISOString(),
+    to: end.toISOString(),
+    points,
+    totals
+  };
+}
