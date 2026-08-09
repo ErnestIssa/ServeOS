@@ -1,0 +1,6 @@
+{
+  "name": "@serveos/kds",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Kitchen Display System — back-of-house always-on order tickets (scaffold)."
+}

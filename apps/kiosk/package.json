@@ -1,0 +1,6 @@
+{
+  "name": "@serveos/kiosk",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Self-service at-venue ordering kiosk (scaffold)."
+}

@@ -12,6 +12,7 @@ import {
   updateVenuePaymentSettings,
   type VenuePaymentSettings
 } from "../lib/payments/venuePaymentSettingsService.js";
+import { getPaymentHealthSnapshot } from "../lib/payments/paymentHealthService.js";
 import {
   getPaymentActivity,
   getPaymentOverview,
@@ -121,6 +122,22 @@ export function registerVenuePaymentRoutes(app: FastifyInstance, prisma: PrismaC
     try {
       const overview = await getPaymentOverview(prisma, restaurantId);
       return { ok: true, overview };
+    } catch {
+      return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
+    }
+  });
+
+  app.get("/restaurants/:restaurantId/payments/health", async (req, reply) => {
+    const { restaurantId } = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
+    const query = z
+      .object({ refresh: z.enum(["1", "true"]).optional() })
+      .parse(req.query ?? {});
+    await requireMenuVenueMembership(prisma, req, restaurantId);
+    try {
+      const health = await getPaymentHealthSnapshot(prisma, restaurantId, {
+        forceRefresh: query.refresh === "1" || query.refresh === "true"
+      });
+      return { ok: true, health };
     } catch {
       return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
     }

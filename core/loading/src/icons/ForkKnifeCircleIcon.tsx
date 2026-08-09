@@ -3,12 +3,14 @@ import React from "react";
 type Props = {
   className?: string;
   title?: string;
+  style?: React.CSSProperties;
 };
 
-export function ForkKnifeCircleIcon({ className, title = "ServeOS icon" }: Props) {
+export function ForkKnifeCircleIcon({ className, title = "ServeOS icon", style }: Props) {
   return (
     <svg
       className={className}
+      style={style}
       viewBox="0 0 380.721 380.721"
       role="img"
       aria-label={title}

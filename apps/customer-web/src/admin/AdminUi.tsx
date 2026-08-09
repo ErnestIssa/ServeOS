@@ -97,7 +97,7 @@ export function AdminSectionHeader({
   action
 }: {
   eyebrowText?: string;
-  title: string;
+  title: ReactNode;
   description?: string;
   action?: ReactNode;
 }) {

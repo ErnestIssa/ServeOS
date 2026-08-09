@@ -1475,6 +1475,109 @@ export async function getVenuePaymentOverview(token: string, restaurantId: strin
   );
 }
 
+export type PaymentOverallHealth = "healthy" | "degraded" | "critical";
+
+export type PaymentHealthActionTarget =
+  | "transactions"
+  | "refunds"
+  | "reconciliation"
+  | "providers"
+  | "logs"
+  | "overview";
+
+export type PaymentHealthIssue = {
+  id: string;
+  severity: "warning" | "critical";
+  title: string;
+  detail: string;
+  actionLabel: string;
+  actionTarget: PaymentHealthActionTarget;
+  count?: number;
+};
+
+export type PaymentHealthChartSlice = {
+  key: string;
+  label: string;
+  short: string;
+  status: PaymentHealthStatus;
+  statusLabel: string;
+  value: number;
+};
+
+export type PaymentHealthHistoryPoint = {
+  at: string;
+  overall: PaymentOverallHealth;
+  reason: string;
+};
+
+export type PaymentHealthSnapshot = {
+  source: "live" | "demo";
+  evaluatedAt: string;
+  cached: boolean;
+  cacheTtlSec: number;
+  overall: PaymentOverallHealth;
+  overallLabel: string;
+  summary: string;
+  dimensions: {
+    paymentSystem: PaymentHealthStatus;
+    onlinePayments: PaymentHealthStatus;
+    payAtVenue: PaymentHealthStatus;
+    refunds: PaymentHealthStatus;
+    webhooks: PaymentHealthStatus;
+    settlement: PaymentHealthStatus;
+    providers: PaymentHealthStatus;
+    reconciliation: PaymentHealthStatus;
+  };
+  chartSlices: PaymentHealthChartSlice[];
+  metrics: {
+    successRate24h: number;
+    successRate7d: number;
+    failedCount24h: number;
+    failureRate24h: number;
+    pendingStuckCount: number;
+    refundFailedOrPending: number;
+    reconciliationMismatches: number;
+    webhookReceivedToday: number;
+    webhookFailed: number;
+    webhookDelayed: number;
+    webhookRetrying: number;
+  };
+  providers: Array<{
+    key: string;
+    label: string;
+    connected: boolean;
+    status: PaymentHealthStatus;
+    statusLabel: string;
+  }>;
+  timestamps: {
+    lastSuccessfulPaymentAt: string | null;
+    lastWebhookAt: string | null;
+    lastReconciliationAt: string | null;
+  };
+  issues: PaymentHealthIssue[];
+  incidents: Array<{
+    id: string;
+    at: string;
+    severity: "warning" | "critical";
+    title: string;
+  }>;
+  history: PaymentHealthHistoryPoint[];
+};
+
+export async function getVenuePaymentHealth(
+  token: string,
+  restaurantId: string,
+  opts?: { refresh?: boolean }
+) {
+  const q = new URLSearchParams();
+  if (opts?.refresh) q.set("refresh", "1");
+  const suffix = q.toString() ? `?${q}` : "";
+  return apiFetch<{ ok: boolean; health?: PaymentHealthSnapshot; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/payments/health${suffix}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
 export async function getVenuePaymentActivity(
   token: string,
   restaurantId: string,

@@ -20,16 +20,21 @@ export function PaySection({
   description,
   action,
   children,
-  className = ""
+  className = "",
+  borderless = false
 }: {
   title: string;
   description?: string;
   action?: ReactNode;
   children: ReactNode;
   className?: string;
+  /** Removes card border/shadow and section body dividers. */
+  borderless?: boolean;
 }) {
   return (
-    <section className={`${subPanelCls} admin-config-section admin-payments-section overflow-hidden p-0 ${className}`.trim()}>
+    <section
+      className={`${borderless ? "admin-payments-section admin-payments-section--borderless" : `${subPanelCls} admin-config-section admin-payments-section overflow-hidden p-0`} ${className}`.trim()}
+    >
       <div className="admin-payments-section-head">
         <div className="min-w-0">
           <p className="text-xs font-bold uppercase tracking-wide admin-config-text-muted">{title}</p>

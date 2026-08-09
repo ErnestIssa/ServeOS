@@ -1,0 +1,6 @@
+{
+  "name": "@serveos/customer-display",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Front-of-house customer / order status display board (scaffold)."
+}

@@ -52,6 +52,7 @@ import {
 import { PaymentMethodConfigModal } from "./PaymentMethodConfigModal";
 import { PaymentProviderDetailModal } from "./PaymentProviderDetailModal";
 import { PaymentTransactionDrawer } from "./PaymentTransactionDrawer";
+import { PaymentsAdvancedSettingsPage } from "./PaymentsAdvancedSettingsPage";
 import { PaymentsLogsTab } from "./PaymentsLogsTab";
 import { PaymentsMethodsTab } from "./PaymentsMethodsTab";
 import { PaymentsOverviewTab } from "./PaymentsOverviewTab";
@@ -71,10 +72,12 @@ type Props = {
 
 const TAB_TRANSITION = { duration: 0.34, ease: [0.22, 1, 0.36, 1] as const };
 
-function setPaymentsTabHash(next: PaymentsSectionTab) {
+function setPaymentsTabHash(next: PaymentsSectionTab, advanced = false) {
   const base = window.location.hash.split("?")[0] || "#/admin/config/payments";
   const q = parseAdminHashQuery();
   q.set("tab", next);
+  if (advanced) q.set("view", "advanced");
+  else q.delete("view");
   const qs = q.toString();
   window.location.hash = qs ? `${base}?${qs}` : base;
 }
@@ -106,6 +109,7 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
   const [webhookHealth, setWebhookHealth] = useState<PaymentWebhookHealth | null>(null);
   const [activityRefreshKey, setActivityRefreshKey] = useState(0);
 
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [methodKey, setMethodKey] = useState<string | null>(null);
   const [providerDetail, setProviderDetail] = useState<"stripe" | "swish" | "terminals" | null>(null);
   const [connectOpen, setConnectOpen] = useState<"stripe" | "swish" | null>(null);
@@ -116,6 +120,21 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
 
   const canEdit = useMemo(() => canEditPayments(role), [role]);
   const lockReason = paymentsEditReason(role);
+
+  const paymentsTitle = (
+    <span className="admin-payments-title-inline">
+      Payments
+      <span className="admin-payments-help-wrap">
+        <span className="admin-payments-help" tabIndex={0} aria-describedby="admin-payments-help-tip">
+          ?
+        </span>
+        <span id="admin-payments-help-tip" className="admin-payments-help-tip" role="tooltip">
+          ServeOS subscription billing is managed under Billing — this workspace is guest payment infrastructure
+          only.
+        </span>
+      </span>
+    </span>
+  );
 
   const loadPaymentsContext = useCallback(
     async (mode: "initial" | "refresh" | "soft") => {
@@ -192,6 +211,7 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
       const q = parseAdminHashQuery();
       const next = normalizePaymentsTab(q.get("tab"));
       if (next) setTab(next);
+      setAdvancedOpen(q.get("view") === "advanced");
     };
     applyHash();
     window.addEventListener("hashchange", applyHash);
@@ -204,7 +224,18 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
 
   const selectTab = (next: PaymentsSectionTab) => {
     setTab(next);
-    setPaymentsTabHash(next);
+    setAdvancedOpen(false);
+    setPaymentsTabHash(next, false);
+  };
+
+  const openAdvanced = () => {
+    setAdvancedOpen(true);
+    setPaymentsTabHash(tab, true);
+  };
+
+  const closeAdvanced = () => {
+    setAdvancedOpen(false);
+    setPaymentsTabHash(tab, false);
   };
 
   const patchLocal = (patch: Partial<VenuePaymentSettings>) => {
@@ -244,7 +275,7 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
   };
 
   const saveSettings = async (override?: Partial<VenuePaymentSettings>) => {
-    if (!token || !restaurantId || !settings) return;
+    if (!token || !restaurantId || !settings) return false;
     const body = override ?? {
       methods: settings.methods,
       methodConfig: settings.methodConfig,
@@ -265,11 +296,12 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
     setSaving(false);
     if (!res.ok || !res.settings) {
       pushToast(res.message ?? res.error ?? "Could not save payment settings", "error");
-      return;
+      return false;
     }
     setSettings(res.settings);
     pushToast("Payment settings saved.", "success");
     void loadPaymentsContext("soft");
+    return true;
   };
 
   const handleConnect = async () => {
@@ -329,7 +361,7 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
       <AdminPanel id="ws-config" className="admin-top-page admin-panel--edge admin-config-page admin-payments-page">
         <AdminSectionHeader
           eyebrowText="Configuration"
-          title="Payments"
+          title={paymentsTitle}
           description={CONFIG_PRESET_DESCRIPTIONS.payments}
         />
         <div className={`${subPanelCls} admin-config-section mt-8 p-6`}>
@@ -339,11 +371,68 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
     );
   }
 
+  if (advancedOpen && settings) {
+    return (
+      <AdminPanel
+        id="ws-config"
+        className="admin-top-page admin-panel--edge admin-config-page admin-payments-page admin-payments-page--advanced"
+      >
+        <AdminStaleContent refreshing={refreshing}>
+          <AnimatePresence mode="wait">
+            <motion.div
+              key="advanced"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={TAB_TRANSITION}
+            >
+              <PaymentsAdvancedSettingsPage
+                settings={settings}
+                envReady={envReady}
+                canEdit={canEdit}
+                saving={saving}
+                onBack={closeAdvanced}
+                onPatch={patchLocal}
+                onSave={() => {
+                  void saveSettings();
+                }}
+              />
+            </motion.div>
+          </AnimatePresence>
+        </AdminStaleContent>
+
+        <ProfileModalShell
+          open={Boolean(connectOpen)}
+          onClose={() => setConnectOpen(null)}
+          title={connectOpen === "stripe" ? "Connect Stripe" : "Connect Swish"}
+          description="Paste a sandbox account / merchant ID. Live keys stay in server environment variables."
+          titleId="payment-connect-modal"
+        >
+          <label className="grid gap-1">
+            <AdminLabel>{connectOpen === "stripe" ? "Stripe account ID" : "Swish merchant ID"}</AdminLabel>
+            <AdminInput
+              value={connectId}
+              onChange={(e) => setConnectId(e.target.value)}
+              placeholder={connectOpen === "stripe" ? "acct_…" : "123xxxxxxx"}
+            />
+          </label>
+          <ProfileModalFooter
+            cancelLabel="Cancel"
+            confirmLabel={saving ? "Connecting…" : "Connect"}
+            confirmDisabled={saving}
+            onCancel={() => setConnectOpen(null)}
+            onConfirm={() => void handleConnect()}
+          />
+        </ProfileModalShell>
+      </AdminPanel>
+    );
+  }
+
   return (
     <AdminPanel id="ws-config" className="admin-top-page admin-panel--edge admin-config-page admin-payments-page">
       <AdminSectionHeader
         eyebrowText="Configuration"
-        title="Payments"
+        title={paymentsTitle}
         description={CONFIG_PRESET_DESCRIPTIONS.payments}
         action={
           <div className="flex flex-wrap items-center gap-2">
@@ -363,19 +452,24 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
 
       {!canEdit ? <p className="admin-payments-locked mt-3 text-sm">{lockReason}</p> : null}
 
-      <div className="admin-page-tabs mt-5" role="tablist" aria-label="Payments sections">
-        {PAYMENTS_TABS.map((id) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={tab === id}
-            className={`admin-page-tab${tab === id ? " is-active" : ""}`}
-            onClick={() => selectTab(id)}
-          >
-            {PAYMENTS_TAB_LABELS[id]}
-          </button>
-        ))}
+      <div className="admin-payments-tabs-row mt-5">
+        <div className="admin-page-tabs admin-payments-tabs" role="tablist" aria-label="Payments sections">
+          {PAYMENTS_TABS.map((id) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              className={`admin-page-tab${tab === id ? " admin-page-tab--active" : ""}`}
+              onClick={() => selectTab(id)}
+            >
+              {PAYMENTS_TAB_LABELS[id]}
+            </button>
+          ))}
+        </div>
+        <button type="button" className="admin-payments-advanced-btn" onClick={openAdvanced}>
+          Advanced Settings
+        </button>
       </div>
 
       <AdminStaleContent refreshing={refreshing}>
@@ -401,6 +495,10 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
                   restaurantId={restaurantId}
                   overview={overview}
                   refreshKey={activityRefreshKey}
+                  onNavigateHealth={(target) => {
+                    if (target === "overview") return;
+                    selectTab(target);
+                  }}
                 />
               ) : null}
               {tab === "methods" ? (
@@ -456,7 +554,11 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
                   canEdit={canEdit}
                   onLinkBank={() =>
                     patchLocal({
-                      bankAccount: { linked: true, lastFour: "4821", holderName: settings.bankAccount.holderName ?? "" }
+                      bankAccount: {
+                        linked: true,
+                        lastFour: "4821",
+                        holderName: settings.bankAccount.holderName ?? ""
+                      }
                     })
                   }
                   onPatchBank={(bankAccount) => patchLocal({ bankAccount })}
@@ -549,7 +651,6 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
           onConfirm={() => void handleConnect()}
         />
       </ProfileModalShell>
-
     </AdminPanel>
   );
 }
