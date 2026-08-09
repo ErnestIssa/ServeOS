@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import type { PaymentTransactionRow, PaymentTxnStatus } from "../../../api";
+import { useEffect, useMemo, useState } from "react";
+import type { PaymentTransactionRow, PaymentTxnStatus, TodaysPaymentsDrillFilter } from "../../../api";
 import { MenuListSearchField } from "../menu/MenuPageUi";
 import { PayChip } from "./paymentsShared";
 import { formatSekFromCents, formatWhen, methodLabel, txnStatusClass, txnStatusLabel } from "./paymentsUiHelpers";
@@ -7,6 +7,8 @@ import { formatSekFromCents, formatWhen, methodLabel, txnStatusClass, txnStatusL
 type Props = {
   transactions: PaymentTransactionRow[];
   source?: "live" | "demo";
+  drillFilter?: TodaysPaymentsDrillFilter | null;
+  onClearDrill?: () => void;
   onOpen: (txn: PaymentTransactionRow) => void;
 };
 
@@ -20,13 +22,57 @@ const STATUS_FILTERS: Array<PaymentTxnStatus | "all"> = [
   "disputed"
 ];
 
-export function PaymentsTransactionsTab({ transactions, source, onOpen }: Props) {
+function methodMatches(txnMethod: string, provider: string, wanted: string) {
+  const m = txnMethod.toLowerCase();
+  const p = provider.toLowerCase();
+  if (wanted === "pay_at_venue") {
+    return m.includes("cash") || m.includes("pay_at_venue") || m.includes("venue") || p === "manual";
+  }
+  if (wanted === "swish") return m.includes("swish") || p.includes("swish");
+  if (wanted === "apple_pay") return m.includes("apple");
+  if (wanted === "google_pay") return m.includes("google");
+  if (wanted === "card_terminal") return m.includes("terminal");
+  if (wanted === "card") {
+    return !methodMatches(txnMethod, provider, "swish") &&
+      !methodMatches(txnMethod, provider, "apple_pay") &&
+      !methodMatches(txnMethod, provider, "google_pay") &&
+      !methodMatches(txnMethod, provider, "pay_at_venue") &&
+      !methodMatches(txnMethod, provider, "card_terminal");
+  }
+  return m === wanted;
+}
+
+export function PaymentsTransactionsTab({
+  transactions,
+  source,
+  drillFilter = null,
+  onClearDrill,
+  onOpen
+}: Props) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<PaymentTxnStatus | "all">("all");
 
+  useEffect(() => {
+    if (!drillFilter) return;
+    if (drillFilter.statuses?.length === 1) {
+      const only = drillFilter.statuses[0];
+      if (STATUS_FILTERS.includes(only)) setStatus(only);
+      else setStatus("all");
+    } else {
+      setStatus("all");
+    }
+  }, [drillFilter]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const idSet = drillFilter?.ids?.length ? new Set(drillFilter.ids) : null;
+    const statuses = drillFilter?.statuses?.length ? new Set(drillFilter.statuses) : null;
+    const methods = drillFilter?.methods?.length ? drillFilter.methods : null;
+
     return transactions.filter((t) => {
+      if (idSet && !idSet.has(t.id)) return false;
+      if (!idSet && statuses && !statuses.has(t.status)) return false;
+      if (!idSet && methods && !methods.some((m) => methodMatches(t.method, t.provider, m))) return false;
       if (status !== "all" && t.status !== status) return false;
       if (!q) return true;
       return (
@@ -39,7 +85,7 @@ export function PaymentsTransactionsTab({ transactions, source, onOpen }: Props)
         t.status.includes(q)
       );
     });
-  }, [transactions, search, status]);
+  }, [transactions, search, status, drillFilter]);
 
   return (
     <div className="admin-payments-tab-stack">
@@ -66,8 +112,25 @@ export function PaymentsTransactionsTab({ transactions, source, onOpen }: Props)
         </div>
       </div>
 
+      {drillFilter ? (
+        <div className="admin-payments-drill-banner">
+          <span>
+            Showing {drillFilter.ids.length > 0 ? `${drillFilter.ids.length} ` : ""}
+            payment{drillFilter.ids.length === 1 ? "" : "s"} from Today’s payments
+            {drillFilter.day ? ` (${drillFilter.day})` : ""}.
+          </span>
+          {onClearDrill ? (
+            <button type="button" className="admin-payments-drill-clear" onClick={onClearDrill}>
+              Clear filter
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
       {source === "demo" ? (
-        <p className="admin-config-text-subtle text-xs">Showing demo ledger rows from the payment API (no live payment refs yet).</p>
+        <p className="admin-config-text-subtle text-xs">
+          Showing sample activity from the payment ledger.
+        </p>
       ) : null}
 
       <div className="admin-payments-table-wrap">

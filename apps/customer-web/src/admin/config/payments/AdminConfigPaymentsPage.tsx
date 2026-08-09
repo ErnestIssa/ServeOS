@@ -24,6 +24,7 @@ import {
   type PaymentTransactionDetail,
   type PaymentTransactionRow,
   type PaymentWebhookHealth,
+  type TodaysPaymentsDrillFilter,
   type VenuePaymentSettings
 } from "../../../api";
 import {
@@ -92,7 +93,7 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
   const [saving, setSaving] = useState(false);
   const [settings, setSettings] = useState<VenuePaymentSettings | null>(null);
   const [envReady, setEnvReady] = useState<PaymentProviderEnvReady | null>(null);
-  const [overview, setOverview] = useState<PaymentOverview | null>(null);
+  const [, setOverview] = useState<PaymentOverview | null>(null);
   const [transactions, setTransactions] = useState<PaymentTransactionRow[]>([]);
   const [txnSource, setTxnSource] = useState<"live" | "demo">("demo");
   const [refunds, setRefunds] = useState<PaymentRefundRow[]>([]);
@@ -117,6 +118,7 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
   const [selectedTxn, setSelectedTxn] = useState<PaymentTransactionDetail | null>(null);
   const [txnDrawerOpen, setTxnDrawerOpen] = useState(false);
   const [selectedRefund, setSelectedRefund] = useState<PaymentRefundRow | null>(null);
+  const [txnDrillFilter, setTxnDrillFilter] = useState<TodaysPaymentsDrillFilter | null>(null);
 
   const canEdit = useMemo(() => canEditPayments(role), [role]);
   const lockReason = paymentsEditReason(role);
@@ -226,6 +228,19 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
     setTab(next);
     setAdvancedOpen(false);
     setPaymentsTabHash(next, false);
+    if (next !== "transactions" && next !== "refunds") setTxnDrillFilter(null);
+  };
+
+  const drillFromToday = (filter: TodaysPaymentsDrillFilter, ledger: PaymentTransactionRow[]) => {
+    setTransactions((current) => {
+      const byId = new Map(current.map((t) => [t.id, t]));
+      for (const row of ledger) {
+        if (!byId.has(row.id)) byId.set(row.id, row);
+      }
+      return Array.from(byId.values()).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    });
+    setTxnDrillFilter(filter);
+    selectTab(filter.target === "refunds" ? "refunds" : "transactions");
   };
 
   const openAdvanced = () => {
@@ -493,12 +508,13 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
                 <PaymentsOverviewTab
                   token={token}
                   restaurantId={restaurantId}
-                  overview={overview}
                   refreshKey={activityRefreshKey}
                   onNavigateHealth={(target) => {
                     if (target === "overview") return;
                     selectTab(target);
                   }}
+                  onDrillDownToday={drillFromToday}
+                  onOpenTransaction={(row) => void openTransaction(row)}
                 />
               ) : null}
               {tab === "methods" ? (
@@ -568,6 +584,8 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
                 <PaymentsTransactionsTab
                   transactions={transactions}
                   source={txnSource}
+                  drillFilter={txnDrillFilter?.target === "transactions" ? txnDrillFilter : null}
+                  onClearDrill={() => setTxnDrillFilter(null)}
                   onOpen={(row) => void openTransaction(row)}
                 />
               ) : null}

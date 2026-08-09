@@ -120,6 +120,61 @@ function overallLabel(overall: PaymentOverallHealth) {
   return "Critical";
 }
 
+/** Plain-language names for areas that need attention in the summary line. */
+function attentionAreaLabel(key: string): string {
+  switch (key) {
+    case "paymentSystem":
+      return "taking payments";
+    case "onlinePayments":
+      return "online payments";
+    case "payAtVenue":
+      return "pay at venue";
+    case "refunds":
+      return "refunds";
+    case "webhooks":
+      return "provider updates";
+    case "settlement":
+      return "payouts";
+    case "providers":
+      return "payment providers";
+    case "reconciliation":
+      return "payment matching";
+    default:
+      return key;
+  }
+}
+
+function buildHealthSummary(
+  overall: PaymentOverallHealth,
+  dimensions: PaymentHealthSnapshot["dimensions"]
+): string {
+  if (overall === "healthy") {
+    return "Everything looks good — payments are running smoothly.";
+  }
+
+  const attention = (Object.entries(dimensions) as Array<[string, PaymentHealthDimensionStatus]>)
+    .filter(([, status]) => status !== "operational")
+    .map(([key]) => attentionAreaLabel(key));
+
+  if (attention.length === 0) {
+    return overall === "critical"
+      ? "Payments need urgent attention — check the issues below."
+      : "Some payment areas need a closer look — check the issues below.";
+  }
+
+  const listed =
+    attention.length === 1
+      ? attention[0]
+      : attention.length === 2
+        ? `${attention[0]} and ${attention[1]}`
+        : `${attention.slice(0, -1).join(", ")}, and ${attention[attention.length - 1]}`;
+
+  if (overall === "critical") {
+    return `Payments need urgent attention — especially ${listed}.`;
+  }
+  return `Most payment areas look fine — take a closer look at ${listed}.`;
+}
+
 function dimLabel(
   key: string,
   status: PaymentHealthDimensionStatus
@@ -269,7 +324,7 @@ function demoSnapshot(now: Date, history: PaymentHealthHistoryPoint[]): PaymentH
     cacheTtlSec: CACHE_TTL_SEC,
     overall: "degraded",
     overallLabel: "Degraded",
-    summary: "6 of 8 health dimensions operational — webhooks and reconciliation need attention.",
+    summary: buildHealthSummary("degraded", dimensions),
     dimensions,
     chartSlices: chartKeys.map((item) => ({
       key: item.key,
@@ -549,9 +604,6 @@ async function evaluateLive(
     overall = "degraded";
   }
 
-  const operationalCount = Object.values(dimensions).filter((s) => s === "operational").length;
-  const totalDims = Object.keys(dimensions).length;
-
   const chartKeys: Array<{ key: keyof typeof dimensions; label: string; short: string }> = [
     { key: "paymentSystem", label: "Payment system", short: "System" },
     { key: "onlinePayments", label: "Online payments", short: "Online" },
@@ -577,10 +629,7 @@ async function evaluateLive(
     cacheTtlSec: CACHE_TTL_SEC,
     overall,
     overallLabel: overallLabel(overall),
-    summary:
-      overall === "healthy"
-        ? "All systems operational"
-        : `${operationalCount} of ${totalDims} health dimensions operational — review open issues.`,
+    summary: buildHealthSummary(overall, dimensions),
     dimensions,
     chartSlices: chartKeys.map((item) => ({
       key: item.key,

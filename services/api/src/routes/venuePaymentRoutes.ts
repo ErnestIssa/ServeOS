@@ -13,6 +13,7 @@ import {
   type VenuePaymentSettings
 } from "../lib/payments/venuePaymentSettingsService.js";
 import { getPaymentHealthSnapshot } from "../lib/payments/paymentHealthService.js";
+import { getTodaysPayments } from "../lib/payments/todaysPaymentsService.js";
 import {
   getPaymentActivity,
   getPaymentOverview,
@@ -122,6 +123,17 @@ export function registerVenuePaymentRoutes(app: FastifyInstance, prisma: PrismaC
     try {
       const overview = await getPaymentOverview(prisma, restaurantId);
       return { ok: true, overview };
+    } catch {
+      return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
+    }
+  });
+
+  app.get("/restaurants/:restaurantId/payments/today", async (req, reply) => {
+    const { restaurantId } = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
+    await requireMenuVenueMembership(prisma, req, restaurantId);
+    try {
+      const today = await getTodaysPayments(prisma, restaurantId);
+      return { ok: true, today };
     } catch {
       return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
     }

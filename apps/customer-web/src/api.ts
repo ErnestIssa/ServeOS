@@ -1265,6 +1265,22 @@ export type PaymentStats = {
 
 export type PaymentHealthStatus = "operational" | "degraded" | "disabled" | "unknown";
 
+export type PaymentOverviewAnalysisTone = "ahead" | "on_track" | "behind" | "unknown";
+
+export type PaymentOverviewAnalysis = {
+  tone: PaymentOverviewAnalysisTone;
+  toneLabel: string;
+  todayCents: number;
+  yesterdayCents: number;
+  yesterdaySameTimeCents: number;
+  expectedCents: number;
+  deltaPercent: number;
+  aheadThresholdPercent: number;
+  behindThresholdPercent: number;
+  summary: string;
+  detail: string;
+};
+
 export type PaymentOverview = {
   source: "live" | "demo";
   currency: string;
@@ -1286,6 +1302,7 @@ export type PaymentOverview = {
     disputeCount: number;
     reconAlertCount: number;
   };
+  analysis: PaymentOverviewAnalysis;
   providerSummary: {
     stripe: "connected" | "disconnected";
     swish: "connected" | "disconnected";
@@ -1471,6 +1488,69 @@ export async function disconnectVenuePaymentProvider(
 export async function getVenuePaymentOverview(token: string, restaurantId: string) {
   return apiFetch<{ ok: boolean; overview?: PaymentOverview; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/payments/overview`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export type TodaysPaymentsDrillTarget = "transactions" | "refunds";
+
+export type TodaysPaymentsDrillFilter = {
+  target: TodaysPaymentsDrillTarget;
+  ids: string[];
+  statuses?: PaymentTxnStatus[];
+  methods?: string[];
+  day: string;
+};
+
+export type TodaysPaymentsMetric = {
+  key: string;
+  label: string;
+  valueLabel: string;
+  amountCents?: number;
+  count?: number;
+  currency: string;
+  filter: TodaysPaymentsDrillFilter;
+};
+
+export type TodaysPaymentsMethodSlice = {
+  key: string;
+  label: string;
+  amountCents: number;
+  count: number;
+  currency: string;
+  sharePercent: number;
+  filter: TodaysPaymentsDrillFilter;
+};
+
+export type TodaysPaymentsSnapshot = {
+  source: "live" | "demo";
+  timezone: string;
+  dayKey: string;
+  dayStart: string;
+  dayEnd: string;
+  currency: string;
+  currencies: string[];
+  aggregates: {
+    collectedCents: number;
+    successfulCount: number;
+    averagePaymentCents: number;
+    failedCents: number;
+    failedCount: number;
+    refundedCents: number;
+    refundedCount: number;
+    pendingCents: number;
+    pendingCount: number;
+  };
+  analysis: PaymentOverviewAnalysis;
+  metrics: TodaysPaymentsMetric[];
+  methods: TodaysPaymentsMethodSlice[];
+  recent: PaymentTransactionRow[];
+  ledger: PaymentTransactionRow[];
+};
+
+export async function getVenueTodaysPayments(token: string, restaurantId: string) {
+  return apiFetch<{ ok: boolean; today?: TodaysPaymentsSnapshot; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/payments/today`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
 }

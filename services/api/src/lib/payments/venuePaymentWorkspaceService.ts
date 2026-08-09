@@ -9,6 +9,25 @@ export type PaymentDataSource = "live" | "demo";
 
 export type PaymentHealthStatus = "operational" | "degraded" | "disabled" | "unknown";
 
+export type PaymentOverviewAnalysisTone = "ahead" | "on_track" | "behind" | "unknown";
+
+/** Backend SSOT for today’s total vs yesterday (pace-aware). UI only renders these fields. */
+export type PaymentOverviewAnalysis = {
+  tone: PaymentOverviewAnalysisTone;
+  toneLabel: string;
+  todayCents: number;
+  yesterdayCents: number;
+  yesterdaySameTimeCents: number;
+  expectedCents: number;
+  deltaPercent: number;
+  /** At/above this % vs same-time yesterday → green (ahead). */
+  aheadThresholdPercent: number;
+  /** At/below this % vs same-time yesterday → red (behind). */
+  behindThresholdPercent: number;
+  summary: string;
+  detail: string;
+};
+
 export type PaymentOverview = {
   source: PaymentDataSource;
   currency: string;
@@ -30,6 +49,7 @@ export type PaymentOverview = {
     disputeCount: number;
     reconAlertCount: number;
   };
+  analysis: PaymentOverviewAnalysis;
   providerSummary: {
     stripe: "connected" | "disconnected";
     swish: "connected" | "disconnected";
@@ -543,6 +563,105 @@ function healthFromSettings(settings: VenuePaymentSettings): PaymentOverview["he
   };
 }
 
+const ANALYSIS_AHEAD_THRESHOLD_PERCENT = 5;
+const ANALYSIS_BEHIND_THRESHOLD_PERCENT = -10;
+
+function formatSignedPercent(value: number) {
+  const rounded = Math.round(value * 10) / 10;
+  if (rounded > 0) return `+${rounded}%`;
+  return `${rounded}%`;
+}
+
+export function buildTodayAnalysis(todayCents: number, yesterdaySameTimeCents: number, yesterdayCents: number): PaymentOverviewAnalysis {
+  const aheadThresholdPercent = ANALYSIS_AHEAD_THRESHOLD_PERCENT;
+  const behindThresholdPercent = ANALYSIS_BEHIND_THRESHOLD_PERCENT;
+  const expectedCents = yesterdaySameTimeCents;
+
+  if (yesterdaySameTimeCents <= 0 && todayCents <= 0) {
+    return {
+      tone: "unknown",
+      toneLabel: "No comparison yet",
+      todayCents,
+      yesterdayCents,
+      yesterdaySameTimeCents,
+      expectedCents,
+      deltaPercent: 0,
+      aheadThresholdPercent,
+      behindThresholdPercent,
+      summary: "No comparison yet",
+      detail: "Not enough yesterday activity at this time to compare."
+    };
+  }
+
+  if (yesterdaySameTimeCents <= 0 && todayCents > 0) {
+    return {
+      tone: "ahead",
+      toneLabel: "Ahead of yesterday",
+      todayCents,
+      yesterdayCents,
+      yesterdaySameTimeCents,
+      expectedCents,
+      deltaPercent: 100,
+      aheadThresholdPercent,
+      behindThresholdPercent,
+      summary: "Ahead of yesterday",
+      detail: "Already ahead — there were no payments by this time yesterday."
+    };
+  }
+
+  const deltaPercent =
+    Math.round(((todayCents - yesterdaySameTimeCents) / yesterdaySameTimeCents) * 1000) / 10;
+
+  let tone: PaymentOverviewAnalysisTone = "on_track";
+  if (deltaPercent >= aheadThresholdPercent) tone = "ahead";
+  else if (deltaPercent <= behindThresholdPercent) tone = "behind";
+
+  const toneLabel =
+    tone === "ahead" ? "Ahead of yesterday" : tone === "behind" ? "Behind yesterday" : "Around yesterday’s pace";
+
+  const detail =
+    deltaPercent === 0
+      ? "Matching the same time yesterday."
+      : deltaPercent > 0
+        ? `${formatSignedPercent(deltaPercent)} vs the same time yesterday.`
+        : `${formatSignedPercent(deltaPercent)} vs the same time yesterday.`;
+
+  return {
+    tone,
+    toneLabel,
+    todayCents,
+    yesterdayCents,
+    yesterdaySameTimeCents,
+    expectedCents,
+    deltaPercent,
+    aheadThresholdPercent,
+    behindThresholdPercent,
+    summary: toneLabel,
+    detail
+  };
+}
+
+function isPaidPaymentStatus(status: string | null | undefined) {
+  return status === "PAID" || status === "PARTIAL_REFUND" || status === "REFUNDED";
+}
+
+async function sumPaidCentsInRange(
+  prisma: PrismaClient,
+  restaurantId: string,
+  from: Date,
+  to: Date
+): Promise<number> {
+  const orders = await prisma.order.findMany({
+    where: { restaurantId, createdAt: { gte: from, lt: to } },
+    select: { totalCents: true, paymentStatus: true }
+  });
+  let total = 0;
+  for (const o of orders) {
+    if (isPaidPaymentStatus(o.paymentStatus)) total += o.totalCents;
+  }
+  return total;
+}
+
 export async function getPaymentOverview(prisma: PrismaClient, restaurantId: string): Promise<PaymentOverview> {
   const settingsRes = await getVenuePaymentSettings(prisma, restaurantId);
   if (!settingsRes.ok) throw new Error(settingsRes.error);
@@ -550,13 +669,22 @@ export async function getPaymentOverview(prisma: PrismaClient, restaurantId: str
   const demo = await useDemoLedger(prisma, restaurantId);
   const todayStart = utcDayStart();
 
+  const now = new Date();
+  const yesterdayStart = new Date(todayStart);
+  yesterdayStart.setUTCDate(todayStart.getUTCDate() - 1);
+  const elapsedMs = Math.max(0, now.getTime() - todayStart.getTime());
+  const yesterdaySameTimeEnd = new Date(yesterdayStart.getTime() + elapsedMs);
+
   if (demo) {
+    const todayPaymentsCents = 1_842_000;
+    const yesterdaySameTimeCents = 1_620_000;
+    const yesterdayCents = 2_180_000;
     return {
       source: "demo",
       currency: "SEK",
       health: healthFromSettings(settings),
       today: {
-        paymentsCents: 1_842_000,
+        paymentsCents: todayPaymentsCents,
         pendingCents: 124_000,
         refundedCents: 32_000,
         failedCents: 74_000,
@@ -565,6 +693,7 @@ export async function getPaymentOverview(prisma: PrismaClient, restaurantId: str
         disputeCount: 2,
         reconAlertCount: 2
       },
+      analysis: buildTodayAnalysis(todayPaymentsCents, yesterdaySameTimeCents, yesterdayCents),
       providerSummary: {
         stripe: settings.providers.stripe.connected ? "connected" : "disconnected",
         swish: settings.providers.swish.connected ? "connected" : "disconnected",
@@ -595,7 +724,7 @@ export async function getPaymentOverview(prisma: PrismaClient, restaurantId: str
     refundedCents += o.refundedCents ?? 0;
     if (status === "FAILED") failedCents += o.totalCents;
     else if (status === "PENDING" || status === "UNPAID") pendingCents += o.totalCents;
-    else if (status === "PAID" || status === "PARTIAL_REFUND" || status === "REFUNDED") {
+    else if (isPaidPaymentStatus(status)) {
       paymentsCents += o.totalCents;
       const providers = o.paymentReferences.map((r) => r.provider.toLowerCase());
       const isOnline = providers.some((p) => p.includes("stripe") || p.includes("swish"));
@@ -603,6 +732,11 @@ export async function getPaymentOverview(prisma: PrismaClient, restaurantId: str
       else payAtVenueCents += o.totalCents;
     }
   }
+
+  const [yesterdaySameTimeCents, yesterdayCents] = await Promise.all([
+    sumPaidCentsInRange(prisma, restaurantId, yesterdayStart, yesterdaySameTimeEnd),
+    sumPaidCentsInRange(prisma, restaurantId, yesterdayStart, todayStart)
+  ]);
 
   return {
     source: "live",
@@ -618,6 +752,7 @@ export async function getPaymentOverview(prisma: PrismaClient, restaurantId: str
       disputeCount: 0,
       reconAlertCount: 0
     },
+    analysis: buildTodayAnalysis(paymentsCents, yesterdaySameTimeCents, yesterdayCents),
     providerSummary: {
       stripe: settings.providers.stripe.connected ? "connected" : "disconnected",
       swish: settings.providers.swish.connected ? "connected" : "disconnected",

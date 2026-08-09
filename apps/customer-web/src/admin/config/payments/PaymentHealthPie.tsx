@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Cell, LabelList, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import {
   getVenuePaymentHealth,
   type PaymentHealthActionTarget,
@@ -8,6 +8,7 @@ import {
   type PaymentHealthStatus
 } from "../../../api";
 import { SkeletonBone } from "../../AdminSkeleton";
+import { PaymentPieSliceLabel } from "./paymentPieLabels";
 import { formatWhen } from "./paymentsUiHelpers";
 
 type Props = {
@@ -86,6 +87,7 @@ function PaymentHealthSkeleton() {
 
 export function PaymentHealthPie({ token, restaurantId, refreshKey = 0, onNavigate }: Props) {
   const [health, setHealth] = useState<PaymentHealthSnapshot | null>(null);
+  const [activeSlice, setActiveSlice] = useState<number | null>(null);
 
   const load = useCallback(
     async (force = false) => {
@@ -129,11 +131,8 @@ export function PaymentHealthPie({ token, restaurantId, refreshKey = 0, onNaviga
         </p>
         <p className="admin-payments-health-pie-trend">{health.summary}</p>
         <p className="admin-payments-health-pie-sub">
-          Backend health monitor
-          {health.cached ? " · cached" : " · live"}
-          {" · "}
-          evaluated {formatWhen(health.evaluatedAt)}
-          {health.source === "demo" ? " · demo ledger" : ""}
+          Last checked {formatWhen(health.evaluatedAt)}
+          {health.source === "demo" ? " · Showing sample activity" : ""}
         </p>
       </div>
 
@@ -158,7 +157,7 @@ export function PaymentHealthPie({ token, restaurantId, refreshKey = 0, onNaviga
 
       <div className="admin-payments-health-pie-chart">
         <ResponsiveContainer width="100%" height={250}>
-          <PieChart>
+          <PieChart margin={{ top: 10, right: 18, bottom: 10, left: 18 }}>
             <Tooltip cursor={false} content={<ChartTooltipBody />} />
             <Pie
               data={slices}
@@ -166,20 +165,18 @@ export function PaymentHealthPie({ token, restaurantId, refreshKey = 0, onNaviga
               nameKey="short"
               stroke="0"
               innerRadius={0}
-              outerRadius={100}
+              outerRadius={96}
               paddingAngle={1.5}
+              onMouseEnter={(_, index) => setActiveSlice(index)}
+              onMouseLeave={() => setActiveSlice(null)}
+              label={(props) => (
+                <PaymentPieSliceLabel {...props} forceShow={props.index === activeSlice} />
+              )}
+              labelLine={false}
             >
               {slices.map((slice) => (
                 <Cell key={slice.key} fill={slice.fill} />
               ))}
-              <LabelList
-                dataKey="short"
-                position="inside"
-                fill="#ffffff"
-                stroke="none"
-                fontSize={11}
-                fontWeight={700}
-              />
             </Pie>
           </PieChart>
         </ResponsiveContainer>
