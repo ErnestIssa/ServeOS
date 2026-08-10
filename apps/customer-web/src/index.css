@@ -17485,6 +17485,63 @@ html[data-admin-theme="dark"] .admin-content-templates-row {
   margin: 0 auto;
 }
 
+.admin-payments-health-pie-chart--readonly,
+.admin-payments-health-pie-chart--readonly .recharts-wrapper,
+.admin-payments-health-pie-chart--readonly .recharts-surface {
+  cursor: default !important;
+}
+
+.admin-payments-health-pie-chart--readonly .recharts-pie-sector {
+  cursor: default !important;
+  outline: none;
+}
+
+.admin-payments-health-issue-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+}
+
+.admin-payments-health-issue-badge.is-warning {
+  color: #b45309;
+  background: color-mix(in srgb, #f59e0b 14%, #fff);
+}
+
+.admin-payments-health-issue-badge.is-critical {
+  color: #b91c1c;
+  background: color-mix(in srgb, #ef4444 14%, #fff);
+}
+
+.admin-payments-health-issue-records {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.admin-payments-health-issue-records > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.55rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: 0.8rem;
+  border: 1px solid var(--admin-border, #e2e8f0);
+  background: #fff;
+}
+
+.admin-payments-health-issue-record-side {
+  display: grid;
+  justify-items: end;
+  gap: 0.3rem;
+}
+
 .admin-payments-health-pie-chart--skeleton {
   display: grid;
   place-items: center;
@@ -17604,10 +17661,10 @@ html[data-admin-theme="dark"] .admin-content-templates-row {
 }
 
 .data-payments-chart-card {
-  border: 1px solid var(--admin-border, #e2e8f0);
-  border-radius: 1.1rem;
-  background: #fff;
-  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
 }
 
 .data-payments-chart-head {
@@ -17616,8 +17673,8 @@ html[data-admin-theme="dark"] .admin-content-templates-row {
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 1rem 1.15rem;
-  border-bottom: 1px solid var(--admin-border, #e2e8f0);
+  padding: 0.35rem 0.25rem 0.85rem;
+  border-bottom: 0;
 }
 
 .data-payments-chart-title {
@@ -17634,7 +17691,16 @@ html[data-admin-theme="dark"] .admin-content-templates-row {
 }
 
 .data-payments-chart-body {
-  padding: 0.75rem 0.5rem 0.85rem;
+  padding: 0.35rem 0.15rem 0.55rem;
+}
+
+.data-payments-chart-footnote {
+  margin: 0;
+  padding: 0.15rem 0.5rem 0.25rem;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--admin-config-subtle, #64748b);
+  text-align: center;
 }
 
 .data-payments-chart-tooltip {
@@ -18617,7 +18683,8 @@ html[data-admin-theme="dark"] .admin-content-templates-row {
   }
 }
 
-.admin-payments-health-metrics > div {
+.admin-payments-health-metrics > div,
+.admin-payments-health-metrics > .admin-payments-today-metric-chip {
   display: grid;
   gap: 0.15rem;
   padding: 0.45rem 0.55rem;
@@ -18626,7 +18693,19 @@ html[data-admin-theme="dark"] .admin-content-templates-row {
   text-align: center;
 }
 
-.admin-payments-health-metrics span {
+.admin-payments-health-metrics > .admin-payments-today-metric-chip {
+  border: 0;
+  width: 100%;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.admin-payments-health-metrics > .admin-payments-today-metric-chip:hover {
+  background: color-mix(in srgb, #e2e8f0 55%, #fff);
+}
+
+.admin-payments-health-metrics span,
+.admin-payments-today-metric-chip span {
   font-size: 0.62rem;
   font-weight: 800;
   letter-spacing: 0.06em;
@@ -18634,10 +18713,15 @@ html[data-admin-theme="dark"] .admin-content-templates-row {
   color: var(--admin-config-subtle, #64748b);
 }
 
-.admin-payments-health-metrics strong {
+.admin-payments-health-metrics strong,
+.admin-payments-today-metric-chip strong {
   font-size: 0.92rem;
   font-weight: 800;
   color: var(--admin-text, #0f172a);
+}
+
+.admin-payments-today-recent-list--compact {
+  width: 100%;
 }
 
 .admin-payments-health-issues {
@@ -18708,4 +18792,66 @@ html[data-admin-theme="dark"] .admin-content-templates-row {
   font-size: 0.68rem;
   font-weight: 650;
   color: var(--admin-config-subtle, #64748b);
+}
+
+.admin-payments-today-methods-chart {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.admin-payments-today-methods-chart-sub {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--admin-config-subtle, #64748b);
+  text-align: center;
+}
+
+.admin-payments-today-methods-chart-plot {
+  width: 100%;
+  min-height: 160px;
+}
+
+.admin-payments-today-view-all {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  width: 100%;
+  max-width: 18rem;
+  margin: 0.15rem auto 0;
+  border: 1px solid color-mix(in srgb, #2563eb 28%, var(--admin-border, #e2e8f0));
+  border-radius: 999px;
+  background: color-mix(in srgb, #2563eb 8%, #fff);
+  color: #1d4ed8;
+  font-size: 0.82rem;
+  font-weight: 750;
+  padding: 0.65rem 1.1rem;
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    transform 0.12s ease;
+}
+
+.admin-payments-today-view-all:hover {
+  background: color-mix(in srgb, #2563eb 14%, #fff);
+  border-color: color-mix(in srgb, #2563eb 42%, var(--admin-border, #e2e8f0));
+  transform: translateY(-1px);
+}
+
+.admin-payments-today-footer-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.admin-payments-today-footer-link:hover {
+  color: var(--admin-text, #0f172a);
 }

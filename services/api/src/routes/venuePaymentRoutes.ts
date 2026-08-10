@@ -12,8 +12,11 @@ import {
   updateVenuePaymentSettings,
   type VenuePaymentSettings
 } from "../lib/payments/venuePaymentSettingsService.js";
-import { getPaymentHealthSnapshot } from "../lib/payments/paymentHealthService.js";
-import { getTodaysPayments } from "../lib/payments/todaysPaymentsService.js";
+import {
+  getPaymentHealthIssueDetail,
+  getPaymentHealthSnapshot
+} from "../lib/payments/paymentHealthService.js";
+import { getTodaysPayments, getTodaysPaymentsDetail } from "../lib/payments/todaysPaymentsService.js";
 import {
   getPaymentActivity,
   getPaymentOverview,
@@ -139,6 +142,25 @@ export function registerVenuePaymentRoutes(app: FastifyInstance, prisma: PrismaC
     }
   });
 
+  app.get("/restaurants/:restaurantId/payments/today/details", async (req, reply) => {
+    const { restaurantId } = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
+    const query = z
+      .object({
+        scope: z.enum(["metric", "method", "collected", "payment"]),
+        key: z.string().min(1).optional(),
+        id: z.string().min(1).optional()
+      })
+      .parse(req.query ?? {});
+    await requireMenuVenueMembership(prisma, req, restaurantId);
+    try {
+      const detail = await getTodaysPaymentsDetail(prisma, restaurantId, query);
+      if (!detail) return reply.status(404).send({ ok: false, error: "detail_not_found" });
+      return { ok: true, detail };
+    } catch {
+      return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
+    }
+  });
+
   app.get("/restaurants/:restaurantId/payments/health", async (req, reply) => {
     const { restaurantId } = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
     const query = z
@@ -150,6 +172,20 @@ export function registerVenuePaymentRoutes(app: FastifyInstance, prisma: PrismaC
         forceRefresh: query.refresh === "1" || query.refresh === "true"
       });
       return { ok: true, health };
+    } catch {
+      return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
+    }
+  });
+
+  app.get("/restaurants/:restaurantId/payments/health/issues/:issueId", async (req, reply) => {
+    const { restaurantId, issueId } = z
+      .object({ restaurantId: z.string().min(1), issueId: z.string().min(1) })
+      .parse(req.params);
+    await requireMenuVenueMembership(prisma, req, restaurantId);
+    try {
+      const detail = await getPaymentHealthIssueDetail(prisma, restaurantId, issueId);
+      if (!detail) return reply.status(404).send({ ok: false, error: "issue_not_found" });
+      return { ok: true, detail };
     } catch {
       return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
     }
@@ -167,8 +203,32 @@ export function registerVenuePaymentRoutes(app: FastifyInstance, prisma: PrismaC
 
   app.get("/restaurants/:restaurantId/payments/transactions", async (req, reply) => {
     const { restaurantId } = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
-    const query = z.object({ limit: z.coerce.number().int().min(1).max(200).optional() }).parse(req.query ?? {});
+    const query = z
+      .object({
+        limit: z.coerce.number().int().min(1).max(200).optional(),
+        day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
+      })
+      .parse(req.query ?? {});
     await requireMenuVenueMembership(prisma, req, restaurantId);
+
+    if (query.day) {
+      try {
+        const today = await getTodaysPayments(prisma, restaurantId);
+        if (query.day === today.dayKey) {
+          return {
+            ok: true,
+            source: today.source,
+            day: today.dayKey,
+            dayStart: today.dayStart,
+            dayEnd: today.dayEnd,
+            transactions: today.ledger
+          };
+        }
+      } catch {
+        return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
+      }
+    }
+
     const result = await listPaymentTransactions(prisma, restaurantId, { limit: query.limit });
     return { ok: true, ...result };
   });

@@ -6,7 +6,9 @@ import {
 } from "./venuePaymentSettingsService.js";
 import {
   getPaymentReconciliation,
-  getPaymentWebhookHealth
+  getPaymentWebhookHealth,
+  listPaymentTransactions,
+  type PaymentDataSource
 } from "./venuePaymentWorkspaceService.js";
 
 export type PaymentOverallHealth = "healthy" | "degraded" | "critical";
@@ -714,4 +716,221 @@ export async function getPaymentHealthSnapshot(
 
   await writeCache(restaurantId, snapshot);
   return snapshot;
+}
+
+export type PaymentHealthIssueRecord = {
+  id: string;
+  kind: "webhook_event" | "mismatch" | "payment" | "provider" | "note";
+  title: string;
+  subtitle: string;
+  statusLabel: string;
+  amountCents?: number | null;
+  currency?: string;
+  at: string | null;
+};
+
+export type PaymentHealthIssueDetail = {
+  source: PaymentDataSource;
+  evaluatedAt: string;
+  issue: PaymentHealthIssue;
+  summary: {
+    severityLabel: string;
+    impact: string;
+    recommendedAction: string;
+  };
+  relatedMetrics: Array<{ label: string; value: string }>;
+  records: PaymentHealthIssueRecord[];
+};
+
+function issueGuidance(issue: PaymentHealthIssue): PaymentHealthIssueDetail["summary"] {
+  const severityLabel = issue.severity === "critical" ? "Critical" : "Needs attention";
+  switch (issue.actionTarget) {
+    case "providers":
+      return {
+        severityLabel,
+        impact: "Provider updates may be delayed, which can leave payments stuck or out of sync.",
+        recommendedAction: "Review the events below, confirm provider credentials, and retry failed deliveries."
+      };
+    case "reconciliation":
+      return {
+        severityLabel,
+        impact: "Some orders and provider payments do not match, so settlements may be incomplete.",
+        recommendedAction: "Inspect each mismatch, confirm the correct amount, and resolve the linked payment or order."
+      };
+    case "transactions":
+      return {
+        severityLabel,
+        impact: "Guests may see failed or unfinished payments that need a retry or follow-up.",
+        recommendedAction: "Open the affected payments below and take action on each record."
+      };
+    case "refunds":
+      return {
+        severityLabel,
+        impact: "Refund processing needs attention before guests or payouts are affected.",
+        recommendedAction: "Review the refund-related payments below and complete or retry as needed."
+      };
+    default:
+      return {
+        severityLabel,
+        impact: issue.detail,
+        recommendedAction: "Review the related records below and resolve what is still open."
+      };
+  }
+}
+
+export async function getPaymentHealthIssueDetail(
+  prisma: PrismaClient,
+  restaurantId: string,
+  issueId: string
+): Promise<PaymentHealthIssueDetail | null> {
+  const health = await getPaymentHealthSnapshot(prisma, restaurantId);
+  const issue = health.issues.find((i) => i.id === issueId);
+  if (!issue) return null;
+
+  const records: PaymentHealthIssueRecord[] = [];
+  const relatedMetrics: Array<{ label: string; value: string }> = [
+    { label: "Overall health", value: health.overallLabel },
+    { label: "Issue count", value: issue.count != null ? String(issue.count) : "—" }
+  ];
+
+  if (
+    issue.id === "demo_webhook_delay" ||
+    issue.id === "webhook_issues" ||
+    issue.actionTarget === "providers"
+  ) {
+    const webhook = await getPaymentWebhookHealth(prisma, restaurantId);
+    relatedMetrics.push(
+      { label: "Events today", value: String(webhook.eventsToday) },
+      { label: "Failed", value: String(webhook.failed) },
+      { label: "Retrying", value: String(webhook.retrying) },
+      { label: "Webhook status", value: webhook.status }
+    );
+
+    const events =
+      issue.id === "provider_env"
+        ? webhook.recentEvents
+        : webhook.recentEvents.filter((e) => !e.ok).length > 0
+          ? webhook.recentEvents.filter((e) => !e.ok)
+          : webhook.recentEvents;
+
+    for (const ev of events.slice(0, 20)) {
+      records.push({
+        id: ev.id,
+        kind: "webhook_event",
+        title: ev.type,
+        subtitle: ev.ok ? "Delivered" : "Failed or delayed",
+        statusLabel: ev.ok ? "OK" : "Failed",
+        at: ev.at
+      });
+    }
+
+    if (issue.id === "provider_env") {
+      const env = getPaymentProviderEnvReady();
+      for (const p of health.providers) {
+        records.push({
+          id: `provider_${p.key}`,
+          kind: "provider",
+          title: p.label,
+          subtitle: p.connected ? "Connected" : "Not connected",
+          statusLabel: p.statusLabel,
+          at: null
+        });
+      }
+      if (!env.stripe || !env.swish || !env.webhook) {
+        records.push({
+          id: "env_note",
+          kind: "note",
+          title: "Server environment",
+          subtitle: [
+            !env.stripe ? "Stripe secrets missing" : null,
+            !env.swish ? "Swish secrets missing" : null,
+            !env.webhook ? "Webhook secret missing" : null
+          ]
+            .filter(Boolean)
+            .join(" · "),
+          statusLabel: "Incomplete",
+          at: health.evaluatedAt
+        });
+      }
+    }
+  }
+
+  if (issue.id === "demo_recon" || issue.id === "recon_mismatch" || issue.actionTarget === "reconciliation") {
+    const recon = await getPaymentReconciliation(prisma, restaurantId);
+    relatedMetrics.push(
+      { label: "Matched", value: String(recon.matched) },
+      { label: "Mismatched", value: String(recon.mismatched) },
+      { label: "Pending provider events", value: String(recon.pendingProviderEvents) }
+    );
+    for (const m of recon.mismatches.slice(0, 30)) {
+      records.push({
+        id: m.id,
+        kind: "mismatch",
+        title: m.summary,
+        subtitle: [m.type.replace(/_/g, " "), m.orderId ? `Order ${m.orderId}` : null, m.paymentId ? `Payment ${m.paymentId}` : null]
+          .filter(Boolean)
+          .join(" · "),
+        statusLabel: "Mismatch",
+        amountCents: m.amountCents,
+        currency: "SEK",
+        at: m.createdAt
+      });
+    }
+  }
+
+  if (
+    issue.id === "pending_stuck" ||
+    issue.id === "failure_rate" ||
+    (issue.actionTarget === "transactions" &&
+      issue.id !== "demo_webhook_delay" &&
+      issue.id !== "demo_recon")
+  ) {
+    const listed = await listPaymentTransactions(prisma, restaurantId, { limit: 100 });
+    const wanted =
+      issue.id === "pending_stuck"
+        ? listed.transactions.filter((t) => t.status === "pending" || t.status === "authorized")
+        : listed.transactions.filter((t) => t.status === "failed" || t.status === "cancelled");
+
+    relatedMetrics.push(
+      { label: "Failed 24h", value: String(health.metrics.failedCount24h) },
+      { label: "Stuck pending", value: String(health.metrics.pendingStuckCount) },
+      { label: "Success 24h", value: `${health.metrics.successRate24h}%` }
+    );
+
+    for (const t of wanted.slice(0, 40)) {
+      records.push({
+        id: t.id,
+        kind: "payment",
+        title: t.orderDisplay ?? t.orderId ?? t.id,
+        subtitle: `${t.customerLabel} · ${t.method} · ${t.provider}`,
+        statusLabel: t.status.replace(/_/g, " "),
+        amountCents: t.amountCents,
+        currency: t.currency,
+        at: t.createdAt
+      });
+    }
+  }
+
+  // Deduplicate records by id (providers + webhooks may overlap).
+  const seen = new Set<string>();
+  const uniqueRecords = records.filter((r) => {
+    if (seen.has(r.id)) return false;
+    seen.add(r.id);
+    return true;
+  });
+
+  // Fix issue count metric after records known.
+  const countMetric = relatedMetrics.find((m) => m.label === "Issue count");
+  if (countMetric) {
+    countMetric.value = String(issue.count ?? uniqueRecords.length);
+  }
+
+  return {
+    source: health.source,
+    evaluatedAt: health.evaluatedAt,
+    issue,
+    summary: issueGuidance(issue),
+    relatedMetrics,
+    records: uniqueRecords
+  };
 }

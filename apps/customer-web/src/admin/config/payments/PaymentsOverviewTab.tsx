@@ -1,8 +1,4 @@
-import type {
-  PaymentHealthActionTarget,
-  PaymentTransactionRow,
-  TodaysPaymentsDrillFilter
-} from "../../../api";
+import type { TodaysPaymentsDrillFilter } from "../../../api";
 import { PaymentActivityChart } from "./PaymentActivityChart";
 import { PaymentHealthPie } from "./PaymentHealthPie";
 import { TodaysPaymentsPanel } from "./TodaysPaymentsPanel";
@@ -12,29 +8,20 @@ type Props = {
   token: string | null;
   restaurantId: string | null;
   refreshKey: number;
-  onNavigateHealth?: (target: PaymentHealthActionTarget) => void;
-  onDrillDownToday?: (filter: TodaysPaymentsDrillFilter, ledger: PaymentTransactionRow[]) => void;
-  onOpenTransaction?: (txn: PaymentTransactionRow) => void;
+  onViewTodaysTransactions?: (filter: TodaysPaymentsDrillFilter) => void;
 };
 
 export function PaymentsOverviewTab({
   token,
   restaurantId,
   refreshKey,
-  onNavigateHealth,
-  onDrillDownToday,
-  onOpenTransaction
+  onViewTodaysTransactions
 }: Props) {
   return (
     <div className="admin-payments-tab-stack">
       <div className="admin-payments-overview-grid">
         <PaySection title="Payment health" borderless>
-          <PaymentHealthPie
-            token={token}
-            restaurantId={restaurantId}
-            refreshKey={refreshKey}
-            onNavigate={onNavigateHealth}
-          />
+          <PaymentHealthPie token={token} restaurantId={restaurantId} refreshKey={refreshKey} />
         </PaySection>
 
         <PaySection title="Today’s payments" borderless>
@@ -42,8 +29,7 @@ export function PaymentsOverviewTab({
             token={token}
             restaurantId={restaurantId}
             refreshKey={refreshKey}
-            onDrillDown={onDrillDownToday}
-            onOpenTransaction={onOpenTransaction}
+            onViewTodaysTransactions={onViewTodaysTransactions}
           />
         </PaySection>
       </div>

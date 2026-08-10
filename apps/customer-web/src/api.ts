@@ -1500,6 +1500,9 @@ export type TodaysPaymentsDrillFilter = {
   statuses?: PaymentTxnStatus[];
   methods?: string[];
   day: string;
+  dayStart?: string;
+  dayEnd?: string;
+  searchPreset?: string;
 };
 
 export type TodaysPaymentsMetric = {
@@ -1519,6 +1522,7 @@ export type TodaysPaymentsMethodSlice = {
   count: number;
   currency: string;
   sharePercent: number;
+  enabled?: boolean;
   filter: TodaysPaymentsDrillFilter;
 };
 
@@ -1546,11 +1550,71 @@ export type TodaysPaymentsSnapshot = {
   methods: TodaysPaymentsMethodSlice[];
   recent: PaymentTransactionRow[];
   ledger: PaymentTransactionRow[];
+  transactionsView: {
+    label: string;
+    day: string;
+    dayStart: string;
+    dayEnd: string;
+    searchPreset: string;
+    filter: TodaysPaymentsDrillFilter;
+  };
 };
 
 export async function getVenueTodaysPayments(token: string, restaurantId: string) {
   return apiFetch<{ ok: boolean; today?: TodaysPaymentsSnapshot; error?: string; message?: string }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/payments/today`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export type TodaysPaymentsDetailScope = "metric" | "method" | "collected" | "payment";
+
+export type TodaysPaymentsDetailQuery = {
+  scope: TodaysPaymentsDetailScope;
+  key?: string;
+  id?: string;
+};
+
+export type TodaysPaymentsDetailRecord = {
+  id: string;
+  title: string;
+  subtitle: string;
+  statusLabel: string;
+  amountCents: number;
+  currency: string;
+  at: string;
+  method: string;
+  provider: string;
+};
+
+export type TodaysPaymentsDetail = {
+  source: "live" | "demo";
+  dayKey: string;
+  timezone: string;
+  currency: string;
+  title: string;
+  subtitle: string;
+  summary: {
+    impact: string;
+    recommendedAction: string;
+  };
+  relatedMetrics: Array<{ label: string; value: string }>;
+  filter: TodaysPaymentsDrillFilter;
+  records: TodaysPaymentsDetailRecord[];
+  payment?: PaymentTransactionRow | null;
+};
+
+export async function getVenueTodaysPaymentsDetail(
+  token: string,
+  restaurantId: string,
+  query: TodaysPaymentsDetailQuery
+) {
+  const q = new URLSearchParams();
+  q.set("scope", query.scope);
+  if (query.key) q.set("key", query.key);
+  if (query.id) q.set("id", query.id);
+  return apiFetch<{ ok: boolean; detail?: TodaysPaymentsDetail; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/payments/today/details?${q}`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
 }
@@ -1658,6 +1722,41 @@ export async function getVenuePaymentHealth(
   );
 }
 
+export type PaymentHealthIssueRecord = {
+  id: string;
+  kind: "webhook_event" | "mismatch" | "payment" | "provider" | "note";
+  title: string;
+  subtitle: string;
+  statusLabel: string;
+  amountCents?: number | null;
+  currency?: string;
+  at: string | null;
+};
+
+export type PaymentHealthIssueDetail = {
+  source: "live" | "demo";
+  evaluatedAt: string;
+  issue: PaymentHealthIssue;
+  summary: {
+    severityLabel: string;
+    impact: string;
+    recommendedAction: string;
+  };
+  relatedMetrics: Array<{ label: string; value: string }>;
+  records: PaymentHealthIssueRecord[];
+};
+
+export async function getVenuePaymentHealthIssue(
+  token: string,
+  restaurantId: string,
+  issueId: string
+) {
+  return apiFetch<{ ok: boolean; detail?: PaymentHealthIssueDetail; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/payments/health/issues/${encodeURIComponent(issueId)}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
 export async function getVenuePaymentActivity(
   token: string,
   restaurantId: string,
@@ -1670,11 +1769,20 @@ export async function getVenuePaymentActivity(
   );
 }
 
-export async function listVenuePaymentTransactions(token: string, restaurantId: string, limit = 100) {
+export async function listVenuePaymentTransactions(
+  token: string,
+  restaurantId: string,
+  limit = 100,
+  opts?: { day?: string }
+) {
   const q = new URLSearchParams({ limit: String(limit) });
+  if (opts?.day) q.set("day", opts.day);
   return apiFetch<{
     ok: boolean;
     source?: "live" | "demo";
+    day?: string;
+    dayStart?: string;
+    dayEnd?: string;
     transactions?: PaymentTransactionRow[];
     error?: string;
     message?: string;

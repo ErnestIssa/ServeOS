@@ -2,20 +2,20 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import {
   getVenuePaymentHealth,
-  type PaymentHealthActionTarget,
   type PaymentHealthChartSlice,
+  type PaymentHealthIssue,
   type PaymentHealthSnapshot,
   type PaymentHealthStatus
 } from "../../../api";
 import { SkeletonBone } from "../../AdminSkeleton";
-import { PaymentPieSliceLabel } from "./paymentPieLabels";
+import { PaymentHealthIssueDrawer } from "./PaymentHealthIssueDrawer";
+import { renderPaymentPieSliceLabel } from "./paymentPieLabels";
 import { formatWhen } from "./paymentsUiHelpers";
 
 type Props = {
   token: string | null;
   restaurantId: string | null;
   refreshKey?: number;
-  onNavigate?: (target: PaymentHealthActionTarget) => void;
 };
 
 const STATUS_FILL: Record<PaymentHealthStatus, string> = {
@@ -85,9 +85,11 @@ function PaymentHealthSkeleton() {
   );
 }
 
-export function PaymentHealthPie({ token, restaurantId, refreshKey = 0, onNavigate }: Props) {
+export function PaymentHealthPie({ token, restaurantId, refreshKey = 0 }: Props) {
   const [health, setHealth] = useState<PaymentHealthSnapshot | null>(null);
   const [activeSlice, setActiveSlice] = useState<number | null>(null);
+  const [issueOpen, setIssueOpen] = useState(false);
+  const [selectedIssue, setSelectedIssue] = useState<PaymentHealthIssue | null>(null);
 
   const load = useCallback(
     async (force = false) => {
@@ -119,96 +121,111 @@ export function PaymentHealthPie({ token, restaurantId, refreshKey = 0, onNaviga
     }));
   }, [health]);
 
+  const openIssue = (issue: PaymentHealthIssue) => {
+    setSelectedIssue(issue);
+    setIssueOpen(true);
+  };
+
   if (!health) {
     return <PaymentHealthSkeleton />;
   }
 
   return (
-    <div className="admin-payments-health-pie">
-      <div className="admin-payments-health-pie-intro">
-        <p className="admin-payments-health-pie-overall" style={{ color: OVERALL_FILL[health.overall] }}>
-          {health.overallLabel}
-        </p>
-        <p className="admin-payments-health-pie-trend">{health.summary}</p>
-        <p className="admin-payments-health-pie-sub">
-          Last checked {formatWhen(health.evaluatedAt)}
-          {health.source === "demo" ? " · Showing sample activity" : ""}
-        </p>
-      </div>
+    <>
+      <div className="admin-payments-health-pie">
+        <div className="admin-payments-health-pie-intro">
+          <p className="admin-payments-health-pie-overall" style={{ color: OVERALL_FILL[health.overall] }}>
+            {health.overallLabel}
+          </p>
+          <p className="admin-payments-health-pie-trend">{health.summary}</p>
+          <p className="admin-payments-health-pie-sub">
+            Last checked {formatWhen(health.evaluatedAt)}
+            {health.source === "demo" ? " · Showing sample activity" : ""}
+          </p>
+        </div>
 
-      <div className="admin-payments-health-metrics">
-        <div>
-          <span>Success 24h</span>
-          <strong>{health.metrics.successRate24h}%</strong>
+        <div className="admin-payments-health-metrics" aria-readonly="true">
+          <div>
+            <span>Success 24h</span>
+            <strong>{health.metrics.successRate24h}%</strong>
+          </div>
+          <div>
+            <span>Failed 24h</span>
+            <strong>{health.metrics.failedCount24h}</strong>
+          </div>
+          <div>
+            <span>Stuck pending</span>
+            <strong>{health.metrics.pendingStuckCount}</strong>
+          </div>
+          <div>
+            <span>Mismatches</span>
+            <strong>{health.metrics.reconciliationMismatches}</strong>
+          </div>
         </div>
-        <div>
-          <span>Failed 24h</span>
-          <strong>{health.metrics.failedCount24h}</strong>
-        </div>
-        <div>
-          <span>Stuck pending</span>
-          <strong>{health.metrics.pendingStuckCount}</strong>
-        </div>
-        <div>
-          <span>Mismatches</span>
-          <strong>{health.metrics.reconciliationMismatches}</strong>
-        </div>
-      </div>
 
-      <div className="admin-payments-health-pie-chart">
-        <ResponsiveContainer width="100%" height={250}>
-          <PieChart margin={{ top: 10, right: 18, bottom: 10, left: 18 }}>
-            <Tooltip cursor={false} content={<ChartTooltipBody />} />
-            <Pie
-              data={slices}
-              dataKey="value"
-              nameKey="short"
-              stroke="0"
-              innerRadius={0}
-              outerRadius={96}
-              paddingAngle={1.5}
-              onMouseEnter={(_, index) => setActiveSlice(index)}
-              onMouseLeave={() => setActiveSlice(null)}
-              label={(props) => (
-                <PaymentPieSliceLabel {...props} forceShow={props.index === activeSlice} />
-              )}
-              labelLine={false}
-            >
-              {slices.map((slice) => (
-                <Cell key={slice.key} fill={slice.fill} />
-              ))}
-            </Pie>
-          </PieChart>
-        </ResponsiveContainer>
-      </div>
+        <div className="admin-payments-health-pie-chart admin-payments-health-pie-chart--readonly">
+          <ResponsiveContainer width="100%" height={250}>
+            <PieChart margin={{ top: 10, right: 18, bottom: 10, left: 18 }}>
+              <Tooltip cursor={false} content={<ChartTooltipBody />} />
+              <Pie
+                data={slices}
+                dataKey="value"
+                nameKey="short"
+                stroke="0"
+                innerRadius={0}
+                outerRadius={96}
+                paddingAngle={1.5}
+                isAnimationActive
+                onMouseEnter={(_, index) => setActiveSlice(index)}
+                onMouseLeave={() => setActiveSlice(null)}
+                label={(props) => renderPaymentPieSliceLabel(props, props.index === activeSlice)}
+                labelLine={false}
+              >
+                {slices.map((slice) => (
+                  <Cell key={slice.key} fill={slice.fill} style={{ cursor: "default", outline: "none" }} />
+                ))}
+              </Pie>
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
 
-      {health.issues.length > 0 ? (
-        <ul className="admin-payments-health-issues" aria-label="Actionable health issues">
-          {health.issues.map((issue) => (
-            <li key={issue.id} className={`is-${issue.severity}`}>
-              <div className="min-w-0">
-                <p className="admin-payments-health-issue-title">{issue.title}</p>
-                <p className="admin-payments-health-issue-detail">{issue.detail}</p>
-              </div>
-              {onNavigate ? (
+        {health.issues.length > 0 ? (
+          <ul className="admin-payments-health-issues" aria-label="Actionable health issues">
+            {health.issues.map((issue) => (
+              <li key={issue.id} className={`is-${issue.severity}`}>
+                <div className="min-w-0">
+                  <p className="admin-payments-health-issue-title">{issue.title}</p>
+                  <p className="admin-payments-health-issue-detail">{issue.detail}</p>
+                </div>
                 <button
                   type="button"
                   className="admin-payments-health-issue-action"
-                  onClick={() => onNavigate(issue.actionTarget)}
+                  onClick={() => openIssue(issue)}
                 >
                   {issue.actionLabel} →
                 </button>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
 
-      <div className="admin-payments-health-timestamps">
-        <span>Last payment {formatWhen(health.timestamps.lastSuccessfulPaymentAt)}</span>
-        <span>Last webhook {formatWhen(health.timestamps.lastWebhookAt)}</span>
-        <span>Last reconcile {formatWhen(health.timestamps.lastReconciliationAt)}</span>
+        <div className="admin-payments-health-timestamps">
+          <span>Last payment {formatWhen(health.timestamps.lastSuccessfulPaymentAt)}</span>
+          <span>Last webhook {formatWhen(health.timestamps.lastWebhookAt)}</span>
+          <span>Last reconcile {formatWhen(health.timestamps.lastReconciliationAt)}</span>
+        </div>
       </div>
-    </div>
+
+      <PaymentHealthIssueDrawer
+        token={token}
+        restaurantId={restaurantId}
+        issue={selectedIssue}
+        open={issueOpen}
+        onClose={() => {
+          setIssueOpen(false);
+          setSelectedIssue(null);
+        }}
+      />
+    </>
   );
 }

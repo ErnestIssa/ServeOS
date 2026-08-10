@@ -1,3 +1,5 @@
+import type { Key, ReactElement } from "react";
+
 const RADIAN = Math.PI / 180;
 const FONT_SIZE = 11;
 const FONT_WEIGHT = 700;
@@ -113,4 +115,13 @@ export function PaymentPieSliceLabel({
       {text}
     </text>
   );
+}
+
+/** Strip Recharts `key` before spreading into the label component. */
+export function renderPaymentPieSliceLabel(
+  props: PieLabelProps & { key?: Key | null },
+  forceShow = false
+): ReactElement {
+  const { key, ...rest } = props;
+  return <PaymentPieSliceLabel key={key ?? undefined} {...rest} forceShow={forceShow} />;
 }

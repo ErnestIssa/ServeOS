@@ -129,7 +129,8 @@ export function PaymentActivityChart({ token, restaurantId, refreshKey = 0 }: Pr
         <div>
           <p className="data-payments-chart-title">Payment volume</p>
           <p className="data-payments-chart-desc">
-            Online vs pay-at-venue · {activity?.source === "demo" ? "Demo ledger" : "Live ledger"}
+            Online vs pay at venue
+            {activity?.source === "demo" ? " · Showing sample activity" : ""}
           </p>
         </div>
         <AdminBubbleDropdown
@@ -196,6 +197,9 @@ export function PaymentActivityChart({ token, restaurantId, refreshKey = 0 }: Pr
           </ResponsiveContainer>
         )}
       </div>
+      <p className="data-payments-chart-footnote">
+        Daily collected payments by channel for the selected period — hover a day for exact amounts.
+      </p>
     </div>
   );
 }

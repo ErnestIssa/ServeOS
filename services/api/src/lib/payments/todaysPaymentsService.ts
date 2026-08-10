@@ -1,7 +1,8 @@
 import type { PrismaClient } from "@prisma/client";
 import {
   getPaymentProviderEnvReady,
-  getVenuePaymentSettings
+  getVenuePaymentSettings,
+  type VenuePaymentSettings
 } from "./venuePaymentSettingsService.js";
 import {
   buildTodayAnalysis,
@@ -24,6 +25,9 @@ export type TodaysPaymentsDrillFilter = {
   methods?: string[];
   /** Venue-local day key (YYYY-MM-DD). */
   day: string;
+  dayStart?: string;
+  dayEnd?: string;
+  searchPreset?: string;
 };
 
 export type TodaysPaymentsMetric = {
@@ -43,6 +47,7 @@ export type TodaysPaymentsMethodSlice = {
   count: number;
   currency: string;
   sharePercent: number;
+  enabled: boolean;
   filter: TodaysPaymentsDrillFilter;
 };
 
@@ -71,6 +76,15 @@ export type TodaysPaymentsSnapshot = {
   recent: PaymentTransactionRow[];
   /** Full today’s ledger rows (capped) for reconciliation / drill-down. */
   ledger: PaymentTransactionRow[];
+  /** SSOT handoff into Transactions for this venue day. */
+  transactionsView: {
+    label: string;
+    day: string;
+    dayStart: string;
+    dayEnd: string;
+    searchPreset: string;
+    filter: TodaysPaymentsDrillFilter;
+  };
 };
 
 function getZonedParts(date: Date, timeZone: string) {
@@ -303,6 +317,22 @@ function refToRow(ref: {
   };
 }
 
+function enabledVenueMethods(settings: VenuePaymentSettings): Array<{ key: string; label: string }> {
+  const rows: Array<{ key: string; label: string }> = [];
+  const m = settings.methods;
+  if (m.card) rows.push({ key: "card", label: methodLabel("card") });
+  if (m.swish) rows.push({ key: "swish", label: methodLabel("swish") });
+  if (m.applePay) rows.push({ key: "apple_pay", label: methodLabel("apple_pay") });
+  if (m.googlePay) rows.push({ key: "google_pay", label: methodLabel("google_pay") });
+  if (m.cardTerminal) rows.push({ key: "card_terminal", label: methodLabel("card_terminal") });
+  if (m.cash || m.payAtVenue) rows.push({ key: "pay_at_venue", label: methodLabel("pay_at_venue") });
+  if (m.invoice) rows.push({ key: "invoice", label: "Invoice" });
+  if (m.giftCards) rows.push({ key: "gift_cards", label: "Gift cards" });
+  if (m.restaurantCredit) rows.push({ key: "restaurant_credit", label: "Restaurant credit" });
+  if (m.loyaltyBalance) rows.push({ key: "loyalty_balance", label: "Loyalty balance" });
+  return rows;
+}
+
 function aggregateLedger(
   ledger: PaymentTransactionRow[],
   source: PaymentDataSource,
@@ -310,7 +340,8 @@ function aggregateLedger(
   dayKey: string,
   dayStart: Date,
   dayEnd: Date,
-  analysis: PaymentOverviewAnalysis
+  analysis: PaymentOverviewAnalysis,
+  enabledMethods: Array<{ key: string; label: string }>
 ): TodaysPaymentsSnapshot {
   const seen = new Set<string>();
   const unique: PaymentTransactionRow[] = [];
@@ -350,24 +381,41 @@ function aggregateLedger(
     methodMap.set(key, cur);
   }
 
-  const methods: TodaysPaymentsMethodSlice[] = Array.from(methodMap.entries())
-    .map(([key, v]) => ({
-      key,
-      label: methodLabel(key),
-      amountCents: v.amountCents,
-      count: v.count,
-      currency: v.currency,
-      sharePercent: collectedCents > 0 ? Math.round((v.amountCents / collectedCents) * 1000) / 10 : 0,
-      filter: {
-        target: "transactions" as const,
-        ids: v.ids,
-        methods: [key],
-        day: dayKey
-      }
-    }))
-    .sort((a, b) => b.amountCents - a.amountCents);
+  const catalog =
+    enabledMethods.length > 0
+      ? enabledMethods
+      : Array.from(methodMap.keys()).map((key) => ({ key, label: methodLabel(key) }));
 
-  const filterBase = { day: dayKey };
+  const methods: TodaysPaymentsMethodSlice[] = catalog
+    .map(({ key, label }) => {
+      const v = methodMap.get(key) ?? { amountCents: 0, count: 0, ids: [] as string[], currency };
+      return {
+        key,
+        label,
+        amountCents: v.amountCents,
+        count: v.count,
+        currency: v.currency,
+        sharePercent: collectedCents > 0 ? Math.round((v.amountCents / collectedCents) * 1000) / 10 : 0,
+        enabled: true,
+        filter: {
+          target: "transactions" as const,
+          ids: v.ids,
+          methods: [key],
+          day: dayKey,
+          dayStart: dayStart.toISOString(),
+          dayEnd: dayEnd.toISOString(),
+          searchPreset: dayKey
+        }
+      };
+    })
+    .sort((a, b) => b.amountCents - a.amountCents || a.label.localeCompare(b.label));
+
+  const filterBase = {
+    day: dayKey,
+    dayStart: dayStart.toISOString(),
+    dayEnd: dayEnd.toISOString(),
+    searchPreset: dayKey
+  };
   const metrics: TodaysPaymentsMetric[] = [
     {
       key: "collected",
@@ -433,7 +481,6 @@ function aggregateLedger(
       currency,
       filter: {
         ...filterBase,
-        // Drill to the concrete payment ledger rows (ids), not the separate refund request list.
         target: "transactions",
         ids: refundedRows.map((r) => r.id),
         statuses: ["partially_refunded", "refunded"]
@@ -463,6 +510,8 @@ function aggregateLedger(
     .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
     .slice(0, 8);
 
+  const ledgerSorted = unique.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).slice(0, 200);
+
   return {
     source,
     timezone,
@@ -486,7 +535,22 @@ function aggregateLedger(
     metrics,
     methods,
     recent,
-    ledger: unique.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).slice(0, 200)
+    ledger: ledgerSorted,
+    transactionsView: {
+      label: "View today’s payments",
+      day: dayKey,
+      dayStart: dayStart.toISOString(),
+      dayEnd: dayEnd.toISOString(),
+      searchPreset: dayKey,
+      filter: {
+        target: "transactions",
+        ids: ledgerSorted.map((r) => r.id),
+        day: dayKey,
+        dayStart: dayStart.toISOString(),
+        dayEnd: dayEnd.toISOString(),
+        searchPreset: dayKey
+      }
+    }
   };
 }
 
@@ -496,6 +560,8 @@ export async function getTodaysPayments(
 ): Promise<TodaysPaymentsSnapshot> {
   const settingsRes = await getVenuePaymentSettings(prisma, restaurantId);
   if (!settingsRes.ok) throw new Error(settingsRes.error);
+  const settings = settingsRes.settings;
+  const enabledMethods = enabledVenueMethods(settings);
 
   const timezone = await resolveVenueTimezone(prisma, restaurantId);
   const now = new Date();
@@ -549,7 +615,7 @@ export async function getTodaysPayments(
       .reduce((s, r) => s + collectedNetCents(r), 0);
     const analysis = buildTodayAnalysis(collectedCents, Math.round(collectedCents * 0.88), Math.round(collectedCents * 1.18));
 
-    return aggregateLedger(todayLedger, "demo", timezone, dayKey, dayStart, dayEnd, analysis);
+    return aggregateLedger(todayLedger, "demo", timezone, dayKey, dayStart, dayEnd, analysis, enabledMethods);
   }
 
   const refs = await prisma.orderPaymentReference.findMany({
@@ -672,7 +738,7 @@ export async function getTodaysPayments(
   ]);
 
   const analysis = buildTodayAnalysis(collectedCents, yesterdaySameTimeCents, yesterdayCents);
-  return aggregateLedger(ledger, "live", timezone, dayKey, dayStart, dayEnd, analysis);
+  return aggregateLedger(ledger, "live", timezone, dayKey, dayStart, dayEnd, analysis, enabledMethods);
 }
 
 async function sumCollectedInRange(
@@ -719,4 +785,192 @@ async function sumCollectedInRange(
     total += o.totalCents;
   }
   return total;
+}
+
+export type TodaysPaymentsDetailScope = "metric" | "method" | "collected" | "payment";
+
+export type TodaysPaymentsDetailQuery = {
+  scope: TodaysPaymentsDetailScope;
+  key?: string;
+  id?: string;
+};
+
+export type TodaysPaymentsDetailRecord = {
+  id: string;
+  title: string;
+  subtitle: string;
+  statusLabel: string;
+  amountCents: number;
+  currency: string;
+  at: string;
+  method: string;
+  provider: string;
+};
+
+export type TodaysPaymentsDetail = {
+  source: PaymentDataSource;
+  dayKey: string;
+  timezone: string;
+  currency: string;
+  title: string;
+  subtitle: string;
+  summary: {
+    impact: string;
+    recommendedAction: string;
+  };
+  relatedMetrics: Array<{ label: string; value: string }>;
+  filter: TodaysPaymentsDrillFilter;
+  records: TodaysPaymentsDetailRecord[];
+  payment?: PaymentTransactionRow | null;
+};
+
+function applyDrillFilter(ledger: PaymentTransactionRow[], filter: TodaysPaymentsDrillFilter): PaymentTransactionRow[] {
+  const idSet = filter.ids.length > 0 ? new Set(filter.ids) : null;
+  const statuses = filter.statuses?.length ? new Set(filter.statuses) : null;
+  const methods = filter.methods?.length ? filter.methods.map((m) => m.toLowerCase()) : null;
+
+  return ledger.filter((row) => {
+    if (idSet && !idSet.has(row.id)) return false;
+    if (!idSet && statuses && !statuses.has(row.status)) return false;
+    if (!idSet && methods) {
+      const key = normalizeMethodKey(row.method, row.provider);
+      if (!methods.includes(key)) return false;
+    }
+    return true;
+  });
+}
+
+function detailGuidance(title: string, scope: TodaysPaymentsDetailScope, count: number): TodaysPaymentsDetail["summary"] {
+  if (scope === "payment") {
+    return {
+      impact: "This is a single payment record from today’s ledger.",
+      recommendedAction: "Review the status, method, and amount. Follow up with the guest if it failed or is still pending."
+    };
+  }
+  if (scope === "method") {
+    return {
+      impact: `${count} payment${count === 1 ? "" : "s"} used this method today.`,
+      recommendedAction: "Use these rows to verify volume by method and investigate any odd amounts or statuses."
+    };
+  }
+  return {
+    impact: `${title} for today — ${count} matching payment${count === 1 ? "" : "s"} from the venue ledger.`,
+    recommendedAction: "Open any row that looks wrong and resolve it from the payment record."
+  };
+}
+
+export async function getTodaysPaymentsDetail(
+  prisma: PrismaClient,
+  restaurantId: string,
+  query: TodaysPaymentsDetailQuery
+): Promise<TodaysPaymentsDetail | null> {
+  const today = await getTodaysPayments(prisma, restaurantId);
+
+  if (query.scope === "payment") {
+    const paymentId = query.id?.trim();
+    if (!paymentId) return null;
+    const payment = today.ledger.find((r) => r.id === paymentId) ?? today.recent.find((r) => r.id === paymentId);
+    if (!payment) return null;
+    return {
+      source: today.source,
+      dayKey: today.dayKey,
+      timezone: today.timezone,
+      currency: payment.currency || today.currency,
+      title: payment.orderDisplay ?? payment.orderId ?? "Payment",
+      subtitle: `${payment.customerLabel} · ${methodLabel(normalizeMethodKey(payment.method, payment.provider))}`,
+      summary: detailGuidance("Payment", "payment", 1),
+      relatedMetrics: [
+        { label: "Status", value: payment.status.replace(/_/g, " ") },
+        { label: "Amount", value: formatMoneyLabel(payment.amountCents, payment.currency) },
+        { label: "Refunded", value: formatMoneyLabel(payment.refundedCents, payment.currency) },
+        { label: "Net", value: formatMoneyLabel(payment.netCents, payment.currency) },
+        { label: "Provider", value: payment.provider },
+        { label: "Method", value: methodLabel(normalizeMethodKey(payment.method, payment.provider)) }
+      ],
+      filter: {
+        target: "transactions",
+        ids: [payment.id],
+        day: today.dayKey
+      },
+      records: [
+        {
+          id: payment.id,
+          title: payment.orderDisplay ?? payment.orderId ?? payment.id,
+          subtitle: `${payment.customerLabel} · ${methodLabel(normalizeMethodKey(payment.method, payment.provider))}`,
+          statusLabel: payment.status.replace(/_/g, " "),
+          amountCents: payment.amountCents,
+          currency: payment.currency,
+          at: payment.createdAt,
+          method: payment.method,
+          provider: payment.provider
+        }
+      ],
+      payment
+    };
+  }
+
+  let filter: TodaysPaymentsDrillFilter | null = null;
+  let title = "Today’s payments";
+  let subtitle = `Venue day ${today.dayKey}`;
+
+  if (query.scope === "collected") {
+    const metric = today.metrics.find((m) => m.key === "collected");
+    if (!metric) return null;
+    filter = metric.filter;
+    title = metric.label;
+    subtitle = metric.valueLabel;
+  } else if (query.scope === "metric") {
+    const key = query.key?.trim();
+    if (!key) return null;
+    const metric = today.metrics.find((m) => m.key === key);
+    if (!metric) return null;
+    filter = metric.filter;
+    title = metric.label;
+    subtitle = metric.valueLabel;
+  } else if (query.scope === "method") {
+    const key = query.key?.trim();
+    if (!key) return null;
+    const method = today.methods.find((m) => m.key === key);
+    if (!method) return null;
+    filter = method.filter;
+    title = method.label;
+    subtitle = `${method.count} payment${method.count === 1 ? "" : "s"} · ${formatMoneyLabel(method.amountCents, method.currency)}`;
+  }
+
+  if (!filter) return null;
+
+  const rows = applyDrillFilter(today.ledger, filter);
+  const totalCents = rows.reduce((sum, r) => sum + r.amountCents, 0);
+  const refundedCents = rows.reduce((sum, r) => sum + Math.max(0, r.refundedCents), 0);
+
+  return {
+    source: today.source,
+    dayKey: today.dayKey,
+    timezone: today.timezone,
+    currency: today.currency,
+    title,
+    subtitle,
+    summary: detailGuidance(title, query.scope, rows.length),
+    relatedMetrics: [
+      { label: "Matching payments", value: String(rows.length) },
+      { label: "Gross amount", value: formatMoneyLabel(totalCents, today.currency) },
+      { label: "Refunded", value: formatMoneyLabel(refundedCents, today.currency) },
+      { label: "Collected today", value: formatMoneyLabel(today.aggregates.collectedCents, today.currency) },
+      { label: "Timezone", value: today.timezone.replace(/_/g, " ") },
+      { label: "Day", value: today.dayKey }
+    ],
+    filter,
+    records: rows.slice(0, 60).map((r) => ({
+      id: r.id,
+      title: r.orderDisplay ?? r.orderId ?? r.id,
+      subtitle: `${r.customerLabel} · ${methodLabel(normalizeMethodKey(r.method, r.provider))} · ${r.provider}`,
+      statusLabel: r.status.replace(/_/g, " "),
+      amountCents: r.amountCents,
+      currency: r.currency,
+      at: r.createdAt,
+      method: r.method,
+      provider: r.provider
+    })),
+    payment: null
+  };
 }

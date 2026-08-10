@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { PaymentTransactionRow, PaymentTxnStatus, TodaysPaymentsDrillFilter } from "../../../api";
 import { MenuListSearchField } from "../menu/MenuPageUi";
+import type { MenuListFilterGroup, MenuListToolOption } from "../menu/menuListQuery";
 import { PayChip } from "./paymentsShared";
 import { formatSekFromCents, formatWhen, methodLabel, txnStatusClass, txnStatusLabel } from "./paymentsUiHelpers";
 
@@ -22,6 +23,41 @@ const STATUS_FILTERS: Array<PaymentTxnStatus | "all"> = [
   "disputed"
 ];
 
+const FILTER_GROUPS: MenuListFilterGroup[] = [
+  {
+    id: "status",
+    label: "Status",
+    options: STATUS_FILTERS.filter((s) => s !== "all").map((s) => ({
+      id: `status:${s}`,
+      label: txnStatusLabel(s)
+    }))
+  },
+  {
+    id: "method",
+    label: "Method",
+    options: [
+      { id: "method:card", label: "Card" },
+      { id: "method:swish", label: "Swish" },
+      { id: "method:apple_pay", label: "Apple Pay" },
+      { id: "method:google_pay", label: "Google Pay" },
+      { id: "method:card_terminal", label: "Card terminal" },
+      { id: "method:pay_at_venue", label: "Cash / pay at venue" }
+    ]
+  },
+  {
+    id: "day",
+    label: "Day",
+    options: [{ id: "day:preset", label: "Selected day only" }]
+  }
+];
+
+const SORT_OPTIONS: MenuListToolOption[] = [
+  { id: "newest", label: "Newest first" },
+  { id: "oldest", label: "Oldest first" },
+  { id: "amount_desc", label: "Highest amount" },
+  { id: "amount_asc", label: "Lowest amount" }
+];
+
 function methodMatches(txnMethod: string, provider: string, wanted: string): boolean {
   const m = txnMethod.toLowerCase();
   const p = provider.toLowerCase();
@@ -33,13 +69,24 @@ function methodMatches(txnMethod: string, provider: string, wanted: string): boo
   if (wanted === "google_pay") return m.includes("google");
   if (wanted === "card_terminal") return m.includes("terminal");
   if (wanted === "card") {
-    return !methodMatches(txnMethod, provider, "swish") &&
+    return (
+      !methodMatches(txnMethod, provider, "swish") &&
       !methodMatches(txnMethod, provider, "apple_pay") &&
       !methodMatches(txnMethod, provider, "google_pay") &&
       !methodMatches(txnMethod, provider, "pay_at_venue") &&
-      !methodMatches(txnMethod, provider, "card_terminal");
+      !methodMatches(txnMethod, provider, "card_terminal")
+    );
   }
-  return m === wanted;
+  return m === wanted || m.replace(/-/g, "_") === wanted;
+}
+
+function inDayWindow(iso: string, dayStart?: string, dayEnd?: string, day?: string) {
+  if (dayStart && dayEnd) {
+    const t = new Date(iso).getTime();
+    return t >= new Date(dayStart).getTime() && t < new Date(dayEnd).getTime();
+  }
+  if (day) return iso.slice(0, 10) === day || iso.includes(day);
+  return true;
 }
 
 export function PaymentsTransactionsTab({
@@ -51,30 +98,52 @@ export function PaymentsTransactionsTab({
 }: Props) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<PaymentTxnStatus | "all">("all");
+  const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [activeSort, setActiveSort] = useState("newest");
 
   useEffect(() => {
     if (!drillFilter) return;
+    if (drillFilter.searchPreset) setSearch(drillFilter.searchPreset);
+    const nextFilters: string[] = [];
+    if (drillFilter.day || drillFilter.dayStart) nextFilters.push("day:preset");
     if (drillFilter.statuses?.length === 1) {
       const only = drillFilter.statuses[0];
+      nextFilters.push(`status:${only}`);
       if (STATUS_FILTERS.includes(only)) setStatus(only);
       else setStatus("all");
     } else {
       setStatus("all");
     }
+    if (drillFilter.methods?.length) {
+      for (const m of drillFilter.methods) nextFilters.push(`method:${m}`);
+    }
+    setActiveFilters(nextFilters);
   }, [drillFilter]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const idSet = drillFilter?.ids?.length ? new Set(drillFilter.ids) : null;
-    const statuses = drillFilter?.statuses?.length ? new Set(drillFilter.statuses) : null;
-    const methods = drillFilter?.methods?.length ? drillFilter.methods : null;
+    const statusFilters = activeFilters
+      .filter((f) => f.startsWith("status:"))
+      .map((f) => f.slice("status:".length) as PaymentTxnStatus);
+    const methodFilters = activeFilters
+      .filter((f) => f.startsWith("method:"))
+      .map((f) => f.slice("method:".length));
+    const dayPreset = activeFilters.includes("day:preset");
 
-    return transactions.filter((t) => {
-      if (idSet && !idSet.has(t.id)) return false;
-      if (!idSet && statuses && !statuses.has(t.status)) return false;
-      if (!idSet && methods && !methods.some((m) => methodMatches(t.method, t.provider, m))) return false;
+    let rows = transactions.filter((t) => {
+      if (idSet && !idSet.has(t.id) && !dayPreset) return false;
+      if (dayPreset && !inDayWindow(t.createdAt, drillFilter?.dayStart, drillFilter?.dayEnd, drillFilter?.day)) {
+        return false;
+      }
       if (status !== "all" && t.status !== status) return false;
+      if (statusFilters.length > 0 && !statusFilters.includes(t.status)) return false;
+      if (methodFilters.length > 0 && !methodFilters.some((m) => methodMatches(t.method, t.provider, m))) {
+        return false;
+      }
       if (!q) return true;
+      const dayMatch = drillFilter?.day && (q === drillFilter.day.toLowerCase() || q.includes(drillFilter.day.toLowerCase()));
+      if (dayMatch) return true;
       return (
         t.id.toLowerCase().includes(q) ||
         (t.orderDisplay ?? "").toLowerCase().includes(q) ||
@@ -82,10 +151,20 @@ export function PaymentsTransactionsTab({
         t.customerLabel.toLowerCase().includes(q) ||
         t.method.toLowerCase().includes(q) ||
         t.provider.toLowerCase().includes(q) ||
-        t.status.includes(q)
+        t.status.includes(q) ||
+        t.createdAt.toLowerCase().includes(q)
       );
     });
-  }, [transactions, search, status, drillFilter]);
+
+    rows = [...rows].sort((a, b) => {
+      if (activeSort === "oldest") return a.createdAt.localeCompare(b.createdAt);
+      if (activeSort === "amount_desc") return b.amountCents - a.amountCents;
+      if (activeSort === "amount_asc") return a.amountCents - b.amountCents;
+      return b.createdAt.localeCompare(a.createdAt);
+    });
+
+    return rows;
+  }, [transactions, search, status, drillFilter, activeFilters, activeSort]);
 
   return (
     <div className="admin-payments-tab-stack">
@@ -93,8 +172,21 @@ export function PaymentsTransactionsTab({
         <MenuListSearchField
           value={search}
           onChange={setSearch}
-          placeholder="Search order, payment, customer…"
+          placeholder="Search order, payment, customer, or day…"
           aria-label="Search transactions"
+          filterGroups={FILTER_GROUPS}
+          sortOptions={SORT_OPTIONS}
+          activeFilters={activeFilters}
+          activeSort={activeSort}
+          defaultSort="newest"
+          resultCount={filtered.length}
+          totalCount={transactions.length}
+          onFiltersChange={setActiveFilters}
+          onSortChange={setActiveSort}
+          filterTitle="Filter payments"
+          filterSubtitle="Narrow by status, method, or the selected venue day."
+          sortTitle="Sort payments"
+          sortSubtitle="Order the transaction list instantly."
         />
         <div className="admin-payments-filter-chips" role="tablist" aria-label="Status filter">
           {STATUS_FILTERS.map((s) => (
@@ -115,12 +207,20 @@ export function PaymentsTransactionsTab({
       {drillFilter ? (
         <div className="admin-payments-drill-banner">
           <span>
-            Showing {drillFilter.ids.length > 0 ? `${drillFilter.ids.length} ` : ""}
-            payment{drillFilter.ids.length === 1 ? "" : "s"} from Today’s payments
-            {drillFilter.day ? ` (${drillFilter.day})` : ""}.
+            Showing payments for venue day {drillFilter.day}
+            {drillFilter.searchPreset ? ` · search “${drillFilter.searchPreset}”` : ""}.
           </span>
           {onClearDrill ? (
-            <button type="button" className="admin-payments-drill-clear" onClick={onClearDrill}>
+            <button
+              type="button"
+              className="admin-payments-drill-clear"
+              onClick={() => {
+                setSearch("");
+                setActiveFilters([]);
+                setStatus("all");
+                onClearDrill();
+              }}
+            >
               Clear filter
             </button>
           ) : null}
@@ -128,9 +228,7 @@ export function PaymentsTransactionsTab({
       ) : null}
 
       {source === "demo" ? (
-        <p className="admin-config-text-subtle text-xs">
-          Showing sample activity from the payment ledger.
-        </p>
+        <p className="admin-config-text-subtle text-xs">Showing sample activity from the payment ledger.</p>
       ) : null}
 
       <div className="admin-payments-table-wrap">
