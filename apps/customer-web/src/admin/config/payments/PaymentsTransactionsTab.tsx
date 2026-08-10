@@ -22,7 +22,7 @@ const STATUS_FILTERS: Array<PaymentTxnStatus | "all"> = [
   "disputed"
 ];
 
-function methodMatches(txnMethod: string, provider: string, wanted: string) {
+function methodMatches(txnMethod: string, provider: string, wanted: string): boolean {
   const m = txnMethod.toLowerCase();
   const p = provider.toLowerCase();
   if (wanted === "pay_at_venue") {
