@@ -12,26 +12,83 @@ export type PaymentProviderState = {
 
 export type PaymentMethodKey =
   | "card"
+  | "visa"
+  | "mastercard"
+  | "amex"
   | "swish"
   | "applePay"
   | "googlePay"
+  | "samsungPay"
+  | "klarnaPayNow"
+  | "klarnaPayLater"
+  | "klarnaInstallments"
   | "cash"
   | "cardTerminal"
-  | "invoice"
+  | "swishAtVenue"
+  | "applePayTerminal"
+  | "googlePayTerminal"
+  | "samsungPayTerminal"
   | "giftCards"
+  | "invoice"
+  | "eInvoice"
+  | "bankTransfer"
+  | "bankgiro"
+  | "plusgiro"
   | "restaurantCredit"
   | "loyaltyBalance"
   | "payAtVenue";
 
+export type PaymentOrderSource =
+  | "qr_orders"
+  | "in_app"
+  | "walk_ins"
+  | "staff_created"
+  | "reservations"
+  | "delivery"
+  | "catering"
+  | "b2b";
+
+export type PaymentSettlementMode =
+  | "automatic"
+  | "staff_confirmed"
+  | "provider_verified"
+  | "manual_reference";
+
+export type PaymentReconciliationMode = "none" | "required" | "provider_match";
+export type PaymentRefundPolicy = "standard" | "manager_only" | "disabled" | "provider_only";
+export type PaymentCancellationPolicy = "allow" | "manager_only" | "block_if_paid";
+export type PaymentStaffRole = "owner" | "manager" | "staff";
+
 export type PaymentMethodConfig = {
+  methodType: string;
   enabled: boolean;
-  provider?: "stripe" | "swish" | "terminal" | "manual" | "none";
+  displayName: string;
+  instructionsStaff: string;
+  instructionsCustomer: string;
+  supportedOrderSources: PaymentOrderSource[];
   currencies: string[];
+  minCents: number | null;
+  maxCents: number | null;
+  allowedRoles: PaymentStaffRole[];
+  requiresStaffConfirmation: boolean;
+  requiresReference: boolean;
+  settlementMode: PaymentSettlementMode;
+  reconciliationMode: PaymentReconciliationMode;
+  refundPolicy: PaymentRefundPolicy;
+  cancellationPolicy: PaymentCancellationPolicy;
+  availabilityRules: {
+    always: boolean;
+    openHoursOnly: boolean;
+    scheduleNote: string;
+  };
+  provider?: "stripe" | "swish" | "terminal" | "manual" | "none";
   capture: "automatic" | "manual";
   refundsEnabled: boolean;
   threeDSecure: "automatic" | "always" | "never";
-  minCents: number | null;
-  maxCents: number | null;
+  isDefault: boolean;
+  priority: number;
+  version: number;
+  updatedAt: string | null;
 };
 
 export type PayAtVenueTiming =
@@ -58,18 +115,35 @@ export type VenuePaymentSettings = {
   };
   methods: {
     card: boolean;
+    visa: boolean;
+    mastercard: boolean;
+    amex: boolean;
     swish: boolean;
     applePay: boolean;
     googlePay: boolean;
+    samsungPay: boolean;
+    klarnaPayNow: boolean;
+    klarnaPayLater: boolean;
+    klarnaInstallments: boolean;
     cash: boolean;
     cardTerminal: boolean;
-    invoice: boolean;
+    swishAtVenue: boolean;
+    applePayTerminal: boolean;
+    googlePayTerminal: boolean;
+    samsungPayTerminal: boolean;
     giftCards: boolean;
+    invoice: boolean;
+    eInvoice: boolean;
+    bankTransfer: boolean;
+    bankgiro: boolean;
+    plusgiro: boolean;
     restaurantCredit: boolean;
     loyaltyBalance: boolean;
     payAtVenue: boolean;
   };
   methodConfig: Partial<Record<PaymentMethodKey, PaymentMethodConfig>>;
+  /** Venue default settlement method key (SSOT). Selecting “Pay at venue” never marks an order paid. */
+  defaultPaymentMethodKey: string | null;
   rules: {
     payBeforeOrder: boolean;
     payAfterMeal: boolean;
@@ -167,37 +241,217 @@ export type PaymentStats = {
   lastSyncAt: string | null;
 };
 
+const ONLINE_SOURCES: PaymentOrderSource[] = ["qr_orders", "in_app", "delivery"];
+const VENUE_SOURCES: PaymentOrderSource[] = ["qr_orders", "walk_ins", "staff_created", "reservations"];
+const BUSINESS_SOURCES: PaymentOrderSource[] = ["catering", "b2b", "staff_created"];
+
 const DEFAULT_METHOD_CONFIG: PaymentMethodConfig = {
+  methodType: "card",
   enabled: false,
-  provider: "none",
+  displayName: "",
+  instructionsStaff: "",
+  instructionsCustomer: "",
+  supportedOrderSources: [...ONLINE_SOURCES],
   currencies: ["SEK"],
+  minCents: 1000,
+  maxCents: 2_000_000,
+  allowedRoles: ["owner", "manager", "staff"],
+  requiresStaffConfirmation: false,
+  requiresReference: false,
+  settlementMode: "automatic",
+  reconciliationMode: "provider_match",
+  refundPolicy: "standard",
+  cancellationPolicy: "allow",
+  availabilityRules: { always: true, openHoursOnly: false, scheduleNote: "" },
+  provider: "none",
   capture: "automatic",
   refundsEnabled: true,
   threeDSecure: "automatic",
-  minCents: 1000,
-  maxCents: 2_000_000
+  isDefault: false,
+  priority: 100,
+  version: 1,
+  updatedAt: null
 };
 
+function methodDisplayName(key: PaymentMethodKey): string {
+  const map: Partial<Record<PaymentMethodKey, string>> = {
+    card: "Card via payment provider",
+    visa: "Visa",
+    mastercard: "Mastercard",
+    amex: "American Express",
+    swish: "Swish",
+    applePay: "Apple Pay",
+    googlePay: "Google Pay",
+    samsungPay: "Samsung Pay",
+    klarnaPayNow: "Klarna — Pay now",
+    klarnaPayLater: "Klarna — Pay later",
+    klarnaInstallments: "Klarna — Installments",
+    cash: "Cash",
+    cardTerminal: "Card terminal",
+    swishAtVenue: "Swish",
+    applePayTerminal: "Apple Pay at terminal",
+    googlePayTerminal: "Google Pay at terminal",
+    samsungPayTerminal: "Samsung Pay at terminal",
+    giftCards: "Gift card",
+    invoice: "Invoice",
+    eInvoice: "E-invoice",
+    bankTransfer: "Bank transfer",
+    bankgiro: "Bankgiro",
+    plusgiro: "PlusGiro",
+    restaurantCredit: "Restaurant credit",
+    loyaltyBalance: "Loyalty balance",
+    payAtVenue: "Pay at venue"
+  };
+  return map[key] ?? key;
+}
+
 function defaultMethodConfig(key: PaymentMethodKey): PaymentMethodConfig {
-  const base = { ...DEFAULT_METHOD_CONFIG };
+  const base: PaymentMethodConfig = {
+    ...DEFAULT_METHOD_CONFIG,
+    methodType: key,
+    displayName: methodDisplayName(key),
+    availabilityRules: { ...DEFAULT_METHOD_CONFIG.availabilityRules }
+  };
+
+  const online = new Set<PaymentMethodKey>([
+    "card",
+    "visa",
+    "mastercard",
+    "amex",
+    "swish",
+    "applePay",
+    "googlePay",
+    "samsungPay",
+    "klarnaPayNow",
+    "klarnaPayLater",
+    "klarnaInstallments"
+  ]);
+  const venue = new Set<PaymentMethodKey>([
+    "cash",
+    "cardTerminal",
+    "swishAtVenue",
+    "applePayTerminal",
+    "googlePayTerminal",
+    "samsungPayTerminal",
+    "giftCards",
+    "payAtVenue"
+  ]);
+
+  if (online.has(key)) {
+    base.supportedOrderSources = [...ONLINE_SOURCES];
+  } else if (venue.has(key)) {
+    base.supportedOrderSources = [...VENUE_SOURCES];
+  } else {
+    base.supportedOrderSources = [...BUSINESS_SOURCES];
+  }
+
   switch (key) {
     case "card":
+    case "visa":
+    case "mastercard":
+    case "amex":
     case "applePay":
     case "googlePay":
-      return { ...base, provider: "stripe", enabled: false };
+    case "samsungPay":
+    case "klarnaPayNow":
+    case "klarnaPayLater":
+    case "klarnaInstallments":
+      return {
+        ...base,
+        provider: "stripe",
+        settlementMode: "automatic",
+        reconciliationMode: "provider_match",
+        requiresStaffConfirmation: false,
+        requiresReference: false
+      };
     case "swish":
-      return { ...base, provider: "swish", enabled: false };
+      return {
+        ...base,
+        provider: "swish",
+        settlementMode: "provider_verified",
+        reconciliationMode: "provider_match",
+        requiresReference: true,
+        instructionsCustomer: "Complete the Swish payment in your bank app. Saying you paid is not enough."
+      };
+    case "swishAtVenue":
+      return {
+        ...base,
+        provider: "swish",
+        settlementMode: "provider_verified",
+        reconciliationMode: "provider_match",
+        requiresStaffConfirmation: true,
+        requiresReference: true,
+        instructionsStaff: "Verify Swish payment via provider/reference before marking the order paid."
+      };
     case "cardTerminal":
-      return { ...base, provider: "terminal", enabled: false, threeDSecure: "never" };
+    case "applePayTerminal":
+    case "googlePayTerminal":
+    case "samsungPayTerminal":
+      return {
+        ...base,
+        provider: "terminal",
+        threeDSecure: "never",
+        settlementMode: "staff_confirmed",
+        reconciliationMode: "provider_match",
+        requiresStaffConfirmation: true,
+        instructionsStaff: "Confirm the terminal/provider result. Do not mark paid on customer claim alone."
+      };
     case "cash":
-      return { ...base, provider: "manual", enabled: true, refundsEnabled: false, threeDSecure: "never", minCents: null, maxCents: null };
-    case "payAtVenue":
-      return { ...base, provider: "manual", enabled: true, threeDSecure: "never" };
-    case "invoice":
+      return {
+        ...base,
+        provider: "manual",
+        enabled: true,
+        refundsEnabled: false,
+        threeDSecure: "never",
+        minCents: null,
+        maxCents: null,
+        settlementMode: "staff_confirmed",
+        reconciliationMode: "required",
+        refundPolicy: "manager_only",
+        requiresStaffConfirmation: true,
+        requiresReference: false,
+        instructionsStaff: "Record amount tendered. ServeOS calculates change — never trust a client-side change amount."
+      };
     case "giftCards":
     case "restaurantCredit":
     case "loyaltyBalance":
-      return { ...base, provider: "manual", enabled: false, threeDSecure: "never" };
+      return {
+        ...base,
+        provider: "manual",
+        threeDSecure: "never",
+        settlementMode: "provider_verified",
+        reconciliationMode: "required",
+        requiresStaffConfirmation: true,
+        requiresReference: true,
+        instructionsStaff: "Validate balance and redemption in ServeOS before completing payment."
+      };
+    case "payAtVenue":
+      return {
+        ...base,
+        provider: "manual",
+        enabled: true,
+        threeDSecure: "never",
+        settlementMode: "staff_confirmed",
+        reconciliationMode: "required",
+        requiresStaffConfirmation: true,
+        instructionsCustomer: "Selecting pay at venue does not mark your order paid. Pay when the venue collects."
+      };
+    case "invoice":
+    case "eInvoice":
+    case "bankTransfer":
+    case "bankgiro":
+    case "plusgiro":
+      return {
+        ...base,
+        provider: "manual",
+        threeDSecure: "never",
+        settlementMode: "manual_reference",
+        reconciliationMode: "required",
+        refundPolicy: "manager_only",
+        requiresStaffConfirmation: true,
+        requiresReference: true,
+        allowedRoles: ["owner", "manager"]
+      };
     default:
       return base;
   }
@@ -210,30 +464,61 @@ const DEFAULT_SETTINGS: VenuePaymentSettings = {
   },
   methods: {
     card: false,
+    visa: false,
+    mastercard: false,
+    amex: false,
     swish: false,
     applePay: false,
     googlePay: false,
+    samsungPay: false,
+    klarnaPayNow: false,
+    klarnaPayLater: false,
+    klarnaInstallments: false,
     cash: true,
     cardTerminal: false,
-    invoice: false,
+    swishAtVenue: false,
+    applePayTerminal: false,
+    googlePayTerminal: false,
+    samsungPayTerminal: false,
     giftCards: false,
+    invoice: false,
+    eInvoice: false,
+    bankTransfer: false,
+    bankgiro: false,
+    plusgiro: false,
     restaurantCredit: false,
     loyaltyBalance: false,
     payAtVenue: true
   },
   methodConfig: {
     card: defaultMethodConfig("card"),
+    visa: defaultMethodConfig("visa"),
+    mastercard: defaultMethodConfig("mastercard"),
+    amex: defaultMethodConfig("amex"),
     swish: defaultMethodConfig("swish"),
     applePay: defaultMethodConfig("applePay"),
     googlePay: defaultMethodConfig("googlePay"),
+    samsungPay: defaultMethodConfig("samsungPay"),
+    klarnaPayNow: defaultMethodConfig("klarnaPayNow"),
+    klarnaPayLater: defaultMethodConfig("klarnaPayLater"),
+    klarnaInstallments: defaultMethodConfig("klarnaInstallments"),
     cash: defaultMethodConfig("cash"),
     cardTerminal: defaultMethodConfig("cardTerminal"),
-    invoice: defaultMethodConfig("invoice"),
+    swishAtVenue: defaultMethodConfig("swishAtVenue"),
+    applePayTerminal: defaultMethodConfig("applePayTerminal"),
+    googlePayTerminal: defaultMethodConfig("googlePayTerminal"),
+    samsungPayTerminal: defaultMethodConfig("samsungPayTerminal"),
     giftCards: defaultMethodConfig("giftCards"),
+    invoice: defaultMethodConfig("invoice"),
+    eInvoice: defaultMethodConfig("eInvoice"),
+    bankTransfer: defaultMethodConfig("bankTransfer"),
+    bankgiro: defaultMethodConfig("bankgiro"),
+    plusgiro: defaultMethodConfig("plusgiro"),
     restaurantCredit: defaultMethodConfig("restaurantCredit"),
     loyaltyBalance: defaultMethodConfig("loyaltyBalance"),
     payAtVenue: defaultMethodConfig("payAtVenue")
   },
+  defaultPaymentMethodKey: "cash",
   rules: {
     payBeforeOrder: true,
     payAfterMeal: false,
@@ -327,14 +612,49 @@ function mergeMethodConfig(raw: unknown): Partial<Record<PaymentMethodKey, Payme
   for (const key of keys) {
     const base = defaultMethodConfig(key);
     const patch = asRecord(src[key]);
+    const availabilityIn = asRecord(patch.availabilityRules);
     out[key] = {
       ...base,
       ...patch,
-      currencies: Array.isArray(patch.currencies)
-        ? (patch.currencies as string[])
-        : base.currencies,
-      minCents: typeof patch.minCents === "number" || patch.minCents === null ? (patch.minCents as number | null) : base.minCents,
-      maxCents: typeof patch.maxCents === "number" || patch.maxCents === null ? (patch.maxCents as number | null) : base.maxCents
+      methodType: typeof patch.methodType === "string" ? patch.methodType : key,
+      displayName: typeof patch.displayName === "string" ? patch.displayName : base.displayName,
+      instructionsStaff:
+        typeof patch.instructionsStaff === "string" ? patch.instructionsStaff : base.instructionsStaff,
+      instructionsCustomer:
+        typeof patch.instructionsCustomer === "string"
+          ? patch.instructionsCustomer
+          : base.instructionsCustomer,
+      supportedOrderSources: Array.isArray(patch.supportedOrderSources)
+        ? (patch.supportedOrderSources as PaymentOrderSource[])
+        : base.supportedOrderSources,
+      currencies: Array.isArray(patch.currencies) ? (patch.currencies as string[]) : base.currencies,
+      allowedRoles: Array.isArray(patch.allowedRoles)
+        ? (patch.allowedRoles as PaymentStaffRole[])
+        : base.allowedRoles,
+      availabilityRules: {
+        always:
+          typeof availabilityIn.always === "boolean" ? availabilityIn.always : base.availabilityRules.always,
+        openHoursOnly:
+          typeof availabilityIn.openHoursOnly === "boolean"
+            ? availabilityIn.openHoursOnly
+            : base.availabilityRules.openHoursOnly,
+        scheduleNote:
+          typeof availabilityIn.scheduleNote === "string"
+            ? availabilityIn.scheduleNote
+            : base.availabilityRules.scheduleNote
+      },
+      minCents:
+        typeof patch.minCents === "number" || patch.minCents === null
+          ? (patch.minCents as number | null)
+          : base.minCents,
+      maxCents:
+        typeof patch.maxCents === "number" || patch.maxCents === null
+          ? (patch.maxCents as number | null)
+          : base.maxCents,
+      version: typeof patch.version === "number" ? patch.version : base.version,
+      updatedAt: typeof patch.updatedAt === "string" || patch.updatedAt === null ? (patch.updatedAt as string | null) : base.updatedAt,
+      isDefault: typeof patch.isDefault === "boolean" ? patch.isDefault : base.isDefault,
+      priority: typeof patch.priority === "number" ? patch.priority : base.priority
     };
   }
   return out;
@@ -378,6 +698,10 @@ export function mergeSettings(raw: unknown): VenuePaymentSettings {
         typeof methodsIn.payAtVenue === "boolean" ? methodsIn.payAtVenue : DEFAULT_SETTINGS.methods.payAtVenue
     },
     methodConfig: mergeMethodConfig(s.methodConfig),
+    defaultPaymentMethodKey:
+      typeof s.defaultPaymentMethodKey === "string" || s.defaultPaymentMethodKey === null
+        ? (s.defaultPaymentMethodKey as string | null)
+        : DEFAULT_SETTINGS.defaultPaymentMethodKey,
     rules: { ...DEFAULT_SETTINGS.rules, ...(s.rules ?? {}) },
     payAtVenue: {
       ...DEFAULT_SETTINGS.payAtVenue,
@@ -456,6 +780,50 @@ export async function updateVenuePaymentSettings(
   const current = await getVenuePaymentSettings(prisma, restaurantId);
   if (!current.ok) return current;
 
+  const nowIso = new Date().toISOString();
+  const nextMethods = { ...current.settings.methods, ...(patch.methods ?? {}) };
+  const nextMethodConfig = { ...current.settings.methodConfig };
+  let defaultPaymentMethodKey =
+    patch.defaultPaymentMethodKey !== undefined
+      ? patch.defaultPaymentMethodKey
+      : current.settings.defaultPaymentMethodKey;
+
+  if (patch.methodConfig) {
+    for (const [rawKey, cfgPatch] of Object.entries(patch.methodConfig)) {
+      const key = rawKey as PaymentMethodKey;
+      const prev = nextMethodConfig[key] ?? defaultMethodConfig(key);
+      const merged: PaymentMethodConfig = {
+        ...prev,
+        ...cfgPatch,
+        availabilityRules: {
+          ...prev.availabilityRules,
+          ...(cfgPatch.availabilityRules ?? {})
+        },
+        supportedOrderSources: cfgPatch.supportedOrderSources ?? prev.supportedOrderSources,
+        allowedRoles: cfgPatch.allowedRoles ?? prev.allowedRoles,
+        currencies: cfgPatch.currencies ?? prev.currencies,
+        version: (prev.version ?? 1) + 1,
+        updatedAt: nowIso
+      };
+      nextMethodConfig[key] = merged;
+      nextMethods[key] = merged.enabled;
+      if (merged.isDefault) {
+        defaultPaymentMethodKey = key;
+      }
+    }
+  }
+
+  if (defaultPaymentMethodKey) {
+    for (const key of Object.keys(nextMethodConfig) as PaymentMethodKey[]) {
+      const cfg = nextMethodConfig[key];
+      if (!cfg) continue;
+      nextMethodConfig[key] = {
+        ...cfg,
+        isDefault: key === defaultPaymentMethodKey
+      };
+    }
+  }
+
   const next = mergeSettings({
     ...current.settings,
     ...patch,
@@ -463,8 +831,9 @@ export async function updateVenuePaymentSettings(
       stripe: { ...current.settings.providers.stripe, ...(patch.providers?.stripe ?? {}) },
       swish: { ...current.settings.providers.swish, ...(patch.providers?.swish ?? {}) }
     },
-    methods: { ...current.settings.methods, ...(patch.methods ?? {}) },
-    methodConfig: { ...current.settings.methodConfig, ...(patch.methodConfig ?? {}) },
+    methods: nextMethods,
+    methodConfig: nextMethodConfig,
+    defaultPaymentMethodKey,
     rules: { ...current.settings.rules, ...(patch.rules ?? {}) },
     payAtVenue: {
       ...current.settings.payAtVenue,
@@ -498,13 +867,20 @@ export async function updateVenuePaymentSettings(
     next.taxes.tipsEnabled = patch.tips.enabled;
   }
 
+  const methodKeysPatched = patch.methodConfig ? Object.keys(patch.methodConfig) : [];
   next.auditLog = appendAudit(current.settings, {
     actorUserId: audit?.actorUserId,
     actorRole: audit?.actorRole,
-    action: audit?.action ?? "payment_settings_updated",
-    path: audit?.path ?? "settings",
-    oldValue: undefined,
-    newValue: Object.keys(patch)
+    action: audit?.action ?? (methodKeysPatched.length === 1 ? "payment_method_updated" : "payment_settings_updated"),
+    path: audit?.path ?? (methodKeysPatched.length === 1 ? `methods.${methodKeysPatched[0]}` : "settings"),
+    oldValue:
+      methodKeysPatched.length === 1
+        ? current.settings.methodConfig[methodKeysPatched[0] as PaymentMethodKey] ?? null
+        : undefined,
+    newValue:
+      methodKeysPatched.length === 1
+        ? next.methodConfig[methodKeysPatched[0] as PaymentMethodKey] ?? Object.keys(patch)
+        : Object.keys(patch)
   });
 
   await prisma.restaurant.update({

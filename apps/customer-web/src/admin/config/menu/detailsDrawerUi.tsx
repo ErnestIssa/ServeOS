@@ -161,15 +161,36 @@ export function DetailsRow({ label, value }: { label: string; value: ReactNode }
 export function DetailsSection({
   title,
   hint,
+  helpTip,
   children
 }: {
   title?: string;
   hint?: string;
+  /** Tiny “?” hover tip beside the section title (Payments-style). */
+  helpTip?: string;
   children: ReactNode;
 }) {
   return (
     <section className="admin-staff-drawer-section admin-menu-details-section">
-      {title ? <h4 className="admin-staff-drawer-section-title">{title}</h4> : null}
+      {title ? (
+        <h4 className="admin-staff-drawer-section-title admin-payments-section-title-row">
+          <span>{title}</span>
+          {helpTip ? (
+            <span className="admin-payments-section-help-wrap">
+              <span
+                className="admin-payments-section-help"
+                tabIndex={0}
+                aria-label={`About ${title}`}
+              >
+                ?
+              </span>
+              <span className="admin-payments-section-help-tip" role="tooltip">
+                {helpTip}
+              </span>
+            </span>
+          ) : null}
+        </h4>
+      ) : null}
       {hint ? <p className="admin-staff-drawer-hint mb-3">{hint}</p> : null}
       {children}
     </section>
@@ -253,6 +274,8 @@ type ShellProps = {
   closeLabel: string;
   onClose: () => void;
   children: ReactNode;
+  /** Optional overlay centered over the side panel (e.g. mini confirm). */
+  overlay?: ReactNode;
 };
 
 export function DetailsDrawerShell({
@@ -263,7 +286,8 @@ export function DetailsDrawerShell({
   badge,
   closeLabel,
   onClose,
-  children
+  children,
+  overlay
 }: ShellProps) {
   const { mounted, visible } = useDetailsDrawerMount(open, entityKey);
 
@@ -314,6 +338,7 @@ export function DetailsDrawerShell({
         <div className="admin-staff-profile-body admin-menu-item-profile-body admin-menu-details-body">
           {children}
         </div>
+        {overlay}
       </div>
     </div>,
     document.body

@@ -1,10 +1,13 @@
 import type {
   PaymentHealthStatus,
   PaymentMethodConfig,
+  PaymentOrderSource,
   PaymentRefundRow,
+  PaymentStaffRole,
   PaymentTxnStatus,
   VenuePaymentSettings
 } from "../../../api";
+import { PAYMENT_METHOD_CATALOG } from "./paymentMethodCatalog";
 
 export function formatSekFromCents(cents: number, currency = "SEK") {
   const value = (cents ?? 0) / 100;
@@ -76,17 +79,11 @@ export function refundStatusLabel(status: PaymentRefundRow["status"]) {
 }
 
 export function methodLabel(key: string) {
+  const fromCatalog = PAYMENT_METHOD_CATALOG.find((m) => m.key === key)?.label;
+  if (fromCatalog) return fromCatalog;
   const map: Record<string, string> = {
-    card: "Card",
-    swish: "Swish",
-    applePay: "Apple Pay",
     apple_pay: "Apple Pay",
-    googlePay: "Google Pay",
     google_pay: "Google Pay",
-    cash: "Cash",
-    cardTerminal: "Card terminal",
-    invoice: "Invoice",
-    giftCards: "Gift card",
     restaurantCredit: "Restaurant credit",
     loyaltyBalance: "Loyalty balance",
     payAtVenue: "Pay at venue"
@@ -94,31 +91,145 @@ export function methodLabel(key: string) {
   return map[key] ?? key;
 }
 
+export const ORDER_SOURCE_LABELS: Record<PaymentOrderSource, string> = {
+  qr_orders: "QR orders",
+  in_app: "In-app",
+  walk_ins: "Walk-ins",
+  staff_created: "Staff-created",
+  reservations: "Reservations",
+  delivery: "Delivery",
+  catering: "Catering",
+  b2b: "B2B"
+};
+
+export const GROUP_LABELS = {
+  online: "Online / app",
+  venue: "Pay at venue",
+  business: "Business"
+} as const;
+
+function sourcesForKey(key: string): PaymentOrderSource[] {
+  const entry = PAYMENT_METHOD_CATALOG.find((m) => m.key === key);
+  if (!entry) return ["qr_orders", "in_app"];
+  if (entry.group === "online") return ["qr_orders", "in_app", "delivery"];
+  if (entry.group === "venue") return ["qr_orders", "walk_ins", "staff_created", "reservations"];
+  return ["catering", "b2b", "staff_created"];
+}
+
 export function defaultMethodConfig(key: string): PaymentMethodConfig {
-  return {
-    enabled: false,
-    provider: key === "swish" ? "swish" : key === "cash" || key === "payAtVenue" ? "manual" : "stripe",
+  const entry = PAYMENT_METHOD_CATALOG.find((m) => m.key === key);
+  const stripeKeys = new Set([
+    "card",
+    "visa",
+    "mastercard",
+    "amex",
+    "applePay",
+    "googlePay",
+    "samsungPay",
+    "klarnaPayNow",
+    "klarnaPayLater",
+    "klarnaInstallments"
+  ]);
+  const swishKeys = new Set(["swish", "swishAtVenue"]);
+  const terminalKeys = new Set([
+    "cardTerminal",
+    "applePayTerminal",
+    "googlePayTerminal",
+    "samsungPayTerminal"
+  ]);
+
+  let provider: PaymentMethodConfig["provider"] = "manual";
+  if (stripeKeys.has(key)) provider = "stripe";
+  else if (swishKeys.has(key)) provider = "swish";
+  else if (terminalKeys.has(key)) provider = "terminal";
+
+  const venueLike = entry?.group === "venue" || key === "cash";
+  const base: PaymentMethodConfig = {
+    methodType: key,
+    enabled: key === "cash" || key === "payAtVenue",
+    displayName: methodLabel(key),
+    instructionsStaff: "",
+    instructionsCustomer: "",
+    supportedOrderSources: sourcesForKey(key),
     currencies: ["SEK"],
+    minCents: key === "cash" ? null : 1000,
+    maxCents: key === "cash" ? null : 2_000_000,
+    allowedRoles: (entry?.group === "business"
+      ? ["owner", "manager"]
+      : ["owner", "manager", "staff"]) as PaymentStaffRole[],
+    requiresStaffConfirmation: Boolean(venueLike || entry?.group === "business"),
+    requiresReference: Boolean(
+      swishKeys.has(key) || entry?.group === "business" || key === "giftCards"
+    ),
+    settlementMode: venueLike
+      ? swishKeys.has(key)
+        ? "provider_verified"
+        : "staff_confirmed"
+      : "automatic",
+    reconciliationMode: venueLike || entry?.group === "business" ? "required" : "provider_match",
+    refundPolicy: key === "cash" ? "manager_only" : "standard",
+    cancellationPolicy: "allow",
+    availabilityRules: { always: true, openHoursOnly: false, scheduleNote: "" },
+    provider,
     capture: "automatic",
-    refundsEnabled: true,
-    threeDSecure: "automatic",
-    minCents: 1000,
-    maxCents: 2_000_000
+    refundsEnabled: key !== "cash",
+    threeDSecure: terminalKeys.has(key) || key === "cash" ? "never" : "automatic",
+    isDefault: key === "cash",
+    priority: 100,
+    version: 1,
+    updatedAt: null
   };
+
+  if (key === "cash") {
+    base.instructionsStaff =
+      "Record amount tendered. ServeOS calculates change — never trust a client-side change amount.";
+  }
+  if (key === "swish" || key === "swishAtVenue") {
+    base.instructionsStaff = "Verify Swish via provider/reference before marking paid.";
+    base.instructionsCustomer = "Complete Swish in your bank app. Saying you paid is not enough.";
+  }
+  if (key === "payAtVenue") {
+    base.instructionsCustomer =
+      "Selecting pay at venue does not mark your order paid. Pay when the venue collects.";
+  }
+
+  return base;
 }
 
 export function getMethodConfig(settings: VenuePaymentSettings | null, key: string): PaymentMethodConfig {
-  const fromSettings = settings?.methodConfig?.[key];
   const base = defaultMethodConfig(key);
+  const fromSettings = settings?.methodConfig?.[key];
+  const enabled = fromSettings?.enabled ?? Boolean(settings?.methods?.[key] ?? base.enabled);
   if (!fromSettings) {
-    return { ...base, enabled: Boolean(settings?.methods?.[key]) };
+    return {
+      ...base,
+      enabled,
+      isDefault: settings?.defaultPaymentMethodKey === key || base.isDefault
+    };
   }
-  return { ...base, ...fromSettings, enabled: fromSettings.enabled ?? Boolean(settings?.methods?.[key]) };
+  return {
+    ...base,
+    ...fromSettings,
+    enabled,
+    displayName: fromSettings.displayName || base.displayName,
+    instructionsStaff: fromSettings.instructionsStaff ?? base.instructionsStaff,
+    instructionsCustomer: fromSettings.instructionsCustomer ?? base.instructionsCustomer,
+    supportedOrderSources: fromSettings.supportedOrderSources ?? base.supportedOrderSources,
+    currencies: fromSettings.currencies?.length ? fromSettings.currencies : base.currencies,
+    allowedRoles: fromSettings.allowedRoles ?? base.allowedRoles,
+    availabilityRules: {
+      ...base.availabilityRules!,
+      ...(fromSettings.availabilityRules ?? {})
+    },
+    isDefault: settings?.defaultPaymentMethodKey === key || Boolean(fromSettings.isDefault),
+    version: fromSettings.version ?? base.version,
+    updatedAt: fromSettings.updatedAt ?? null
+  };
 }
 
 export const PAY_AT_VENUE_TIMING_OPTIONS = [
   { value: "before_served", label: "Before food is served" },
-  { value: "when_ready", label: "When food is ready" },
-  { value: "when_bill_requested", label: "When customer requests bill" },
-  { value: "after_completed", label: "After order is completed" }
+  { value: "when_ready", label: "When order is ready" },
+  { value: "when_bill_requested", label: "When bill is requested" },
+  { value: "after_completed", label: "After dining is completed" }
 ] as const;

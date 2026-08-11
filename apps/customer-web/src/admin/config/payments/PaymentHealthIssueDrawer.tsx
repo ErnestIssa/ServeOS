@@ -12,6 +12,7 @@ import {
   formatDetailsWhen,
   useCachedDetailsEntity
 } from "../menu/detailsDrawerUi";
+import { PaymentsDetailsReveal, PaymentsDrawerSpinner } from "./paymentsLoadingUi";
 import { formatSekFromCents } from "./paymentsUiHelpers";
 
 type Props = {
@@ -33,6 +34,7 @@ export function PaymentHealthIssueDrawer({ token, restaurantId, issue, open, onC
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setDetail(null);
     void getVenuePaymentHealthIssue(token, restaurantId, issue.id).then((res) => {
       if (cancelled) return;
       setLoading(false);
@@ -73,65 +75,65 @@ export function PaymentHealthIssueDrawer({ token, restaurantId, issue, open, onC
       closeLabel="Close payment issue details"
       onClose={onClose}
     >
-      {loading && !detail ? (
-        <p className="admin-staff-profile-muted text-sm">Loading issue details…</p>
-      ) : null}
+      {loading && !detail ? <PaymentsDrawerSpinner label="Loading issue details" /> : null}
       {error ? <p className="admin-config-text-muted text-sm">{error}</p> : null}
 
-      {detail ? (
-        <>
-          <DetailsSection title="What this means" hint="Explained from the payment health monitor.">
-            <DetailsGrid>
-              <DetailsRow label="Impact" value={detail.summary.impact} />
-              <DetailsRow label="Recommended action" value={detail.summary.recommendedAction} />
-              <DetailsRow label="Checked" value={formatDetailsWhen(detail.evaluatedAt)} />
-              <DetailsRow
-                label="Source"
-                value={detail.source === "demo" ? "Sample activity" : "Live ledger"}
-              />
-            </DetailsGrid>
-          </DetailsSection>
+      <PaymentsDetailsReveal ready={!!detail && !loading}>
+        {detail ? (
+          <>
+            <DetailsSection title="What this means" hint="Explained from the payment health monitor.">
+              <DetailsGrid>
+                <DetailsRow label="Impact" value={detail.summary.impact} />
+                <DetailsRow label="Recommended action" value={detail.summary.recommendedAction} />
+                <DetailsRow label="Checked" value={formatDetailsWhen(detail.evaluatedAt)} />
+                <DetailsRow
+                  label="Source"
+                  value={detail.source === "demo" ? "Sample activity" : "Live ledger"}
+                />
+              </DetailsGrid>
+            </DetailsSection>
 
-          <DetailsSection title="Related figures">
-            <DetailsGrid>
-              {detail.relatedMetrics.map((m) => (
-                <DetailsRow key={m.label} label={m.label} value={m.value} />
-              ))}
-            </DetailsGrid>
-          </DetailsSection>
-
-          <DetailsSection
-            title="Affected records"
-            hint="These rows come from the payment ledger and provider event feed."
-          >
-            {detail.records.length === 0 ? (
-              <p className="admin-staff-profile-muted text-sm">No linked records for this issue right now.</p>
-            ) : (
-              <ul className="admin-payments-health-issue-records">
-                {detail.records.map((row) => (
-                  <li key={row.id}>
-                    <div className="min-w-0">
-                      <p className="admin-payments-health-issue-title">{row.title}</p>
-                      <p className="admin-payments-health-issue-detail">
-                        {row.subtitle}
-                        {row.at ? ` · ${formatDetailsWhen(row.at)}` : ""}
-                      </p>
-                    </div>
-                    <div className="admin-payments-health-issue-record-side">
-                      <span className="admin-payments-chip admin-payments-chip--muted">{row.statusLabel}</span>
-                      {row.amountCents != null ? (
-                        <span className="admin-payments-today-recent-amount">
-                          {formatSekFromCents(row.amountCents, row.currency ?? "SEK")}
-                        </span>
-                      ) : null}
-                    </div>
-                  </li>
+            <DetailsSection title="Related figures">
+              <DetailsGrid>
+                {detail.relatedMetrics.map((m) => (
+                  <DetailsRow key={m.label} label={m.label} value={m.value} />
                 ))}
-              </ul>
-            )}
-          </DetailsSection>
-        </>
-      ) : null}
+              </DetailsGrid>
+            </DetailsSection>
+
+            <DetailsSection
+              title="Affected records"
+              hint="These rows come from the payment ledger and provider event feed."
+            >
+              {detail.records.length === 0 ? (
+                <p className="admin-staff-profile-muted text-sm">No linked records for this issue right now.</p>
+              ) : (
+                <ul className="admin-payments-health-issue-records">
+                  {detail.records.map((row) => (
+                    <li key={row.id}>
+                      <div className="min-w-0">
+                        <p className="admin-payments-health-issue-title">{row.title}</p>
+                        <p className="admin-payments-health-issue-detail">
+                          {row.subtitle}
+                          {row.at ? ` · ${formatDetailsWhen(row.at)}` : ""}
+                        </p>
+                      </div>
+                      <div className="admin-payments-health-issue-record-side">
+                        <span className="admin-payments-chip admin-payments-chip--muted">{row.statusLabel}</span>
+                        {row.amountCents != null ? (
+                          <span className="admin-payments-today-recent-amount">
+                            {formatSekFromCents(row.amountCents, row.currency ?? "SEK")}
+                          </span>
+                        ) : null}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </DetailsSection>
+          </>
+        ) : null}
+      </PaymentsDetailsReveal>
     </DetailsDrawerShell>
   );
 }

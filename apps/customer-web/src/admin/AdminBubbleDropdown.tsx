@@ -117,6 +117,8 @@ export function AdminBubbleDropdown({
   const updatePlacement = () => {
     if (!containWithinModal || dropInline || !rootRef.current) return;
     const boundary =
+      rootRef.current.closest<HTMLElement>(".admin-staff-profile-body") ??
+      rootRef.current.closest<HTMLElement>(".admin-menu-details-body") ??
       rootRef.current.closest<HTMLElement>(".admin-staff-invite-modal") ??
       rootRef.current.closest<HTMLElement>(".admin-staff-invite-modal-body") ??
       rootRef.current.closest<HTMLElement>("[data-modal-scroll]") ??
@@ -139,6 +141,8 @@ export function AdminBubbleDropdown({
     if (!open || !containWithinModal || dropInline) return;
     updatePlacement();
     const boundary =
+      rootRef.current?.closest<HTMLElement>(".admin-staff-profile-body") ??
+      rootRef.current?.closest<HTMLElement>(".admin-menu-details-body") ??
       rootRef.current?.closest<HTMLElement>(".admin-staff-invite-modal") ??
       rootRef.current?.closest<HTMLElement>(".admin-staff-invite-modal-body") ??
       rootRef.current?.closest<HTMLElement>("[data-modal-scroll]") ??
@@ -162,7 +166,7 @@ export function AdminBubbleDropdown({
         cancelHoverClose();
       }}
       onMouseLeave={() => {
-        if (open) scheduleHoverClose();
+        if (open && !dropInline) scheduleHoverClose();
       }}
     >
       <span className="admin-bubble-dropdown-label">

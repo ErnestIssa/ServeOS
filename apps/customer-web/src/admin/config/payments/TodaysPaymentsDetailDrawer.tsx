@@ -12,6 +12,7 @@ import {
   formatDetailsWhen,
   useCachedDetailsEntity
 } from "../menu/detailsDrawerUi";
+import { PaymentsDetailsReveal, PaymentsDrawerSpinner } from "./paymentsLoadingUi";
 import { formatSekFromCents } from "./paymentsUiHelpers";
 
 type Props = {
@@ -40,6 +41,7 @@ export function TodaysPaymentsDetailDrawer({ token, restaurantId, query, open, o
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setDetail(null);
     void getVenueTodaysPaymentsDetail(token, restaurantId, query).then((res) => {
       if (cancelled) return;
       setLoading(false);
@@ -78,60 +80,60 @@ export function TodaysPaymentsDetailDrawer({ token, restaurantId, query, open, o
       closeLabel="Close today’s payment details"
       onClose={onClose}
     >
-      {loading && !detail ? (
-        <p className="admin-staff-profile-muted text-sm">Loading details…</p>
-      ) : null}
+      {loading && !detail ? <PaymentsDrawerSpinner label="Loading details" /> : null}
       {error ? <p className="admin-config-text-muted text-sm">{error}</p> : null}
 
-      {detail ? (
-        <>
-          <DetailsSection title="What this means" hint="Calculated from today’s payment ledger on the server.">
-            <DetailsGrid>
-              <DetailsRow label="Impact" value={detail.summary.impact} />
-              <DetailsRow label="Recommended action" value={detail.summary.recommendedAction} />
-              <DetailsRow label="Venue day" value={detail.dayKey} />
-              <DetailsRow label="Timezone" value={detail.timezone.replace(/_/g, " ")} />
-            </DetailsGrid>
-          </DetailsSection>
+      <PaymentsDetailsReveal ready={!!detail && !loading}>
+        {detail ? (
+          <>
+            <DetailsSection title="What this means" hint="Calculated from today’s payment ledger on the server.">
+              <DetailsGrid>
+                <DetailsRow label="Impact" value={detail.summary.impact} />
+                <DetailsRow label="Recommended action" value={detail.summary.recommendedAction} />
+                <DetailsRow label="Venue day" value={detail.dayKey} />
+                <DetailsRow label="Timezone" value={detail.timezone.replace(/_/g, " ")} />
+              </DetailsGrid>
+            </DetailsSection>
 
-          <DetailsSection title="Related figures">
-            <DetailsGrid>
-              {detail.relatedMetrics.map((m) => (
-                <DetailsRow key={m.label} label={m.label} value={m.value} />
-              ))}
-            </DetailsGrid>
-          </DetailsSection>
-
-          <DetailsSection
-            title={detail.payment ? "Payment record" : "Matching payments"}
-            hint="These rows reconcile back to individual ledger payments for today."
-          >
-            {detail.records.length === 0 ? (
-              <p className="admin-staff-profile-muted text-sm">No matching payments for this view.</p>
-            ) : (
-              <ul className="admin-payments-health-issue-records">
-                {detail.records.map((row) => (
-                  <li key={row.id}>
-                    <div className="min-w-0">
-                      <p className="admin-payments-health-issue-title">{row.title}</p>
-                      <p className="admin-payments-health-issue-detail">
-                        {row.subtitle}
-                        {row.at ? ` · ${formatDetailsWhen(row.at)}` : ""}
-                      </p>
-                    </div>
-                    <div className="admin-payments-health-issue-record-side">
-                      <span className="admin-payments-chip admin-payments-chip--muted">{row.statusLabel}</span>
-                      <span className="admin-payments-today-recent-amount">
-                        {formatSekFromCents(row.amountCents, row.currency)}
-                      </span>
-                    </div>
-                  </li>
+            <DetailsSection title="Related figures">
+              <DetailsGrid>
+                {detail.relatedMetrics.map((m) => (
+                  <DetailsRow key={m.label} label={m.label} value={m.value} />
                 ))}
-              </ul>
-            )}
-          </DetailsSection>
-        </>
-      ) : null}
+              </DetailsGrid>
+            </DetailsSection>
+
+            <DetailsSection
+              title={detail.payment ? "Payment record" : "Matching payments"}
+              hint="These rows reconcile back to individual ledger payments for today."
+            >
+              {detail.records.length === 0 ? (
+                <p className="admin-staff-profile-muted text-sm">No matching payments for this view.</p>
+              ) : (
+                <ul className="admin-payments-health-issue-records">
+                  {detail.records.map((row) => (
+                    <li key={row.id}>
+                      <div className="min-w-0">
+                        <p className="admin-payments-health-issue-title">{row.title}</p>
+                        <p className="admin-payments-health-issue-detail">
+                          {row.subtitle}
+                          {row.at ? ` · ${formatDetailsWhen(row.at)}` : ""}
+                        </p>
+                      </div>
+                      <div className="admin-payments-health-issue-record-side">
+                        <span className="admin-payments-chip admin-payments-chip--muted">{row.statusLabel}</span>
+                        <span className="admin-payments-today-recent-amount">
+                          {formatSekFromCents(row.amountCents, row.currency)}
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </DetailsSection>
+          </>
+        ) : null}
+      </PaymentsDetailsReveal>
     </DetailsDrawerShell>
   );
 }

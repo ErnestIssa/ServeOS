@@ -1133,15 +1133,57 @@ export type PaymentProviderEnvReady = {
   demoLedger: boolean;
 };
 
+export type PaymentOrderSource =
+  | "qr_orders"
+  | "in_app"
+  | "walk_ins"
+  | "staff_created"
+  | "reservations"
+  | "delivery"
+  | "catering"
+  | "b2b";
+
+export type PaymentSettlementMode =
+  | "automatic"
+  | "staff_confirmed"
+  | "provider_verified"
+  | "manual_reference";
+
+export type PaymentReconciliationMode = "none" | "required" | "provider_match";
+export type PaymentRefundPolicy = "standard" | "manager_only" | "disabled" | "provider_only";
+export type PaymentCancellationPolicy = "allow" | "manager_only" | "block_if_paid";
+export type PaymentStaffRole = "owner" | "manager" | "staff";
+
 export type PaymentMethodConfig = {
+  methodType?: string;
   enabled: boolean;
-  provider?: "stripe" | "swish" | "terminal" | "manual" | "none";
+  displayName?: string;
+  instructionsStaff?: string;
+  instructionsCustomer?: string;
+  supportedOrderSources?: PaymentOrderSource[];
   currencies: string[];
+  minCents: number | null;
+  maxCents: number | null;
+  allowedRoles?: PaymentStaffRole[];
+  requiresStaffConfirmation?: boolean;
+  requiresReference?: boolean;
+  settlementMode?: PaymentSettlementMode;
+  reconciliationMode?: PaymentReconciliationMode;
+  refundPolicy?: PaymentRefundPolicy;
+  cancellationPolicy?: PaymentCancellationPolicy;
+  availabilityRules?: {
+    always: boolean;
+    openHoursOnly: boolean;
+    scheduleNote: string;
+  };
+  provider?: "stripe" | "swish" | "terminal" | "manual" | "none";
   capture: "automatic" | "manual";
   refundsEnabled: boolean;
   threeDSecure: "automatic" | "always" | "never";
-  minCents: number | null;
-  maxCents: number | null;
+  isDefault?: boolean;
+  priority?: number;
+  version?: number;
+  updatedAt?: string | null;
 };
 
 export type VenuePaymentSettings = {
@@ -1163,6 +1205,7 @@ export type VenuePaymentSettings = {
   };
   methods: Record<string, boolean>;
   methodConfig?: Record<string, PaymentMethodConfig>;
+  defaultPaymentMethodKey?: string | null;
   rules: {
     payBeforeOrder: boolean;
     payAfterMeal: boolean;

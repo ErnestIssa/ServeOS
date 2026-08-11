@@ -19,8 +19,8 @@ import {
   type TodaysPaymentsMetric,
   type TodaysPaymentsSnapshot
 } from "../../../api";
-import { SkeletonBone } from "../../AdminSkeleton";
 import { renderPaymentPieSliceLabel } from "./paymentPieLabels";
+import { PaymentsSectionSpinner } from "./paymentsLoadingUi";
 import { TodaysPaymentsDetailDrawer } from "./TodaysPaymentsDetailDrawer";
 import { formatSekFromCents } from "./paymentsUiHelpers";
 
@@ -123,28 +123,7 @@ function metricStatusLabel(metric: TodaysPaymentsMetric): string {
 }
 
 function TodaysPaymentsSkeleton() {
-  return (
-    <div className="admin-payments-health-pie" aria-busy aria-label="Loading today’s payments">
-      <div className="admin-payments-health-pie-intro">
-        <SkeletonBone className="h-5 w-24" />
-        <SkeletonBone className="mt-2 h-4 w-56" rounded="sm" />
-        <SkeletonBone className="mt-1.5 h-3 w-44" rounded="sm" />
-      </div>
-      <div className="admin-payments-health-metrics">
-        {Array.from({ length: 4 }, (_, i) => (
-          <div key={i}>
-            <SkeletonBone className="mx-auto h-2.5 w-12" rounded="sm" />
-            <SkeletonBone className="mx-auto mt-2 h-5 w-10" />
-          </div>
-        ))}
-      </div>
-      <div className="admin-payments-health-pie-chart admin-payments-health-pie-chart--skeleton">
-        <SkeletonBone className="h-[220px] w-[220px] max-w-full" rounded="full" />
-      </div>
-      <SkeletonBone className="h-36 w-full rounded-xl" />
-      <SkeletonBone className="h-10 w-48 rounded-xl" />
-    </div>
-  );
+  return <PaymentsSectionSpinner label="Loading today’s payments" />;
 }
 
 export function TodaysPaymentsPanel({
@@ -179,6 +158,9 @@ export function TodaysPaymentsPanel({
   const openDetail = (query: TodaysPaymentsDetailQuery) => {
     setDetailQuery(query);
     setDetailOpen(true);
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
   };
 
   const pieMetrics = useMemo(() => {
@@ -319,7 +301,7 @@ export function TodaysPaymentsPanel({
                 style={{ cursor: "pointer" }}
               >
                 {slices.map((slice) => (
-                  <Cell key={slice.key} fill={slice.fill} />
+                  <Cell key={slice.key} fill={slice.fill} style={{ outline: "none", cursor: "pointer" }} />
                 ))}
               </Pie>
             </PieChart>
@@ -337,7 +319,6 @@ export function TodaysPaymentsPanel({
             <div className="admin-payments-today-methods-chart-plot" style={{ height: barHeight }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
-                  accessibilityLayer
                   data={methodBars}
                   layout="vertical"
                   margin={{ top: 4, right: 12, bottom: 4, left: 4 }}
@@ -352,12 +333,14 @@ export function TodaysPaymentsPanel({
                     tickMargin={8}
                     tick={{ fill: "var(--admin-config-muted, #475569)", fontSize: 11, fontWeight: 650 }}
                   />
-                  <Tooltip cursor={{ fill: "rgba(37, 99, 235, 0.06)" }} content={<MethodBarTooltip />} />
+                  <Tooltip cursor={false} content={<MethodBarTooltip />} />
                   <Bar
                     dataKey="amount"
                     radius={5}
                     fill={METHOD_BAR_FILL}
                     cursor="pointer"
+                    activeBar={false}
+                    background={false}
                     onClick={(data) => {
                       const payload = (data as { payload?: MethodBarRow; key?: string })?.payload ?? data;
                       const key = (payload as MethodBarRow | undefined)?.key;
@@ -369,6 +352,7 @@ export function TodaysPaymentsPanel({
                         key={row.key}
                         fill={row.amountCents > 0 ? METHOD_BAR_FILL : "#cbd5e1"}
                         fillOpacity={row.amountCents > 0 ? 1 : 0.55}
+                        style={{ outline: "none" }}
                       />
                     ))}
                   </Bar>

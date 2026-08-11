@@ -320,16 +320,35 @@ function refToRow(ref: {
 function enabledVenueMethods(settings: VenuePaymentSettings): Array<{ key: string; label: string }> {
   const rows: Array<{ key: string; label: string }> = [];
   const m = settings.methods;
-  if (m.card) rows.push({ key: "card", label: methodLabel("card") });
-  if (m.swish) rows.push({ key: "swish", label: methodLabel("swish") });
-  if (m.applePay) rows.push({ key: "apple_pay", label: methodLabel("apple_pay") });
-  if (m.googlePay) rows.push({ key: "google_pay", label: methodLabel("google_pay") });
-  if (m.cardTerminal) rows.push({ key: "card_terminal", label: methodLabel("card_terminal") });
-  if (m.cash || m.payAtVenue) rows.push({ key: "pay_at_venue", label: methodLabel("pay_at_venue") });
-  if (m.invoice) rows.push({ key: "invoice", label: "Invoice" });
-  if (m.giftCards) rows.push({ key: "gift_cards", label: "Gift cards" });
-  if (m.restaurantCredit) rows.push({ key: "restaurant_credit", label: "Restaurant credit" });
-  if (m.loyaltyBalance) rows.push({ key: "loyalty_balance", label: "Loyalty balance" });
+  const push = (enabled: boolean | undefined, key: string, label?: string) => {
+    if (!enabled) return;
+    rows.push({ key, label: label ?? methodLabel(key) });
+  };
+
+  push(m.swish, "swish");
+  push(m.visa, "visa", "Visa");
+  push(m.mastercard, "mastercard", "Mastercard");
+  push(m.amex, "amex", "American Express");
+  push(m.applePay, "apple_pay", methodLabel("apple_pay"));
+  push(m.googlePay, "google_pay", methodLabel("google_pay"));
+  push(m.samsungPay, "samsung_pay", "Samsung Pay");
+  push(m.klarnaPayNow, "klarna_pay_now", "Klarna — Pay now");
+  push(m.klarnaPayLater, "klarna_pay_later", "Klarna — Pay later");
+  push(m.klarnaInstallments, "klarna_installments", "Klarna — Installments");
+  push(m.card, "card");
+  push(m.cardTerminal, "card_terminal", methodLabel("card_terminal"));
+  push(m.cash || m.payAtVenue, "pay_at_venue", methodLabel("pay_at_venue"));
+  push(m.swishAtVenue, "swish_at_venue", "Swish (venue)");
+  push(m.applePayTerminal, "apple_pay_terminal", "Apple Pay at terminal");
+  push(m.googlePayTerminal, "google_pay_terminal", "Google Pay at terminal");
+  push(m.samsungPayTerminal, "samsung_pay_terminal", "Samsung Pay at terminal");
+  push(m.giftCards, "gift_cards", "Gift cards");
+  push(m.invoice, "invoice", "Invoice");
+  push(m.eInvoice, "e_invoice", "E-invoice");
+  push(m.bankTransfer, "bank_transfer", "Bank transfer");
+  push(m.bankgiro, "bankgiro", "Bankgiro");
+  push(m.plusgiro, "plusgiro", "PlusGiro");
+  push(m.loyaltyBalance, "loyalty_balance", "Loyalty balance");
   return rows;
 }
 

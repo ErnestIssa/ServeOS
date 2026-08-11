@@ -7,7 +7,7 @@ import {
   type PaymentActivitySeries
 } from "../../../api";
 import { AdminBubbleDropdown } from "../../AdminBubbleDropdown";
-import { SkeletonBone } from "../../AdminSkeleton";
+import { PaymentsSectionSpinner } from "./paymentsLoadingUi";
 import { formatSekFromCents } from "./paymentsUiHelpers";
 
 type Props = {
@@ -143,7 +143,9 @@ export function PaymentActivityChart({ token, restaurantId, refreshKey = 0 }: Pr
       </div>
       <div className="data-payments-chart-body">
         {!loadedOnce && loading ? (
-          <SkeletonBone className="h-[250px] w-full rounded-xl" />
+          <div className="admin-payments-chart-loading">
+            <PaymentsSectionSpinner label="Loading payment volume" />
+          </div>
         ) : (
           <ResponsiveContainer width="100%" height={250}>
             <AreaChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>

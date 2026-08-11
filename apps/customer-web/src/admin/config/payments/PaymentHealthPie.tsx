@@ -7,9 +7,9 @@ import {
   type PaymentHealthSnapshot,
   type PaymentHealthStatus
 } from "../../../api";
-import { SkeletonBone } from "../../AdminSkeleton";
 import { PaymentHealthIssueDrawer } from "./PaymentHealthIssueDrawer";
 import { renderPaymentPieSliceLabel } from "./paymentPieLabels";
+import { PaymentsSectionSpinner } from "./paymentsLoadingUi";
 import { formatWhen } from "./paymentsUiHelpers";
 
 type Props = {
@@ -54,35 +54,7 @@ function ChartTooltipBody({
 }
 
 function PaymentHealthSkeleton() {
-  return (
-    <div className="admin-payments-health-pie" aria-busy aria-label="Loading payment health">
-      <div className="admin-payments-health-pie-intro">
-        <SkeletonBone className="h-5 w-24" />
-        <SkeletonBone className="mt-2 h-4 w-56" rounded="sm" />
-        <SkeletonBone className="mt-1.5 h-3 w-44" rounded="sm" />
-      </div>
-      <div className="admin-payments-health-metrics">
-        {Array.from({ length: 4 }, (_, i) => (
-          <div key={i}>
-            <SkeletonBone className="mx-auto h-2.5 w-12" rounded="sm" />
-            <SkeletonBone className="mx-auto mt-2 h-5 w-10" />
-          </div>
-        ))}
-      </div>
-      <div className="admin-payments-health-pie-chart admin-payments-health-pie-chart--skeleton">
-        <SkeletonBone className="h-[220px] w-[220px] max-w-full" rounded="full" />
-      </div>
-      <div className="admin-payments-health-issues admin-payments-health-issues--skeleton">
-        <SkeletonBone className="h-14 w-full rounded-xl" />
-        <SkeletonBone className="h-14 w-full rounded-xl" />
-      </div>
-      <div className="admin-payments-health-timestamps">
-        <SkeletonBone className="h-3 w-28" rounded="sm" />
-        <SkeletonBone className="h-3 w-28" rounded="sm" />
-        <SkeletonBone className="h-3 w-28" rounded="sm" />
-      </div>
-    </div>
-  );
+  return <PaymentsSectionSpinner label="Loading payment health" />;
 }
 
 export function PaymentHealthPie({ token, restaurantId, refreshKey = 0 }: Props) {
@@ -124,6 +96,9 @@ export function PaymentHealthPie({ token, restaurantId, refreshKey = 0 }: Props)
   const openIssue = (issue: PaymentHealthIssue) => {
     setSelectedIssue(issue);
     setIssueOpen(true);
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
   };
 
   if (!health) {
@@ -134,9 +109,36 @@ export function PaymentHealthPie({ token, restaurantId, refreshKey = 0 }: Props)
     <>
       <div className="admin-payments-health-pie">
         <div className="admin-payments-health-pie-intro">
-          <p className="admin-payments-health-pie-overall" style={{ color: OVERALL_FILL[health.overall] }}>
-            {health.overallLabel}
-          </p>
+          <div className="admin-payments-today-total-wrap">
+            <span
+              className="admin-payments-health-pie-overall admin-payments-today-total"
+              style={{ color: OVERALL_FILL[health.overall] }}
+              tabIndex={0}
+              aria-describedby="payment-health-overall-tip"
+            >
+              {health.overallLabel}
+              <span
+                id="payment-health-overall-tip"
+                className="admin-payments-today-total-tip admin-payments-health-tooltip"
+                role="tooltip"
+              >
+                <span className="admin-payments-health-tooltip-title">{health.overallLabel}</span>
+                <span
+                  className="admin-payments-health-tooltip-status"
+                  style={{ color: OVERALL_FILL[health.overall] }}
+                >
+                  {health.summary}
+                </span>
+                <span className="admin-payments-today-total-tip-meta">
+                  Success 24h {health.metrics.successRate24h}%
+                  {" · "}
+                  Failed {health.metrics.failedCount24h}
+                  {" · "}
+                  Last checked {formatWhen(health.evaluatedAt)}
+                </span>
+              </span>
+            </span>
+          </div>
           <p className="admin-payments-health-pie-trend">{health.summary}</p>
           <p className="admin-payments-health-pie-sub">
             Last checked {formatWhen(health.evaluatedAt)}

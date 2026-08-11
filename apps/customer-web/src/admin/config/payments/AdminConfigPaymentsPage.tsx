@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   connectVenuePaymentProvider,
@@ -15,7 +15,6 @@ import {
   listVenuePaymentTransactions,
   patchVenuePaymentSettings,
   type PaymentLogRow,
-  type PaymentMethodConfig,
   type PaymentOverview,
   type PaymentPayoutRow,
   type PaymentProviderEnvReady,
@@ -38,6 +37,7 @@ import {
   subPanelCls
 } from "../../AdminUi";
 import { AdminStaleContent } from "../../AdminSkeleton";
+import { Spinner } from "../../../components/ui/spinner";
 import { useAdminToast } from "../../AdminToast";
 import { ADMIN_NAV_SYNC_EVENT, parseAdminHashQuery } from "../../adminWorkspaceRouting";
 import { usePageRecoverySync, useSilentRevalidate } from "../../sync/adminPageSync";
@@ -50,7 +50,6 @@ import {
   normalizePaymentsTab,
   type PaymentsSectionTab
 } from "../configRouting";
-import { PaymentMethodConfigModal } from "./PaymentMethodConfigModal";
 import { PaymentProviderDetailModal } from "./PaymentProviderDetailModal";
 import { PaymentTransactionDrawer } from "./PaymentTransactionDrawer";
 import { PaymentsAdvancedSettingsPage } from "./PaymentsAdvancedSettingsPage";
@@ -64,7 +63,7 @@ import { PaymentsRefundsTab } from "./PaymentsRefundsTab";
 import { PaymentsRulesTab } from "./PaymentsRulesTab";
 import { PaymentsTransactionsTab } from "./PaymentsTransactionsTab";
 import { RefundDetailModal } from "./RefundDetailModal";
-import { getMethodConfig } from "./paymentsUiHelpers";
+import { getMethodConfig, methodLabel } from "./paymentsUiHelpers";
 
 type Props = {
   token: string | null;
@@ -111,8 +110,15 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
   const [activityRefreshKey, setActivityRefreshKey] = useState(0);
 
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [methodKey, setMethodKey] = useState<string | null>(null);
   const [providerDetail, setProviderDetail] = useState<"stripe" | "swish" | "terminals" | null>(null);
+  const [selectedMethodKeys, setSelectedMethodKeys] = useState<string[]>([]);
+  const [methodsManageRequestId, setMethodsManageRequestId] = useState(0);
+  const [methodsLeaveRequestId, setMethodsLeaveRequestId] = useState(0);
+  const [methodsManageDirty, setMethodsManageDirty] = useState(false);
+  const [methodsManageOpen, setMethodsManageOpen] = useState(false);
+  const pendingLeaveTabRef = useRef<PaymentsSectionTab | null>(null);
+  const pendingAdvancedRef = useRef(false);
+  const methodsGateRef = useRef({ dirty: false, open: false, tab: "overview" as PaymentsSectionTab });
   const [connectOpen, setConnectOpen] = useState<"stripe" | "swish" | null>(null);
   const [connectId, setConnectId] = useState("");
   const [selectedTxn, setSelectedTxn] = useState<PaymentTransactionDetail | null>(null);
@@ -121,6 +127,26 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
   const [txnDrillFilter, setTxnDrillFilter] = useState<TodaysPaymentsDrillFilter | null>(null);
   const canEdit = useMemo(() => canEditPayments(role), [role]);
   const lockReason = paymentsEditReason(role);
+  const selectedMethodManageLabel = useMemo(() => {
+    const key = selectedMethodKeys[0];
+    if (!key) return null;
+    const name =
+      (settings ? getMethodConfig(settings, key).displayName : null)?.trim() || methodLabel(key);
+    if (selectedMethodKeys.length === 1) return `Manage ${name}`;
+    return `Manage ${name} +${selectedMethodKeys.length - 1}`;
+  }, [selectedMethodKeys, settings]);
+
+  methodsGateRef.current = { dirty: methodsManageDirty, open: methodsManageOpen, tab };
+
+  useEffect(() => {
+    if (!methodsManageDirty) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [methodsManageDirty]);
 
   const paymentsTitle = (
     <span className="admin-payments-title-inline">
@@ -211,8 +237,18 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
     const applyHash = () => {
       const q = parseAdminHashQuery();
       const next = normalizePaymentsTab(q.get("tab"));
-      if (next) setTab(next);
-      setAdvancedOpen(q.get("view") === "advanced");
+      const wantAdvanced = q.get("view") === "advanced";
+      const gate = methodsGateRef.current;
+      if (next && next !== gate.tab) {
+        if (gate.tab === "methods" && (gate.dirty || gate.open)) {
+          pendingLeaveTabRef.current = next;
+          setMethodsLeaveRequestId((n) => n + 1);
+          setPaymentsTabHash(gate.tab, advancedOpen);
+          return;
+        }
+        setTab(next);
+      }
+      setAdvancedOpen(wantAdvanced);
     };
     applyHash();
     window.addEventListener("hashchange", applyHash);
@@ -221,13 +257,59 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
       window.removeEventListener("hashchange", applyHash);
       window.removeEventListener(ADMIN_NAV_SYNC_EVENT, applyHash as EventListener);
     };
-  }, []);
+  }, [advancedOpen]);
 
-  const selectTab = (next: PaymentsSectionTab) => {
+  useEffect(() => {
+    if (tab !== "methods") {
+      setSelectedMethodKeys([]);
+      setMethodsManageRequestId(0);
+      setMethodsManageDirty(false);
+      setMethodsManageOpen(false);
+    }
+  }, [tab]);
+
+  const applyTab = (next: PaymentsSectionTab) => {
     setTab(next);
     setAdvancedOpen(false);
     setPaymentsTabHash(next, false);
     if (next !== "transactions") setTxnDrillFilter(null);
+    if (next !== "methods") {
+      setSelectedMethodKeys([]);
+      setMethodsManageRequestId(0);
+      setMethodsManageDirty(false);
+      setMethodsManageOpen(false);
+    }
+  };
+
+  const selectTab = (next: PaymentsSectionTab) => {
+    if (next === tab) return;
+    if (tab === "methods" && (methodsManageDirty || methodsManageOpen)) {
+      pendingLeaveTabRef.current = next;
+      setMethodsLeaveRequestId((n) => n + 1);
+      return;
+    }
+    applyTab(next);
+  };
+
+  const onMethodsLeaveAllowed = () => {
+    const next = pendingLeaveTabRef.current;
+    const openAdvancedAfter = pendingAdvancedRef.current;
+    pendingLeaveTabRef.current = null;
+    pendingAdvancedRef.current = false;
+    setMethodsManageDirty(false);
+    setMethodsManageOpen(false);
+    if (openAdvancedAfter) {
+      setAdvancedOpen(true);
+      setPaymentsTabHash(tab, true);
+      return;
+    }
+    if (next) applyTab(next);
+  };
+
+  const onMethodsLeaveCancelled = () => {
+    pendingLeaveTabRef.current = null;
+    pendingAdvancedRef.current = false;
+    setPaymentsTabHash(tab, advancedOpen);
   };
 
   const openTodaysTransactions = (filter: TodaysPaymentsDrillFilter) => {
@@ -243,6 +325,12 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
   };
 
   const openAdvanced = () => {
+    if (tab === "methods" && (methodsManageDirty || methodsManageOpen)) {
+      pendingAdvancedRef.current = true;
+      pendingLeaveTabRef.current = null;
+      setMethodsLeaveRequestId((n) => n + 1);
+      return;
+    }
     setAdvancedOpen(true);
     setPaymentsTabHash(tab, true);
   };
@@ -260,6 +348,10 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
         ...patch,
         methods: { ...current.methods, ...(patch.methods ?? {}) },
         methodConfig: { ...(current.methodConfig ?? {}), ...(patch.methodConfig ?? {}) },
+        defaultPaymentMethodKey:
+          patch.defaultPaymentMethodKey !== undefined
+            ? patch.defaultPaymentMethodKey
+            : current.defaultPaymentMethodKey,
         rules: { ...current.rules, ...(patch.rules ?? {}) },
         payAtVenue: current.payAtVenue
           ? {
@@ -481,14 +573,34 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
             </button>
           ))}
         </div>
-        <button type="button" className="admin-payments-advanced-btn" onClick={openAdvanced}>
-          Advanced Settings
-        </button>
+        <div className="admin-payments-tabs-actions">
+          <AnimatePresence mode="popLayout">
+            {tab === "methods" && selectedMethodManageLabel ? (
+              <motion.button
+                key="methods-manage"
+                type="button"
+                className="admin-payments-manage-btn"
+                initial={{ opacity: 0, x: 10, scale: 0.96 }}
+                animate={{ opacity: 1, x: 0, scale: 1 }}
+                exit={{ opacity: 0, x: 10, scale: 0.96 }}
+                transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                onClick={() => setMethodsManageRequestId((n) => n + 1)}
+              >
+                {selectedMethodManageLabel}
+              </motion.button>
+            ) : null}
+          </AnimatePresence>
+          <button type="button" className="admin-payments-advanced-btn" onClick={openAdvanced}>
+            Advanced Settings
+          </button>
+        </div>
       </div>
 
       <AdminStaleContent refreshing={refreshing}>
         {loading && !ready ? (
-          <div className="mt-8 admin-config-text-muted text-sm">Loading payments workspace…</div>
+          <div className="admin-payments-workspace-loading mt-8" aria-busy aria-label="Loading payments workspace">
+            <Spinner className="size-8" />
+          </div>
         ) : !settings ? (
           <div className="mt-8">
             <AdminEmptyState>Could not load payment settings.</AdminEmptyState>
@@ -515,16 +627,53 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
                 <PaymentsMethodsTab
                   settings={settings}
                   canEdit={canEdit}
-                  onToggle={(key, enabled) => {
-                    patchLocal({
-                      methods: { ...settings.methods, [key]: enabled },
-                      methodConfig: {
-                        ...(settings.methodConfig ?? {}),
-                        [key]: { ...getMethodConfig(settings, key), enabled }
-                      }
-                    });
+                  selectedKeys={selectedMethodKeys}
+                  onSelectionChange={setSelectedMethodKeys}
+                  manageRequestId={methodsManageRequestId}
+                  leaveRequestId={methodsLeaveRequestId}
+                  onLeaveAllowed={onMethodsLeaveAllowed}
+                  onLeaveCancelled={onMethodsLeaveCancelled}
+                  onManageDirtyChange={setMethodsManageDirty}
+                  onManageOpenChange={setMethodsManageOpen}
+                  onToast={pushToast}
+                  onViewActivity={() => selectTab("transactions")}
+                  onViewReconciliation={() => selectTab("reconciliation")}
+                  onSaveMethod={async (key, config, extras) => {
+                    const nextMethods = { ...(settings.methods ?? {}), [key]: config.enabled };
+                    const nextConfig = { ...(settings.methodConfig ?? {}), [key]: config };
+                    const patch: Partial<VenuePaymentSettings> = {
+                      methods: nextMethods,
+                      methodConfig: nextConfig,
+                      defaultPaymentMethodKey: extras?.setDefault
+                        ? key
+                        : config.isDefault
+                          ? key
+                          : settings.defaultPaymentMethodKey === key && !config.isDefault
+                            ? null
+                            : settings.defaultPaymentMethodKey
+                    };
+                    patchLocal(patch);
+                    return Boolean(await saveSettings(patch));
                   }}
-                  onConfigure={(key) => setMethodKey(key)}
+                  onSaveBulkMethods={async (updates, extras) => {
+                    const nextMethods = { ...(settings.methods ?? {}) };
+                    const nextConfig = { ...(settings.methodConfig ?? {}) };
+                    for (const row of updates) {
+                      nextMethods[row.key] = row.config.enabled;
+                      nextConfig[row.key] = row.config;
+                    }
+                    let defaultPaymentMethodKey = settings.defaultPaymentMethodKey ?? null;
+                    if (extras && "setDefaultKey" in extras) {
+                      defaultPaymentMethodKey = extras.setDefaultKey ?? null;
+                    }
+                    const patch: Partial<VenuePaymentSettings> = {
+                      methods: nextMethods,
+                      methodConfig: nextConfig,
+                      defaultPaymentMethodKey
+                    };
+                    patchLocal(patch);
+                    return Boolean(await saveSettings(patch));
+                  }}
                 />
               ) : null}
               {tab === "rules" ? (
@@ -597,21 +746,6 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
           </AnimatePresence>
         )}
       </AdminStaleContent>
-
-      <PaymentMethodConfigModal
-        open={Boolean(methodKey)}
-        methodKey={methodKey}
-        config={methodKey && settings ? getMethodConfig(settings, methodKey) : null}
-        canEdit={canEdit}
-        onClose={() => setMethodKey(null)}
-        onSave={(key, config: PaymentMethodConfig) => {
-          const nextMethods = { ...(settings?.methods ?? {}), [key]: config.enabled };
-          const nextConfig = { ...(settings?.methodConfig ?? {}), [key]: config };
-          patchLocal({ methods: nextMethods, methodConfig: nextConfig });
-          setMethodKey(null);
-          void saveSettings({ methods: nextMethods, methodConfig: nextConfig });
-        }}
-      />
 
       <PaymentProviderDetailModal
         open={Boolean(providerDetail)}

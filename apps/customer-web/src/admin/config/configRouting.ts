@@ -87,7 +87,7 @@ export function menuTabFromLegacyPreset(presetId: string): MenuSectionTab | null
 export const CONFIG_PRESET_DESCRIPTIONS: Record<ConfigPresetId, string> = {
   menu: "Everything related to products — menus, categories, items, modifiers, and availability.",
   payments:
-    "Venue money infrastructure — how this restaurant accepts, processes, refunds, reconciles, and settles guest payments (not ServeOS subscription billing).",
+    "Manage how your venue accepts payments, handles refunds, tracks transactions, and keeps orders and payments in sync.",
   "media-library":
     "Restaurant-wide media library — images and videos for menus, items, covers, and future surfaces.",
   "qr-codes":
