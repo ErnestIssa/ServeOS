@@ -88,6 +88,30 @@ export const ONLINE_PAYMENT_METHODS = PAYMENT_METHOD_CATALOG.filter((m) => m.gro
 export const VENUE_PAYMENT_METHODS = PAYMENT_METHOD_CATALOG.filter((m) => m.group === "venue");
 export const BUSINESS_PAYMENT_METHODS = PAYMENT_METHOD_CATALOG.filter((m) => m.group === "business");
 
+/** Stable family order as defined in the catalog (first appearance). */
+export const PAYMENT_METHOD_FAMILY_ORDER = Array.from(
+  new Set(PAYMENT_METHOD_CATALOG.map((m) => m.family))
+);
+
+/** Button labels for family chips in the Methods list toolbar. */
+export const PAYMENT_METHOD_FAMILY_LABELS: Record<string, string> = {
+  Card: "Cards",
+  Wallet: "Digital wallets",
+  Swish: "Swish",
+  Klarna: "Klarna",
+  Terminal: "Terminal",
+  Cash: "Cash",
+  "Store credit": "Store credit",
+  Invoice: "Invoice",
+  Bank: "Bank"
+};
+
+export type PaymentMethodFamilyFilter = "all" | string;
+
+export function paymentMethodFamilyLabel(family: string) {
+  return PAYMENT_METHOD_FAMILY_LABELS[family] ?? family;
+}
+
 export function catalogMethodLabel(key: string) {
   return PAYMENT_METHOD_CATALOG.find((m) => m.key === key)?.label ?? null;
 }

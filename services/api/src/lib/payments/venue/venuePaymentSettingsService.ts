@@ -249,6 +249,8 @@ export type VenuePaymentSettings = {
       Partial<import("./paymentPreferencePolicy.js").PaymentPreferencePolicy>
     >
   >;
+  /** Persistent provider-driven setup sessions keyed by method. */
+  setupSessions?: Record<string, import("../setup/paymentSetupSessionService.js").PaymentSetupSession>;
   auditLog: VenuePaymentAuditEntry[];
 };
 
@@ -622,6 +624,7 @@ const DEFAULT_SETTINGS: VenuePaymentSettings = {
   bankAccount: { linked: false },
   providerConnections: {},
   preferencePolicies: {},
+  setupSessions: {},
   auditLog: []
 };
 
@@ -764,6 +767,10 @@ export function mergeSettings(raw: unknown): VenuePaymentSettings {
       ...(DEFAULT_SETTINGS.preferencePolicies ?? {}),
       ...(s.preferencePolicies ?? {})
     },
+    setupSessions: {
+      ...(DEFAULT_SETTINGS.setupSessions ?? {}),
+      ...((s.setupSessions as VenuePaymentSettings["setupSessions"]) ?? {})
+    },
     auditLog: Array.isArray(s.auditLog) ? s.auditLog.slice(0, 100) : []
   };
 }
@@ -838,7 +845,7 @@ export function getPaymentProviderEnvReady() {
     stripe: Boolean(process.env.STRIPE_SECRET_KEY?.trim()),
     swish: Boolean(process.env.SWISH_PAYEE_ALIAS?.trim() || process.env.SWISH_CERT_PATH?.trim()),
     webhook: Boolean(process.env.PAYMENT_WEBHOOK_SECRET?.trim() || process.env.STRIPE_WEBHOOK_SECRET?.trim()),
-    demoLedger: process.env.PAYMENT_DEMO_LEDGER !== "false"
+    demoLedger: process.env.PAYMENT_DEMO_LEDGER === "true"
   };
 }
 
@@ -917,13 +924,19 @@ export async function updateVenuePaymentSettings(
         if (nextMethodConfig[key]) {
           nextMethodConfig[key] = { ...nextMethodConfig[key]!, enabled: false };
         }
-        enableBlocked.push(`${key}: ${check.error}`);
+        enableBlocked.push(check.error);
       }
     }
   }
   if (enableBlocked.length && audit?.action?.startsWith("provider_connected_")) {
     // Provider connect may request enable; keep connection even if some methods stay off.
   } else if (enableBlocked.length === 1 && patch.methodConfig && Object.keys(patch.methodConfig).length === 1) {
+    return {
+      ok: false as const,
+      error: "method_not_ready",
+      message: enableBlocked[0]
+    };
+  } else if (enableBlocked.length > 1) {
     return {
       ok: false as const,
       error: "method_not_ready",
@@ -985,6 +998,10 @@ export async function updateVenuePaymentSettings(
     preferencePolicies: {
       ...(current.settings.preferencePolicies ?? {}),
       ...(patch.preferencePolicies ?? {})
+    },
+    setupSessions: {
+      ...(current.settings.setupSessions ?? {}),
+      ...(patch.setupSessions ?? {})
     },
     auditLog: current.settings.auditLog
   });
@@ -1067,18 +1084,42 @@ export async function connectPaymentProvider(
   const adapter = paymentProviderAdapters[provider];
   const existing = current.settings.providerConnections?.[provider] ?? emptyConnection(provider);
 
+  const accountId = input.accountId?.trim();
+  const merchantId = input.merchantId?.trim();
+  if (provider === "stripe" && !accountId && !existing.publicAccountId) {
+    return {
+      ok: false as const,
+      error: "missing_credentials",
+      message: "Stripe account ID is required to connect the card adapter."
+    };
+  }
+  if (provider === "swish" && !merchantId && !existing.publicMerchantId) {
+    return {
+      ok: false as const,
+      error: "missing_credentials",
+      message: "Swish merchant / payee alias is required to connect the Swish adapter."
+    };
+  }
+
   const started = await adapter.startSetup({ restaurantId, envReady, connection: existing });
   const submitted = await adapter.submitSetup(
     { restaurantId, envReady, connection: started.connection },
     {
-      accountId: input.accountId?.trim() || (provider === "stripe" ? `acct_${restaurantId.slice(0, 8)}` : undefined),
-      merchantId: input.merchantId?.trim() || (provider === "swish" ? `swish_${restaurantId.slice(0, 8)}` : undefined),
+      accountId: accountId || existing.publicAccountId || undefined,
+      merchantId: merchantId || existing.publicMerchantId || undefined,
       displayName: input.displayName?.trim(),
       apiSecret: input.apiSecret,
       certificatePem: input.certificatePem,
       webhookSecret: input.webhookSecret
     }
   );
+  if (!submitted.ok) {
+    return {
+      ok: false as const,
+      error: "missing_credentials",
+      message: submitted.message
+    };
+  }
   const verified = await adapter.verifyConnection({
     restaurantId,
     envReady,

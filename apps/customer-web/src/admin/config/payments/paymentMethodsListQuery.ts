@@ -206,3 +206,34 @@ export function applyPaymentMethodSort(rows: PaymentMethodListRow[], sortId: str
   });
   return next;
 }
+
+/** Filter by catalog family chip (`all` = every family). */
+export function applyPaymentMethodFamilyFilter(
+  rows: PaymentMethodListRow[],
+  family: string
+): PaymentMethodListRow[] {
+  if (!family || family === "all") return rows;
+  return rows.filter((row) => row.family === family);
+}
+
+/** Group a sorted list into catalog family sections (preserves row order within each family). */
+export function groupPaymentMethodRowsByFamily(
+  rows: PaymentMethodListRow[],
+  familyOrder: string[]
+): Array<{ family: string; rows: PaymentMethodListRow[] }> {
+  const byFamily = new Map<string, PaymentMethodListRow[]>();
+  for (const row of rows) {
+    const list = byFamily.get(row.family) ?? [];
+    list.push(row);
+    byFamily.set(row.family, list);
+  }
+  const ordered: Array<{ family: string; rows: PaymentMethodListRow[] }> = [];
+  for (const family of familyOrder) {
+    const list = byFamily.get(family);
+    if (list?.length) ordered.push({ family, rows: list });
+  }
+  for (const [family, list] of byFamily) {
+    if (!familyOrder.includes(family) && list.length) ordered.push({ family, rows: list });
+  }
+  return ordered;
+}

@@ -21,6 +21,7 @@ export * from "./providers/credentialVault.js";
 
 export * from "./setup/paymentSetupOrchestrator.js";
 export * from "./setup/paymentVerification.js";
+export * from "./setup/paymentSetupSessionService.js";
 
 export * from "./features/paymentFeatureGates.js";
 

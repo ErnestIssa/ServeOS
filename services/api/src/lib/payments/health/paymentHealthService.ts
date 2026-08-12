@@ -698,7 +698,7 @@ export async function getPaymentHealthSnapshot(
 
   const history = await loadHistory(restaurantId);
   const refCount = await prisma.orderPaymentReference.count({ where: { restaurantId } });
-  const demoLedger = process.env.PAYMENT_DEMO_LEDGER !== "false" && refCount === 0;
+  const demoLedger = process.env.PAYMENT_DEMO_LEDGER === "true" && refCount === 0;
 
   let snapshot: PaymentHealthSnapshot;
   if (demoLedger) {

@@ -1,18 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PaymentMethodConfig, PaymentMethodCapabilitiesPayload, VenuePaymentSettings } from "../../../api";
+import { startVenuePaymentMethodSetup, submitVenuePaymentMethodSetupStep } from "../../../api";
 import { MenuEntityActionsMenu } from "../menu/MenuEntityActionsMenu";
 import { MenuActionConfirmModal } from "../menu/MenuActionConfirmModal";
 import { MenuListSearchField } from "../menu/MenuPageUi";
-import { PAYMENT_METHOD_CATALOG } from "./paymentMethodCatalog";
+import {
+  PAYMENT_METHOD_CATALOG,
+  PAYMENT_METHOD_FAMILY_ORDER,
+  paymentMethodFamilyLabel,
+  type PaymentMethodFamilyFilter
+} from "./paymentMethodCatalog";
 import {
   buildPaymentMethodCardActions,
+  methodAllowsManage,
+  methodNeedsSetup,
   type PaymentMethodCardActionId
 } from "./paymentMethodCardActions";
 import { paymentMethodIconSrc } from "./paymentMethodIcons";
 import {
+  applyPaymentMethodFamilyFilter,
   applyPaymentMethodFilters,
   applyPaymentMethodSort,
   applyServerMethodCapability,
+  groupPaymentMethodRowsByFamily,
   matchesPaymentMethodSearch,
   PAYMENT_METHODS_LIST_QUERY,
   paymentMethodHealthLabel,
@@ -20,10 +30,13 @@ import {
   type PaymentMethodListRow
 } from "./paymentMethodsListQuery";
 import { PaymentMethodManageDrawer } from "./PaymentMethodManageDrawer";
+import { PaymentMethodSetupWizard } from "./PaymentMethodSetupWizard";
 import { PaymentMethodsBulkManageDrawer } from "./PaymentMethodsBulkManageDrawer";
 import { GROUP_LABELS, ORDER_SOURCE_LABELS, getMethodConfig } from "./paymentsUiHelpers";
 
 type Props = {
+  token: string;
+  restaurantId: string;
   settings: VenuePaymentSettings;
   methodCapabilities?: PaymentMethodCapabilitiesPayload | null;
   canEdit: boolean;
@@ -37,6 +50,10 @@ type Props = {
   onLeaveCancelled?: () => void;
   onManageDirtyChange?: (dirty: boolean) => void;
   onManageOpenChange?: (open: boolean) => void;
+  onSettingsRefresh?: (payload: {
+    settings?: VenuePaymentSettings;
+    methodCapabilities?: PaymentMethodCapabilitiesPayload;
+  }) => void;
   onSaveMethod: (
     methodKey: string,
     config: PaymentMethodConfig,
@@ -79,6 +96,8 @@ function buildRows(
 }
 
 export function PaymentsMethodsTab({
+  token,
+  restaurantId,
   settings,
   methodCapabilities = null,
   canEdit,
@@ -90,6 +109,7 @@ export function PaymentsMethodsTab({
   onLeaveCancelled,
   onManageDirtyChange,
   onManageOpenChange,
+  onSettingsRefresh,
   onSaveMethod,
   onSaveBulkMethods,
   onViewActivity,
@@ -99,8 +119,10 @@ export function PaymentsMethodsTab({
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [activeSort, setActiveSort] = useState(PAYMENT_METHODS_LIST_QUERY.defaultSort);
+  const [familyFilter, setFamilyFilter] = useState<PaymentMethodFamilyFilter>("all");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [manageKey, setManageKey] = useState<string | null>(null);
+  const [setupKey, setSetupKey] = useState<string | null>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [focusAudit, setFocusAudit] = useState(false);
   const [confirm, setConfirm] = useState<{
@@ -114,8 +136,20 @@ export function PaymentsMethodsTab({
   const rows = useMemo(() => buildRows(settings, methodCapabilities), [settings, methodCapabilities]);
   const filtered = useMemo(() => {
     const searched = rows.filter((r) => matchesPaymentMethodSearch(r, searchQuery));
-    return applyPaymentMethodSort(applyPaymentMethodFilters(searched, activeFilters), activeSort);
-  }, [rows, searchQuery, activeFilters, activeSort]);
+    const narrowed = applyPaymentMethodFilters(searched, activeFilters);
+    const byFamily = applyPaymentMethodFamilyFilter(narrowed, familyFilter);
+    return applyPaymentMethodSort(byFamily, activeSort);
+  }, [rows, searchQuery, activeFilters, activeSort, familyFilter]);
+
+  const familySections = useMemo(
+    () => groupPaymentMethodRowsByFamily(filtered, PAYMENT_METHOD_FAMILY_ORDER),
+    [filtered]
+  );
+
+  const familyChipOptions = useMemo(() => {
+    const present = new Set(rows.map((r) => r.family));
+    return PAYMENT_METHOD_FAMILY_ORDER.filter((f) => present.has(f));
+  }, [rows]);
 
   const selectedSet = useMemo(() => new Set(selectedKeys), [selectedKeys]);
   const selectedRows = useMemo(
@@ -143,13 +177,29 @@ export function PaymentsMethodsTab({
     if (selectedKeys.length === 0) return;
     setFocusAudit(false);
     if (selectedKeys.length === 1) {
+      const row = rows.find((r) => r.key === selectedKeys[0]);
       setBulkOpen(false);
+      if (row && methodNeedsSetup(row)) {
+        setManageKey(null);
+        setSetupKey(row.key);
+        return;
+      }
+      if (row && !methodAllowsManage(row)) {
+        onToast("Complete setup before managing this method.", "error");
+        setSetupKey(row.key);
+        return;
+      }
       setManageKey(selectedKeys[0] ?? null);
+      return;
+    }
+    const blocked = selectedRows.filter((r) => methodNeedsSetup(r) || !methodAllowsManage(r));
+    if (blocked.length) {
+      onToast("Select only methods that are already set up to bulk manage.", "error");
       return;
     }
     setManageKey(null);
     setBulkOpen(true);
-  }, [manageRequestId, selectedKeys]);
+  }, [manageRequestId, selectedKeys, rows, selectedRows, onToast]);
 
   const toggleSelection = (key: string, nextChecked?: boolean) => {
     const shouldCheck = nextChecked ?? !selectedSet.has(key);
@@ -170,12 +220,45 @@ export function PaymentsMethodsTab({
 
   const runToggle = async (key: string, enabled: boolean) => {
     const row = rows.find((r) => r.key === key);
-    if (enabled && row && row.canEnable === false) {
-      onToast(row.setupReason || "This method is not ready to enable yet.", "error");
-      setConfirm(null);
+    if (enabled) {
+      if (!row || row.canEnable !== true) {
+        onToast(row?.setupReason || "Complete setup before enabling this method.", "error");
+        setConfirm(null);
+        setSetupKey(key);
+        return;
+      }
+      // Fresh eligibility via backend setup session — never trust a prior UI readiness check alone.
+      setBusy(true);
+      try {
+        const started = await startVenuePaymentMethodSetup(token, restaurantId, key);
+        if (!started.ok || !started.session) {
+          onToast(started.message ?? started.error ?? "Could not start enable check.", "error");
+          return;
+        }
+        const enabledRes = await submitVenuePaymentMethodSetupStep(
+          token,
+          restaurantId,
+          key,
+          "ACTIVATE",
+          { expectedVersion: started.session.version, values: { confirmEnable: true } }
+        );
+        if (!enabledRes.ok) {
+          onToast(enabledRes.message ?? enabledRes.error ?? "Enable failed.", "error");
+          if (enabledRes.session?.status !== "ENABLED") setSetupKey(key);
+          return;
+        }
+        onSettingsRefresh?.({
+          settings: enabledRes.settings,
+          methodCapabilities: enabledRes.methodCapabilities
+        });
+        onToast(`${row.label} is enabled.`, "success");
+      } finally {
+        setBusy(false);
+        setConfirm(null);
+      }
       return;
     }
-    const config = { ...getMethodConfig(settings, key), enabled };
+    const config = { ...getMethodConfig(settings, key), enabled: false };
     setBusy(true);
     try {
       await onSaveMethod(key, config);
@@ -222,15 +305,40 @@ export function PaymentsMethodsTab({
     setConfirm(null);
   };
 
+  const openMethod = (row: PaymentMethodListRow) => {
+    setFocusAudit(false);
+    if (methodNeedsSetup(row) || !methodAllowsManage(row)) {
+      setManageKey(null);
+      setSetupKey(row.key);
+      return;
+    }
+    setSetupKey(null);
+    setManageKey(row.key);
+  };
+
   const handleAction = (row: PaymentMethodListRow, actionId: string) => {
     const id = actionId as PaymentMethodCardActionId;
     setOpenMenuId(null);
+    if (id === "setup") {
+      setSetupKey(row.key);
+      return;
+    }
     if (id === "manage") {
+      if (!methodAllowsManage(row) || methodNeedsSetup(row)) {
+        onToast("Complete setup before managing this method.", "error");
+        setSetupKey(row.key);
+        return;
+      }
       setFocusAudit(false);
       setManageKey(row.key);
       return;
     }
     if (id === "view_audit") {
+      if (!methodAllowsManage(row) && !row.enabled) {
+        onToast("Complete setup before viewing configuration audit.", "error");
+        setSetupKey(row.key);
+        return;
+      }
       setFocusAudit(true);
       setManageKey(row.key);
       return;
@@ -243,7 +351,20 @@ export function PaymentsMethodsTab({
       onViewReconciliation();
       return;
     }
-    if (id === "enable" || id === "disable" || id === "set_default" || id === "duplicate" || id === "test") {
+    if (id === "enable") {
+      if (row.canEnable !== true) {
+        onToast(row.setupReason || "Complete setup before enabling this method.", "error");
+        setSetupKey(row.key);
+        return;
+      }
+      setConfirm({ key: row.key, action: "enable" });
+      return;
+    }
+    if (id === "disable" || id === "set_default" || id === "duplicate" || id === "test") {
+      if ((id === "duplicate" || id === "test") && !row.enabled) {
+        onToast("Enable this method before that action.", "error");
+        return;
+      }
       setConfirm({ key: row.key, action: id });
     }
   };
@@ -323,119 +444,168 @@ export function PaymentsMethodsTab({
         sortSubtitle="Changes apply to the list instantly."
       />
 
-      {filtered.length === 0 ? (
-        <p className="admin-config-text-muted py-2 text-sm">No payment methods match your search or filters.</p>
-      ) : (
-        <>
-          <label className="admin-menu-surface-select-all">
+      <div className="admin-payments-methods-list-toolbar">
+        <div
+          className="admin-payments-methods-family-chips"
+          role="tablist"
+          aria-label="Payment method groups"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={familyFilter === "all"}
+            className={`admin-payments-methods-family-chip${familyFilter === "all" ? " is-active" : ""}`}
+            onClick={() => setFamilyFilter("all")}
+          >
+            All
+          </button>
+          {familyChipOptions.map((family) => (
+            <button
+              key={family}
+              type="button"
+              role="tab"
+              aria-selected={familyFilter === family}
+              className={`admin-payments-methods-family-chip${familyFilter === family ? " is-active" : ""}`}
+              onClick={() => setFamilyFilter(family)}
+            >
+              {paymentMethodFamilyLabel(family)}
+            </button>
+          ))}
+        </div>
+
+        {filtered.length > 0 ? (
+          <label className="admin-menu-surface-select-all admin-payments-methods-select-all">
             <input
               ref={selectAllRef}
               type="checkbox"
               className="admin-menu-surface-checkbox"
               checked={allFilteredSelected}
-              aria-label="Select all payment methods in this list"
+              aria-label="Select all payment methods currently listed"
               onChange={(e) => toggleSelectAllFiltered(e.target.checked)}
             />
             <span className="admin-menu-surface-select-all-label">Select all</span>
           </label>
+        ) : null}
+      </div>
 
-          <ul className="admin-menu-surface-list admin-payments-methods-surface-list">
-            {filtered.map((row, index) => {
-              const actions = buildPaymentMethodCardActions(row, { canEdit });
-              const isChecked = selectedSet.has(row.key);
-              const iconSrc = paymentMethodIconSrc(row.key);
-              return (
-                <li
-                  key={row.key}
-                  className="admin-menu-surface-list-item"
-                  style={{ animationDelay: `${Math.min(index, 12) * 40}ms` }}
-                >
-                  <div
-                    className={`admin-menu-surface-card admin-payments-method-card-row is-${row.health}${isChecked ? " is-checked" : ""}`}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => {
-                      setFocusAudit(false);
-                      setManageKey(row.key);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setFocusAudit(false);
-                        setManageKey(row.key);
-                      }
-                    }}
-                  >
-                    <label
-                      className="admin-menu-surface-checkbox-wrap"
-                      onClick={(e) => e.stopPropagation()}
-                      onKeyDown={(e) => e.stopPropagation()}
+      {filtered.length === 0 ? (
+        <p className="admin-config-text-muted py-2 text-sm">No payment methods match your search or filters.</p>
+      ) : (
+        <div className="admin-payments-methods-grouped-list">
+          {familySections.map((section) => (
+            <section key={section.family} className="admin-payments-methods-family-section">
+              {familyFilter === "all" ? (
+                <h3 className="admin-payments-methods-family-heading">
+                  {paymentMethodFamilyLabel(section.family)}
+                </h3>
+              ) : null}
+              <ul className="admin-menu-surface-list admin-payments-methods-surface-list">
+                {section.rows.map((row, index) => {
+                  const actions = buildPaymentMethodCardActions(row, { canEdit });
+                  const isChecked = selectedSet.has(row.key);
+                  const iconSrc = paymentMethodIconSrc(row.key);
+                  return (
+                    <li
+                      key={row.key}
+                      className="admin-menu-surface-list-item"
+                      style={{ animationDelay: `${Math.min(index, 12) * 40}ms` }}
                     >
-                      <input
-                        type="checkbox"
-                        className="admin-menu-surface-checkbox"
-                        checked={isChecked}
-                        aria-label={`Select ${row.label}`}
-                        onChange={(e) => toggleSelection(row.key, e.target.checked)}
-                      />
-                    </label>
+                      <div
+                        className={`admin-menu-surface-card admin-payments-method-card-row is-${row.health}${isChecked ? " is-checked" : ""}`}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openMethod(row)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            openMethod(row);
+                          }
+                        }}
+                      >
+                        <label
+                          className="admin-menu-surface-checkbox-wrap"
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            className="admin-menu-surface-checkbox"
+                            checked={isChecked}
+                            aria-label={`Select ${row.label}`}
+                            onChange={(e) => toggleSelection(row.key, e.target.checked)}
+                          />
+                        </label>
 
-                    <span className={`admin-menu-surface-status admin-payments-method-tone is-${row.health}`}>
-                      {row.statusLabel}
-                    </span>
+                        <span className={`admin-menu-surface-status admin-payments-method-tone is-${row.health}`}>
+                          {row.statusLabel}
+                        </span>
 
-                    {iconSrc ? (
-                      <span className="admin-payments-method-icon" aria-hidden>
-                        <img
-                          src={iconSrc}
-                          alt=""
-                          className="admin-payments-method-icon-img"
-                          loading="lazy"
-                          decoding="async"
-                        />
-                      </span>
-                    ) : null}
+                        {iconSrc ? (
+                          <span className="admin-payments-method-icon" aria-hidden>
+                            <img
+                              src={iconSrc}
+                              alt=""
+                              className="admin-payments-method-icon-img"
+                              loading="lazy"
+                              decoding="async"
+                            />
+                          </span>
+                        ) : null}
 
-                    <div className="admin-menu-surface-main">
-                      <span className={`admin-menu-surface-name admin-payments-method-tone is-${row.health}`}>
-                        {row.config.displayName || row.label}
-                      </span>
-                      <span className="admin-menu-surface-sep" aria-hidden>
-                        ·
-                      </span>
-                      <span className="admin-menu-surface-desc">{row.channelLabel}</span>
-                      <span className="admin-menu-surface-sep" aria-hidden>
-                        ·
-                      </span>
-                      <span className="admin-menu-surface-meta">{row.supportLabel}</span>
-                      <span className="admin-menu-surface-sep" aria-hidden>
-                        ·
-                      </span>
-                      <span className="admin-menu-surface-meta">v{row.config.version ?? 1}</span>
-                    </div>
+                        <div className="admin-menu-surface-main">
+                          <span className={`admin-menu-surface-name admin-payments-method-tone is-${row.health}`}>
+                            {row.config.displayName || row.label}
+                          </span>
+                          <span className="admin-menu-surface-sep" aria-hidden>
+                            ·
+                          </span>
+                          <span className="admin-menu-surface-desc">{row.channelLabel}</span>
+                          <span className="admin-menu-surface-sep" aria-hidden>
+                            ·
+                          </span>
+                          <span className="admin-menu-surface-meta">{row.supportLabel}</span>
+                          <span className="admin-menu-surface-sep" aria-hidden>
+                            ·
+                          </span>
+                          <span className="admin-menu-surface-meta">v{row.config.version ?? 1}</span>
+                        </div>
 
-                    <div
-                      className="admin-menu-surface-actions"
-                      onClick={(e) => e.stopPropagation()}
-                      onKeyDown={(e) => e.stopPropagation()}
-                    >
-                      <MenuEntityActionsMenu
-                        entityName={row.label}
-                        subtitle={row.channelLabel}
-                        hideHeader
-                        open={openMenuId === row.key}
-                        actions={actions}
-                        onToggle={() => setOpenMenuId((cur) => (cur === row.key ? null : row.key))}
-                        onAction={(id) => handleAction(row, id)}
-                      />
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </>
+                        <div
+                          className="admin-menu-surface-actions"
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                        >
+                          <MenuEntityActionsMenu
+                            entityName={row.label}
+                            subtitle={row.channelLabel}
+                            hideHeader
+                            open={openMenuId === row.key}
+                            actions={actions}
+                            onToggle={() => setOpenMenuId((cur) => (cur === row.key ? null : row.key))}
+                            onAction={(id) => handleAction(row, id)}
+                          />
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ))}
+        </div>
       )}
+
+      <PaymentMethodSetupWizard
+        open={Boolean(setupKey)}
+        token={token}
+        restaurantId={restaurantId}
+        methodKey={setupKey}
+        methodLabel={rows.find((r) => r.key === setupKey)?.label ?? setupKey ?? "method"}
+        canEdit={canEdit}
+        onClose={() => setSetupKey(null)}
+        onCompleted={(payload) => onSettingsRefresh?.(payload)}
+        onToast={onToast}
+      />
 
       <PaymentMethodManageDrawer
         open={Boolean(manageKey)}

@@ -1248,6 +1248,46 @@ export type PaymentSetupContract = {
   readiness: PaymentMethodReadiness;
 };
 
+export type PaymentSetupSessionField = {
+  key: string;
+  label: string;
+  help?: string;
+  required: boolean;
+  secret: boolean;
+  type: "text" | "secret" | "file" | "select" | "multiselect" | "checkbox";
+  options?: Array<{ value: string; label: string }>;
+  placeholder?: string;
+  configured?: boolean;
+};
+
+export type PaymentSetupSessionStep = {
+  id: string;
+  label: string;
+  description: string;
+  status: "REQUIRED" | "CURRENT" | "DONE" | "LOCKED" | "FAILED" | "SKIPPED";
+  fields?: PaymentSetupSessionField[];
+};
+
+export type PaymentSetupSession = {
+  id: string;
+  restaurantId: string;
+  methodKey: string;
+  provider: string;
+  status: "IN_PROGRESS" | "READY_TO_ENABLE" | "ENABLED" | "FAILED" | "EXPIRED";
+  currentStep: string;
+  steps: PaymentSetupSessionStep[];
+  version: number;
+  createdBy?: string;
+  updatedBy?: string;
+  startedAt: string;
+  updatedAt: string;
+  expiresAt: string;
+  reasonCode?: string | null;
+  requiredAction?: string | null;
+  retryAllowed?: boolean;
+  checklist: Array<{ id: string; label: string; done: boolean }>;
+};
+
 export type PaymentOrderSource =
   | "qr_orders"
   | "in_app"
@@ -1301,6 +1341,23 @@ export type PaymentMethodConfig = {
   updatedAt?: string | null;
 };
 
+export type PaymentProviderConnectionPublicRecord = {
+  provider: "stripe" | "swish" | "terminals";
+  connected: boolean;
+  displayName?: string;
+  environment?: "sandbox" | "production";
+  publicMerchantId?: string;
+  publicAccountId?: string;
+  hasApiSecret?: boolean;
+  hasCertificate?: boolean;
+  hasWebhookSecret?: boolean;
+  verificationStatus?: "unverified" | "pending" | "verified" | "failed" | "expired" | "revoked";
+  verifiedAt?: string | null;
+  health?: "unknown" | "healthy" | "degraded" | "unavailable";
+  lastHealthCheckAt?: string | null;
+  connectedAt?: string | null;
+};
+
 export type VenuePaymentSettings = {
   providers: {
     stripe: {
@@ -1309,6 +1366,9 @@ export type VenuePaymentSettings = {
       connectedAt?: string;
       displayName?: string;
       environment?: "sandbox" | "production";
+      verificationStatus?: "unverified" | "pending" | "verified" | "failed" | "expired" | "revoked";
+      verifiedAt?: string | null;
+      health?: "unknown" | "healthy" | "degraded" | "unavailable";
     };
     swish: {
       connected: boolean;
@@ -1316,11 +1376,19 @@ export type VenuePaymentSettings = {
       connectedAt?: string;
       displayName?: string;
       environment?: "sandbox" | "production";
+      verificationStatus?: "unverified" | "pending" | "verified" | "failed" | "expired" | "revoked";
+      verifiedAt?: string | null;
+      health?: "unknown" | "healthy" | "degraded" | "unavailable";
     };
   };
   methods: Record<string, boolean>;
   methodConfig?: Record<string, PaymentMethodConfig>;
   defaultPaymentMethodKey?: string | null;
+  providerConnections?: {
+    stripe?: PaymentProviderConnectionPublicRecord;
+    swish?: PaymentProviderConnectionPublicRecord;
+    terminals?: PaymentProviderConnectionPublicRecord;
+  };
   rules: {
     payBeforeOrder: boolean;
     payAfterMeal: boolean;
@@ -1619,9 +1687,58 @@ export async function getVenuePaymentMethods(token: string, restaurantId: string
 }
 
 export async function getVenuePaymentMethodSetup(token: string, restaurantId: string, methodKey: string) {
-  return apiFetch<{ ok: boolean; setup?: PaymentSetupContract; error?: string; message?: string }>(
+  return apiFetch<{
+    ok: boolean;
+    setup?: PaymentSetupContract;
+    session?: PaymentSetupSession;
+    error?: string;
+    message?: string;
+  }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/payment-methods/${encodeURIComponent(methodKey)}/setup`,
     { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function startVenuePaymentMethodSetup(token: string, restaurantId: string, methodKey: string) {
+  return apiFetch<{
+    ok: boolean;
+    session?: PaymentSetupSession;
+    setup?: PaymentSetupContract;
+    settings?: VenuePaymentSettings;
+    methodCapabilities?: PaymentMethodCapabilitiesPayload;
+    error?: string;
+    message?: string;
+  }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/payment-methods/${encodeURIComponent(methodKey)}/setup`,
+    { method: "POST", headers: authJsonHeaders(token), body: "{}" }
+  );
+}
+
+export async function submitVenuePaymentMethodSetupStep(
+  token: string,
+  restaurantId: string,
+  methodKey: string,
+  step: string,
+  body?: { expectedVersion?: number; values?: Record<string, unknown> }
+) {
+  return apiFetch<{
+    ok: boolean;
+    session?: PaymentSetupSession;
+    setup?: PaymentSetupContract;
+    settings?: VenuePaymentSettings;
+    methodCapabilities?: PaymentMethodCapabilitiesPayload;
+    message?: string;
+    error?: string;
+    reasonCode?: string;
+    requiredAction?: string;
+    retryAllowed?: boolean;
+  }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/payment-methods/${encodeURIComponent(methodKey)}/setup/${encodeURIComponent(step)}`,
+    {
+      method: "POST",
+      headers: authJsonHeaders(token),
+      body: JSON.stringify(body ?? {})
+    }
   );
 }
 
@@ -1631,16 +1748,7 @@ export async function postVenuePaymentMethodSetupStep(
   methodKey: string,
   step: string
 ) {
-  return apiFetch<{
-    ok: boolean;
-    settings?: VenuePaymentSettings;
-    setup?: PaymentSetupContract;
-    message?: string;
-    error?: string;
-  }>(
-    `/restaurants/${encodeURIComponent(restaurantId)}/payment-methods/${encodeURIComponent(methodKey)}/setup/${encodeURIComponent(step)}`,
-    { method: "POST", headers: authJsonHeaders(token), body: "{}" }
-  );
+  return submitVenuePaymentMethodSetupStep(token, restaurantId, methodKey, step);
 }
 
 export async function getVenuePaymentFeatures(token: string, restaurantId: string) {
@@ -1659,7 +1767,14 @@ export async function patchVenuePaymentSettings(
   restaurantId: string,
   body: Partial<VenuePaymentSettings>
 ) {
-  return apiFetch<{ ok: boolean; settings?: VenuePaymentSettings; error?: string; message?: string }>(
+  return apiFetch<{
+    ok: boolean;
+    settings?: VenuePaymentSettings;
+    methodCapabilities?: PaymentMethodCapabilitiesPayload;
+    featureGates?: PaymentFeatureGates;
+    error?: string;
+    message?: string;
+  }>(
     `/restaurants/${encodeURIComponent(restaurantId)}/payment-settings`,
     { method: "PATCH", headers: authJsonHeaders(token), body: JSON.stringify(body) }
   );
@@ -1668,7 +1783,15 @@ export async function patchVenuePaymentSettings(
 export async function connectVenuePaymentProvider(
   token: string,
   restaurantId: string,
-  body: { provider: "stripe" | "swish"; accountId?: string; merchantId?: string; displayName?: string }
+  body: {
+    provider: "stripe" | "swish";
+    accountId?: string;
+    merchantId?: string;
+    displayName?: string;
+    apiSecret?: string;
+    certificatePem?: string;
+    webhookSecret?: string;
+  }
 ) {
   return apiFetch<{
     ok: boolean;
@@ -1677,6 +1800,7 @@ export async function connectVenuePaymentProvider(
     envReady?: PaymentProviderEnvReady;
     methodCapabilities?: PaymentMethodCapabilitiesPayload;
     featureGates?: PaymentFeatureGates;
+    verification?: { ok: boolean; status?: string; message?: string };
     error?: string;
     message?: string;
   }>(`/restaurants/${encodeURIComponent(restaurantId)}/payment-settings/connect`, {
@@ -1691,9 +1815,35 @@ export async function disconnectVenuePaymentProvider(
   restaurantId: string,
   provider: "stripe" | "swish"
 ) {
-  return apiFetch<{ ok: boolean; settings?: VenuePaymentSettings; error?: string; message?: string }>(
-    `/restaurants/${encodeURIComponent(restaurantId)}/payment-settings/disconnect`,
-    { method: "POST", headers: authJsonHeaders(token), body: JSON.stringify({ provider }) }
+  return apiFetch<{
+    ok: boolean;
+    settings?: VenuePaymentSettings;
+    methodCapabilities?: PaymentMethodCapabilitiesPayload;
+    featureGates?: PaymentFeatureGates;
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/payment-settings/disconnect`, {
+    method: "POST",
+    headers: authJsonHeaders(token),
+    body: JSON.stringify({ provider })
+  });
+}
+
+export async function verifyVenuePaymentProvider(
+  token: string,
+  restaurantId: string,
+  provider: "stripe" | "swish" | "terminals"
+) {
+  return apiFetch<{
+    ok: boolean;
+    settings?: VenuePaymentSettings;
+    verification?: unknown;
+    methodCapabilities?: PaymentMethodCapabilitiesPayload;
+    error?: string;
+    message?: string;
+  }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/payment-settings/providers/${encodeURIComponent(provider)}/verify`,
+    { method: "POST", headers: authJsonHeaders(token), body: "{}" }
   );
 }
 

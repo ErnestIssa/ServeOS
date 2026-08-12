@@ -14,6 +14,7 @@ import {
   listVenuePaymentRefunds,
   listVenuePaymentTransactions,
   patchVenuePaymentSettings,
+  verifyVenuePaymentProvider,
   type PaymentFeatureGates,
   type PaymentLogRow,
   type PaymentMethodCapabilitiesPayload,
@@ -98,9 +99,9 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
   const [featureGates, setFeatureGates] = useState<PaymentFeatureGates | null>(null);
   const [, setOverview] = useState<PaymentOverview | null>(null);
   const [transactions, setTransactions] = useState<PaymentTransactionRow[]>([]);
-  const [txnSource, setTxnSource] = useState<"live" | "demo">("demo");
+  const [txnSource, setTxnSource] = useState<"live" | "demo">("live");
   const [refunds, setRefunds] = useState<PaymentRefundRow[]>([]);
-  const [refundSource, setRefundSource] = useState<"live" | "demo">("demo");
+  const [refundSource, setRefundSource] = useState<"live" | "demo">("live");
   const [reconciliation, setReconciliation] = useState<PaymentReconciliation | null>(null);
   const [payouts, setPayouts] = useState<PaymentPayoutRow[]>([]);
   const [payoutSummary, setPayoutSummary] = useState<{
@@ -109,7 +110,7 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
     currency: string;
   } | null>(null);
   const [logs, setLogs] = useState<PaymentLogRow[]>([]);
-  const [logSource, setLogSource] = useState<"live" | "demo">("demo");
+  const [logSource, setLogSource] = useState<"live" | "demo">("live");
   const [webhookHealth, setWebhookHealth] = useState<PaymentWebhookHealth | null>(null);
   const [activityRefreshKey, setActivityRefreshKey] = useState(0);
 
@@ -125,6 +126,9 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
   const methodsGateRef = useRef({ dirty: false, open: false, tab: "overview" as PaymentsSectionTab });
   const [connectOpen, setConnectOpen] = useState<"stripe" | "swish" | null>(null);
   const [connectId, setConnectId] = useState("");
+  const [connectSecret, setConnectSecret] = useState("");
+  const [connectCert, setConnectCert] = useState("");
+  const [connectWebhookSecret, setConnectWebhookSecret] = useState("");
   const [selectedTxn, setSelectedTxn] = useState<PaymentTransactionDetail | null>(null);
   const [txnDrawerOpen, setTxnDrawerOpen] = useState(false);
   const [selectedRefund, setSelectedRefund] = useState<PaymentRefundRow | null>(null);
@@ -215,11 +219,11 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
       if (overviewRes.ok && overviewRes.featureGates) setFeatureGates(overviewRes.featureGates);
       if (txnRes.ok) {
         setTransactions(txnRes.transactions ?? []);
-        setTxnSource(txnRes.source ?? "demo");
+        setTxnSource(txnRes.source ?? "live");
       }
       if (refundRes.ok) {
         setRefunds(refundRes.refunds ?? []);
-        setRefundSource(refundRes.source ?? "demo");
+        setRefundSource(refundRes.source ?? "live");
       }
       if (reconRes.ok && reconRes.reconciliation) setReconciliation(reconRes.reconciliation);
       if (payoutRes.ok) {
@@ -228,7 +232,7 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
       }
       if (logRes.ok) {
         setLogs(logRes.logs ?? []);
-        setLogSource(logRes.source ?? "demo");
+        setLogSource(logRes.source ?? "live");
       }
       if (webhookRes.ok && webhookRes.health) setWebhookHealth(webhookRes.health);
       if (mode !== "soft") setActivityRefreshKey((k) => k + 1);
@@ -326,7 +330,7 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
     void listVenuePaymentTransactions(token, restaurantId, 200, { day: filter.day }).then((res) => {
       if (res.ok && res.transactions) {
         setTransactions(res.transactions);
-        setTxnSource(res.source ?? "demo");
+        setTxnSource(res.source ?? "live");
       }
     });
   };
@@ -387,7 +391,7 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
     });
   };
 
-  const saveSettings = async (override?: Partial<VenuePaymentSettings>) => {
+  const saveSettings = async (override?: Partial<VenuePaymentSettings>, opts?: { silent?: boolean }) => {
     if (!token || !restaurantId || !settings) return false;
     const body = override ?? {
       methods: settings.methods,
@@ -409,21 +413,42 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
     setSaving(false);
     if (!res.ok || !res.settings) {
       pushToast(res.message ?? res.error ?? "Could not save payment settings", "error");
+      void loadPaymentsContext("soft");
       return false;
     }
     setSettings(res.settings);
-    pushToast("Payment settings saved.", "success");
+    if (res.methodCapabilities) setMethodCapabilities(res.methodCapabilities);
+    if (res.featureGates) setFeatureGates(res.featureGates);
+    if (!opts?.silent) pushToast("Payment settings saved.", "success");
     void loadPaymentsContext("soft");
     return true;
   };
 
+  const resetConnectForm = () => {
+    setConnectOpen(null);
+    setConnectId("");
+    setConnectSecret("");
+    setConnectCert("");
+    setConnectWebhookSecret("");
+  };
+
   const handleConnect = async () => {
     if (!token || !restaurantId || !connectOpen) return;
+    if (!connectId.trim()) {
+      pushToast(
+        connectOpen === "stripe" ? "Enter a Stripe account ID." : "Enter a Swish merchant ID.",
+        "error"
+      );
+      return;
+    }
     setSaving(true);
     const res = await connectVenuePaymentProvider(token, restaurantId, {
       provider: connectOpen,
-      accountId: connectOpen === "stripe" ? connectId : undefined,
-      merchantId: connectOpen === "swish" ? connectId : undefined
+      accountId: connectOpen === "stripe" ? connectId.trim() : undefined,
+      merchantId: connectOpen === "swish" ? connectId.trim() : undefined,
+      apiSecret: connectSecret.trim() || undefined,
+      certificatePem: connectOpen === "swish" ? connectCert.trim() || undefined : undefined,
+      webhookSecret: connectWebhookSecret.trim() || undefined
     });
     setSaving(false);
     if (!res.ok || !res.settings) {
@@ -431,12 +456,18 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
       return;
     }
     setSettings(res.settings);
+    if (res.methodCapabilities) setMethodCapabilities(res.methodCapabilities);
+    if (res.featureGates) setFeatureGates(res.featureGates);
     setEnvReady(res.envReady ?? envReady);
-    setConnectOpen(null);
-    setConnectId("");
+    resetConnectForm();
+    const verifyNote = res.verification?.ok
+      ? " Verification succeeded."
+      : res.verification?.message
+        ? ` ${res.verification.message}`
+        : "";
     pushToast(
-      `${connectOpen === "stripe" ? "Stripe" : "Swish"} connected${res.needsEnv ? " (sandbox — add env keys for live)" : ""}.`,
-      "success"
+      `${connectOpen === "stripe" ? "Card adapter" : "Swish"} connected${res.needsEnv ? " (sandbox — add env keys for live)" : ""}.${verifyNote} Methods using this adapter can continue setup.`,
+      res.verification?.ok === false ? "error" : "success"
     );
     void loadPaymentsContext("refresh");
   };
@@ -449,7 +480,22 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
       return;
     }
     setSettings(res.settings);
-    pushToast(`${provider === "stripe" ? "Stripe" : "Swish"} disconnected.`, "success");
+    if (res.methodCapabilities) setMethodCapabilities(res.methodCapabilities);
+    if (res.featureGates) setFeatureGates(res.featureGates);
+    pushToast(`${provider === "stripe" ? "Card adapter" : "Swish"} disconnected.`, "success");
+    void loadPaymentsContext("refresh");
+  };
+
+  const handleVerifyProvider = async (provider: "stripe" | "swish" | "terminals") => {
+    if (!token || !restaurantId) return;
+    const res = await verifyVenuePaymentProvider(token, restaurantId, provider);
+    if (!res.ok) {
+      pushToast(res.message ?? res.error ?? "Verification failed", "error");
+      return;
+    }
+    if (res.settings) setSettings(res.settings);
+    if (res.methodCapabilities) setMethodCapabilities(res.methodCapabilities);
+    pushToast("Provider verification refreshed from backend.", "success");
     void loadPaymentsContext("refresh");
   };
 
@@ -516,26 +562,63 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
 
         <ProfileModalShell
           open={Boolean(connectOpen)}
-          onClose={() => setConnectOpen(null)}
-          title={connectOpen === "stripe" ? "Connect Stripe" : "Connect Swish"}
-          description="Paste a sandbox account / merchant ID. Live keys stay in server environment variables."
+          onClose={resetConnectForm}
+          title={connectOpen === "stripe" ? "Connect card adapter" : "Connect Swish"}
+          description="ServeOS stores credentials encrypted. Secrets are never returned after save."
           titleId="payment-connect-modal"
           busy={saving}
         >
           <ConfigModalContentGate open={Boolean(connectOpen)}>
-            <label className="grid gap-1">
-              <AdminLabel>{connectOpen === "stripe" ? "Stripe account ID" : "Swish merchant ID"}</AdminLabel>
-              <AdminInput
-                value={connectId}
-                onChange={(e) => setConnectId(e.target.value)}
-                placeholder={connectOpen === "stripe" ? "acct_…" : "123xxxxxxx"}
-              />
-            </label>
+            <div className="grid gap-3">
+              <label className="grid gap-1">
+                <AdminLabel>{connectOpen === "stripe" ? "Stripe account ID" : "Swish merchant ID"} *</AdminLabel>
+                <AdminInput
+                  value={connectId}
+                  onChange={(e) => setConnectId(e.target.value)}
+                  placeholder={connectOpen === "stripe" ? "acct_…" : "123xxxxxxx"}
+                  autoComplete="off"
+                />
+              </label>
+              <label className="grid gap-1">
+                <AdminLabel>
+                  {connectOpen === "stripe" ? "API secret / restricted key" : "Certificate / key password"}
+                </AdminLabel>
+                <AdminInput
+                  type="password"
+                  value={connectSecret}
+                  onChange={(e) => setConnectSecret(e.target.value)}
+                  placeholder="Optional in sandbox · required for production verify"
+                  autoComplete="new-password"
+                />
+              </label>
+              {connectOpen === "swish" ? (
+                <label className="grid gap-1">
+                  <AdminLabel>Client certificate (PEM)</AdminLabel>
+                  <textarea
+                    className="admin-payments-select"
+                    rows={4}
+                    value={connectCert}
+                    onChange={(e) => setConnectCert(e.target.value)}
+                    placeholder="Paste PEM contents from Swish Merchant Portal"
+                  />
+                </label>
+              ) : null}
+              <label className="grid gap-1">
+                <AdminLabel>Webhook signing secret</AdminLabel>
+                <AdminInput
+                  type="password"
+                  value={connectWebhookSecret}
+                  onChange={(e) => setConnectWebhookSecret(e.target.value)}
+                  placeholder="Optional"
+                  autoComplete="new-password"
+                />
+              </label>
+            </div>
             <ProfileModalFooter
               cancelLabel="Cancel"
-              confirmLabel="Connect"
+              confirmLabel="Connect and verify"
               busy={saving}
-              onCancel={() => setConnectOpen(null)}
+              onCancel={resetConnectForm}
               onConfirm={() => void handleConnect()}
             />
           </ConfigModalContentGate>
@@ -635,6 +718,8 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
               ) : null}
               {tab === "methods" ? (
                 <PaymentsMethodsTab
+                  token={token ?? ""}
+                  restaurantId={restaurantId ?? ""}
                   settings={settings}
                   methodCapabilities={methodCapabilities}
                   canEdit={canEdit}
@@ -649,6 +734,10 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
                   onToast={pushToast}
                   onViewActivity={() => selectTab("transactions")}
                   onViewReconciliation={() => selectTab("reconciliation")}
+                  onSettingsRefresh={(payload) => {
+                    if (payload.settings) setSettings(payload.settings);
+                    if (payload.methodCapabilities) setMethodCapabilities(payload.methodCapabilities);
+                  }}
                   onSaveMethod={async (key, config, extras) => {
                     const nextMethods = { ...(settings.methods ?? {}), [key]: config.enabled };
                     const nextConfig = { ...(settings.methodConfig ?? {}), [key]: config };
@@ -663,8 +752,12 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
                             ? null
                             : settings.defaultPaymentMethodKey
                     };
-                    patchLocal(patch);
-                    return Boolean(await saveSettings(patch));
+                    // Persist first — never optimistically enable against a rejected readiness check.
+                    const ok = Boolean(await saveSettings(patch, { silent: true }));
+                    if (ok) {
+                      pushToast(config.enabled ? "Method updated." : "Method disabled.", "success");
+                    }
+                    return ok;
                   }}
                   onSaveBulkMethods={async (updates, extras) => {
                     const nextMethods = { ...(settings.methods ?? {}) };
@@ -682,8 +775,7 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
                       methodConfig: nextConfig,
                       defaultPaymentMethodKey
                     };
-                    patchLocal(patch);
-                    return Boolean(await saveSettings(patch));
+                    return Boolean(await saveSettings(patch, { silent: true }));
                   }}
                 />
               ) : null}
@@ -700,6 +792,9 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
                   onConnect={(p) => {
                     setConnectOpen(p);
                     setConnectId("");
+                    setConnectSecret("");
+                    setConnectCert("");
+                    setConnectWebhookSecret("");
                   }}
                 />
               ) : null}
@@ -770,7 +865,7 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
                       void listVenuePaymentTransactions(token, restaurantId, 100).then((res) => {
                         if (res.ok && res.transactions) {
                           setTransactions(res.transactions);
-                          setTxnSource(res.source ?? "demo");
+                          setTxnSource(res.source ?? "live");
                         }
                       });
                     }}
@@ -805,6 +900,10 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
         onConnect={() => {
           if (providerDetail === "stripe" || providerDetail === "swish") {
             setConnectOpen(providerDetail);
+            setConnectId("");
+            setConnectSecret("");
+            setConnectCert("");
+            setConnectWebhookSecret("");
             setProviderDetail(null);
           }
         }}
@@ -813,6 +912,9 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
             void handleDisconnect(providerDetail);
             setProviderDetail(null);
           }
+        }}
+        onVerify={() => {
+          if (providerDetail) void handleVerifyProvider(providerDetail);
         }}
       />
 
@@ -833,26 +935,63 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
 
       <ProfileModalShell
         open={Boolean(connectOpen)}
-        onClose={() => setConnectOpen(null)}
-        title={connectOpen === "stripe" ? "Connect Stripe" : "Connect Swish"}
-        description="Paste a sandbox account / merchant ID. Live keys stay in server environment variables."
+        onClose={resetConnectForm}
+        title={connectOpen === "stripe" ? "Connect card adapter" : "Connect Swish"}
+        description="ServeOS stores credentials encrypted. Secrets are never returned after save."
         titleId="payment-connect-modal"
         busy={saving}
       >
         <ConfigModalContentGate open={Boolean(connectOpen)}>
-          <label className="grid gap-1">
-            <AdminLabel>{connectOpen === "stripe" ? "Stripe account ID" : "Swish merchant ID"}</AdminLabel>
-            <AdminInput
-              value={connectId}
-              onChange={(e) => setConnectId(e.target.value)}
-              placeholder={connectOpen === "stripe" ? "acct_…" : "123xxxxxxx"}
-            />
-          </label>
+          <div className="grid gap-3">
+            <label className="grid gap-1">
+              <AdminLabel>{connectOpen === "stripe" ? "Stripe account ID" : "Swish merchant ID"} *</AdminLabel>
+              <AdminInput
+                value={connectId}
+                onChange={(e) => setConnectId(e.target.value)}
+                placeholder={connectOpen === "stripe" ? "acct_…" : "123xxxxxxx"}
+                autoComplete="off"
+              />
+            </label>
+            <label className="grid gap-1">
+              <AdminLabel>
+                {connectOpen === "stripe" ? "API secret / restricted key" : "Certificate / key password"}
+              </AdminLabel>
+              <AdminInput
+                type="password"
+                value={connectSecret}
+                onChange={(e) => setConnectSecret(e.target.value)}
+                placeholder="Optional in sandbox · required for production verify"
+                autoComplete="new-password"
+              />
+            </label>
+            {connectOpen === "swish" ? (
+              <label className="grid gap-1">
+                <AdminLabel>Client certificate (PEM)</AdminLabel>
+                <textarea
+                  className="admin-payments-select"
+                  rows={4}
+                  value={connectCert}
+                  onChange={(e) => setConnectCert(e.target.value)}
+                  placeholder="Paste PEM contents from Swish Merchant Portal"
+                />
+              </label>
+            ) : null}
+            <label className="grid gap-1">
+              <AdminLabel>Webhook signing secret</AdminLabel>
+              <AdminInput
+                type="password"
+                value={connectWebhookSecret}
+                onChange={(e) => setConnectWebhookSecret(e.target.value)}
+                placeholder="Optional"
+                autoComplete="new-password"
+              />
+            </label>
+          </div>
           <ProfileModalFooter
             cancelLabel="Cancel"
-            confirmLabel="Connect"
+            confirmLabel="Connect and verify"
             busy={saving}
-            onCancel={() => setConnectOpen(null)}
+            onCancel={resetConnectForm}
             onConfirm={() => void handleConnect()}
           />
         </ConfigModalContentGate>

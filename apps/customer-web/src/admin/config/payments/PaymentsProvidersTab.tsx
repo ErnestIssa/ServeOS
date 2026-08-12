@@ -23,17 +23,28 @@ export function PaymentsProvidersTab({
 }: Props) {
   const stripe = settings.providers.stripe;
   const swish = settings.providers.swish;
+  const terminalsConnected = Boolean(
+    settings.providerConnections?.terminals?.connected ||
+      (settings.providers.stripe.connected && settings.methods.cardTerminal)
+  );
+  const stripeLabel = stripe.connected
+    ? `${maskAccountId(stripe.accountId)}${stripe.verificationStatus === "verified" ? " · Verified" : stripe.verificationStatus ? ` · ${stripe.verificationStatus}` : ""}`
+    : "Required for Cards, Apple Pay, Google Pay, Klarna";
+  const swishLabel = swish.connected
+    ? `${maskAccountId(swish.merchantId)}${swish.verificationStatus === "verified" ? " · Verified" : swish.verificationStatus ? ` · ${swish.verificationStatus}` : ""}`
+    : "Required for Swish online and at venue";
 
   return (
     <div className="admin-payments-tab-stack">
-      <PaySection title="Payment providers" description="Connect venue acquirers. Secret keys stay in environment variables.">
+      <PaySection
+        title="Payment providers"
+        description="Connect ServeOS direct adapters. Secrets are encrypted and never shown again after save."
+      >
         <div className="admin-payments-provider-list">
           <div className="admin-payments-provider-row is-clickable">
             <button type="button" className="admin-payments-provider-main" onClick={() => onOpenProvider("stripe")}>
-              <p className="font-semibold admin-config-text">Stripe</p>
-              <p className="admin-config-text-subtle text-xs mt-0.5">
-                {stripe.connected ? maskAccountId(stripe.accountId) : "Card, Apple Pay, Google Pay"}
-              </p>
+              <p className="font-semibold admin-config-text">Card / Stripe adapter</p>
+              <p className="admin-config-text-subtle text-xs mt-0.5">{stripeLabel}</p>
             </button>
             <div className="flex items-center gap-2">
               <PayChip tone={stripe.connected ? "success" : "warning"}>
@@ -49,10 +60,8 @@ export function PaymentsProvidersTab({
 
           <div className="admin-payments-provider-row is-clickable">
             <button type="button" className="admin-payments-provider-main" onClick={() => onOpenProvider("swish")}>
-              <p className="font-semibold admin-config-text">Swish</p>
-              <p className="admin-config-text-subtle text-xs mt-0.5">
-                {swish.connected ? maskAccountId(swish.merchantId) : "Swedish mobile payments"}
-              </p>
+              <p className="font-semibold admin-config-text">Swish adapter</p>
+              <p className="admin-config-text-subtle text-xs mt-0.5">{swishLabel}</p>
             </button>
             <div className="flex items-center gap-2">
               <PayChip tone={swish.connected ? "success" : "warning"}>
@@ -69,17 +78,21 @@ export function PaymentsProvidersTab({
           <div className="admin-payments-provider-row is-clickable">
             <button type="button" className="admin-payments-provider-main" onClick={() => onOpenProvider("terminals")}>
               <p className="font-semibold admin-config-text">Card terminals</p>
-              <p className="admin-config-text-subtle text-xs mt-0.5">In-venue card present payments</p>
+              <p className="admin-config-text-subtle text-xs mt-0.5">
+                {terminalsConnected
+                  ? "Terminal adapter linked for in-person card present"
+                  : "Connect after card adapter is verified"}
+              </p>
             </button>
-            <PayChip tone={settings.methods.cardTerminal ? "success" : "muted"}>
-              {settings.methods.cardTerminal ? "2 connected" : "Not connected"}
+            <PayChip tone={terminalsConnected ? "success" : "muted"}>
+              {terminalsConnected ? "Connected" : "Not connected"}
             </PayChip>
           </div>
         </div>
         {envReady ? (
           <p className="admin-config-text-subtle text-xs mt-3">
-            Env readiness · Stripe {envReady.stripe ? "ready" : "pending keys"} · Swish{" "}
-            {envReady.swish ? "ready" : "pending keys"} · Webhooks {envReady.webhook ? "ready" : "pending secret"}
+            Server env · Stripe {envReady.stripe ? "ready" : "missing keys"} · Swish{" "}
+            {envReady.swish ? "ready" : "missing keys"} · Webhooks {envReady.webhook ? "ready" : "missing secret"}
           </p>
         ) : null}
       </PaySection>
@@ -109,15 +122,19 @@ export function PaymentsProvidersTab({
                 <p className="admin-payments-money-tile-value">{webhookHealth.retrying}</p>
               </div>
             </div>
-            <ul className="admin-payments-event-list">
-              {webhookHealth.recentEvents.map((ev) => (
-                <li key={ev.id}>
-                  <code>{ev.type}</code>
-                  <span>{formatWhen(ev.at)}</span>
-                  <PayChip tone={ev.ok ? "success" : "danger"}>{ev.ok ? "OK" : "Failed"}</PayChip>
-                </li>
-              ))}
-            </ul>
+            {(webhookHealth.recentEvents?.length ?? 0) > 0 ? (
+              <ul className="admin-payments-event-list">
+                {webhookHealth.recentEvents.map((ev) => (
+                  <li key={ev.id}>
+                    <code>{ev.type}</code>
+                    <span>{formatWhen(ev.at)}</span>
+                    <PayChip tone={ev.ok ? "success" : "danger"}>{ev.ok ? "OK" : "Failed"}</PayChip>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="admin-config-text-subtle text-sm">No webhook events recorded yet for this venue.</p>
+            )}
           </div>
         ) : (
           <ConfigSectionSpinner label="Loading webhook health" />

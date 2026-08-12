@@ -13,6 +13,7 @@ type Props = {
   onClose: () => void;
   onConnect: () => void;
   onDisconnect: () => void;
+  onVerify: () => void;
 };
 
 export function PaymentProviderDetailModal({
@@ -23,36 +24,76 @@ export function PaymentProviderDetailModal({
   canEdit,
   onClose,
   onConnect,
-  onDisconnect
+  onDisconnect,
+  onVerify
 }: Props) {
   const stripe = settings?.providers.stripe;
   const swish = settings?.providers.swish;
+  const terminalsConn = settings?.providerConnections?.terminals;
+  const stripeConn = settings?.providerConnections?.stripe;
+  const swishConn = settings?.providerConnections?.swish;
 
   const title =
-    provider === "stripe" ? "Stripe" : provider === "swish" ? "Swish" : provider === "terminals" ? "Card terminals" : "Provider";
+    provider === "stripe"
+      ? "Card / Stripe adapter"
+      : provider === "swish"
+        ? "Swish adapter"
+        : provider === "terminals"
+          ? "Card terminals"
+          : "Provider";
 
   const connected =
     provider === "stripe"
-      ? Boolean(stripe?.connected)
+      ? Boolean(stripe?.connected || stripeConn?.connected)
       : provider === "swish"
-        ? Boolean(swish?.connected)
-        : Boolean(settings?.methods.cardTerminal);
+        ? Boolean(swish?.connected || swishConn?.connected)
+        : Boolean(terminalsConn?.connected || (stripe?.connected && settings?.methods.cardTerminal));
 
   const account =
     provider === "stripe"
-      ? maskAccountId(stripe?.accountId)
+      ? maskAccountId(stripe?.accountId || stripeConn?.publicAccountId)
       : provider === "swish"
-        ? maskAccountId(swish?.merchantId)
-        : settings?.methods.cardTerminal
-          ? "2 terminals"
-          : "—";
+        ? maskAccountId(swish?.merchantId || swishConn?.publicMerchantId)
+        : terminalsConn?.publicAccountId
+          ? maskAccountId(terminalsConn.publicAccountId)
+          : connected
+            ? "Linked via card adapter"
+            : "—";
+
+  const verificationStatus =
+    provider === "stripe"
+      ? stripe?.verificationStatus || stripeConn?.verificationStatus
+      : provider === "swish"
+        ? swish?.verificationStatus || swishConn?.verificationStatus
+        : terminalsConn?.verificationStatus || stripe?.verificationStatus;
+
+  const environment =
+    provider === "stripe"
+      ? stripe?.environment || stripeConn?.environment
+      : provider === "swish"
+        ? swish?.environment || swishConn?.environment
+        : terminalsConn?.environment || stripe?.environment;
+
+  const health =
+    provider === "stripe"
+      ? stripe?.health || stripeConn?.health
+      : provider === "swish"
+        ? swish?.health || swishConn?.health
+        : terminalsConn?.health || stripe?.health;
+
+  const secretFlags =
+    provider === "stripe"
+      ? stripeConn
+      : provider === "swish"
+        ? swishConn
+        : terminalsConn;
 
   return (
     <MenuPageModalShell
       open={open}
       onClose={onClose}
       title={title}
-      description="Connection details — secret keys are never shown."
+      description="Connection details from the ServeOS adapter — secrets are never shown after save."
       titleId="payment-provider-detail"
       maxWidthClass="max-w-lg"
     >
@@ -65,24 +106,40 @@ export function PaymentProviderDetailModal({
           <span>Account</span>
           <strong>{account}</strong>
         </div>
-        {provider === "stripe" || provider === "swish" ? (
+        {provider === "stripe" || provider === "swish" || provider === "terminals" ? (
           <div className="admin-payments-kv">
             <span>Environment</span>
-            <strong>
-              {(provider === "stripe" ? stripe?.environment : swish?.environment) === "production"
-                ? "Production"
-                : "Sandbox"}
-            </strong>
+            <strong>{environment === "production" ? "Production" : connected ? "Sandbox" : "—"}</strong>
           </div>
         ) : null}
-        <div className="admin-payments-capability-list">
-          <p className="text-xs font-bold uppercase tracking-wide admin-config-text-muted">Capabilities</p>
-          <ul>
-            <li>✓ Payments</li>
-            <li>✓ Refunds</li>
-            <li>✓ Webhooks</li>
-          </ul>
+        <div className="admin-payments-kv">
+          <span>Verification</span>
+          <PayChip
+            tone={
+              verificationStatus === "verified" ? "success" : verificationStatus === "failed" ? "danger" : "muted"
+            }
+          >
+            {verificationStatus ?? "unverified"}
+          </PayChip>
         </div>
+        <div className="admin-payments-kv">
+          <span>Health</span>
+          <strong>{health ?? "unknown"}</strong>
+        </div>
+        {secretFlags ? (
+          <div className="admin-payments-capability-list">
+            <p className="text-xs font-bold uppercase tracking-wide admin-config-text-muted">Credentials</p>
+            <ul>
+              <li>{secretFlags.hasApiSecret ? "API secret configured" : "API secret not configured"}</li>
+              <li>
+                {secretFlags.hasCertificate ? "Certificate configured" : "Certificate not configured"}
+              </li>
+              <li>
+                {secretFlags.hasWebhookSecret ? "Webhook secret configured" : "Webhook secret not configured"}
+              </li>
+            </ul>
+          </div>
+        ) : null}
         {webhookHealth ? (
           <div className="admin-payments-kv">
             <span>Last webhook</span>
@@ -97,16 +154,31 @@ export function PaymentProviderDetailModal({
             </PayChip>
           </div>
         ) : null}
-        {canEdit && (provider === "stripe" || provider === "swish") ? (
+        {canEdit ? (
           <div className="flex flex-wrap gap-2 pt-2">
-            {connected ? (
-              <AdminBtnSecondary type="button" onClick={onDisconnect}>
-                Disconnect
+            {provider === "stripe" || provider === "swish" ? (
+              connected ? (
+                <>
+                  <AdminBtnSecondary type="button" onClick={onVerify}>
+                    Re-verify
+                  </AdminBtnSecondary>
+                  <AdminBtnSecondary type="button" onClick={onDisconnect}>
+                    Disconnect
+                  </AdminBtnSecondary>
+                </>
+              ) : (
+                <AdminBtnSecondary type="button" onClick={onConnect}>
+                  Connect
+                </AdminBtnSecondary>
+              )
+            ) : connected ? (
+              <AdminBtnSecondary type="button" onClick={onVerify}>
+                Re-verify
               </AdminBtnSecondary>
             ) : (
-              <AdminBtnSecondary type="button" onClick={onConnect}>
-                Connect
-              </AdminBtnSecondary>
+              <p className="admin-config-text-subtle text-sm">
+                Connect and verify the card adapter, then enable Card terminal from Methods setup.
+              </p>
             )}
           </div>
         ) : null}

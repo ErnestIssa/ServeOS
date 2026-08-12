@@ -18518,6 +18518,192 @@ html[data-admin-theme="dark"] .admin-payments-source-status {
   padding: 0.15rem 0 0;
 }
 
+.admin-payments-methods-list-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem 1rem;
+  margin: 0.55rem 0 0.45rem;
+}
+
+.admin-payments-methods-family-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.45rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.admin-payments-methods-family-chip {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0.2rem 0.15rem;
+  margin: 0;
+  cursor: pointer;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--admin-config-muted, var(--admin-text-muted, #64748b));
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.admin-payments-methods-family-chip:hover {
+  color: var(--admin-text, #0f172a);
+}
+
+.admin-payments-methods-family-chip.is-active {
+  color: var(--admin-text, #0f172a);
+  border-bottom-color: var(--admin-text, #0f172a);
+}
+
+.admin-payments-methods-family-chip:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--admin-accent, #0f172a) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.admin-payments-methods-select-all {
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.admin-payments-setup-wizard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.admin-payments-setup-lead {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--admin-config-muted, var(--admin-text-muted));
+  line-height: 1.45;
+}
+
+.admin-payments-setup-checklist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.admin-payments-setup-checklist li {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.8125rem;
+  color: var(--admin-config-muted, var(--admin-text-muted));
+}
+
+.admin-payments-setup-checklist li.is-done {
+  color: var(--admin-text, #0f172a);
+  font-weight: 600;
+}
+
+.admin-payments-setup-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.admin-payments-setup-step {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--admin-border, #e2e8f0);
+  opacity: 0.72;
+}
+
+.admin-payments-setup-step.is-current,
+.admin-payments-setup-step.is-required {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--admin-text, #0f172a) 35%, var(--admin-border, #e2e8f0));
+}
+
+.admin-payments-setup-step.is-done {
+  opacity: 0.85;
+}
+
+.admin-payments-setup-step strong {
+  font-size: 0.8125rem;
+}
+
+.admin-payments-setup-step span {
+  font-size: 0.75rem;
+  color: var(--admin-config-muted, var(--admin-text-muted));
+}
+
+.admin-payments-setup-fields {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.admin-payments-setup-fields-title {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.admin-payments-setup-field {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.admin-payments-setup-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+}
+
+.admin-payments-setup-multiselect {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.75rem;
+}
+
+.admin-payments-methods-grouped-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.admin-payments-methods-family-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.admin-payments-methods-family-heading {
+  margin: 0.15rem 0 0.1rem;
+  padding: 0 0.1rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--admin-config-muted, var(--admin-text-muted, #64748b));
+}
+
+.admin-shell[data-theme="dark"] .admin-payments-methods-family-chip.is-active,
+.admin-shell.admin-theme-dark .admin-payments-methods-family-chip.is-active {
+  color: #f8fafc;
+  border-bottom-color: #f8fafc;
+}
+
+.admin-shell[data-theme="dark"] .admin-payments-methods-family-chip:hover,
+.admin-shell.admin-theme-dark .admin-payments-methods-family-chip:hover {
+  color: #e2e8f0;
+}
+
 .admin-payments-methods-surface-list .admin-menu-surface-list-item {
   list-style: none;
 }
