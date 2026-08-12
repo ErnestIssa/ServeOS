@@ -2,8 +2,8 @@ import type { EventEmitter } from "node:events";
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@prisma/client";
 import { z } from "zod";
-import { readPreferredRestaurantIdFromProfile } from "../lib/customerPreferredVenue.js";
-import { autoTerminateStaleActiveOrdersForCustomer } from "../lib/autoTerminateStaleActiveOrders.js";
+import { readPreferredRestaurantIdFromProfile } from "../lib/customer/customerPreferredVenue.js";
+import { autoTerminateStaleActiveOrdersForCustomer } from "../lib/orders/autoTerminateStaleActiveOrders.js";
 import {
   buildImageDataUri,
   CHAT_ALLOWED_IMAGE_MIMES,
@@ -12,12 +12,12 @@ import {
   CHAT_MAX_IMAGES_PER_SEND,
   parseImageDataUri,
   type ChatImageMime
-} from "../lib/chatImageLimits.js";
+} from "../lib/chat/chatImageLimits.js";
 import {
   CHAT_ALLOWED_DOCUMENT_MIMES,
   CHAT_DOCUMENT_MAX_BASE64_CHARS,
   type ChatDocumentMime
-} from "../lib/chatDocumentLimits.js";
+} from "../lib/chat/chatDocumentLimits.js";
 import {
   createChatDocumentMessage,
   createChatImageMessages,
@@ -26,10 +26,10 @@ import {
   markCustomerRead,
   serializeMessage,
   serializeMessages
-} from "../lib/chatMessageService.js";
-import type { ChatWsPayload } from "../lib/chatRealtime.js";
+} from "../lib/chat/chatMessageService.js";
+import type { ChatWsPayload } from "../lib/chat/chatRealtime.js";
 import { notifyChatMessage } from "../notifications/integrations/chat.js";
-import { splitRoomMessagesForOcl, buildCustomerHubTimeline } from "../lib/orderOcl.js";
+import { splitRoomMessagesForOcl, buildCustomerHubTimeline } from "../lib/orders/orderOcl.js";
 import {
   buildThreadFeed,
   ensureCustomerChatRoom,
@@ -42,12 +42,12 @@ import {
   syncOrderRoomSystemMessage,
   type CustomerChatScene,
   type ThreadFeedItem
-} from "../lib/customerChatHub.js";
-import { isRestaurantStaffOnline } from "../lib/restaurantPresence.js";
-import { countCustomerChatImagesInRoom, ensureChatMessageImageEnum } from "../lib/chatImageEnum.js";
-import { countCustomerChatUnread, countRoomUnreadForCustomer } from "../lib/chatUnread.js";
-import { buildCustomerChatOverview } from "../lib/customerChatOverview.js";
-import { resolveVenueCallLine } from "../lib/venueCallLineService.js";
+} from "../lib/customer/customerChatHub.js";
+import { isRestaurantStaffOnline } from "../lib/venue/restaurantPresence.js";
+import { countCustomerChatImagesInRoom, ensureChatMessageImageEnum } from "../lib/chat/chatImageEnum.js";
+import { countCustomerChatUnread, countRoomUnreadForCustomer } from "../lib/chat/chatUnread.js";
+import { buildCustomerChatOverview } from "../lib/customer/customerChatOverview.js";
+import { resolveVenueCallLine } from "../lib/venue/venueCallLineService.js";
 
 function bearerToken(headers: { authorization?: string }): string | null {
   const auth = headers.authorization;

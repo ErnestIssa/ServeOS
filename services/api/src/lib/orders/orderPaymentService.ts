@@ -79,6 +79,52 @@ export async function applyPaymentSucceededWebhook(
         };
       }
 
+      // Late success after cancel → never mark as normal PAID completion.
+      const cancelled = ["CANCELLED", "REJECTED", "EXPIRED"].includes(String(order.status));
+      if (cancelled) {
+        await linkPaymentReferenceIdentity(prisma, {
+          orderId: order.id,
+          restaurantId: order.restaurantId,
+          provider: input.provider,
+          externalId: input.externalId,
+          amountCents: input.amountCents,
+          currency: input.currency,
+          status: "PAYMENT_ORDER_MISMATCH",
+          idempotencyKey
+        });
+        await prisma.orderCompensationLog.create({
+          data: {
+            orderId: order.id,
+            restaurantId: order.restaurantId,
+            type: "PAYMENT_ORDER_MISMATCH",
+            trigger: `payment_succeeded_after_cancel:${input.provider}`,
+            status: "PENDING",
+            beforeState: { status: order.status, paymentStatus: order.paymentStatus },
+            afterState: { attemptStatus: "PAYMENT_ORDER_MISMATCH" },
+            metadata: {
+              recommendedAction: "AUTO_REFUND",
+              amountCents: input.amountCents,
+              externalId: input.externalId
+            }
+          }
+        });
+        logOrderEngineWarning(
+          log,
+          { orderId: order.id, action: "payment_order_mismatch" },
+          "payment_succeeded_on_cancelled_order"
+        );
+        return {
+          orderId: order.id,
+          response: {
+            orderId: order.id,
+            status: order.status,
+            paymentStatus: order.paymentStatus,
+            mismatch: "PAYMENT_ORDER_MISMATCH",
+            recommendedAction: "AUTO_REFUND"
+          }
+        };
+      }
+
       if (edge === "invalid_order_state") {
         throw Object.assign(new Error("payment_invalid_order_state"), { statusCode: 409 });
       }

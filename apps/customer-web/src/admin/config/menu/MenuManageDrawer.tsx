@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { MenuManageActionDescriptor, MenuManageContextPayload, MenuSurfaceRow } from "../../../api";
 import { getMenuManageContext, publishRestaurantMenu } from "../../../api";
 import { useModalScrollLock } from "../../../lib/modalScrollLock";
+import { ConfigBusyLabel, ConfigDrawerSpinner, ConfigDetailsReveal } from "../configLoadingUi";
 import {
   MENU_PAGE_DRAWER_BACKDROP_CLASS,
   MENU_PAGE_DRAWER_SHELL_CLASS
@@ -351,10 +352,11 @@ export function MenuManageDrawer({
 
           <div className="admin-staff-profile-body admin-menu-item-profile-body admin-menu-manage-body">
             {contextLoading ? (
-              <p className="admin-staff-drawer-hint">Loading manage options…</p>
+              <ConfigDrawerSpinner label="Loading manage options" />
             ) : targets.length === 0 ? (
               <p className="admin-staff-drawer-hint">Select menus from the list or use actions for the full list.</p>
             ) : (
+              <ConfigDetailsReveal ready={!contextLoading && targets.length > 0}>
               <>
                 <section className="admin-staff-drawer-section">
                   <h4 className="admin-staff-drawer-section-title">In scope</h4>
@@ -388,9 +390,13 @@ export function MenuManageDrawer({
                         onClick={() => handleAction(action.id)}
                       >
                         <span className="admin-menu-manage-action-label">
-                          {(action.id === "publish-drafts" || action.id === "publish-changes") && publishBusy
-                            ? "Publishing…"
-                            : action.label}
+                          <ConfigBusyLabel
+                            busy={
+                              (action.id === "publish-drafts" || action.id === "publish-changes") && publishBusy
+                            }
+                          >
+                            {action.label}
+                          </ConfigBusyLabel>
                         </span>
                         {action.description ? (
                           <span className="admin-menu-manage-action-desc">{action.description}</span>
@@ -423,6 +429,7 @@ export function MenuManageDrawer({
                   </section>
                 ) : null}
               </>
+              </ConfigDetailsReveal>
             )}
           </div>
         </div>

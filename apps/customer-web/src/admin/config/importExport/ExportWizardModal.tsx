@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { exportDataTransferTarget, type ImportExportCatalog } from "../../../api";
 import { MenuPageModalShell, ProfileModalFooter, ProfileModalNote } from "../menu/menuPageModalShell";
 import { useAdminToast } from "../../AdminToast";
-import { QrRequestLoading } from "../qr/QrRequestLoading";
+import { ConfigDrawerSpinner } from "../configLoadingUi";
 import {
   downloadTextFile,
   type ExportWizardStep,
@@ -386,11 +386,7 @@ export function ExportWizardModal({
       ) : null}
 
       {step === "running" ? (
-        <QrRequestLoading
-          title={`Preparing ${selectedTarget?.label ?? "export"}…`}
-          sub={`Generating ${catalog?.formats.find((f) => f.key === format)?.label ?? format} · ${venueName || "venue"}`}
-          variant="step"
-        />
+        <ConfigDrawerSpinner label={`Preparing ${selectedTarget?.label ?? "export"}`} />
       ) : null}
 
       {step === "done" ? (

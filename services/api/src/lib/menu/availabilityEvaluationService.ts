@@ -8,7 +8,7 @@
  * Out of stock → Visibility → Location → Channel → Schedule → Default available
  */
 
-import { isVenueOpenNow } from "../venueOpenNow.js";
+import { isVenueOpenNow } from "../venue/venueOpenNow.js";
 import {
   AVAILABILITY_CHANNELS,
   CHANNEL_LABELS,

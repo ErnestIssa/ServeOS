@@ -112,7 +112,7 @@ export function DuplicateEntityModal({
     }
   }, [kind, allowChangeDestination, locationMode]);
 
-  const confirmLabel = kind === "menu" ? (job ? "Working…" : "Create draft") : "Create copy";
+  const confirmLabel = kind === "menu" ? "Create draft" : "Create copy";
   const jobRunning = Boolean(job && (job.status === "QUEUED" || job.status === "RUNNING"));
 
   useEffect(() => {
@@ -455,7 +455,7 @@ export function DuplicateEntityModal({
         <ProfileModalFooter
           onCancel={onClose}
           onConfirm={() => void submit()}
-          confirmLabel={busy ? "Starting…" : confirmLabel}
+          confirmLabel={confirmLabel}
           busy={busy}
           confirmDisabled={busy || name.trim().length < 2}
         />

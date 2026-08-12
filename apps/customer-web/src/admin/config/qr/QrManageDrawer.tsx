@@ -28,9 +28,9 @@ import {
   MENU_PAGE_DRAWER_BACKDROP_CLASS,
   MENU_PAGE_DRAWER_SHELL_CLASS
 } from "../menu/menuPageModalShell";
+import { ConfigDetailsReveal, ConfigDrawerSpinner } from "../configLoadingUi";
 import { isUiOnlyQrId } from "./qrListUiMocks";
 import { QrInScopeGrid } from "./QrInScopeGrid";
-import { QrRequestLoading } from "./QrRequestLoading";
 import {
   buildQrLabelSuggestions,
   QrHoverEditDuration,
@@ -158,7 +158,7 @@ export function QrManageDrawer({
   const [context, setContext] = useState<QrManageContextPayload | null>(null);
   const [contextLoading, setContextLoading] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [busyLabel, setBusyLabel] = useState("Working…");
+  const [busyLabel, setBusyLabel] = useState("Updating");
   /** Soft pending — disables controls without replacing the drawer body. */
   const [pending, setPending] = useState(false);
   const [analytics, setAnalytics] = useState<QrAnalyticsSummary | null>(null);
@@ -383,7 +383,7 @@ export function QrManageDrawer({
     return () => window.removeEventListener("keydown", onKey);
   }, [visible, onClose, toggleConfirm, busy, pending]);
 
-  const beginBusy = (label = "Working…") => {
+  const beginBusy = (label = "Updating") => {
     setBusyLabel(label);
     setBusy(true);
   };
@@ -427,7 +427,7 @@ export function QrManageDrawer({
     const refreshList = opts?.refreshList ?? !inline;
 
     if (inline) setPending(true);
-    else beginBusy(opts?.busyLabel ?? "Saving…");
+    else beginBusy(opts?.busyLabel ?? "Updating");
 
     const res = await fn();
     if (!res.ok || !res.qr) {
@@ -677,7 +677,7 @@ export function QrManageDrawer({
   const patchSingle = (
     patch: Parameters<typeof updateQrCode>[3],
     okMsg = "Saved.",
-    busyLabel = "Saving…"
+    busyLabel = "Updating"
   ) => {
     if (!single || !canManage) return;
     void runSingle(() => updateQrCode(token, restaurantId, single.id, patch), okMsg, {
@@ -821,13 +821,11 @@ export function QrManageDrawer({
 
         <div className="admin-staff-profile-body admin-menu-item-profile-body admin-menu-manage-body">
           {busy || contextLoading ? (
-            <QrRequestLoading
-              title={contextLoading ? "Loading…" : busyLabel}
-              sub={contextLoading ? "Fetching manage options" : "Please wait"}
-            />
+            <ConfigDrawerSpinner label={contextLoading ? "Loading manage options" : "Updating"} />
           ) : targets.length === 0 ? (
             <p className="admin-staff-drawer-hint">Select QR codes from the list or use actions for the full list.</p>
           ) : (
+            <ConfigDetailsReveal ready={!busy && !contextLoading && targets.length > 0}>
             <>
               <section className="admin-staff-drawer-section">
                 <h4 className="admin-staff-drawer-section-title">In scope</h4>
@@ -1219,7 +1217,7 @@ export function QrManageDrawer({
                     {isUiOnlyQrId(single.id) ? (
                       <p className="admin-staff-drawer-hint">Stats are not available for preview QR codes.</p>
                     ) : analyticsLoading ? (
-                      <p className="admin-staff-drawer-hint">Loading analytics…</p>
+                      <ConfigDrawerSpinner label="Loading analytics" />
                     ) : analytics ? (
                       <dl className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
                         <div>
@@ -1448,6 +1446,7 @@ export function QrManageDrawer({
                 </section>
               ) : null}
             </>
+            </ConfigDetailsReveal>
           )}
         </div>
         {toggleConfirm ? (

@@ -1,12 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@prisma/client";
 import { z } from "zod";
-import { loadMobileAuthContext, requireMobileAuth } from "../lib/mobileAuthContext.js";
-import { buildWorkspaceContext } from "../lib/mobileWorkspaceService.js";
+import { loadMobileAuthContext, requireMobileAuth } from "../lib/auth/mobileAuthContext.js";
+import { buildWorkspaceContext } from "../lib/mobile/mobileWorkspaceService.js";
 import {
   buildExperienceSwitcherPayload,
   setMobileActiveExperience
-} from "../lib/mobileExperienceSwitcher.js";
+} from "../lib/mobile/mobileExperienceSwitcher.js";
 
 function bearerSub(headers: { authorization?: string }, app: FastifyInstance): string | null {
   const auth = headers.authorization;

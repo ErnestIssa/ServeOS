@@ -11,6 +11,7 @@ import {
   type MenuVersionListItem
 } from "../../../api";
 import { AdminBtnSecondary, AdminInput, AdminLabel } from "../../AdminUi";
+import { ConfigDrawerSpinner } from "../configLoadingUi";
 import { ProfileModalAlert, ProfileModalFooter, MenuPageModalShell } from "./menuPageModalShell";
 
 function formatWhen(iso: string | null | undefined) {
@@ -183,7 +184,7 @@ export function MenuPublishReviewModal({
       <ProfileModalFooter
         onCancel={onClose}
         onConfirm={() => void publish()}
-        confirmLabel={busy ? "Publishing…" : "Publish"}
+        confirmLabel="Publish"
         busy={busy || loading}
         confirmDisabled={!preview || !preview.validation.ok}
       />
@@ -276,7 +277,7 @@ export function MenuVersionHistoryDrawer({
       stackLevel="overlay"
       maxWidthClass="max-w-2xl"
     >
-      {loading ? <p className="admin-config-text-muted text-sm">Loading versions…</p> : null}
+      {loading ? <ConfigDrawerSpinner label="Loading versions" /> : null}
       {error ? <ProfileModalAlert tone="error">{error}</ProfileModalAlert> : null}
 
       {!loading && versions.length === 0 ? (

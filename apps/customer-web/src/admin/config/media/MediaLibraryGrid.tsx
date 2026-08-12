@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { MediaLibraryAsset } from "../../../api";
+import { ConfigSectionSpinner } from "../configLoadingUi";
 import { MediaAssetCard } from "./MediaAssetCard";
 import type { MediaCardActionCaps, MediaCardActionId } from "./mediaCardActions";
 
@@ -16,7 +17,7 @@ export function MediaLibraryGrid({ assets, loading, venueName, caps, onOpen, onA
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   if (loading && assets.length === 0) {
-    return <p className="admin-config-text-muted text-sm">Loading library…</p>;
+    return <ConfigSectionSpinner label="Loading library" />;
   }
   if (assets.length === 0) {
     return (

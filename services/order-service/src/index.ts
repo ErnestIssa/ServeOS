@@ -7,7 +7,7 @@ import websocket from "@fastify/websocket";
 import jwt from "jsonwebtoken";
 import { PrismaClient, type Prisma } from "@prisma/client";
 import { z } from "zod";
-import { autoTerminateStaleActiveOrdersForCustomer } from "./lib/autoTerminateStaleActiveOrders.js";
+import { autoTerminateStaleActiveOrdersForCustomer } from "../../api/src/lib/orders/autoTerminateStaleActiveOrders.js";
 
 const port = Number(process.env.ORDER_SERVICE_PORT ?? 3003);
 const host = process.env.HOST ?? "127.0.0.1";

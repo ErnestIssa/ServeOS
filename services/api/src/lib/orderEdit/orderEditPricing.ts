@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import type { OrderPaymentStatus } from "@prisma/client";
-import { priceMenuItemLineInput } from "../menuItemLinePricing.js";
+import { priceMenuItemLineInput } from "../money/menuItemLinePricing.js";
 import {
   computeOrderServiceFeeCents,
   computeOrderTaxCents,

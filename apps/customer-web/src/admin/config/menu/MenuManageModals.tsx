@@ -183,7 +183,7 @@ export function BulkArchiveConfirmModal({ open, menus, venueName, token, restaur
       <ProfileModalFooter
         onCancel={onClose}
         onConfirm={() => void confirm()}
-        confirmLabel={busy ? "Archiving…" : "Archive"}
+        confirmLabel="Archive"
         busy={busy}
         confirmDisabled={menus.length === 0 || !confirmGate.matches}
         danger
@@ -244,7 +244,7 @@ export function BulkUnpublishConfirmModal({ open, menus, venueName, token, resta
       <ProfileModalFooter
         onCancel={onClose}
         onConfirm={() => void confirm()}
-        confirmLabel={busy ? "Unpublishing…" : "Unpublish"}
+        confirmLabel="Unpublish"
         busy={busy}
         confirmDisabled={menus.length === 0 || !confirmGate.matches}
         danger
@@ -305,7 +305,7 @@ export function BulkDeleteDraftConfirmModal({ open, menus, token, restaurantId, 
       <ProfileModalFooter
         onCancel={onClose}
         onConfirm={() => void confirm()}
-        confirmLabel={busy ? "Deleting…" : "Delete drafts"}
+        confirmLabel="Delete drafts"
         busy={busy}
         confirmDisabled={drafts.length === 0 || !confirmGate.matches}
         danger
@@ -366,7 +366,7 @@ export function BulkDeleteMenuConfirmModal({ open, menus, token, restaurantId, o
       <ProfileModalFooter
         onCancel={onClose}
         onConfirm={() => void confirm()}
-        confirmLabel={busy ? "Deleting…" : "Delete menus"}
+        confirmLabel="Delete menus"
         busy={busy}
         confirmDisabled={targets.length === 0 || !confirmGate.matches}
         danger
@@ -571,7 +571,7 @@ export function MoveMenusLocationModal({
       <ProfileModalFooter
         onCancel={onClose}
         onConfirm={() => void confirm()}
-        confirmLabel={busy ? "Moving…" : "Move menus"}
+        confirmLabel="Move menus"
         busy={busy}
         confirmDisabled={!targetId || options.length === 0}
       />

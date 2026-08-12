@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import { isVenueMembershipRole } from "../membershipAccess.js";
+import { isVenueMembershipRole } from "../auth/membershipAccess.js";
 import type { OrderSourceContract, OrderSourcePlacementContext } from "./orderSourceTypes.js";
 import { resolveEffectiveSourceContract, loadRestaurantSourcePolicy } from "./orderSourcePolicy.js";
 import { reconcilePartnerPlacement } from "./orderPartnerReconciliation.js";

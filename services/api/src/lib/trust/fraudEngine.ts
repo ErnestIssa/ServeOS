@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import { isVenueMembershipRole } from "../membershipAccess.js";
+import { isVenueMembershipRole } from "../auth/membershipAccess.js";
 import {
   COMP_APPROVAL_THRESHOLD_PCT,
   DISCOUNT_APPROVAL_THRESHOLD_PCT,

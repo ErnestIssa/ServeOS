@@ -17,6 +17,7 @@ import {
 } from "../menu/detailsDrawerUi";
 import { useAdminToast } from "../../AdminToast";
 import { AdminBtnSecondary } from "../../AdminUi";
+import { ConfigBusyLabel, ConfigDrawerSpinner, ConfigDetailsReveal } from "../configLoadingUi";
 import { readFileAsDataUrl } from "./mediaLibraryUpload";
 import { MediaUsageGraph } from "./MediaUsageGraph";
 import { MediaDeleteSafetyModal } from "./MediaDeleteSafetyModal";
@@ -177,6 +178,8 @@ export function MediaAssetDetailsDrawer({
         closeLabel="Close asset details"
         onClose={onClose}
       >
+        {!asset ? <ConfigDrawerSpinner label="Loading asset details" /> : null}
+        <ConfigDetailsReveal ready={Boolean(asset)}>
         {asset ? (
           <>
             {asset.url && asset.contentType.startsWith("image/") ? (
@@ -243,7 +246,7 @@ export function MediaAssetDetailsDrawer({
                       disabled={!canSaveMeta}
                       onClick={() => void saveMeta()}
                     >
-                      {busy && metaDirty ? "Saving…" : "Save metadata"}
+                      <ConfigBusyLabel busy={busy && metaDirty}>Save metadata</ConfigBusyLabel>
                     </button>
                   </div>
                 </div>
@@ -428,9 +431,8 @@ export function MediaAssetDetailsDrawer({
               ]}
             />
           </>
-        ) : (
-          <p className="admin-config-text-muted text-sm">Loading…</p>
-        )}
+        ) : null}
+        </ConfigDetailsReveal>
       </DetailsDrawerShell>
 
       <input

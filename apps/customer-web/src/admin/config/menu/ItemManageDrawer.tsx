@@ -763,15 +763,7 @@ export function ItemManageDrawer({
             <ProfileModalFooter
               onCancel={() => setTransferStep("kind")}
               onConfirm={() => void runTransfer()}
-              confirmLabel={
-                transferBusy
-                  ? transferMode === "copy"
-                    ? "Copying…"
-                    : "Moving…"
-                  : transferMode === "copy"
-                    ? "Copy"
-                    : "Move"
-              }
+              confirmLabel={transferMode === "copy" ? "Copy" : "Move"}
               busy={transferBusy}
               confirmDisabled={!canConfirmTransfer}
             />
@@ -791,7 +783,7 @@ export function ItemManageDrawer({
         <ProfileModalFooter
           onCancel={() => setDangerKind(null)}
           onConfirm={() => void runLifecycle("ARCHIVED", "Archive")}
-          confirmLabel={dangerBusy ? "Archiving…" : "Archive"}
+          confirmLabel="Archive"
           busy={dangerBusy}
           danger
         />
@@ -809,7 +801,7 @@ export function ItemManageDrawer({
         <ProfileModalFooter
           onCancel={() => setDangerKind(null)}
           onConfirm={() => void runLifecycle("DRAFT", "Mark as draft")}
-          confirmLabel={dangerBusy ? "Updating…" : "Mark as draft"}
+          confirmLabel="Mark as draft"
           busy={dangerBusy}
           danger
         />
@@ -838,7 +830,7 @@ export function ItemManageDrawer({
         <ProfileModalFooter
           onCancel={() => setDangerKind(null)}
           onConfirm={() => void runDelete()}
-          confirmLabel={dangerBusy ? "Deleting…" : "Delete"}
+          confirmLabel="Delete"
           busy={dangerBusy}
           confirmDisabled={confirmName.trim() !== expectedConfirm}
           danger

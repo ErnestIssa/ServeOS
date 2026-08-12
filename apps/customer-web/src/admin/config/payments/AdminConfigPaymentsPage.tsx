@@ -14,7 +14,9 @@ import {
   listVenuePaymentRefunds,
   listVenuePaymentTransactions,
   patchVenuePaymentSettings,
+  type PaymentFeatureGates,
   type PaymentLogRow,
+  type PaymentMethodCapabilitiesPayload,
   type PaymentOverview,
   type PaymentPayoutRow,
   type PaymentProviderEnvReady,
@@ -37,12 +39,12 @@ import {
   subPanelCls
 } from "../../AdminUi";
 import { AdminStaleContent } from "../../AdminSkeleton";
-import { Spinner } from "../../../components/ui/spinner";
 import { useAdminToast } from "../../AdminToast";
 import { ADMIN_NAV_SYNC_EVENT, parseAdminHashQuery } from "../../adminWorkspaceRouting";
 import { usePageRecoverySync, useSilentRevalidate } from "../../sync/adminPageSync";
 import { ProfileModalFooter, ProfileModalShell } from "../../profile/ProfileModalShell";
 import { canEditPayments, paymentsEditReason } from "../paymentsAccess";
+import { ConfigBusyLabel, ConfigModalContentGate, ConfigSectionSpinner } from "../configLoadingUi";
 import {
   CONFIG_PRESET_DESCRIPTIONS,
   PAYMENTS_TAB_LABELS,
@@ -92,6 +94,8 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
   const [saving, setSaving] = useState(false);
   const [settings, setSettings] = useState<VenuePaymentSettings | null>(null);
   const [envReady, setEnvReady] = useState<PaymentProviderEnvReady | null>(null);
+  const [methodCapabilities, setMethodCapabilities] = useState<PaymentMethodCapabilitiesPayload | null>(null);
+  const [featureGates, setFeatureGates] = useState<PaymentFeatureGates | null>(null);
   const [, setOverview] = useState<PaymentOverview | null>(null);
   const [transactions, setTransactions] = useState<PaymentTransactionRow[]>([]);
   const [txnSource, setTxnSource] = useState<"live" | "demo">("demo");
@@ -204,8 +208,11 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
       if (paymentRes.ok && paymentRes.settings) {
         setSettings(paymentRes.settings);
         setEnvReady(paymentRes.envReady ?? null);
+        setMethodCapabilities(paymentRes.methodCapabilities ?? null);
+        setFeatureGates(paymentRes.featureGates ?? null);
       }
       if (overviewRes.ok && overviewRes.overview) setOverview(overviewRes.overview);
+      if (overviewRes.ok && overviewRes.featureGates) setFeatureGates(overviewRes.featureGates);
       if (txnRes.ok) {
         setTransactions(txnRes.transactions ?? []);
         setTxnSource(txnRes.source ?? "demo");
@@ -513,22 +520,25 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
           title={connectOpen === "stripe" ? "Connect Stripe" : "Connect Swish"}
           description="Paste a sandbox account / merchant ID. Live keys stay in server environment variables."
           titleId="payment-connect-modal"
+          busy={saving}
         >
-          <label className="grid gap-1">
-            <AdminLabel>{connectOpen === "stripe" ? "Stripe account ID" : "Swish merchant ID"}</AdminLabel>
-            <AdminInput
-              value={connectId}
-              onChange={(e) => setConnectId(e.target.value)}
-              placeholder={connectOpen === "stripe" ? "acct_…" : "123xxxxxxx"}
+          <ConfigModalContentGate open={Boolean(connectOpen)}>
+            <label className="grid gap-1">
+              <AdminLabel>{connectOpen === "stripe" ? "Stripe account ID" : "Swish merchant ID"}</AdminLabel>
+              <AdminInput
+                value={connectId}
+                onChange={(e) => setConnectId(e.target.value)}
+                placeholder={connectOpen === "stripe" ? "acct_…" : "123xxxxxxx"}
+              />
+            </label>
+            <ProfileModalFooter
+              cancelLabel="Cancel"
+              confirmLabel="Connect"
+              busy={saving}
+              onCancel={() => setConnectOpen(null)}
+              onConfirm={() => void handleConnect()}
             />
-          </label>
-          <ProfileModalFooter
-            cancelLabel="Cancel"
-            confirmLabel={saving ? "Connecting…" : "Connect"}
-            confirmDisabled={saving}
-            onCancel={() => setConnectOpen(null)}
-            onConfirm={() => void handleConnect()}
-          />
+          </ConfigModalContentGate>
         </ProfileModalShell>
       </AdminPanel>
     );
@@ -544,7 +554,7 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
           <div className="flex flex-wrap items-center gap-2">
             {canEdit && (tab === "methods" || tab === "rules" || tab === "refunds" || tab === "payouts") ? (
               <AdminBtnPrimary type="button" disabled={saving || !settings} onClick={() => void saveSettings()}>
-                {saving ? "Saving…" : "Save changes"}
+                <ConfigBusyLabel busy={saving}>Save changes</ConfigBusyLabel>
               </AdminBtnPrimary>
             ) : null}
             <AdminRefreshButton
@@ -598,8 +608,8 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
 
       <AdminStaleContent refreshing={refreshing}>
         {loading && !ready ? (
-          <div className="admin-payments-workspace-loading mt-8" aria-busy aria-label="Loading payments workspace">
-            <Spinner className="size-8" />
+          <div className="admin-payments-workspace-loading mt-8">
+            <ConfigSectionSpinner label="Loading payments workspace" />
           </div>
         ) : !settings ? (
           <div className="mt-8">
@@ -626,6 +636,7 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
               {tab === "methods" ? (
                 <PaymentsMethodsTab
                   settings={settings}
+                  methodCapabilities={methodCapabilities}
                   canEdit={canEdit}
                   selectedKeys={selectedMethodKeys}
                   onSelectionChange={setSelectedMethodKeys}
@@ -693,55 +704,92 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
                 />
               ) : null}
               {tab === "refunds" ? (
-                <PaymentsRefundsTab
-                  refunds={refunds}
-                  settings={settings}
-                  canEdit={canEdit}
-                  source={refundSource}
-                  onOpen={setSelectedRefund}
-                  onPatchSettings={patchLocal}
-                />
+                featureGates?.refunds && !featureGates.refunds.available ? (
+                  <AdminEmptyState>{featureGates.refunds.reason}</AdminEmptyState>
+                ) : (
+                  <PaymentsRefundsTab
+                    refunds={refunds}
+                    settings={settings}
+                    canEdit={canEdit}
+                    source={refundSource}
+                    onOpen={setSelectedRefund}
+                    onPatchSettings={patchLocal}
+                  />
+                )
               ) : null}
               {tab === "reconciliation" ? (
-                <PaymentsReconciliationTab reconciliation={reconciliation} />
+                featureGates?.reconciliation && !featureGates.reconciliation.available ? (
+                  <AdminEmptyState>{featureGates.reconciliation.reason}</AdminEmptyState>
+                ) : (
+                  <>
+                    {featureGates?.reconciliation?.availability === "partial" ? (
+                      <p className="admin-payments-billing-note mb-3">{featureGates.reconciliation.reason}</p>
+                    ) : null}
+                    <PaymentsReconciliationTab reconciliation={reconciliation} />
+                  </>
+                )
               ) : null}
               {tab === "payouts" ? (
-                <PaymentsPayoutsTab
-                  payouts={payouts}
-                  summary={payoutSummary}
-                  settings={settings}
-                  canEdit={canEdit}
-                  onLinkBank={() =>
-                    patchLocal({
-                      bankAccount: {
-                        linked: true,
-                        lastFour: "4821",
-                        holderName: settings.bankAccount.holderName ?? ""
+                featureGates?.payouts && !featureGates.payouts.available ? (
+                  <AdminEmptyState>{featureGates.payouts.reason}</AdminEmptyState>
+                ) : (
+                  <>
+                    {featureGates?.payouts?.availability === "partial" ? (
+                      <p className="admin-payments-billing-note mb-3">{featureGates.payouts.reason}</p>
+                    ) : null}
+                    <PaymentsPayoutsTab
+                      payouts={payouts}
+                      summary={payoutSummary}
+                      settings={settings}
+                      canEdit={canEdit}
+                      onLinkBank={() =>
+                        patchLocal({
+                          bankAccount: {
+                            linked: true,
+                            lastFour: "4821",
+                            holderName: settings.bankAccount.holderName ?? ""
+                          }
+                        })
                       }
-                    })
-                  }
-                  onPatchBank={(bankAccount) => patchLocal({ bankAccount })}
-                />
+                      onPatchBank={(bankAccount) => patchLocal({ bankAccount })}
+                    />
+                  </>
+                )
               ) : null}
               {tab === "transactions" ? (
-                <PaymentsTransactionsTab
-                  transactions={transactions}
-                  source={txnSource}
-                  drillFilter={txnDrillFilter}
-                  onClearDrill={() => {
-                    setTxnDrillFilter(null);
-                    if (!token || !restaurantId) return;
-                    void listVenuePaymentTransactions(token, restaurantId, 100).then((res) => {
-                      if (res.ok && res.transactions) {
-                        setTransactions(res.transactions);
-                        setTxnSource(res.source ?? "demo");
-                      }
-                    });
-                  }}
-                  onOpen={(row) => void openTransaction(row)}
-                />
+                featureGates?.transactions && !featureGates.transactions.available ? (
+                  <AdminEmptyState>{featureGates.transactions.reason}</AdminEmptyState>
+                ) : (
+                  <PaymentsTransactionsTab
+                    transactions={transactions}
+                    source={txnSource}
+                    drillFilter={txnDrillFilter}
+                    onClearDrill={() => {
+                      setTxnDrillFilter(null);
+                      if (!token || !restaurantId) return;
+                      void listVenuePaymentTransactions(token, restaurantId, 100).then((res) => {
+                        if (res.ok && res.transactions) {
+                          setTransactions(res.transactions);
+                          setTxnSource(res.source ?? "demo");
+                        }
+                      });
+                    }}
+                    onOpen={(row) => void openTransaction(row)}
+                  />
+                )
               ) : null}
-              {tab === "logs" ? <PaymentsLogsTab logs={logs} source={logSource} /> : null}
+              {tab === "logs" ? (
+                featureGates?.logs && !featureGates.logs.available ? (
+                  <AdminEmptyState>{featureGates.logs.reason}</AdminEmptyState>
+                ) : (
+                  <>
+                    {featureGates?.logs?.availability === "partial" ? (
+                      <p className="admin-payments-billing-note mb-3">{featureGates.logs.reason}</p>
+                    ) : null}
+                    <PaymentsLogsTab logs={logs} source={logSource} />
+                  </>
+                )
+              ) : null}
             </motion.div>
           </AnimatePresence>
         )}
@@ -789,22 +837,25 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
         title={connectOpen === "stripe" ? "Connect Stripe" : "Connect Swish"}
         description="Paste a sandbox account / merchant ID. Live keys stay in server environment variables."
         titleId="payment-connect-modal"
+        busy={saving}
       >
-        <label className="grid gap-1">
-          <AdminLabel>{connectOpen === "stripe" ? "Stripe account ID" : "Swish merchant ID"}</AdminLabel>
-          <AdminInput
-            value={connectId}
-            onChange={(e) => setConnectId(e.target.value)}
-            placeholder={connectOpen === "stripe" ? "acct_…" : "123xxxxxxx"}
+        <ConfigModalContentGate open={Boolean(connectOpen)}>
+          <label className="grid gap-1">
+            <AdminLabel>{connectOpen === "stripe" ? "Stripe account ID" : "Swish merchant ID"}</AdminLabel>
+            <AdminInput
+              value={connectId}
+              onChange={(e) => setConnectId(e.target.value)}
+              placeholder={connectOpen === "stripe" ? "acct_…" : "123xxxxxxx"}
+            />
+          </label>
+          <ProfileModalFooter
+            cancelLabel="Cancel"
+            confirmLabel="Connect"
+            busy={saving}
+            onCancel={() => setConnectOpen(null)}
+            onConfirm={() => void handleConnect()}
           />
-        </label>
-        <ProfileModalFooter
-          cancelLabel="Cancel"
-          confirmLabel={saving ? "Connecting…" : "Connect"}
-          confirmDisabled={saving}
-          onCancel={() => setConnectOpen(null)}
-          onConfirm={() => void handleConnect()}
-        />
+        </ConfigModalContentGate>
       </ProfileModalShell>
     </AdminPanel>
   );

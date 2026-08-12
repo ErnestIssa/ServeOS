@@ -5,7 +5,7 @@ import {
   parseStoredContentRef,
   publicUrlForKey
 } from "../integrations/objectStorage.js";
-import { fetchMenuTree } from "../menu.js";
+import { fetchMenuTree } from "./menu.js";
 import { evaluateAvailability, type AvailabilityEvaluation } from "./availabilityEvaluationService.js";
 import { sanitizeAvailabilityWindows } from "./menuAvailability.js";
 

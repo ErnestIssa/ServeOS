@@ -46,7 +46,7 @@ import { buildQrArchivedCardActions, buildQrCardActions, type QrCardActionId } f
 import { QrManageDrawer, type QrManageInitialFocus } from "./QrManageDrawer";
 import { QrDetailsModal } from "./QrDetailsModal";
 import { QrPrintConfirmModal } from "./QrPrintConfirmModal";
-import { QrRequestLoading } from "./QrRequestLoading";
+import { ConfigDrawerSpinner, ConfigSectionSpinner } from "../configLoadingUi";
 
 type Props = {
   token: string | null;
@@ -132,7 +132,6 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [listMode, setListMode] = useState<"active" | "archived">("active");
   const [actionBusy, setActionBusy] = useState(false);
-  const [actionBusyLabel, setActionBusyLabel] = useState("Working…");
   const [confirmAction, setConfirmAction] = useState<{
     title: string;
     consequence: string;
@@ -272,7 +271,6 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
         consequence: "This QR returns to the active list as Active and can accept scans again.",
         confirmLabel: "Unarchive",
         run: async () => {
-          setActionBusyLabel("Unarchiving…");
           setActionBusy(true);
           const res = await restoreQrCode(token, restaurantId, row.id);
           setActionBusy(false);
@@ -296,7 +294,6 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
         confirmLabel: "Delete forever",
         danger: true,
         run: async () => {
-          setActionBusyLabel("Deleting…");
           setActionBusy(true);
           const res = await deleteQrCode(token, restaurantId, row.id);
           setActionBusy(false);
@@ -318,7 +315,6 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
       }
       if (!token || !restaurantId || !canManage) return;
 
-      setActionBusyLabel(actionId === "activate" ? "Activating…" : "Duplicating…");
       setActionBusy(true);
       const res =
         actionId === "activate"
@@ -462,7 +458,7 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
             ) : null}
 
             {actionBusy && !confirmAction ? (
-              <QrRequestLoading title={actionBusyLabel} sub="Please wait" />
+              <ConfigSectionSpinner label="Updating QR codes" />
             ) : items.length === 0 ? (
               <p className="admin-config-text-muted py-2 text-sm">
                 {isArchivedView
@@ -632,14 +628,14 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
           busy={actionBusy}
           stackLevel="overlay"
         >
-          {actionBusy ? (
-            <QrRequestLoading title={actionBusyLabel} sub="Updating QR codes" />
-          ) : (
-            <ProfileModalFooter
+          <ProfileModalFooter
               cancelLabel="Cancel"
               confirmLabel={confirmAction.confirmLabel}
               danger={confirmAction.danger}
-              onCancel={() => setConfirmAction(null)}
+              busy={actionBusy}
+              onCancel={() => {
+                if (!actionBusy) setConfirmAction(null);
+              }}
               onConfirm={() => {
                 const run = confirmAction.run;
                 void (async () => {
@@ -648,7 +644,6 @@ export function AdminConfigQrCodesPage({ token, restaurantId, venueName = "" }: 
                 })();
               }}
             />
-          )}
         </MenuPageModalShell>
       ) : null}
     </AdminPanel>
@@ -756,7 +751,7 @@ function QrCreateWizardModal({
       busy={busy}
     >
       {busy ? (
-        <QrRequestLoading title="Creating QR…" sub="Setting up your code" />
+        <ConfigDrawerSpinner label="Creating QR code" />
       ) : (
         <>
       <div className="mb-4 flex gap-2 text-xs font-semibold uppercase tracking-wide admin-config-text-muted">

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
-import { fetchMenuTree } from "../menu.js";
+import { fetchMenuTree } from "./menu.js";
 import { IMPORT_EXPORT_LIMITS } from "../importExport/importExportCatalog.js";
 
 function escapeCsv(value: string): string {

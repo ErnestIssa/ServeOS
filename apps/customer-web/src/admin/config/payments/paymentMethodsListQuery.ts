@@ -1,8 +1,20 @@
 import type { MenuListQueryPreset } from "../menu/menuListQuery";
 import type { PaymentMethodCatalogEntry, PaymentMethodGroup } from "./paymentMethodCatalog";
-import type { PaymentMethodConfig, VenuePaymentSettings } from "../../../api";
+import type {
+  PaymentMethodConfig,
+  PaymentMethodReadiness,
+  VenuePaymentMethodCapability,
+  VenuePaymentSettings
+} from "../../../api";
 
-export type PaymentMethodHealth = "active" | "inactive" | "pending" | "issue";
+export type PaymentMethodHealth =
+  | "active"
+  | "inactive"
+  | "pending"
+  | "issue"
+  | "setup"
+  | "ready"
+  | "disconnected";
 
 export type PaymentMethodListRow = PaymentMethodCatalogEntry & {
   enabled: boolean;
@@ -12,6 +24,9 @@ export type PaymentMethodListRow = PaymentMethodCatalogEntry & {
   statusLabel: string;
   channelLabel: string;
   supportLabel: string;
+  readiness?: PaymentMethodReadiness;
+  canEnable?: boolean;
+  setupReason?: string;
 };
 
 export function resolvePaymentMethodHealth(
@@ -45,15 +60,41 @@ export function resolvePaymentMethodHealth(
 
 export function paymentMethodHealthLabel(health: PaymentMethodHealth, isDefault = false) {
   if (health === "inactive") return "Off";
+  if (health === "setup") return "Set up";
+  if (health === "ready") return "Ready to enable";
   if (health === "pending") return "Pending";
   if (health === "issue") return "Issue";
+  if (health === "disconnected") return "Disconnected";
   return isDefault ? "Default" : "Active";
 }
 
+export function healthFromReadiness(readiness: PaymentMethodReadiness | undefined, fallback: PaymentMethodHealth) {
+  if (!readiness) return fallback;
+  return readiness.uiHealth as PaymentMethodHealth;
+}
+
+export function applyServerMethodCapability(
+  row: PaymentMethodListRow,
+  capability: VenuePaymentMethodCapability | undefined
+): PaymentMethodListRow {
+  if (!capability?.readiness) return row;
+  const readiness = capability.readiness;
+  return {
+    ...row,
+    enabled: capability.enabled,
+    isDefault: capability.isDefault,
+    health: readiness.uiHealth as PaymentMethodHealth,
+    statusLabel: readiness.statusLabel,
+    readiness,
+    canEnable: readiness.canEnable,
+    setupReason: readiness.reason
+  };
+}
+
 export function paymentMethodHealthBadgeClass(health: PaymentMethodHealth) {
-  if (health === "active") return "is-ok";
-  if (health === "pending") return "is-warning";
-  if (health === "issue") return "is-critical";
+  if (health === "active" || health === "ready") return "is-ok";
+  if (health === "pending" || health === "setup") return "is-warning";
+  if (health === "issue" || health === "disconnected") return "is-critical";
   return "is-muted";
 }
 

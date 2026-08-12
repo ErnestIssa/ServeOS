@@ -1,5 +1,6 @@
 import type { PaymentProviderEnvReady, VenuePaymentSettings } from "../../../api";
 import { AdminBtnPrimary, AdminBtnSecondary, AdminInput, AdminLabel } from "../../AdminUi";
+import { ConfigBusyLabel } from "../configLoadingUi";
 import { PayChip, PaySection, ToggleRow } from "./paymentsShared";
 import { formatWhen } from "./paymentsUiHelpers";
 
@@ -54,7 +55,7 @@ export function PaymentsAdvancedSettingsPage({
           </AdminBtnSecondary>
           {canEdit ? (
             <AdminBtnPrimary type="button" disabled={saving} onClick={onSave}>
-              {saving ? "Saving…" : "Save changes"}
+              <ConfigBusyLabel busy={saving}>Save changes</ConfigBusyLabel>
             </AdminBtnPrimary>
           ) : null}
         </div>

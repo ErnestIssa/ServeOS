@@ -10,6 +10,7 @@ import {
 import { AdminBubbleDropdown } from "../../AdminBubbleDropdown";
 import { AdminInput, AdminLabel } from "../../AdminUi";
 import { useAdminToast } from "../../AdminToast";
+import { ConfigBusyLabel, ConfigDrawerSpinner } from "../configLoadingUi";
 import {
   MenuPageModalShell,
   ProfileModalAlert,
@@ -185,7 +186,7 @@ export function ContentTemplatesPanel({
                 onClick={() => void save()}
               >
                 <span className="admin-menu-manage-action-label">
-                  {saveBusy ? "Saving…" : "Save template"}
+                  <ConfigBusyLabel busy={saveBusy}>Save template</ConfigBusyLabel>
                 </span>
               </button>
             </div>
@@ -213,7 +214,7 @@ export function ContentTemplatesPanel({
             )}
 
             {loading ? (
-              <ProfileModalNote>Loading templates…</ProfileModalNote>
+              <ConfigDrawerSpinner label="Loading templates" />
             ) : templates.length === 0 ? (
               <ProfileModalNote>No templates yet. Save a menu to create one.</ProfileModalNote>
             ) : (
@@ -233,7 +234,7 @@ export function ContentTemplatesPanel({
                         disabled={applyBusy}
                         onClick={() => void apply(t.id)}
                       >
-                        {applyBusy && applyId === t.id ? "Applying…" : "Apply"}
+                        <ConfigBusyLabel busy={applyBusy && applyId === t.id}>Apply</ConfigBusyLabel>
                       </button>
                     ) : null}
                   </li>

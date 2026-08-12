@@ -18,6 +18,7 @@ import {
 import { useAdminToast } from "../../AdminToast";
 import { AdminBtnPrimary, AdminBtnSecondary } from "../../AdminUi";
 import { SkeletonBone } from "../../AdminSkeleton";
+import { ConfigBusyLabel } from "../configLoadingUi";
 import { MenuEntityActionsMenu } from "../menu/MenuEntityActionsMenu";
 import { MediaUsageGraph } from "./MediaUsageGraph";
 import { readFileAsDataUrl } from "./mediaLibraryUpload";
@@ -535,7 +536,7 @@ export function MediaManageDrawer({
                         disabled={!canUpload || busy}
                         onClick={() => replaceInputRef.current?.click()}
                       >
-                        {busy ? "Replacing…" : "Replace everywhere"}
+                        <ConfigBusyLabel busy={busy}>Replace everywhere</ConfigBusyLabel>
                       </AdminBtnPrimary>
                       <p className="text-xs admin-config-text-muted">
                         Replace only selected usages / create new asset instead — coming in a later governance
@@ -658,7 +659,7 @@ export function MediaManageDrawer({
                             disabled={!canSaveMeta}
                             onClick={() => void saveMeta()}
                           >
-                            {busy && metaDirty ? "Saving…" : "Save metadata"}
+                            <ConfigBusyLabel busy={busy && metaDirty}>Save metadata</ConfigBusyLabel>
                           </button>
                         </div>
                       ) : null}

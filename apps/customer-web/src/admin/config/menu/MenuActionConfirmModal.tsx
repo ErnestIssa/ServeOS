@@ -37,7 +37,7 @@ export function MenuActionConfirmModal({
       <ProfileModalFooter
         onCancel={onClose}
         onConfirm={onConfirm}
-        confirmLabel={busy ? "Working…" : confirmLabel}
+        confirmLabel={confirmLabel}
         busy={busy}
         danger={danger}
       />

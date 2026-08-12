@@ -8,6 +8,7 @@ import {
   type MenuSurfaceRow
 } from "../../../api";
 import { MenuPageModalShell, ProfileModalFooter } from "../menu/menuPageModalShell";
+import { ConfigBusyLabel } from "../configLoadingUi";
 import { uploadLibraryMediaFile } from "./mediaLibraryUpload";
 import { useAdminToast } from "../../AdminToast";
 import { sha256HexOfFile } from "./mediaHash";
@@ -346,7 +347,9 @@ export function MediaPickerModal({
             {busy || progress > 0 ? (
               <div>
                 <div className="mb-1 flex justify-between text-xs admin-config-text-muted">
-                  <span>{stageLabel || "Working…"}</span>
+                  <span>
+                    <ConfigBusyLabel busy>Upload</ConfigBusyLabel>
+                  </span>
                   <span>{Math.round(progress)}%</span>
                 </div>
                 <div className="h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">

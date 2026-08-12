@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
-import { readPreferredRestaurantIdFromProfile } from "../customerPreferredVenue.js";
-import { loadMobileAuthContext } from "../mobileAuthContext.js";
-import { readUserDisplayName } from "../userDisplayName.js";
+import { readPreferredRestaurantIdFromProfile } from "../customer/customerPreferredVenue.js";
+import { loadMobileAuthContext } from "./mobileAuthContext.js";
+import { readUserDisplayName } from "../util/userDisplayName.js";
 
 export function publicUserFromDbRow(row: {
   id: string;

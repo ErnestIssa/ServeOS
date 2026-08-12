@@ -3,31 +3,43 @@ import type { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { requireMenuVenueMembership } from "../lib/menu/menuMembership.js";
 import {
+  METHOD_DISABLE_POLICY,
+  SERVEOS_PAYMENT_CATALOG_VERSION,
   canEditPaymentSettings,
   connectPaymentProvider,
   disconnectPaymentProvider,
-  getPaymentProviderEnvReady,
-  getVenuePaymentSettings,
-  getVenuePaymentStats,
-  updateVenuePaymentSettings,
-  type VenuePaymentSettings
-} from "../lib/payments/venuePaymentSettingsService.js";
-import {
-  getPaymentHealthIssueDetail,
-  getPaymentHealthSnapshot
-} from "../lib/payments/paymentHealthService.js";
-import { getTodaysPayments, getTodaysPaymentsDetail } from "../lib/payments/todaysPaymentsService.js";
-import {
+  evaluatePaymentFeatureGates,
   getPaymentActivity,
+  getPaymentHealthIssueDetail,
+  getPaymentHealthSnapshot,
+  getPaymentMethodSetupContract,
   getPaymentOverview,
+  getPaymentProviderEnvReady,
   getPaymentReconciliation,
   getPaymentTransactionDetail,
   getPaymentWebhookHealth,
+  getTodaysPayments,
+  getTodaysPaymentsDetail,
+  getVenuePaymentMethodsPayload,
+  getVenuePaymentSettings,
+  getVenuePaymentStats,
   listPaymentLogs,
   listPaymentPayouts,
   listPaymentRefunds,
-  listPaymentTransactions
-} from "../lib/payments/venuePaymentWorkspaceService.js";
+  listPaymentTransactions,
+  listProviderSurfaces,
+  mapOrderSourceToPreferenceContext,
+  resolveEligiblePaymentMethods,
+  resolvePaymentPreferencePolicy,
+  runAndPersistProviderHealthCheck,
+  toPublicVenuePaymentSettings,
+  publicProviderConnectionLabels,
+  updateVenuePaymentSettings,
+  verifyAndPersistMethodAdapter,
+  verifyAndPersistProviderConnection,
+  type PaymentSetupStepId,
+  type VenuePaymentSettings
+} from "../lib/payments/index.js";
 
 export function registerVenuePaymentRoutes(app: FastifyInstance, prisma: PrismaClient) {
   app.get("/restaurants/:restaurantId/payment-settings", async (req, reply) => {
@@ -37,8 +49,21 @@ export function registerVenuePaymentRoutes(app: FastifyInstance, prisma: PrismaC
     const result = await getVenuePaymentSettings(prisma, restaurantId);
     if (!result.ok) return reply.status(404).send({ ok: false, error: result.error });
 
+    const envReady = getPaymentProviderEnvReady();
     const stats = await getVenuePaymentStats(prisma, restaurantId);
-    return { ok: true, settings: result.settings, stats, envReady: getPaymentProviderEnvReady() };
+    const methodCapabilities = getVenuePaymentMethodsPayload(result.settings);
+    const featureGates = evaluatePaymentFeatureGates(result.settings, envReady);
+
+    return {
+      ok: true,
+      settings: toPublicVenuePaymentSettings(result.settings),
+      stats,
+      envReady,
+      catalogVersion: SERVEOS_PAYMENT_CATALOG_VERSION,
+      methodCapabilities,
+      featureGates,
+      disablePolicy: METHOD_DISABLE_POLICY
+    };
   });
 
   app.patch("/restaurants/:restaurantId/payment-settings", async (req, reply) => {
@@ -52,6 +77,7 @@ export function registerVenuePaymentRoutes(app: FastifyInstance, prisma: PrismaC
       .object({
         methods: z.record(z.boolean()).optional(),
         methodConfig: z.record(z.unknown()).optional(),
+        defaultPaymentMethodKey: z.string().nullable().optional(),
         rules: z.record(z.unknown()).optional(),
         payAtVenue: z.record(z.unknown()).optional(),
         qrPolicy: z.record(z.unknown()).optional(),
@@ -62,7 +88,8 @@ export function registerVenuePaymentRoutes(app: FastifyInstance, prisma: PrismaC
         refundLimits: z.record(z.unknown()).optional(),
         taxes: z.record(z.unknown()).optional(),
         taxDisplay: z.record(z.unknown()).optional(),
-        bankAccount: z.record(z.unknown()).optional()
+        bankAccount: z.record(z.unknown()).optional(),
+        preferencePolicies: z.record(z.unknown()).optional()
       })
       .parse(req.body ?? {});
 
@@ -72,8 +99,160 @@ export function registerVenuePaymentRoutes(app: FastifyInstance, prisma: PrismaC
       action: "payment_settings_updated",
       path: "settings"
     });
+    if (!result.ok) {
+      const status = result.error === "method_not_ready" ? 409 : 404;
+      return reply.status(status).send({
+        ok: false,
+        error: result.error,
+        message: "message" in result ? result.message : undefined
+      });
+    }
+    return {
+      ok: true,
+      settings: toPublicVenuePaymentSettings(result.settings),
+      disablePolicy: METHOD_DISABLE_POLICY
+    };
+  });
+
+  app.get("/restaurants/:restaurantId/payment-methods", async (req, reply) => {
+    const { restaurantId } = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
+    await requireMenuVenueMembership(prisma, req, restaurantId);
+    const result = await getVenuePaymentSettings(prisma, restaurantId);
     if (!result.ok) return reply.status(404).send({ ok: false, error: result.error });
-    return { ok: true, settings: result.settings };
+    return { ok: true, ...getVenuePaymentMethodsPayload(result.settings) };
+  });
+
+  app.get("/restaurants/:restaurantId/payment-methods/:methodKey/setup", async (req, reply) => {
+    const { restaurantId, methodKey } = z
+      .object({ restaurantId: z.string().min(1), methodKey: z.string().min(1) })
+      .parse(req.params);
+    await requireMenuVenueMembership(prisma, req, restaurantId);
+    const result = await getVenuePaymentSettings(prisma, restaurantId);
+    if (!result.ok) return reply.status(404).send({ ok: false, error: result.error });
+    const setup = getPaymentMethodSetupContract(result.settings, methodKey);
+    if (!setup) return reply.status(404).send({ ok: false, error: "method_not_found" });
+    return { ok: true, setup };
+  });
+
+  app.post("/restaurants/:restaurantId/payment-methods/:methodKey/setup/:step", async (req, reply) => {
+    const { restaurantId, methodKey, step } = z
+      .object({
+        restaurantId: z.string().min(1),
+        methodKey: z.string().min(1),
+        step: z.enum([
+          "CONNECT_ADAPTER",
+          "PROVIDE_CREDENTIALS",
+          "VERIFY_CONNECTION",
+          "CONFIGURE_CHANNELS",
+          "CONFIGURE_PAYMENT_RULES",
+          "TEST_PAYMENT",
+          "ACTIVATE"
+        ])
+      })
+      .parse(req.params);
+    const { membership, userId } = await requireMenuVenueMembership(prisma, req, restaurantId);
+    if (!canEditPaymentSettings(membership.role, membership.permissions)) {
+      return reply.status(403).send({ ok: false, error: "permission_denied" });
+    }
+
+    const current = await getVenuePaymentSettings(prisma, restaurantId);
+    if (!current.ok) return reply.status(404).send({ ok: false, error: current.error });
+
+    const stepId = step as PaymentSetupStepId;
+    const audit = { actorUserId: userId, actorRole: membership.role };
+
+    if (stepId === "VERIFY_CONNECTION") {
+      const verified = await verifyAndPersistMethodAdapter(prisma, restaurantId, methodKey, audit);
+      if (!verified.ok) {
+        return reply.status(verified.error === "method_not_found" ? 404 : 400).send({
+          ok: false,
+          error: verified.error
+        });
+      }
+      const refreshed = await getVenuePaymentSettings(prisma, restaurantId);
+      const setup = refreshed.ok
+        ? getPaymentMethodSetupContract(refreshed.settings, methodKey)
+        : getPaymentMethodSetupContract(current.settings, methodKey);
+      return {
+        ok: verified.verification.ok,
+        verified: verified.verification.verified,
+        message: verified.verification.message,
+        verification: verified.verification,
+        setup
+      };
+    }
+
+    if (stepId === "ACTIVATE") {
+      const cfg = current.settings.methodConfig[methodKey as keyof typeof current.settings.methodConfig];
+      const result = await updateVenuePaymentSettings(
+        prisma,
+        restaurantId,
+        {
+          methodConfig: {
+            [methodKey]: {
+              ...(cfg as object),
+              enabled: true
+            }
+          }
+        } as Partial<VenuePaymentSettings>,
+        {
+          actorUserId: userId,
+          actorRole: membership.role,
+          action: "payment.method_enabled",
+          path: `methods.${methodKey}`
+        }
+      );
+      if (!result.ok) {
+        return reply.status(result.error === "method_not_ready" ? 409 : 404).send({
+          ok: false,
+          error: result.error,
+          message: "message" in result ? result.message : undefined
+        });
+      }
+      const setup = getPaymentMethodSetupContract(result.settings, methodKey);
+      return { ok: true, settings: toPublicVenuePaymentSettings(result.settings), setup };
+    }
+
+    const setup = getPaymentMethodSetupContract(current.settings, methodKey);
+    return {
+      ok: true,
+      message: `Step ${stepId} acknowledged. Continue configuration in Manage.`,
+      setup
+    };
+  });
+
+  app.post("/restaurants/:restaurantId/payment-methods/:methodKey/verify", async (req, reply) => {
+    const { restaurantId, methodKey } = z
+      .object({ restaurantId: z.string().min(1), methodKey: z.string().min(1) })
+      .parse(req.params);
+    const { membership, userId } = await requireMenuVenueMembership(prisma, req, restaurantId);
+    if (!canEditPaymentSettings(membership.role, membership.permissions)) {
+      return reply.status(403).send({ ok: false, error: "permission_denied" });
+    }
+    const verified = await verifyAndPersistMethodAdapter(prisma, restaurantId, methodKey, {
+      actorUserId: userId,
+      actorRole: membership.role
+    });
+    if (!verified.ok) {
+      return reply.status(verified.error === "method_not_found" ? 404 : 400).send({
+        ok: false,
+        error: verified.error
+      });
+    }
+    return { ok: true, verification: verified.verification };
+  });
+
+  app.get("/restaurants/:restaurantId/payments/features", async (req, reply) => {
+    const { restaurantId } = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
+    await requireMenuVenueMembership(prisma, req, restaurantId);
+    const result = await getVenuePaymentSettings(prisma, restaurantId);
+    if (!result.ok) return reply.status(404).send({ ok: false, error: result.error });
+    const envReady = getPaymentProviderEnvReady();
+    return {
+      ok: true,
+      featureGates: evaluatePaymentFeatureGates(result.settings, envReady),
+      providers: listProviderSurfaces(result.settings)
+    };
   });
 
   app.post("/restaurants/:restaurantId/payment-settings/connect", async (req, reply) => {
@@ -83,7 +262,10 @@ export function registerVenuePaymentRoutes(app: FastifyInstance, prisma: PrismaC
         provider: z.enum(["stripe", "swish"]),
         accountId: z.string().max(120).optional(),
         merchantId: z.string().max(120).optional(),
-        displayName: z.string().max(80).optional()
+        displayName: z.string().max(80).optional(),
+        apiSecret: z.string().max(500).optional(),
+        certificatePem: z.string().max(20_000).optional(),
+        webhookSecret: z.string().max(500).optional()
       })
       .parse(req.body);
     const { membership, userId } = await requireMenuVenueMembership(prisma, req, restaurantId);
@@ -98,9 +280,16 @@ export function registerVenuePaymentRoutes(app: FastifyInstance, prisma: PrismaC
     if (!result.ok) return reply.status(404).send({ ok: false, error: result.error });
     return {
       ok: true,
-      settings: result.settings,
+      settings: toPublicVenuePaymentSettings(result.settings),
       needsEnv: "needsEnv" in result ? result.needsEnv : false,
-      envReady: getPaymentProviderEnvReady()
+      envReady: getPaymentProviderEnvReady(),
+      methodCapabilities: getVenuePaymentMethodsPayload(result.settings),
+      featureGates: evaluatePaymentFeatureGates(result.settings, getPaymentProviderEnvReady()),
+      verification: "verification" in result ? result.verification : undefined,
+      providerConnection:
+        result.settings.providerConnections?.[body.provider]
+          ? publicProviderConnectionLabels(result.settings.providerConnections[body.provider]!)
+          : null
     };
   });
 
@@ -117,7 +306,123 @@ export function registerVenuePaymentRoutes(app: FastifyInstance, prisma: PrismaC
       actorRole: membership.role
     });
     if (!result.ok) return reply.status(404).send({ ok: false, error: result.error });
-    return { ok: true, settings: result.settings };
+    return {
+      ok: true,
+      settings: toPublicVenuePaymentSettings(result.settings),
+      disablePolicy: METHOD_DISABLE_POLICY
+    };
+  });
+
+  app.post("/restaurants/:restaurantId/payment-settings/providers/:provider/verify", async (req, reply) => {
+    const { restaurantId, provider } = z
+      .object({
+        restaurantId: z.string().min(1),
+        provider: z.enum(["stripe", "swish", "terminals"])
+      })
+      .parse(req.params);
+    const { membership, userId } = await requireMenuVenueMembership(prisma, req, restaurantId);
+    if (!canEditPaymentSettings(membership.role, membership.permissions)) {
+      return reply.status(403).send({ ok: false, error: "permission_denied" });
+    }
+    const result = await verifyAndPersistProviderConnection(prisma, restaurantId, provider, {
+      actorUserId: userId,
+      actorRole: membership.role
+    });
+    if (!result.ok) return reply.status(404).send({ ok: false, error: result.error });
+    return {
+      ok: true,
+      verification: result.verification,
+      settings: toPublicVenuePaymentSettings(result.settings)
+    };
+  });
+
+  app.post("/restaurants/:restaurantId/payment-settings/providers/:provider/health-check", async (req, reply) => {
+    const { restaurantId, provider } = z
+      .object({
+        restaurantId: z.string().min(1),
+        provider: z.enum(["stripe", "swish", "terminals"])
+      })
+      .parse(req.params);
+    const { membership, userId } = await requireMenuVenueMembership(prisma, req, restaurantId);
+    if (!canEditPaymentSettings(membership.role, membership.permissions)) {
+      return reply.status(403).send({ ok: false, error: "permission_denied" });
+    }
+    const result = await runAndPersistProviderHealthCheck(prisma, restaurantId, provider, {
+      actorUserId: userId,
+      actorRole: membership.role
+    });
+    if (!result.ok) return reply.status(404).send({ ok: false, error: result.error });
+    return {
+      ok: true,
+      health: result.health,
+      settings: toPublicVenuePaymentSettings(result.settings)
+    };
+  });
+
+  app.get("/restaurants/:restaurantId/checkout/payment-options", async (req, reply) => {
+    const { restaurantId } = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
+    const query = z
+      .object({
+        source: z
+          .enum([
+            "qr_orders",
+            "in_app",
+            "walk_ins",
+            "staff_created",
+            "delivery",
+            "catering",
+            "b2b",
+            "QR_ORDER",
+            "IN_APP",
+            "WALK_IN",
+            "STAFF_CREATED",
+            "DELIVERY",
+            "CATERING",
+            "B2B"
+          ])
+          .default("qr_orders"),
+        amountCents: z.coerce.number().int().min(0).default(0),
+        currency: z.string().min(3).max(3).default("SEK"),
+        orderId: z.string().min(1).optional()
+      })
+      .parse(req.query ?? {});
+    await requireMenuVenueMembership(prisma, req, restaurantId);
+    const result = await getVenuePaymentSettings(prisma, restaurantId);
+    if (!result.ok) return reply.status(404).send({ ok: false, error: result.error });
+    const envReady = getPaymentProviderEnvReady();
+    const methods = resolveEligiblePaymentMethods(result.settings, envReady, {
+      restaurantId,
+      orderId: query.orderId,
+      source: query.source,
+      amountCents: query.amountCents,
+      currency: query.currency
+    });
+    const preferenceSource =
+      query.source === "QR_ORDER"
+        ? "qr_orders"
+        : query.source === "IN_APP"
+          ? "in_app"
+          : query.source === "WALK_IN"
+            ? "walk_ins"
+            : query.source === "STAFF_CREATED"
+              ? "staff_created"
+              : query.source === "DELIVERY"
+                ? "delivery"
+                : query.source === "CATERING"
+                  ? "catering"
+                  : query.source === "B2B"
+                    ? "b2b"
+                    : query.source;
+    const prefs = resolvePaymentPreferencePolicy(
+      result.settings,
+      mapOrderSourceToPreferenceContext(preferenceSource)
+    );
+    return {
+      ok: true,
+      methods,
+      eligible: methods.filter((m) => m.eligible),
+      preferences: prefs
+    };
   });
 
   app.get("/restaurants/:restaurantId/payments/overview", async (req, reply) => {
@@ -125,7 +430,11 @@ export function registerVenuePaymentRoutes(app: FastifyInstance, prisma: PrismaC
     await requireMenuVenueMembership(prisma, req, restaurantId);
     try {
       const overview = await getPaymentOverview(prisma, restaurantId);
-      return { ok: true, overview };
+      const settingsRes = await getVenuePaymentSettings(prisma, restaurantId);
+      const featureGates = settingsRes.ok
+        ? evaluatePaymentFeatureGates(settingsRes.settings, getPaymentProviderEnvReady())
+        : null;
+      return { ok: true, overview, featureGates };
     } catch {
       return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
     }

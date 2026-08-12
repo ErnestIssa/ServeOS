@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import { PERMISSION_GROUPS, resolveMembershipPermissions } from "../venuePermissions.js";
+import { PERMISSION_GROUPS, resolveMembershipPermissions } from "../venue/venuePermissions.js";
 
 const PERMISSION_LABELS: Record<string, string> = {
   "admin.billing": "Billing",

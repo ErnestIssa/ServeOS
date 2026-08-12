@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import { priceMenuItemLineInput, type ModifierSnap } from "../menuItemLinePricing.js";
+import { priceMenuItemLineInput, type ModifierSnap } from "../money/menuItemLinePricing.js";
 import type { OrderPlacementLineInput } from "./orderTypes.js";
 
 export type PricedOrderLine = {

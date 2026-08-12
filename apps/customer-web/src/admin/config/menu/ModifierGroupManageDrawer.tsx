@@ -574,7 +574,7 @@ export function ModifierGroupManageDrawer({
         <ProfileModalFooter
           onCancel={() => setAttachGroup(null)}
           onConfirm={() => void runAttach()}
-          confirmLabel={attachBusy ? "Attaching…" : "Attach"}
+          confirmLabel="Attach"
           busy={attachBusy}
           confirmDisabled={attachItemIds.size === 0 || attachCandidates.length === 0}
         />
@@ -592,7 +592,7 @@ export function ModifierGroupManageDrawer({
         <ProfileModalFooter
           onCancel={() => setDangerKind(null)}
           onConfirm={() => void runLifecycle("ARCHIVED", "Archive")}
-          confirmLabel={dangerBusy ? "Archiving…" : "Archive"}
+          confirmLabel="Archive"
           busy={dangerBusy}
           danger
         />
@@ -610,7 +610,7 @@ export function ModifierGroupManageDrawer({
         <ProfileModalFooter
           onCancel={() => setDangerKind(null)}
           onConfirm={() => void runDeleteOrDetach("Detach")}
-          confirmLabel={dangerBusy ? "Detaching…" : "Detach"}
+          confirmLabel="Detach"
           busy={dangerBusy}
           danger
         />
@@ -628,7 +628,7 @@ export function ModifierGroupManageDrawer({
         <ProfileModalFooter
           onCancel={() => setDangerKind(null)}
           onConfirm={() => void runDeleteOrDetach("Delete")}
-          confirmLabel={dangerBusy ? "Deleting…" : "Delete"}
+          confirmLabel="Delete"
           busy={dangerBusy}
           danger
         />

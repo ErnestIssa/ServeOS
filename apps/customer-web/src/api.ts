@@ -1133,6 +1133,121 @@ export type PaymentProviderEnvReady = {
   demoLedger: boolean;
 };
 
+export type PaymentMethodLifecycleStatus =
+  | "NOT_CONFIGURED"
+  | "SETUP_REQUIRED"
+  | "CONFIGURING"
+  | "SUBMITTED"
+  | "PENDING_VERIFICATION"
+  | "VERIFYING"
+  | "READY"
+  | "ENABLED"
+  | "DISABLED"
+  | "DEGRADED"
+  | "FAILED"
+  | "REVOKED"
+  | "ERROR";
+
+export type PaymentMethodUiHealth =
+  | "active"
+  | "inactive"
+  | "pending"
+  | "issue"
+  | "setup"
+  | "ready"
+  | "disconnected";
+
+export type PaymentMethodReadiness = {
+  methodKey: string;
+  status: PaymentMethodLifecycleStatus;
+  uiHealth: PaymentMethodUiHealth;
+  statusLabel: string;
+  supportedByServeOS: boolean;
+  availableForVenue: boolean;
+  canEnable: boolean;
+  canDisable: boolean;
+  missingRequirements: string[];
+  missingRequirementLabels: string[];
+  nextAction: string;
+  reason: string;
+  adapterId: string;
+  adapterConnected: boolean;
+  adapterVerified: boolean;
+  adapterEnvironment: string;
+};
+
+export type VenuePaymentMethodCapability = {
+  key: string;
+  label: string;
+  group: string;
+  family: string;
+  hint: string;
+  rails: string;
+  instrument: string;
+  channels: string[];
+  lifecycleVersion: number;
+  supportedByServeOS: true;
+  integrationMode: "direct";
+  enabled: boolean;
+  isDefault: boolean;
+  readiness: PaymentMethodReadiness;
+};
+
+export type PaymentMethodCapabilitiesPayload = {
+  catalogVersion: number;
+  methods: VenuePaymentMethodCapability[];
+  counts: {
+    total: number;
+    enabled: number;
+    setupRequired: number;
+    ready: number;
+    issues: number;
+  };
+};
+
+export type PaymentFeatureRequiredAction = {
+  type: "OPEN_SETUP" | "CONNECT_ADAPTER" | "VERIFY_CONNECTION" | "OPEN_PAYMENT_METHODS" | "CONFIGURE_WEBHOOKS" | "NONE";
+  methodId?: string;
+  providerId?: string;
+};
+
+export type PaymentFeatureGate = {
+  feature?: string;
+  available: boolean;
+  availability: "full" | "partial" | "none";
+  reasonCode?: string;
+  reason: string;
+  missingRequirements: string[];
+  nextAction: string | null;
+  requiredAction?: PaymentFeatureRequiredAction;
+};
+
+export type PaymentFeatureGates = {
+  transactions: PaymentFeatureGate;
+  logs: PaymentFeatureGate;
+  refunds: PaymentFeatureGate;
+  reconciliation: PaymentFeatureGate;
+  payouts: PaymentFeatureGate;
+  methodsSetup: PaymentFeatureGate;
+};
+
+export type PaymentSetupContract = {
+  methodKey: string;
+  label: string;
+  status: PaymentMethodLifecycleStatus;
+  reason: string;
+  nextAction: string;
+  missingRequirements: string[];
+  setupSteps: Array<{
+    id: string;
+    label: string;
+    description: string;
+    required: boolean;
+    state: "done" | "current" | "upcoming" | "blocked";
+  }>;
+  readiness: PaymentMethodReadiness;
+};
+
 export type PaymentOrderSource =
   | "qr_orders"
   | "in_app"
@@ -1480,9 +1595,61 @@ export async function getVenuePaymentSettings(token: string, restaurantId: strin
     settings?: VenuePaymentSettings;
     stats?: PaymentStats;
     envReady?: PaymentProviderEnvReady;
+    catalogVersion?: number;
+    methodCapabilities?: PaymentMethodCapabilitiesPayload;
+    featureGates?: PaymentFeatureGates;
     error?: string;
     message?: string;
   }>(`/restaurants/${encodeURIComponent(restaurantId)}/payment-settings`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export async function getVenuePaymentMethods(token: string, restaurantId: string) {
+  return apiFetch<{
+    ok: boolean;
+    catalogVersion?: number;
+    methods?: VenuePaymentMethodCapability[];
+    counts?: PaymentMethodCapabilitiesPayload["counts"];
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/payment-methods`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export async function getVenuePaymentMethodSetup(token: string, restaurantId: string, methodKey: string) {
+  return apiFetch<{ ok: boolean; setup?: PaymentSetupContract; error?: string; message?: string }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/payment-methods/${encodeURIComponent(methodKey)}/setup`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function postVenuePaymentMethodSetupStep(
+  token: string,
+  restaurantId: string,
+  methodKey: string,
+  step: string
+) {
+  return apiFetch<{
+    ok: boolean;
+    settings?: VenuePaymentSettings;
+    setup?: PaymentSetupContract;
+    message?: string;
+    error?: string;
+  }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/payment-methods/${encodeURIComponent(methodKey)}/setup/${encodeURIComponent(step)}`,
+    { method: "POST", headers: authJsonHeaders(token), body: "{}" }
+  );
+}
+
+export async function getVenuePaymentFeatures(token: string, restaurantId: string) {
+  return apiFetch<{
+    ok: boolean;
+    featureGates?: PaymentFeatureGates;
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/payments/features`, {
     headers: { Authorization: `Bearer ${token}` }
   });
 }
@@ -1508,6 +1675,8 @@ export async function connectVenuePaymentProvider(
     settings?: VenuePaymentSettings;
     needsEnv?: boolean;
     envReady?: PaymentProviderEnvReady;
+    methodCapabilities?: PaymentMethodCapabilitiesPayload;
+    featureGates?: PaymentFeatureGates;
     error?: string;
     message?: string;
   }>(`/restaurants/${encodeURIComponent(restaurantId)}/payment-settings/connect`, {
@@ -1529,10 +1698,15 @@ export async function disconnectVenuePaymentProvider(
 }
 
 export async function getVenuePaymentOverview(token: string, restaurantId: string) {
-  return apiFetch<{ ok: boolean; overview?: PaymentOverview; error?: string; message?: string }>(
-    `/restaurants/${encodeURIComponent(restaurantId)}/payments/overview`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
+  return apiFetch<{
+    ok: boolean;
+    overview?: PaymentOverview;
+    featureGates?: PaymentFeatureGates;
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/payments/overview`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
 }
 
 export type TodaysPaymentsDrillTarget = "transactions" | "refunds";

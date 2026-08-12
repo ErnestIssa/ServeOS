@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { listMenuItemMedia, removeMenuItemMedia, type MenuCapabilitiesPayload, type MenuItemMediaRow } from "../../../api";
 import { useAdminToast } from "../../AdminToast";
+import { ConfigSectionSpinner } from "../configLoadingUi";
 import { MediaPickerModal } from "../media/MediaPickerModal";
 import { MenuChip, MenuSection, MenuToolbarButton } from "./MenuPageUi";
 
@@ -82,7 +83,7 @@ export function MenuItemMediaGallery({
       </div>
 
       {loading ? (
-        <p className="admin-config-text-subtle mt-4 text-sm">Loading media for {itemName}…</p>
+        <ConfigSectionSpinner label={`Loading media for ${itemName}`} />
       ) : media.length === 0 ? (
         <div className="admin-menu-image-placeholder mt-4">
           <p className="admin-config-text-subtle text-sm">No images or videos yet for {itemName}.</p>

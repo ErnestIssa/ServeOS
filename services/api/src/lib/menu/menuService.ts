@@ -1,5 +1,5 @@
 import type { MenuStatus, Prisma, PrismaClient } from "@prisma/client";
-import { fetchMenuTree } from "../menu.js";
+import { fetchMenuTree } from "./menu.js";
 import { buildMenuSnapshotForPublish } from "./publicMenuService.js";
 import { sanitizeAvailabilityWindows, type MenuAvailabilityWindows } from "./menuAvailability.js";
 import { deriveMenuScopeHealth, type MenuScopeTone } from "./menuManageService.js";

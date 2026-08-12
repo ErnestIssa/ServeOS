@@ -3,7 +3,7 @@
  */
 
 import type { Prisma, PrismaClient } from "@prisma/client";
-import { listVenueHoursPeers } from "../venueHoursPeersService.js";
+import { listVenueHoursPeers } from "../venue/venueHoursPeersService.js";
 import {
   appendAvailabilityHistory,
   cloneAvailabilityWindow,

@@ -1,5 +1,6 @@
 import type { PaymentProviderEnvReady, PaymentWebhookHealth, VenuePaymentSettings } from "../../../api";
 import { AdminBtnSecondary } from "../../AdminUi";
+import { ConfigSectionSpinner } from "../configLoadingUi";
 import { PayChip, PaySection } from "./paymentsShared";
 import { formatWhen, maskAccountId } from "./paymentsUiHelpers";
 
@@ -119,7 +120,7 @@ export function PaymentsProvidersTab({
             </ul>
           </div>
         ) : (
-          <p className="admin-config-text-muted text-sm">Loading webhook health…</p>
+          <ConfigSectionSpinner label="Loading webhook health" />
         )}
       </PaySection>
     </div>

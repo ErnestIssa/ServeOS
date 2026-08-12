@@ -3,7 +3,7 @@ import type { QrCodeRow } from "../../../api";
 import { AdminBtnPrimary, AdminBtnSecondary } from "../../AdminUi";
 import { useAdminToast } from "../../AdminToast";
 import { MenuPageModalShell, ProfileModalAlert } from "../menu/menuPageModalShell";
-import { QrRequestLoading } from "./QrRequestLoading";
+import { ConfigDrawerSpinner } from "../configLoadingUi";
 
 type Props = {
   open: boolean;
@@ -177,7 +177,7 @@ export function QrPrintConfirmModal({ open, qr, onClose }: Props) {
       busy={busy}
     >
       {busy ? (
-        <QrRequestLoading title="Preparing print…" sub="Loading your QR image" />
+        <ConfigDrawerSpinner label="Preparing print" />
       ) : (
         <>
       {error ? <ProfileModalAlert tone="error">{error}</ProfileModalAlert> : null}

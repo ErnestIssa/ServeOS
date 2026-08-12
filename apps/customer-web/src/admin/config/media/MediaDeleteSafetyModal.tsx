@@ -9,6 +9,7 @@ import {
 import { MenuPageModalShell } from "../menu/menuPageModalShell";
 import { AdminBtnSecondary } from "../../AdminUi";
 import { useAdminToast } from "../../AdminToast";
+import { ConfigBusyLabel, ConfigDrawerSpinner } from "../configLoadingUi";
 import { MediaUsageGraph } from "./MediaUsageGraph";
 
 type Props = {
@@ -251,7 +252,7 @@ export function MediaDeleteSafetyModal({
                   disabled={busy || selected.size === 0}
                   onClick={() => void detachSelected()}
                 >
-                  {busy ? "Working…" : `Remove selected (${selected.size})`}
+                  <ConfigBusyLabel busy={busy}>{`Remove selected (${selected.size})`}</ConfigBusyLabel>
                 </button>
               </div>
             )}
@@ -260,8 +261,7 @@ export function MediaDeleteSafetyModal({
 
         {loading && !impact ? (
           <div className="media-delete-modal__checking" aria-live="polite">
-            <span className="media-step-loader media-delete-modal__loader" aria-hidden />
-            <p className="text-sm admin-config-text-muted">Checking usage in the background…</p>
+            <ConfigDrawerSpinner label="Checking usage" />
             {pendingAction ? (
               <p className="text-xs admin-config-text-muted">
                 {pendingAction === "archive" ? "Archive" : "Delete"} will run when the check finishes.
@@ -278,11 +278,7 @@ export function MediaDeleteSafetyModal({
               disabled={busy}
               onClick={requestArchive}
             >
-              {busy && runningAction === "archive"
-                ? "Archiving…"
-                : pendingAction === "archive"
-                  ? "Waiting…"
-                  : "Archive"}
+              <ConfigBusyLabel busy={busy && runningAction === "archive"}>Archive</ConfigBusyLabel>
             </button>
           ) : null}
           {canDelete ? (
@@ -297,11 +293,7 @@ export function MediaDeleteSafetyModal({
               }
               onClick={requestDelete}
             >
-              {busy && runningAction === "delete"
-                ? "Deleting…"
-                : pendingAction === "delete"
-                  ? "Waiting…"
-                  : "Delete Permanently"}
+              <ConfigBusyLabel busy={busy && runningAction === "delete"}>Delete Permanently</ConfigBusyLabel>
             </button>
           ) : null}
         </div>

@@ -1,4 +1,4 @@
-/** Mirrors `services/api/src/lib/mobileExperience.ts` — do not infer menus client-side. */
+/** Mirrors `services/api/src/lib/mobile/mobileExperience.ts` — do not infer menus client-side. */
 
 export type MobileRoleType = "CUSTOMER" | "ADMIN" | "STAFF";
 

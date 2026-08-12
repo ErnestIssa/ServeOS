@@ -1,7 +1,7 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import type { OrderTransitionActor } from "./orderTypes.js";
-import { resolveMembershipPermissions } from "../venuePermissions.js";
-import { isVenueMembershipRole } from "../membershipAccess.js";
+import { resolveMembershipPermissions } from "../venue/venuePermissions.js";
+import { isVenueMembershipRole } from "../auth/membershipAccess.js";
 
 /**
  * Resolve staff actor permissions inside the order engine — never trust caller-supplied roles alone.

@@ -24,7 +24,7 @@ import { getAppPreferences, patchAppPreferences } from "../lib/account/preferenc
 import { requestAccountClosure, requestOwnershipTransfer } from "../lib/account/dangerZoneService.js";
 import { createProfileImageUploadSession } from "../lib/integrations/objectStorage.js";
 import { loadUserNotificationPrefs } from "../notifications/preferences.js";
-import { revokeAuthToken } from "../lib/authTokenRevocation.js";
+import { revokeAuthToken } from "../lib/auth/authTokenRevocation.js";
 
 function bearerAuth(req: { headers: { authorization?: string } }, app: FastifyInstance) {
   const auth = req.headers.authorization;

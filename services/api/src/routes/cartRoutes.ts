@@ -10,7 +10,7 @@ import {
   removeCustomerCartLine,
   serializeCustomerCart,
   updateCustomerCartOrderNote
-} from "../lib/customerCartService.js";
+} from "../lib/customer/customerCartService.js";
 
 function requireCustomer(req: { headers: { authorization?: string } }) {
   const secret = process.env.JWT_SECRET;

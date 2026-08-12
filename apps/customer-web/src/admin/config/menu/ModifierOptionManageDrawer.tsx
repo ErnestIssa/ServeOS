@@ -588,7 +588,7 @@ export function ModifierOptionManageDrawer({
         <ProfileModalFooter
           onCancel={() => setMoveOption(null)}
           onConfirm={() => void runMove()}
-          confirmLabel={moveBusy ? "Moving…" : "Move"}
+          confirmLabel="Move"
           busy={moveBusy}
           confirmDisabled={!moveGroupId || moveCandidates.length === 0}
         />
@@ -606,7 +606,7 @@ export function ModifierOptionManageDrawer({
         <ProfileModalFooter
           onCancel={() => setDangerKind(null)}
           onConfirm={() => void runLifecycle("ARCHIVED", "Archive")}
-          confirmLabel={dangerBusy ? "Archiving…" : "Archive"}
+          confirmLabel="Archive"
           busy={dangerBusy}
           danger
         />
@@ -624,7 +624,7 @@ export function ModifierOptionManageDrawer({
         <ProfileModalFooter
           onCancel={() => setDangerKind(null)}
           onConfirm={() => void runDelete()}
-          confirmLabel={dangerBusy ? "Deleting…" : "Delete"}
+          confirmLabel="Delete"
           busy={dangerBusy}
           danger
         />

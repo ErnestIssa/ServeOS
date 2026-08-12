@@ -127,7 +127,7 @@ export function MediaUploadFlowModal({
     setBusy(true);
     setActiveCloud(provider);
     setStep("cloud");
-    setCloudPhase("Connecting…");
+    setCloudPhase("");
     try {
       const imported = await acquireCloudImportFiles(provider, (p) => setCloudPhase(p.message));
       if (!imported.length) {
@@ -348,9 +348,9 @@ export function MediaUploadFlowModal({
         ) : null}
 
         {step === "cloud" ? (
-          <div className="media-upload-loading">
+          <div className="media-upload-loading" aria-busy aria-label={cloudPhase || `Connecting to ${cloudLabel}`}>
             <div className="media-step-loader" aria-hidden />
-            <p className="media-upload-loading-title">{cloudPhase || `Connecting to ${cloudLabel}…`}</p>
+            {cloudPhase ? <p className="media-upload-loading-title">{cloudPhase}</p> : null}
             <p className="media-upload-loading-sub">Import only · files become ServeOS assets</p>
           </div>
         ) : null}
@@ -415,18 +415,15 @@ export function MediaUploadFlowModal({
         ) : null}
 
         {step === "uploading" ? (
-          <div className="media-upload-loading">
+          <div className="media-upload-loading" aria-busy aria-label={stageLabel || "Uploading"}>
             <div className="media-step-loader" aria-hidden />
-            <p className="media-upload-loading-title media-upload-phrase">{stageLabel || "Working…"}</p>
             <p className="media-upload-loading-sub">Validate · EXIF strip · thumb · WebP · store</p>
           </div>
         ) : null}
 
         {step === "finishing" ? (
-          <div className="media-upload-loading">
+          <div className="media-upload-loading" aria-busy aria-label={stageLabel || "Finishing upload"}>
             <div className="media-final-loader" aria-hidden />
-            <p className="media-upload-loading-title media-upload-phrase">{stageLabel || "Almost done…"}</p>
-            <p className="media-upload-loading-sub">Saving to Media Library</p>
           </div>
         ) : null}
       </MenuPageModalShell>

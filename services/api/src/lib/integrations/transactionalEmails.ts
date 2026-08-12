@@ -1,4 +1,4 @@
-import { dispatchServeOsEmail, type DispatchEmailInput } from "../emailDispatchService.js";
+import { dispatchServeOsEmail, type DispatchEmailInput } from "../email/emailDispatchService.js";
 import type { SendEmailResult } from "./emailProvider.js";
 
 /**

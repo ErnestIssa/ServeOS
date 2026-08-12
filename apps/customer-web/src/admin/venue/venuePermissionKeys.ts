@@ -1,4 +1,4 @@
-/** Mirrors services/api/src/lib/venuePermissions.ts — keep in sync for admin UI gates. */
+/** Mirrors services/api/src/lib/venue/venuePermissions.ts — keep in sync for admin UI gates. */
 export const VENUE_PERMISSION = {
   staffInvite: "admin.staff_invite",
   staffApprove: "admin.staff_approve",

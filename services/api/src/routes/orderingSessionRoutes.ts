@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@prisma/client";
 import { z } from "zod";
-import { isCustomerBrowsableRestaurant } from "../lib/customerRestaurantDirectory.js";
+import { isCustomerBrowsableRestaurant } from "../lib/customer/customerRestaurantDirectory.js";
 import { requireMenuVenueMembership } from "../lib/menu/menuMembership.js";
 import { assertMenuEntityPermission } from "../lib/menu/menuPermissions.js";
 import { buildPublishedPublicMenu } from "../lib/menu/publicMenuService.js";

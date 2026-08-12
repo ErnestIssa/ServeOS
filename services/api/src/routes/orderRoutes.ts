@@ -5,7 +5,7 @@ import type { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { notifyOrderCreated, notifyOrderUpdated } from "../notifications/integrations/orders.js";
 import type { OrderEventPayload } from "@serveos/core-upstash";
-import { placeOrder, applyPaymentSucceededWebhook, applyPaymentFailedWebhook } from "../lib/orders/index.js";
+import { placeOrder, applyPaymentFailedWebhook } from "../lib/orders/index.js";
 import {
   getAdminOrderDetail,
   getAdminOrderStats,
@@ -50,9 +50,9 @@ import {
 import { applyOrderEditOperation } from "../lib/orderEdit/index.js";
 import { ORDER_STATUS_VALUES } from "../lib/orders/orderStatusValues.js";
 import type { PlaceOrderInput } from "../lib/orders/orderTypes.js";
-import { autoTerminateStaleActiveOrdersForCustomer } from "../lib/autoTerminateStaleActiveOrders.js";
-import { isVenueMembershipRole } from "../lib/membershipAccess.js";
-import { applyOrderStatusOcl, loadCustomerOrderOcl } from "../lib/orderOcl.js";
+import { autoTerminateStaleActiveOrdersForCustomer } from "../lib/orders/autoTerminateStaleActiveOrders.js";
+import { isVenueMembershipRole } from "../lib/auth/membershipAccess.js";
+import { applyOrderStatusOcl, loadCustomerOrderOcl } from "../lib/orders/orderOcl.js";
 import {
   assertOrderingSessionForRestaurant,
   placementDefaultsFromSession
@@ -1076,21 +1076,24 @@ export async function registerOrderRoutes(
   app.post("/webhooks/payments/:provider/succeeded", async (req) => {
     const { provider } = req.params as { provider: string };
     const body = paymentWebhookSchema.parse(req.body);
-    const webhookSecret = process.env.PAYMENT_WEBHOOK_SECRET?.trim();
-    const provided = req.headers["x-payment-webhook-secret"];
-    if (webhookSecret && provided !== webhookSecret) {
-      throw Object.assign(new Error("webhook_unauthorized"), { statusCode: 401 });
-    }
-
-    const result = await applyPaymentSucceededWebhook(
+    const { processPaymentProviderWebhook } = await import("../lib/payments/index.js");
+    const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+    const result = await processPaymentProviderWebhook(
       prisma,
       {
         provider,
-        externalId: body.externalId,
+        providerEventId: body.idempotencyKey ?? body.externalId,
+        eventType: "payment_succeeded",
         orderId: body.orderId,
+        externalId: body.externalId,
         amountCents: body.amountCents,
         currency: body.currency,
-        idempotencyKey: body.idempotencyKey ?? readIdempotencyKey(req)
+        idempotencyKey: body.idempotencyKey ?? readIdempotencyKey(req),
+        rawBody,
+        signatureHeader:
+          (req.headers["x-payment-webhook-secret"] as string | undefined) ??
+          (req.headers["stripe-signature"] as string | undefined) ??
+          null
       },
       { domainEventBus, orderBus },
       app.log

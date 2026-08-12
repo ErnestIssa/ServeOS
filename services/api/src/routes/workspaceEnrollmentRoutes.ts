@@ -2,15 +2,15 @@ import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
 import { z } from "zod";
-import { bearerUserId } from "../lib/mobileAuthContext.js";
-import { requireActiveAdminAtVenue } from "../lib/venueAccessGuard.js";
-import { requireMobileAuth } from "../lib/mobileAuthContext.js";
+import { bearerUserId } from "../lib/auth/mobileAuthContext.js";
+import { requireActiveAdminAtVenue } from "../lib/venue/venueAccessGuard.js";
+import { requireMobileAuth } from "../lib/auth/mobileAuthContext.js";
 import {
   completeWorkspaceEnrollment,
   createCustomerInvitation,
   inviteEmailForToken,
   resolveWorkspaceInvite
-} from "../lib/workspaceEnrollmentService.js";
+} from "../lib/workspace/workspaceEnrollmentService.js";
 import { toJwtRole } from "../plugins/auth.js";
 import { notifyStaffPendingApproval } from "../notifications/integrations/staff.js";
 import type { EventEmitter } from "node:events";

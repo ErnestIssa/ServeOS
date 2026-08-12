@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { SignupModalShell } from "../../signup/SignupModalShell";
+import { ConfigBusyLabel } from "../config/configLoadingUi";
 
 export const PROFILE_MODAL_PANEL =
   "relative w-full overflow-hidden rounded-3xl border border-white/60 bg-white/95 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.18)] backdrop-blur-xl sm:p-8 min-h-0";
@@ -106,7 +107,7 @@ export function ProfileModalFooter({
         disabled={busy || confirmDisabled}
         className={`admin-profile-modal-btn ${danger ? "admin-profile-modal-btn--danger" : "admin-profile-modal-btn--primary"}`}
       >
-        {busy ? "Working…" : confirmLabel}
+        <ConfigBusyLabel busy={busy}>{confirmLabel}</ConfigBusyLabel>
       </button>
     </div>
   );

@@ -2,8 +2,8 @@ import type { EventEmitter } from "node:events";
 import type { FastifyInstance } from "fastify";
 import jwt from "jsonwebtoken";
 import type { PrismaClient } from "@prisma/client";
-import { markCustomerRead } from "../lib/chatMessageService.js";
-import { emitChatEvent, roomChat, roomCustomerChat, type ChatWsPayload } from "../lib/chatRealtime.js";
+import { markCustomerRead } from "../lib/chat/chatMessageService.js";
+import { emitChatEvent, roomChat, roomCustomerChat, type ChatWsPayload } from "../lib/chat/chatRealtime.js";
 
 type InboundWs =
   | { event: "join_room"; chatRoomId: string }

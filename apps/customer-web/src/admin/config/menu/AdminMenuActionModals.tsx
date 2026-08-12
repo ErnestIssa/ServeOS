@@ -108,7 +108,7 @@ export function ArchiveMenuConfirmModal({
       <ProfileModalFooter
         onCancel={onClose}
         onConfirm={() => void confirm()}
-        confirmLabel={busy ? "Archiving…" : "Archive menu"}
+        confirmLabel="Archive menu"
         busy={busy}
         confirmDisabled={!menu || !matches}
         danger
@@ -241,7 +241,7 @@ export function ScheduleMenuModal({
       <ProfileModalFooter
         onCancel={onClose}
         onConfirm={() => void confirm()}
-        confirmLabel={busy ? "Saving…" : "Save schedule"}
+        confirmLabel="Save schedule"
         busy={busy}
         confirmDisabled={!menu || !date}
       />

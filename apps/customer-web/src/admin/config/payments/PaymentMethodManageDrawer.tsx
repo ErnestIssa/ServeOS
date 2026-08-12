@@ -25,7 +25,7 @@ import {
   paymentMethodHealthLabel,
   resolvePaymentMethodHealth
 } from "./paymentMethodsListQuery";
-import { PaymentsDetailsReveal, PaymentsDrawerSpinner } from "./paymentsLoadingUi";
+import { PaymentsBusyLabel, PaymentsDetailsReveal, PaymentsDrawerSpinner } from "./paymentsLoadingUi";
 import {
   SERVEOS_CURRENCY_OPTIONS,
   sanitizeServeosCurrencies,
@@ -775,7 +775,7 @@ export function PaymentMethodManageDrawer({
                   disabled={confirmBusy}
                   onClick={() => void runConfirmed()}
                 >
-                  {confirmBusy ? "Saving…" : pendingConfirm.confirmLabel}
+                  <PaymentsBusyLabel busy={confirmBusy}>{pendingConfirm.confirmLabel}</PaymentsBusyLabel>
                 </button>
               </div>
             </div>

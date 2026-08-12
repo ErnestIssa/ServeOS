@@ -1,0 +1,1238 @@
+/**
+ * Mobile app experience manifest — backend source of truth.
+ * Frontend maps row `id` values to navigation handlers; visibility is never inferred from JWT role alone.
+ */
+
+import {
+  resolveScreenKeyForRow,
+  screenKeysForManifest,
+  WORKSPACE_SCREENS
+} from "./mobileScreenRegistry.js";
+import { membershipRoleLabel } from "../util/userDisplayName.js";
+
+export type MobileRoleType = "CUSTOMER" | "ADMIN" | "STAFF";
+
+export type VenueAccessState = "none" | "active" | "pending_approval" | "suspended";
+
+/** @deprecated Use tab manifest `key` from `MobileExperienceManifest.tabs`. */
+export type MobileTabId = "home" | "bookings" | "orders" | "messages" | "account";
+
+/** Icon id sent to mobile — frontend maps to SVG glyphs only (no role logic). */
+export type MobileTabIconKey =
+  | "home"
+  | "bookings"
+  | "orders"
+  | "messages"
+  | "profile"
+  | "dashboard"
+  | "tasks"
+  | "chat"
+  | "schedule"
+  | "menu"
+  | "staff";
+
+export type MobileTabManifest = {
+  key: string;
+  label: string;
+  icon: MobileTabIconKey;
+  visible: boolean;
+};
+
+export type MeHubRowAction =
+  | "open_reservations"
+  | "open_orders"
+  | "open_review"
+  | "open_support"
+  | "navigate_section"
+  | "navigate_screen"
+  | "sign_out"
+  | "choose_venue";
+
+export type ControlCentreRowAction =
+  | "navigate_help"
+  | "navigate_safety"
+  | "navigate_settings"
+  | "navigate_section"
+  | "navigate_screen"
+  | "choose_venue";
+
+export type MeHubRowManifest = {
+  id: string;
+  title: string;
+  subtitle: string;
+  action: MeHubRowAction;
+  screenKey?: string;
+  /** Present when action is navigate_section or navigate_screen */
+  sectionTitle?: string;
+  sectionSubtitle?: string;
+  danger?: boolean;
+};
+
+export type MeHubSectionManifest = {
+  id: string;
+  label: string;
+  rows: MeHubRowManifest[];
+};
+
+export type ControlCentreChipManifest = {
+  id: string;
+  label: string;
+  action: "navigate_help" | "navigate_safety" | "navigate_settings";
+};
+
+export type ControlCentreRowManifest = {
+  id: string;
+  title: string;
+  subtitle: string;
+  action: ControlCentreRowAction;
+  screenKey?: string;
+  sectionTitle?: string;
+  sectionSubtitle?: string;
+  last?: boolean;
+};
+
+export type WorkspaceScreenManifest = {
+  title: string;
+  subtitle: string;
+  permission: string;
+  status: "live" | "coming_soon";
+};
+
+export type ControlCentreSectionManifest = {
+  id: string;
+  label: string;
+  rows: ControlCentreRowManifest[];
+};
+
+export type SettingsDetailKey =
+  | "manage_account"
+  | "privacy"
+  | "address"
+  | "accessibility"
+  | "night_mode"
+  | "shortcuts"
+  | "communication"
+  | "navigation"
+  | "sounds_voice"
+  | "connected_devices"
+  | "sessions"
+  | "notifications"
+  | "security";
+
+export type MobileExperienceManifest = {
+  roleType: MobileRoleType;
+  permissions: string[];
+  /** Venue membership gate — pending users must not access operational APIs. */
+  venueAccess: {
+    state: VenueAccessState;
+    pendingVenueName?: string;
+    suspendedVenueName?: string;
+  };
+  /** Screen catalog the user may open (keys → metadata). */
+  screens: Record<string, WorkspaceScreenManifest>;
+  /** Primary workspace screen per tab key (admin/staff operational tabs). */
+  tabScreens: Partial<Record<string, string>>;
+  /** Bottom navigation — order, labels, icons, visibility (single source of truth). */
+  tabs: MobileTabManifest[];
+  /** Platform identity always has customer capabilities when authenticated. */
+  customerAccess: boolean;
+  /** Active experience context — drives top chrome and switcher selection. */
+  activeExperience: {
+    mode: "CUSTOMER" | "WORKSPACE";
+    label: string;
+    restaurantId?: string;
+    restaurantName?: string;
+    roleLabel?: string;
+  };
+  meHub: {
+    sections: MeHubSectionManifest[];
+    showNotificationToggles: boolean;
+    showVenueLine: boolean;
+  };
+  controlCentre: {
+    chips: ControlCentreChipManifest[];
+    sections: ControlCentreSectionManifest[];
+    showDarkModeToggle: boolean;
+  };
+  settings: {
+    accountKeys: SettingsDetailKey[];
+    generalKeys: SettingsDetailKey[];
+    platformKeys: SettingsDetailKey[];
+  };
+};
+
+/** Maps persisted backend role strings → mobile role bucket. */
+export function mapBackendRoleToBucket(role: string): MobileRoleType {
+  const u = role.trim().toUpperCase();
+  if (u === "OWNER" || u === "MANAGER") return "ADMIN";
+  if (u === "STAFF" || u === "KITCHEN" || u === "CASHIER" || u === "WAITER") return "STAFF";
+  return "CUSTOMER";
+}
+
+export function resolveMobileRoleType(roleStrings: string[]): MobileRoleType {
+  const buckets = roleStrings.map(mapBackendRoleToBucket);
+  if (buckets.includes("ADMIN")) return "ADMIN";
+  if (buckets.includes("STAFF")) return "STAFF";
+  return "CUSTOMER";
+}
+
+const PERMS = {
+  customer: {
+    reservations: "customer.reservations",
+    orders: "customer.orders",
+    review: "customer.review",
+    orderHistory: "customer.order_history",
+    favorites: "customer.favorites",
+    payments: "customer.payments",
+    addresses: "customer.addresses",
+    rewards: "customer.rewards",
+    dietary: "customer.dietary",
+    support: "shared.support"
+  },
+  staff: {
+    assignedOrders: "staff.assigned_orders",
+    shift: "staff.shift_tools",
+    reservations: "staff.reservations",
+    tables: "staff.tables",
+    kitchen: "staff.kitchen",
+    checkout: "staff.checkout",
+    devices: "staff.device_status"
+  },
+  admin: {
+    restaurantProfile: "admin.restaurant_profile",
+    restaurantSettings: "admin.restaurant_settings",
+    dashboard: "admin.dashboard",
+    revenue: "admin.revenue",
+    analytics: "admin.analytics",
+    hours: "admin.opening_hours",
+    reservations: "admin.reservations",
+    tables: "admin.tables",
+    menu: "admin.menu",
+    modifiers: "admin.modifiers",
+    staffMgmt: "admin.staff_management",
+    staffInvite: "admin.staff_invite",
+    staffApprove: "admin.staff_approve",
+    staffPermissionsEdit: "admin.staff_permissions_edit",
+    staffSuspend: "admin.staff_suspend",
+    staffRemove: "admin.staff_remove",
+    staffInviteManager: "admin.staff_invite_manager",
+    roles: "admin.roles_permissions",
+    devices: "admin.devices",
+    kds: "admin.kds",
+    checkout: "admin.checkout",
+    integrations: "admin.integrations",
+    payments: "admin.payment_settings",
+    billing: "admin.billing",
+    liveOrders: "admin.live_orders",
+    kitchenOverview: "admin.kitchen_overview",
+    alerts: "admin.operational_alerts"
+  },
+  shared: {
+    help: "shared.help",
+    safety: "shared.safety",
+    settings: "shared.app_settings",
+    privacy: "shared.privacy",
+    sessions: "shared.sessions",
+    devices: "shared.connected_devices",
+    about: "shared.about",
+    accessibility: "shared.accessibility",
+    communication: "shared.communication",
+    theme: "shared.theme",
+    notifications: "shared.notifications",
+    profile: "shared.profile",
+    support: "shared.support"
+  }
+} as const;
+
+function sharedPermissionBaseline(): string[] {
+  return [
+    PERMS.shared.help,
+    PERMS.shared.safety,
+    PERMS.shared.settings,
+    PERMS.shared.privacy,
+    PERMS.shared.sessions,
+    PERMS.shared.devices,
+    PERMS.shared.about,
+    PERMS.shared.accessibility,
+    PERMS.shared.communication,
+    PERMS.shared.theme,
+    PERMS.shared.notifications,
+    PERMS.shared.profile,
+    PERMS.shared.support
+  ];
+}
+
+function permissionsForRoleType(roleType: MobileRoleType, staffFlags: StaffCapabilityFlags): string[] {
+  const p = new Set<string>(sharedPermissionBaseline());
+
+  if (roleType === "CUSTOMER") {
+    for (const k of Object.values(PERMS.customer)) p.add(k);
+    return [...p];
+  }
+
+  if (roleType === "ADMIN") {
+    for (const k of Object.values(PERMS.admin)) p.add(k);
+    return [...p];
+  }
+
+  // STAFF (legacy defaults when no DB-granted list)
+  p.add(PERMS.staff.assignedOrders);
+  p.add(PERMS.staff.shift);
+  p.add(PERMS.staff.reservations);
+  p.add(PERMS.staff.tables);
+  p.add(PERMS.staff.devices);
+  if (staffFlags.kitchen) p.add(PERMS.staff.kitchen);
+  if (staffFlags.checkout) p.add(PERMS.staff.checkout);
+
+  return [...p];
+}
+
+function permissionsFromGranted(granted: string[]): string[] {
+  const p = new Set<string>([...sharedPermissionBaseline(), ...granted]);
+  return [...p];
+}
+
+function staffFlagsFromGranted(granted: string[]): StaffCapabilityFlags {
+  return {
+    kitchen: granted.includes(PERMS.staff.kitchen),
+    checkout: granted.includes(PERMS.staff.checkout),
+    reservations: granted.includes(PERMS.staff.reservations),
+    tables: granted.includes(PERMS.staff.tables)
+  };
+}
+
+export type StaffCapabilityFlags = {
+  kitchen: boolean;
+  checkout: boolean;
+  reservations: boolean;
+  tables: boolean;
+};
+
+export function readStaffCapabilityFlags(signupProfile: unknown, membershipRoles: string[]): StaffCapabilityFlags {
+  const roles = membershipRoles.map((r) => r.toUpperCase());
+  const profile =
+    signupProfile && typeof signupProfile === "object" && !Array.isArray(signupProfile)
+      ? (signupProfile as Record<string, unknown>)
+      : {};
+  const caps = Array.isArray(profile.staffCapabilities)
+    ? profile.staffCapabilities.filter((x): x is string => typeof x === "string")
+    : [];
+  const all = [...roles, ...caps.map((c) => c.toUpperCase())];
+  return {
+    kitchen: all.some((r) => r === "KITCHEN" || r === "STAFF"),
+    checkout: all.some((r) => r === "CASHIER" || r === "STAFF"),
+    reservations: all.some((r) => r === "STAFF" || r === "WAITER"),
+    tables: all.some((r) => r === "STAFF" || r === "WAITER")
+  };
+}
+
+function buildTabsForMembershipRole(
+  roleType: MobileRoleType,
+  membershipRole: string | undefined,
+  staffFlags: StaffCapabilityFlags
+): MobileTabManifest[] {
+  if (roleType !== "STAFF") return buildTabsForRole(roleType);
+  const r = (membershipRole ?? "STAFF").trim().toUpperCase();
+  if (r === "CASHIER") {
+    return [
+      { key: "orders", label: "Orders", icon: "orders", visible: true },
+      { key: "tasks", label: "Checkout", icon: "tasks", visible: staffFlags.checkout },
+      { key: "chat", label: "Chat", icon: "chat", visible: true },
+      { key: "schedule", label: "Schedule", icon: "schedule", visible: true },
+      { key: "profile", label: "Profile", icon: "profile", visible: true }
+    ];
+  }
+  if (r === "KITCHEN") {
+    return [
+      { key: "orders", label: "Kitchen", icon: "orders", visible: true },
+      { key: "tasks", label: "Tickets", icon: "tasks", visible: staffFlags.kitchen },
+      { key: "chat", label: "Chat", icon: "chat", visible: true },
+      { key: "schedule", label: "Schedule", icon: "schedule", visible: true },
+      { key: "profile", label: "Profile", icon: "profile", visible: true }
+    ];
+  }
+  return buildTabsForRole("STAFF");
+}
+
+function buildTabsForRole(roleType: MobileRoleType): MobileTabManifest[] {
+  switch (roleType) {
+    case "CUSTOMER":
+      return [
+        { key: "home", label: "Home", icon: "home", visible: true },
+        { key: "bookings", label: "Book", icon: "bookings", visible: true },
+        { key: "orders", label: "Orders", icon: "orders", visible: true },
+        { key: "messages", label: "Chat", icon: "messages", visible: true },
+        { key: "account", label: "Profile", icon: "profile", visible: true }
+      ];
+    case "STAFF":
+      return [
+        { key: "orders", label: "Orders", icon: "orders", visible: true },
+        { key: "tasks", label: "Tasks", icon: "tasks", visible: true },
+        { key: "chat", label: "Chat", icon: "chat", visible: true },
+        { key: "schedule", label: "Schedule", icon: "schedule", visible: true },
+        { key: "profile", label: "Profile", icon: "profile", visible: true }
+      ];
+    case "ADMIN":
+      return [
+        { key: "dashboard", label: "Dashboard", icon: "dashboard", visible: true },
+        { key: "orders", label: "Orders", icon: "orders", visible: true },
+        { key: "menu", label: "Menu", icon: "menu", visible: true },
+        { key: "staff", label: "Staff", icon: "staff", visible: true },
+        { key: "profile", label: "Profile", icon: "profile", visible: true }
+      ];
+  }
+}
+
+function tabScreensForRole(
+  roleType: MobileRoleType,
+  permSet: Set<string>,
+  staffFlags: StaffCapabilityFlags,
+  membershipRole?: string
+): Partial<Record<string, string>> {
+  if (roleType === "ADMIN") {
+    const out: Partial<Record<string, string>> = {};
+    if (permSet.has(PERMS.admin.dashboard)) out.dashboard = "admin.dashboard";
+    if (permSet.has(PERMS.admin.liveOrders)) out.orders = "admin.live_orders";
+    if (permSet.has(PERMS.admin.menu)) out.menu = "admin.menu";
+    if (permSet.has(PERMS.admin.staffMgmt)) out.staff = "admin.staff_management";
+    out.profile = "admin.profile";
+    return out;
+  }
+  if (roleType === "STAFF") {
+    const r = (membershipRole ?? "STAFF").trim().toUpperCase();
+    if (r === "CASHIER") {
+      return {
+        orders: "staff.orders",
+        tasks: staffFlags.checkout ? "staff.checkout_queue" : "staff.tasks",
+        chat: "staff.chat",
+        schedule: "staff.schedule",
+        profile: "staff.profile"
+      };
+    }
+    if (r === "KITCHEN") {
+      return {
+        orders: "staff.orders",
+        tasks: staffFlags.kitchen ? "staff.kitchen_queue" : "staff.tasks",
+        chat: "staff.chat",
+        schedule: "staff.schedule",
+        profile: "staff.profile"
+      };
+    }
+    return {
+      orders: "staff.orders",
+      tasks: "staff.tasks",
+      chat: "staff.chat",
+      schedule: "staff.schedule",
+      profile: "staff.profile"
+    };
+  }
+  return {};
+}
+
+function buildCustomerMeHub(options?: { showExperienceSwitcher?: boolean }): MeHubSectionManifest[] {
+  const workspaceSection: MeHubSectionManifest | null = options?.showExperienceSwitcher
+    ? {
+        id: "workspace",
+        label: "Experiences",
+        rows: [
+          {
+            id: "me:experience",
+            title: "Switch experience",
+            subtitle: "Customer mode or a restaurant workspace",
+            action: "choose_venue"
+          }
+        ]
+      }
+    : null;
+
+  const core: MeHubSectionManifest[] = [
+    {
+      id: "activity",
+      label: "Activity",
+      rows: [
+        {
+          id: "me:reservations",
+          title: "Upcoming reservations",
+          subtitle: "Tables and events you've booked",
+          action: "open_reservations"
+        },
+        {
+          id: "me:active_orders",
+          title: "Active orders",
+          subtitle: "Track live order status",
+          action: "open_orders"
+        },
+        {
+          id: "me:review",
+          title: "Review",
+          subtitle: "Rate your visits and share feedback",
+          action: "open_review"
+        },
+        {
+          id: "me:order_history",
+          title: "Order history",
+          subtitle: "Past orders, receipts, and reorder",
+          action: "navigate_section",
+          sectionTitle: "Order history",
+          sectionSubtitle: "Receipts and past totals"
+        }
+      ]
+    },
+    {
+      id: "places",
+      label: "Places & payment",
+      rows: [
+        {
+          id: "me:favorites",
+          title: "Saved & favorite venues",
+          subtitle: "Restaurants you love",
+          action: "navigate_section",
+          sectionTitle: "Saved venues",
+          sectionSubtitle: "Favorites and recents"
+        },
+        {
+          id: "me:payments",
+          title: "Payment methods",
+          subtitle: "Cards and Swish",
+          action: "navigate_section",
+          sectionTitle: "Payment methods",
+          sectionSubtitle: "Stripe / Swish"
+        },
+        {
+          id: "me:addresses",
+          title: "Addresses",
+          subtitle: "Delivery and saved locations",
+          action: "navigate_section",
+          sectionTitle: "Addresses",
+          sectionSubtitle: "Saved delivery addresses"
+        }
+      ]
+    },
+    {
+      id: "rewards",
+      label: "Rewards",
+      rows: [
+        {
+          id: "me:rewards",
+          title: "Rewards & loyalty",
+          subtitle: "Points, offers, and perks",
+          action: "navigate_section",
+          sectionTitle: "Rewards & loyalty",
+          sectionSubtitle: "Coming soon"
+        }
+      ]
+    },
+    {
+      id: "preferences",
+      label: "Personal preferences",
+      rows: [
+        {
+          id: "me:preferences",
+          title: "Dietary & allergies",
+          subtitle: "Filters for menu and ordering",
+          action: "navigate_section",
+          sectionTitle: "Dietary & allergies",
+          sectionSubtitle: "Set preferences for safer ordering"
+        }
+      ]
+    },
+    {
+      id: "session",
+      label: "Session",
+      rows: [
+        {
+          id: "me:sign_out",
+          title: "Log out",
+          subtitle: "Ends this session on your device",
+          action: "sign_out",
+          danger: true
+        }
+      ]
+    }
+  ];
+
+  return workspaceSection ? [workspaceSection, ...core] : core;
+}
+
+function buildActiveExperienceMeta(input: {
+  mode: "CUSTOMER" | "WORKSPACE";
+  restaurantId?: string | null;
+  restaurantName?: string | null;
+  roleLabel?: string | null;
+}): MobileExperienceManifest["activeExperience"] {
+  if (input.mode === "CUSTOMER") {
+    return { mode: "CUSTOMER", label: "Customer" };
+  }
+  return {
+    mode: "WORKSPACE",
+    label: input.restaurantName?.trim() || "Workspace",
+    restaurantId: input.restaurantId ?? undefined,
+    restaurantName: input.restaurantName ?? undefined,
+    roleLabel: input.roleLabel ?? undefined
+  };
+}
+
+function withExperienceIdentity(
+  manifest: Omit<MobileExperienceManifest, "customerAccess" | "activeExperience">,
+  activeExperience: MobileExperienceManifest["activeExperience"]
+): MobileExperienceManifest {
+  return {
+    ...manifest,
+    customerAccess: true,
+    activeExperience
+  };
+}
+
+function buildStaffAdminMeHub(roleType: MobileRoleType): MeHubSectionManifest[] {
+  const workspaceRows: MeHubSectionManifest["rows"] = [
+    {
+      id: "me:experience",
+      title: "Switch experience",
+      subtitle: "Customer mode, venues, join or create",
+      action: "choose_venue"
+    }
+  ];
+  if (roleType === "ADMIN") {
+    workspaceRows.push({
+      id: "app:restaurant_profile",
+      title: "Restaurant profile",
+      subtitle: "Venue details, hours, and billing",
+      action: "navigate_screen",
+      screenKey: "admin.restaurant_profile",
+      sectionTitle: "Restaurant profile",
+      sectionSubtitle: "Venue settings"
+    });
+  }
+
+  return [
+    {
+      id: "workspace",
+      label: roleType === "ADMIN" ? "Workspace" : "Venue",
+      rows: workspaceRows
+    },
+    {
+      id: "session",
+      label: "Session",
+      rows: [
+        {
+          id: "me:sign_out",
+          title: "Log out",
+          subtitle: "Ends this session on your device",
+          action: "sign_out",
+          danger: true
+        }
+      ]
+    }
+  ];
+}
+
+function buildCustomerControlCentre(): {
+  chips: ControlCentreChipManifest[];
+  sections: ControlCentreSectionManifest[];
+} {
+  return {
+    chips: [
+      { id: "app:chip:help", label: "Help", action: "navigate_help" },
+      { id: "app:chip:safety", label: "Safety", action: "navigate_safety" },
+      { id: "app:chip:settings", label: "App settings", action: "navigate_settings" }
+    ],
+    sections: []
+  };
+}
+
+function controlCentreSectionsToMeHub(sections: ControlCentreSectionManifest[]): MeHubSectionManifest[] {
+  return sections.map((section) => ({
+    id: `hub_${section.id}`,
+    label: section.label,
+    rows: section.rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      subtitle: row.subtitle,
+      action:
+        row.action === "navigate_screen"
+          ? "navigate_screen"
+          : row.action === "choose_venue"
+            ? "choose_venue"
+            : "navigate_section",
+      screenKey: row.screenKey,
+      sectionTitle: row.sectionTitle ?? row.title,
+      sectionSubtitle: row.sectionSubtitle ?? row.subtitle
+    }))
+  }));
+}
+
+function buildAdminControlCentre(perms: Set<string>): {
+  chips: ControlCentreChipManifest[];
+  sections: ControlCentreSectionManifest[];
+} {
+  const restaurantRows: ControlCentreRowManifest[] = [];
+  const add = (row: ControlCentreRowManifest, perm: string) => {
+    if (perms.has(perm)) restaurantRows.push(row);
+  };
+
+  add(
+    {
+      id: "app:restaurant_profile",
+      title: "Restaurant profile",
+      subtitle: "Name, venue type, location",
+      action: "navigate_section",
+      sectionTitle: "Restaurant profile",
+      sectionSubtitle: "Venue identity"
+    },
+    PERMS.admin.restaurantProfile
+  );
+  add(
+    {
+      id: "app:restaurant_settings",
+      title: "Restaurant settings",
+      subtitle: "Hours, policies, service rules",
+      action: "navigate_section",
+      sectionTitle: "Restaurant settings",
+      sectionSubtitle: "Operational configuration"
+    },
+    PERMS.admin.restaurantSettings
+  );
+  add(
+    {
+      id: "app:dashboard",
+      title: "Business dashboard",
+      subtitle: "Owner and manager overview",
+      action: "navigate_section",
+      sectionTitle: "Business dashboard",
+      sectionSubtitle: "Web admin and analytics"
+    },
+    PERMS.admin.dashboard
+  );
+  add(
+    {
+      id: "app:revenue",
+      title: "Revenue overview",
+      subtitle: "Sales and trends",
+      action: "navigate_section",
+      sectionTitle: "Revenue overview",
+      sectionSubtitle: "Financial snapshot"
+    },
+    PERMS.admin.revenue
+  );
+  add(
+    {
+      id: "app:analytics",
+      title: "Analytics",
+      subtitle: "Performance insights",
+      action: "navigate_section",
+      sectionTitle: "Analytics",
+      sectionSubtitle: "Reports and KPIs"
+    },
+    PERMS.admin.analytics
+  );
+  add(
+    {
+      id: "app:hours",
+      title: "Opening hours",
+      subtitle: "Service windows",
+      action: "navigate_section",
+      sectionTitle: "Opening hours",
+      sectionSubtitle: "Weekly schedule"
+    },
+    PERMS.admin.hours
+  );
+  add(
+    {
+      id: "app:reservations_mgmt",
+      title: "Reservation management",
+      subtitle: "Bookings and holds",
+      action: "navigate_section",
+      sectionTitle: "Reservation management",
+      sectionSubtitle: "Floor plan bookings"
+    },
+    PERMS.admin.reservations
+  );
+  add(
+    {
+      id: "app:tables",
+      title: "Table management",
+      subtitle: "Sections and capacity",
+      action: "navigate_section",
+      sectionTitle: "Table management",
+      sectionSubtitle: "Layout and assignments"
+    },
+    PERMS.admin.tables
+  );
+  add(
+    {
+      id: "app:menu",
+      title: "Menu management",
+      subtitle: "Categories and items",
+      action: "navigate_section",
+      sectionTitle: "Menu management",
+      sectionSubtitle: "Edit menu catalog"
+    },
+    PERMS.admin.menu
+  );
+  add(
+    {
+      id: "app:modifiers",
+      title: "Modifier management",
+      subtitle: "Options and groups",
+      action: "navigate_section",
+      sectionTitle: "Modifier management",
+      sectionSubtitle: "Item customization"
+    },
+    PERMS.admin.modifiers
+  );
+  add(
+    {
+      id: "app:staff_mgmt",
+      title: "Staff management",
+      subtitle: "Team and invites",
+      action: "navigate_section",
+      sectionTitle: "Staff management",
+      sectionSubtitle: "Roster and access"
+    },
+    PERMS.admin.staffMgmt
+  );
+  add(
+    {
+      id: "app:roles",
+      title: "Roles & permissions",
+      subtitle: "Who can do what",
+      action: "navigate_section",
+      sectionTitle: "Roles & permissions",
+      sectionSubtitle: "Access control"
+    },
+    PERMS.admin.roles
+  );
+  add(
+    {
+      id: "app:devices",
+      title: "Device management",
+      subtitle: "KDS, printers, displays",
+      action: "navigate_section",
+      sectionTitle: "Device management",
+      sectionSubtitle: "Hardware registry"
+    },
+    PERMS.admin.devices
+  );
+  add(
+    {
+      id: "app:kds",
+      title: "KDS management",
+      subtitle: "Kitchen display setup",
+      action: "navigate_section",
+      sectionTitle: "KDS management",
+      sectionSubtitle: "Kitchen screens"
+    },
+    PERMS.admin.kds
+  );
+  add(
+    {
+      id: "app:checkout_mgmt",
+      title: "Checkout management",
+      subtitle: "POS and payment flow",
+      action: "navigate_section",
+      sectionTitle: "Checkout management",
+      sectionSubtitle: "Front-of-house"
+    },
+    PERMS.admin.checkout
+  );
+  add(
+    {
+      id: "app:integrations",
+      title: "Integrations",
+      subtitle: "Stripe, Swish, partners",
+      action: "navigate_section",
+      sectionTitle: "Integrations",
+      sectionSubtitle: "Payment and platform links"
+    },
+    PERMS.admin.integrations
+  );
+  add(
+    {
+      id: "app:payments",
+      title: "Payment settings",
+      subtitle: "Providers and payouts",
+      action: "navigate_section",
+      sectionTitle: "Payment settings",
+      sectionSubtitle: "Billing configuration"
+    },
+    PERMS.admin.payments
+  );
+  add(
+    {
+      id: "app:billing",
+      title: "Subscription & billing",
+      subtitle: "Plan and invoices",
+      action: "navigate_section",
+      sectionTitle: "Subscription & billing",
+      sectionSubtitle: "ServeOS plan"
+    },
+    PERMS.admin.billing
+  );
+
+  if (restaurantRows.length > 0) {
+    restaurantRows[restaurantRows.length - 1]!.last = true;
+  }
+
+  const opsRows: ControlCentreRowManifest[] = [];
+  const addOp = (row: ControlCentreRowManifest, perm: string) => {
+    if (perms.has(perm)) opsRows.push(row);
+  };
+  addOp(
+    {
+      id: "app:live_orders",
+      title: "Live orders",
+      subtitle: "Active service queue",
+      action: "navigate_screen",
+      screenKey: "admin.live_orders",
+      sectionTitle: "Live orders",
+      sectionSubtitle: "Real-time operations"
+    },
+    PERMS.admin.liveOrders
+  );
+  addOp(
+    {
+      id: "app:kitchen_overview",
+      title: "Kitchen overview",
+      subtitle: "Prep and expo status",
+      action: "navigate_section",
+      sectionTitle: "Kitchen overview",
+      sectionSubtitle: "Back-of-house"
+    },
+    PERMS.admin.kitchenOverview
+  );
+  addOp(
+    {
+      id: "app:alerts",
+      title: "Operational alerts",
+      subtitle: "Exceptions and SLA",
+      action: "navigate_section",
+      sectionTitle: "Operational alerts",
+      sectionSubtitle: "Notifications hub"
+    },
+    PERMS.admin.alerts
+  );
+  if (opsRows.length > 0) opsRows[opsRows.length - 1]!.last = true;
+
+  const platform = buildCustomerControlCentre();
+  const sections: ControlCentreSectionManifest[] = [];
+  if (restaurantRows.length) sections.push({ id: "restaurant", label: "Restaurant", rows: restaurantRows });
+  if (opsRows.length) sections.push({ id: "operations", label: "Operations", rows: opsRows });
+
+  return {
+    chips: platform.chips,
+    sections
+  };
+}
+
+function buildStaffControlCentre(perms: Set<string>, flags: StaffCapabilityFlags): {
+  chips: ControlCentreChipManifest[];
+  sections: ControlCentreSectionManifest[];
+} {
+  const ops: ControlCentreRowManifest[] = [];
+  const add = (row: ControlCentreRowManifest, ok: boolean) => {
+    if (ok) ops.push(row);
+  };
+
+  add(
+    {
+      id: "app:assigned_orders",
+      title: "Assigned orders",
+      subtitle: "Your service queue",
+      action: "navigate_screen",
+      screenKey: "staff.assigned_orders",
+      sectionTitle: "Assigned orders",
+      sectionSubtitle: "Orders for your shift"
+    },
+    perms.has(PERMS.staff.assignedOrders)
+  );
+  add(
+    {
+      id: "app:shift",
+      title: "Shift tools",
+      subtitle: "Clock-in and handoff",
+      action: "navigate_section",
+      sectionTitle: "Shift tools",
+      sectionSubtitle: "Shift workflow"
+    },
+    perms.has(PERMS.staff.shift)
+  );
+  add(
+    {
+      id: "app:staff_reservations",
+      title: "Reservations",
+      subtitle: "Today's bookings",
+      action: "navigate_section",
+      sectionTitle: "Reservations",
+      sectionSubtitle: "Guest seating"
+    },
+    perms.has(PERMS.staff.reservations) && flags.reservations
+  );
+  add(
+    {
+      id: "app:staff_tables",
+      title: "Tables",
+      subtitle: "Floor and assignments",
+      action: "navigate_section",
+      sectionTitle: "Tables",
+      sectionSubtitle: "Table status"
+    },
+    perms.has(PERMS.staff.tables) && flags.tables
+  );
+  add(
+    {
+      id: "app:staff_kitchen",
+      title: "Kitchen tools",
+      subtitle: "Prep and tickets",
+      action: "navigate_section",
+      sectionTitle: "Kitchen tools",
+      sectionSubtitle: "Kitchen display"
+    },
+    perms.has(PERMS.staff.kitchen) && flags.kitchen
+  );
+  add(
+    {
+      id: "app:staff_checkout",
+      title: "Checkout tools",
+      subtitle: "Payments and close",
+      action: "navigate_section",
+      sectionTitle: "Checkout tools",
+      sectionSubtitle: "Cashier functions"
+    },
+    perms.has(PERMS.staff.checkout) && flags.checkout
+  );
+  add(
+    {
+      id: "app:device_status",
+      title: "Device status",
+      subtitle: "Printers and KDS health",
+      action: "navigate_section",
+      sectionTitle: "Device status",
+      sectionSubtitle: "Connected hardware"
+    },
+    perms.has(PERMS.staff.devices)
+  );
+
+  if (ops.length) ops[ops.length - 1]!.last = true;
+
+  const shared = buildCustomerControlCentre();
+  const sections: ControlCentreSectionManifest[] = [];
+  if (ops.length) sections.push({ id: "operations", label: "Operations", rows: ops });
+
+  return { chips: shared.chips, sections };
+}
+
+function settingsForRole(roleType: MobileRoleType): {
+  accountKeys: SettingsDetailKey[];
+  generalKeys: SettingsDetailKey[];
+  platformKeys: SettingsDetailKey[];
+} {
+  const sharedGeneral: SettingsDetailKey[] = [
+    "accessibility",
+    "night_mode",
+    "communication",
+    "sounds_voice"
+  ];
+  const platformKeys: SettingsDetailKey[] = ["connected_devices", "sessions"];
+  if (roleType === "CUSTOMER") {
+    return {
+      accountKeys: ["manage_account", "privacy", "address"],
+      generalKeys: [...sharedGeneral, "shortcuts", "navigation"],
+      platformKeys
+    };
+  }
+  return {
+    accountKeys: ["manage_account", "privacy", "security"],
+    generalKeys: sharedGeneral,
+    platformKeys
+  };
+}
+
+export function buildMobileExperienceManifest(input: {
+  userRole: string;
+  membershipRoles: string[];
+  signupProfile: unknown;
+  grantedPermissions?: string[];
+  venueAccessState?: VenueAccessState;
+  pendingVenueName?: string;
+  suspendedVenueName?: string;
+  hasWorkspaceMemberships?: boolean;
+  activeExperienceMode?: "CUSTOMER" | "WORKSPACE";
+  activeRestaurantId?: string | null;
+  activeRestaurantName?: string | null;
+}): MobileExperienceManifest {
+  const venueAccessState = input.venueAccessState ?? (input.membershipRoles.length ? "active" : "none");
+
+  if (venueAccessState === "suspended") {
+    const customerPerms = permissionsForRoleType("CUSTOMER", readStaffCapabilityFlags(input.signupProfile, []));
+    return withExperienceIdentity(
+      {
+        roleType: "CUSTOMER",
+        permissions: customerPerms,
+        venueAccess: {
+          state: "suspended",
+          suspendedVenueName: input.suspendedVenueName
+        },
+        screens: screenKeysForManifest("CUSTOMER", customerPerms),
+        tabScreens: {},
+        tabs: buildTabsForRole("CUSTOMER"),
+        meHub: {
+          sections: buildCustomerMeHub({ showExperienceSwitcher: !!input.hasWorkspaceMemberships }),
+          showNotificationToggles: false,
+          showVenueLine: true
+        },
+        controlCentre: {
+          ...buildCustomerControlCentre(),
+          showDarkModeToggle: false
+        },
+        settings: settingsForRole("CUSTOMER")
+      },
+      buildActiveExperienceMeta({ mode: "CUSTOMER" })
+    );
+  }
+
+  if (venueAccessState === "pending_approval") {
+    const customerPerms = permissionsForRoleType("CUSTOMER", readStaffCapabilityFlags(input.signupProfile, []));
+    return withExperienceIdentity(
+      {
+        roleType: "CUSTOMER",
+        permissions: customerPerms,
+        venueAccess: {
+          state: "pending_approval",
+          pendingVenueName: input.pendingVenueName
+        },
+        screens: screenKeysForManifest("CUSTOMER", customerPerms),
+        tabScreens: {},
+        tabs: buildTabsForRole("CUSTOMER"),
+        meHub: {
+          sections: buildCustomerMeHub({ showExperienceSwitcher: !!input.hasWorkspaceMemberships }),
+          showNotificationToggles: false,
+          showVenueLine: true
+        },
+        controlCentre: {
+          ...buildCustomerControlCentre(),
+          showDarkModeToggle: false
+        },
+        settings: settingsForRole("CUSTOMER")
+      },
+      buildActiveExperienceMeta({ mode: "CUSTOMER" })
+    );
+  }
+
+  const primaryMembershipRole = input.membershipRoles[0];
+  const roleStrings = [input.userRole, ...input.membershipRoles];
+  const roleType = resolveMobileRoleType(roleStrings);
+  const staffFlags =
+    input.grantedPermissions && input.grantedPermissions.length > 0
+      ? staffFlagsFromGranted(input.grantedPermissions)
+      : readStaffCapabilityFlags(input.signupProfile, input.membershipRoles);
+  const permissions =
+    input.grantedPermissions && input.grantedPermissions.length > 0
+      ? permissionsFromGranted(input.grantedPermissions)
+      : permissionsForRoleType(roleType, staffFlags);
+  const permSet = new Set(permissions);
+
+  let meHubSections: MeHubSectionManifest[];
+  let controlCentre: { chips: ControlCentreChipManifest[]; sections: ControlCentreSectionManifest[] };
+  let showNotificationToggles: boolean;
+  let showVenueLine: boolean;
+
+  if (roleType === "CUSTOMER") {
+    meHubSections = buildCustomerMeHub({ showExperienceSwitcher: !!input.hasWorkspaceMemberships });
+    controlCentre = buildCustomerControlCentre();
+    showNotificationToggles = false;
+    showVenueLine = true;
+  } else if (roleType === "ADMIN") {
+    meHubSections = buildStaffAdminMeHub("ADMIN");
+    controlCentre = buildAdminControlCentre(permSet);
+    showNotificationToggles = false;
+    showVenueLine = true;
+  } else {
+    meHubSections = buildStaffAdminMeHub("STAFF");
+    controlCentre = buildStaffControlCentre(permSet, staffFlags);
+    showNotificationToggles = false;
+    showVenueLine = true;
+  }
+
+  const settings = settingsForRole(roleType);
+
+  const screens = screenKeysForManifest(roleType, permissions);
+  const operationalSections = controlCentre.sections;
+  const controlChips = controlCentre.chips;
+  const combinedMeHubSections = [
+    ...meHubSections,
+    ...controlCentreSectionsToMeHub(operationalSections)
+  ];
+  const enrichedMe = {
+    sections: enrichSectionsWithScreens(combinedMeHubSections, permissions)
+  };
+
+  const activeExperience =
+    input.activeExperienceMode === "WORKSPACE" && roleType !== "CUSTOMER"
+      ? buildActiveExperienceMeta({
+          mode: "WORKSPACE",
+          restaurantId: input.activeRestaurantId,
+          restaurantName: input.activeRestaurantName,
+          roleLabel: primaryMembershipRole ? membershipRoleLabel(primaryMembershipRole) : undefined
+        })
+      : buildActiveExperienceMeta({ mode: "CUSTOMER" });
+
+  return withExperienceIdentity(
+    {
+      roleType,
+      permissions,
+      venueAccess: {
+        state: venueAccessState === "active" ? "active" : "none"
+      },
+      screens,
+      tabScreens: tabScreensForRole(roleType, permSet, staffFlags, primaryMembershipRole),
+      tabs: buildTabsForMembershipRole(roleType, primaryMembershipRole, staffFlags),
+      meHub: {
+        sections: enrichedMe.sections,
+        showNotificationToggles,
+        showVenueLine
+      },
+      controlCentre: {
+        chips: controlChips,
+        sections: [],
+        showDarkModeToggle: false
+      },
+      settings
+    },
+    activeExperience
+  );
+}
+
+function enrichSectionsWithScreens<T extends { id: string; rows: Array<{ id: string; action: string; title: string; subtitle: string; sectionTitle?: string; sectionSubtitle?: string; screenKey?: string }> }>(
+  sections: T[],
+  permissions: string[]
+): T[] {
+  return sections.map((section) => ({
+    ...section,
+    rows: section.rows.map((row) => enrichRowWithScreen(row, permissions))
+  }));
+}
+
+function enrichRowWithScreen<
+  T extends { id: string; action: string; title: string; subtitle: string; sectionTitle?: string; sectionSubtitle?: string; screenKey?: string }
+>(row: T, permissions: string[]): T {
+  const screenKey = row.screenKey ?? resolveScreenKeyForRow(row.id);
+  if (!screenKey) return row;
+  const def = WORKSPACE_SCREENS[screenKey];
+  if (!def || !permissions.includes(def.permission)) return row;
+  if (row.action === "sign_out" || row.action === "open_reservations" || row.action === "open_orders" || row.action === "open_review" || row.action === "open_support" || row.action === "choose_venue") {
+    return row;
+  }
+  return {
+    ...row,
+    screenKey,
+    title: row.title || def.title,
+    subtitle: row.subtitle || def.subtitle,
+    sectionTitle: def.title,
+    sectionSubtitle: def.subtitle,
+    action: def.status === "live" ? "navigate_screen" : "navigate_section"
+  } as T;
+}
+
+export function userHasPermission(manifest: MobileExperienceManifest | null | undefined, perm: string): boolean {
+  return !!manifest?.permissions.includes(perm);
+}

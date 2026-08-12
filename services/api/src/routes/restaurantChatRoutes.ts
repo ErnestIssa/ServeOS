@@ -6,7 +6,7 @@ import {
   markCustomerMessagesDeliveredInRoom,
   markMessageDelivered,
   markRestaurantReadInRoom
-} from "../lib/chatReceipts.js";
+} from "../lib/chat/chatReceipts.js";
 
 function bearerToken(headers: { authorization?: string }): string | null {
   const auth = headers.authorization;

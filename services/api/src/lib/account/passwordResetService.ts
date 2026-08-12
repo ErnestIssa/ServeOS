@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import bcrypt from "bcrypt";
 import type { PrismaClient } from "@prisma/client";
 import { sendPasswordResetEmail } from "../integrations/transactionalEmails.js";
-import { sanitizeReturnTo } from "../safeReturnTo.js";
+import { sanitizeReturnTo } from "../util/safeReturnTo.js";
 import { logSecurityActivity } from "./securityActivity.js";
 import { revokeOtherSessions } from "./sessionService.js";
 import { validatePasswordStrength } from "./validation.js";

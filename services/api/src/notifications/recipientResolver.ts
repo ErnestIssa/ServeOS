@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import type { DomainEvent, NotificationTarget } from "./types.js";
 import type { RecipientStrategy } from "./routingRules.js";
-import { isAdminMembershipRole } from "../lib/membershipAccess.js";
+import { isAdminMembershipRole } from "../lib/auth/membershipAccess.js";
 
 export async function resolveRecipients(
   prisma: PrismaClient,

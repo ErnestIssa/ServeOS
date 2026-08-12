@@ -7,25 +7,25 @@ import {
   upcomingReservationWhere,
   validateFullReservationBody,
   type ReservationDraftPayload
-} from "../lib/reservationBooking.js";
+} from "../lib/reservation/reservationBooking.js";
 import {
   quickDateFromStartsAt,
   timeLabelFromStartsAt
-} from "../lib/reservationPresets.js";
+} from "../lib/reservation/reservationPresets.js";
 import {
   buildEditReservationSlotPicker,
   buildReservationSlotPicker,
   scheduleFieldErrorMessage,
   validateReservationSchedule,
   type PinnedReservationSlot
-} from "../lib/reservationSlotValidation.js";
+} from "../lib/reservation/reservationSlotValidation.js";
 import {
   clearCustomerReservationDraft,
   loadCustomerReservationDraft,
   saveCustomerReservationDraft
-} from "../lib/customerReservationDraftService.js";
-import { validateReservationStartInput } from "../lib/reservationStartValidation.js";
-import { ensureReservationChatRoom, loadCustomerReservationOcl } from "../lib/reservationOcl.js";
+} from "../lib/customer/customerReservationDraftService.js";
+import { validateReservationStartInput } from "../lib/reservation/reservationStartValidation.js";
+import { ensureReservationChatRoom, loadCustomerReservationOcl } from "../lib/reservation/reservationOcl.js";
 
 function bearerToken(headers: { authorization?: string }): string | null {
   const auth = headers.authorization;

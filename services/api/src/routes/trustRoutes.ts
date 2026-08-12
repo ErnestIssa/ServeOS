@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import jwt from "jsonwebtoken";
 import type { PrismaClient } from "@prisma/client";
 import { z } from "zod";
-import { isVenueMembershipRole } from "../lib/membershipAccess.js";
+import { isVenueMembershipRole } from "../lib/auth/membershipAccess.js";
 import {
   listPendingApprovalsForActor,
   listPendingApprovalsForVenue,

@@ -1,4 +1,5 @@
 import type { MediaLibraryAsset } from "../../../api";
+import { ConfigSectionSpinner } from "../configLoadingUi";
 import type { MediaCardActionCaps, MediaCardActionId } from "./mediaCardActions";
 import { MediaLibraryGrid } from "./MediaLibraryGrid";
 
@@ -21,7 +22,7 @@ export function MediaArchivedPanel({ assets, loading, venueName, caps, onOpen, o
         </p>
       </div>
       {loading && assets.length === 0 ? (
-        <p className="admin-config-text-muted text-sm">Loading archived media…</p>
+        <ConfigSectionSpinner label="Loading archived media" />
       ) : assets.length === 0 ? (
         <p className="admin-media-archived-panel__empty">No archived assets yet.</p>
       ) : (

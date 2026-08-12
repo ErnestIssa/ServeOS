@@ -103,7 +103,7 @@ export function EditCategoryModal({
       <ProfileModalFooter
         onCancel={onClose}
         onConfirm={() => void save()}
-        confirmLabel={busy ? "Saving…" : "Save"}
+        confirmLabel="Save"
         busy={busy}
         confirmDisabled={!category || name.trim().length < 2}
       />

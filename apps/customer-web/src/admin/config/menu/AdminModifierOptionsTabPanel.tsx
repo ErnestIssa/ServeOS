@@ -635,7 +635,7 @@ export function AdminModifierOptionsTabPanel({
         <ProfileModalFooter
           onCancel={() => setMoveOption(null)}
           onConfirm={() => void runMove()}
-          confirmLabel={moveBusy ? "Moving…" : "Move"}
+          confirmLabel="Move"
           busy={moveBusy}
           confirmDisabled={!moveGroupId || moveCandidates.length === 0}
         />

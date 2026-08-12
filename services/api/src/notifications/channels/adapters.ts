@@ -6,13 +6,13 @@ import {
   publishUserNotificationToUpstash,
   type OrderEventPayload
 } from "@serveos/core-upstash";
-import { emitChatEvent, type ChatWsPayload } from "../../lib/chatRealtime.js";
-import { roomOclEntity, type OclUpdatedPayload } from "../../lib/oclRealtime.js";
+import { emitChatEvent, type ChatWsPayload } from "../../lib/chat/chatRealtime.js";
+import { roomOclEntity, type OclUpdatedPayload } from "../../lib/orders/oclRealtime.js";
 import type { DeliveryChannel, DomainEvent, InAppUserPayload, NotificationTarget } from "../types.js";
 import { isEmailProviderConfigured } from "../../lib/integrations/emailProvider.js";
 import { sendNotificationEmail } from "../../lib/integrations/transactionalEmails.js";
 import { isPushProviderConfigured } from "../../lib/integrations/pushProvider.js";
-import { sendPushToUser } from "../../lib/deviceTokenService.js";
+import { sendPushToUser } from "../../lib/device/deviceTokenService.js";
 import { isSmsProviderConfigured, sendSms } from "../../lib/integrations/smsProvider.js";
 
 export type ChannelContext = {

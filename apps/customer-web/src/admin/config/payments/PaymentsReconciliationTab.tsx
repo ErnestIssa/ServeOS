@@ -1,6 +1,7 @@
 import type { PaymentReconciliation } from "../../../api";
 import { Label, PolarGrid, PolarRadiusAxis, RadialBar, RadialBarChart } from "recharts";
 import { ResponsiveContainer } from "recharts";
+import { ConfigSectionSpinner } from "../configLoadingUi";
 import { MoneyTile, PaySection } from "./paymentsShared";
 import { formatSekFromCents, formatWhen } from "./paymentsUiHelpers";
 
@@ -29,7 +30,7 @@ export function PaymentsReconciliationTab({ reconciliation }: Props) {
               <MoneyTile label="Pending provider events" value={String(reconciliation.pendingProviderEvents)} />
             </div>
           ) : (
-            <p className="admin-config-text-muted text-sm">Loading…</p>
+            <ConfigSectionSpinner label="Loading reconciliation" />
           )}
         </PaySection>
 

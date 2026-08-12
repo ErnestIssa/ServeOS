@@ -1,11 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@prisma/client";
 import { z } from "zod";
-import { bearerUserId } from "../lib/mobileAuthContext.js";
+import { bearerUserId } from "../lib/auth/mobileAuthContext.js";
 import {
   EMAIL_COMMUNICATION_KEYS,
   IN_APP_COMMUNICATION_KEYS
-} from "../lib/communicationPreferenceTypes.js";
+} from "../lib/comms/communicationPreferenceTypes.js";
 import {
   enableAllCommunications,
   previewCommunicationPreferencesByToken,
@@ -13,7 +13,7 @@ import {
   requestCommunicationPreferencesAccess,
   unsubscribeAllNonEssential,
   updateCommunicationPreferences
-} from "../lib/communicationPreferenceService.js";
+} from "../lib/comms/communicationPreferenceService.js";
 
 const emailPrefsSchema = z
   .object(

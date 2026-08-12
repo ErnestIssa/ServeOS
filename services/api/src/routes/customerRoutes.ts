@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { z } from "zod";
-import { buildCustomerAppContext } from "../lib/customerAppContextService.js";
+import { buildCustomerAppContext } from "../lib/customer/customerAppContextService.js";
 import {
   appendMenuLastOrdered,
   bumpMenuBrowseEngagement,
@@ -9,12 +9,12 @@ import {
   readRestaurantMenuPrefs,
   toggleMenuItemLike,
   type RestaurantMenuPrefs
-} from "../lib/customerMenuPreferences.js";
+} from "../lib/customer/customerMenuPreferences.js";
 import {
   isCustomerBrowsableRestaurant,
   listCustomerBrowsableRestaurants
-} from "../lib/customerRestaurantDirectory.js";
-import { listVenueHoursPeers } from "../lib/venueHoursPeersService.js";
+} from "../lib/customer/customerRestaurantDirectory.js";
+import { listVenueHoursPeers } from "../lib/venue/venueHoursPeersService.js";
 import {
   DEFAULT_CUSTOMER_APP_SETTINGS,
   mergeAppSettingsIntoProfile,
@@ -26,7 +26,7 @@ import {
   readPreferredRestaurantIdFromProfile,
   readQuickPrefsFromProfile,
   type CustomerAppSettings
-} from "../lib/customerSignupProfile.js";
+} from "../lib/customer/customerSignupProfile.js";
 
 function bearerToken(headers: { authorization?: string }): string | null {
   const auth = headers.authorization;

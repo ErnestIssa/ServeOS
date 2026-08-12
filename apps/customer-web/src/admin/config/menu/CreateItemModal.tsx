@@ -5,6 +5,7 @@ import type { MenuSurfaceRow } from "../../../api";
 import { AdminBtnPrimary, AdminBtnSecondary, AdminInput, AdminLabel } from "../../AdminUi";
 import { AdminBubbleDropdown } from "../../AdminBubbleDropdown";
 import type { MenuSectionTab } from "../configRouting";
+import { ConfigBusyLabel } from "../configLoadingUi";
 import {
   ProfileModalAlert,
   ProfileModalFooter,
@@ -481,7 +482,7 @@ export function CreateItemModal({
               onClick={() => void handleSaveDetails()}
               className={`admin-staff-invite-submit admin-menu-create-submit ${editSubmitTone}`}
             >
-              {sending ? "Saving…" : "Save changes"}
+              <ConfigBusyLabel busy={sending}>Save changes</ConfigBusyLabel>
             </button>
           ) : (
             <button

@@ -11,11 +11,11 @@ import {
   readWorkspaceDeploymentFromProfile,
   WORKSPACE_PLAN_IDS,
   type HardwareConfig
-} from "../lib/workspaceDeploymentService.js";
+} from "../lib/workspace/workspaceDeploymentService.js";
 import {
   dismissOwnerTrialNotice,
   getOwnerTrialNotice
-} from "../lib/workspaceTrialNoticeService.js";
+} from "../lib/workspace/workspaceTrialNoticeService.js";
 
 const hardwareSlotSchema = z.object({
   enabled: z.boolean(),

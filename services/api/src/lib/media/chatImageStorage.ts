@@ -1,4 +1,4 @@
-import type { ChatImageMime } from "../chatImageLimits.js";
+import type { ChatImageMime } from "../chat/chatImageLimits.js";
 import {
   buildObjectKeyForType,
   toStoredContentRef,

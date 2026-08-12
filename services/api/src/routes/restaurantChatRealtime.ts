@@ -2,7 +2,7 @@ import type { EventEmitter } from "node:events";
 import type { FastifyInstance } from "fastify";
 import jwt from "jsonwebtoken";
 import type { PrismaClient } from "@prisma/client";
-import { staffPresenceConnect, staffPresenceDisconnect } from "../lib/restaurantPresence.js";
+import { staffPresenceConnect, staffPresenceDisconnect } from "../lib/venue/restaurantPresence.js";
 
 /** Staff device presence for customer chat header (Online / Offline). */
 export function registerRestaurantChatRealtime(app: FastifyInstance, _prisma: PrismaClient, _chatBus: EventEmitter) {

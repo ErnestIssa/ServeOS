@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { updateModifierGroup } from "../../../api";
 import { AdminBtnSecondary, AdminInput, AdminLabel } from "../../AdminUi";
+import { ConfigBusyLabel } from "../configLoadingUi";
 import { ProfileModalAlert, MenuPageModalShell } from "./menuPageModalShell";
 
 export type EditModifierGroupTarget = {
@@ -217,7 +218,7 @@ export function EditModifierGroupModal({ open, target, canEdit, token, restauran
             onClick={() => void handleSave()}
             className={`admin-staff-invite-submit admin-menu-create-submit${dirty && canEdit ? " admin-staff-invite-submit--ready" : ""}`}
           >
-            {sending ? "Saving…" : "Save changes"}
+            <ConfigBusyLabel busy={sending}>Save changes</ConfigBusyLabel>
           </button>
         </div>
       </MenuPageModalShell>

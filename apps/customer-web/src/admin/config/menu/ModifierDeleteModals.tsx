@@ -45,7 +45,7 @@ export function DeleteModifierGroupModal({ open, groupName, token, restaurantId,
       <ProfileModalFooter
         onCancel={onClose}
         onConfirm={() => void confirm()}
-        confirmLabel={busy ? "Deleting…" : "Delete group"}
+        confirmLabel="Delete group"
         busy={busy}
         confirmDisabled={!groupId}
         danger
@@ -97,7 +97,7 @@ export function DeleteModifierOptionModal({ open, optionName, token, restaurantI
       <ProfileModalFooter
         onCancel={onClose}
         onConfirm={() => void confirm()}
-        confirmLabel={busy ? "Deleting…" : "Delete option"}
+        confirmLabel="Delete option"
         busy={busy}
         confirmDisabled={!optionId}
         danger

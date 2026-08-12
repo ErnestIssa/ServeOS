@@ -4,9 +4,9 @@ import type { FastifyInstance } from "fastify";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { toJwtRole } from "../plugins/auth.js";
-import { completeWorkspaceEnrollment, inviteEmailForToken } from "../lib/workspaceEnrollmentService.js";
+import { completeWorkspaceEnrollment, inviteEmailForToken } from "../lib/workspace/workspaceEnrollmentService.js";
 import { notifyStaffPendingApproval } from "../notifications/integrations/staff.js";
-import { isAuthTokenRevoked, revokeAuthToken } from "../lib/authTokenRevocation.js";
+import { isAuthTokenRevoked, revokeAuthToken } from "../lib/auth/authTokenRevocation.js";
 import { logSecurityActivity } from "../lib/account/securityActivity.js";
 import { confirmPasswordReset, requestPasswordReset } from "../lib/account/passwordResetService.js";
 import { maskIp, requestIp, revokeSessionByToken, upsertUserSession } from "../lib/account/sessionService.js";
@@ -77,7 +77,7 @@ const SALT_ROUNDS = 10;
 import {
   businessProvisionSchema,
   provisionBusinessWorkspaceForUser
-} from "../lib/businessProvisioningService.js";
+} from "../lib/workspace/businessProvisioningService.js";
 
 export function registerAuthRoutes(
   app: FastifyInstance,

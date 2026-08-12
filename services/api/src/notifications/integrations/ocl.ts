@@ -1,7 +1,7 @@
 import type { EventEmitter } from "node:events";
 import { publishDomainEvent } from "../eventBus.js";
 import { createDomainEvent } from "../notificationProcessor.js";
-import type { OclEntityType } from "../../lib/oclRealtime.js";
+import type { OclEntityType } from "../../lib/orders/oclRealtime.js";
 
 export async function notifyOclUpdated(
   bus: EventEmitter,

@@ -584,7 +584,7 @@ export function AdminModifierGroupsTabPanel({
         <ProfileModalFooter
           onCancel={() => setAttachGroup(null)}
           onConfirm={() => void runAttach()}
-          confirmLabel={attachBusy ? "Attaching…" : "Attach"}
+          confirmLabel="Attach"
           busy={attachBusy}
           confirmDisabled={attachItemIds.size === 0 || attachCandidates.length === 0}
         />

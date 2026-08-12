@@ -1,4 +1,4 @@
-import type { ChatDocumentMime } from "../chatDocumentLimits.js";
+import type { ChatDocumentMime } from "../chat/chatDocumentLimits.js";
 import {
   buildObjectKeyForType,
   toStoredContentRef,

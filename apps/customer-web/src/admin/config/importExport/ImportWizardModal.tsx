@@ -7,7 +7,7 @@ import {
 } from "../../../api";
 import { MenuPageModalShell, ProfileModalFooter, ProfileModalNote } from "../menu/menuPageModalShell";
 import { useAdminToast } from "../../AdminToast";
-import { QrRequestLoading } from "../qr/QrRequestLoading";
+import { ConfigDrawerSpinner } from "../configLoadingUi";
 import {
   MENU_CSV_TEMPLATE,
   MENU_FIELD_MAP,
@@ -433,7 +433,10 @@ export function ImportWizardModal({
       ) : null}
 
       {step === "analyzing" ? (
-        <QrRequestLoading title={analyzePhrase} sub={file ? file.name : "Working…"} variant="step" />
+        <div className="space-y-2" aria-busy>
+          <ConfigDrawerSpinner label={analyzePhrase} />
+          {file ? <p className="text-center text-xs admin-config-text-muted">{file.name}</p> : null}
+        </div>
       ) : null}
 
       {step === "analysis" && preview ? (
@@ -721,11 +724,7 @@ export function ImportWizardModal({
       ) : null}
 
       {step === "running" ? (
-        <QrRequestLoading
-          title={`Importing ${selectedTarget?.label ?? "data"}…`}
-          sub="Processing rows · validating relationships · writing draft data"
-          variant="step"
-        />
+        <ConfigDrawerSpinner label={`Importing ${selectedTarget?.label ?? "data"}`} />
       ) : null}
 
       {step === "done" ? (

@@ -404,7 +404,7 @@ export function CategoryManageDrawer({
         <ProfileModalFooter
           onCancel={() => setMoveOpen(false)}
           onConfirm={() => void runMove()}
-          confirmLabel={moveBusy ? "Moving…" : "Move"}
+          confirmLabel="Move"
           busy={moveBusy}
           confirmDisabled={!moveMenuId || targets.length === 0}
         />
@@ -422,7 +422,7 @@ export function CategoryManageDrawer({
         <ProfileModalFooter
           onCancel={() => setDangerKind(null)}
           onConfirm={() => void runBulkVisibility(false, "Archive")}
-          confirmLabel={dangerBusy ? "Archiving…" : "Archive"}
+          confirmLabel="Archive"
           busy={dangerBusy}
           danger
         />
@@ -440,7 +440,7 @@ export function CategoryManageDrawer({
         <ProfileModalFooter
           onCancel={() => setDangerKind(null)}
           onConfirm={() => void runBulkVisibility(false, "Hide")}
-          confirmLabel={dangerBusy ? "Hiding…" : "Hide"}
+          confirmLabel="Hide"
           busy={dangerBusy}
           danger
         />
@@ -469,7 +469,7 @@ export function CategoryManageDrawer({
         <ProfileModalFooter
           onCancel={() => setDangerKind(null)}
           onConfirm={() => void runDelete()}
-          confirmLabel={dangerBusy ? "Deleting…" : "Delete"}
+          confirmLabel="Delete"
           busy={dangerBusy}
           confirmDisabled={confirmName.trim() !== expectedConfirm}
           danger

@@ -5,30 +5,30 @@ import {
   loadMobileAuthContext,
   requireMobileAuth,
   setActiveRestaurantForUser
-} from "../lib/mobileAuthContext.js";
+} from "../lib/auth/mobileAuthContext.js";
 import {
   buildWorkspaceContext,
   loadWorkspaceScreenData,
   assertUserMayOpenScreen
-} from "../lib/mobileWorkspaceService.js";
+} from "../lib/mobile/mobileWorkspaceService.js";
 import {
   loadWorkspaceTabData,
   clockInShift,
   clockOutShift,
   toggleBreakShift
-} from "../lib/workspaceTabService.js";
-import { dismissTask } from "../lib/staffTasksBuilder.js";
+} from "../lib/workspace/workspaceTabService.js";
+import { dismissTask } from "../lib/staff/staffTasksBuilder.js";
 import {
   listVenueRoomMessages,
   sendVenueStaffMessage
-} from "../lib/staffVenueChat.js";
-import { markRestaurantReadInRoom } from "../lib/chatReceipts.js";
-import { loadOrderOclThread, performOclStatusAction, sendOclHumanMessage } from "../lib/orderOcl.js";
+} from "../lib/chat/staffVenueChat.js";
+import { markRestaurantReadInRoom } from "../lib/chat/chatReceipts.js";
+import { loadOrderOclThread, performOclStatusAction, sendOclHumanMessage } from "../lib/orders/orderOcl.js";
 import {
   loadReservationOclThread,
   performReservationOclStatusAction,
   sendReservationOclHumanMessage
-} from "../lib/reservationOcl.js";
+} from "../lib/reservation/reservationOcl.js";
 import type { EventEmitter } from "node:events";
 
 export function registerMobileWorkspaceRoutes(

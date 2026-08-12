@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import type { OrderOwnershipActor } from "./orderOwnershipTypes.js";
 import { getOrderOwnership } from "./orderOwnershipCapture.js";
-import { isVenueMembershipRole } from "../membershipAccess.js";
+import { isVenueMembershipRole } from "../auth/membershipAccess.js";
 
 export type OwnershipPermission = "view" | "act" | "refund" | "reassign_staff";
 

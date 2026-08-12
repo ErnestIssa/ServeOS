@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { AdminBtnPrimary, AdminInput, AdminLabel } from "../../AdminUi";
 import { inputBase } from "../../AdminUi";
+import { ConfigBusyLabel } from "../configLoadingUi";
 
 type DetailsValue = {
   description: string;
@@ -83,7 +84,7 @@ export function MenuItemDetailsPanel({
             {onSave ? (
               <div className="flex justify-end">
                 <AdminBtnPrimary disabled={saving || !canSave} onClick={onSave}>
-                  {saving ? "Saving…" : saveLabel}
+                  <ConfigBusyLabel busy={saving}>{saveLabel}</ConfigBusyLabel>
                 </AdminBtnPrimary>
               </div>
             ) : null}

@@ -1,5 +1,5 @@
 import type { MenuStatus } from "@prisma/client";
-import type { ActiveVenueMembership } from "../venueAccessGuard.js";
+import type { ActiveVenueMembership } from "../venue/venueAccessGuard.js";
 import { getMenuCapabilities } from "./menuPermissions.js";
 import type { MenuListItem } from "./menuService.js";
 import type { MenuReleaseState } from "./menuReleaseLifecycle.js";

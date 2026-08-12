@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { PaymentMethodConfig, VenuePaymentSettings } from "../../../api";
+import type { PaymentMethodConfig, PaymentMethodCapabilitiesPayload, VenuePaymentSettings } from "../../../api";
 import { MenuEntityActionsMenu } from "../menu/MenuEntityActionsMenu";
 import { MenuActionConfirmModal } from "../menu/MenuActionConfirmModal";
 import { MenuListSearchField } from "../menu/MenuPageUi";
@@ -12,6 +12,7 @@ import { paymentMethodIconSrc } from "./paymentMethodIcons";
 import {
   applyPaymentMethodFilters,
   applyPaymentMethodSort,
+  applyServerMethodCapability,
   matchesPaymentMethodSearch,
   PAYMENT_METHODS_LIST_QUERY,
   paymentMethodHealthLabel,
@@ -24,6 +25,7 @@ import { GROUP_LABELS, ORDER_SOURCE_LABELS, getMethodConfig } from "./paymentsUi
 
 type Props = {
   settings: VenuePaymentSettings;
+  methodCapabilities?: PaymentMethodCapabilitiesPayload | null;
   canEdit: boolean;
   selectedKeys: string[];
   onSelectionChange: (keys: string[]) => void;
@@ -49,7 +51,11 @@ type Props = {
   onToast: (message: string, tone?: "success" | "error") => void;
 };
 
-function buildRows(settings: VenuePaymentSettings): PaymentMethodListRow[] {
+function buildRows(
+  settings: VenuePaymentSettings,
+  methodCapabilities?: PaymentMethodCapabilitiesPayload | null
+): PaymentMethodListRow[] {
+  const byKey = new Map((methodCapabilities?.methods ?? []).map((m) => [m.key, m]));
   return PAYMENT_METHOD_CATALOG.map((entry) => {
     const config = getMethodConfig(settings, entry.key);
     const enabled = Boolean(config.enabled);
@@ -58,7 +64,7 @@ function buildRows(settings: VenuePaymentSettings): PaymentMethodListRow[] {
     const sources = (config.supportedOrderSources ?? [])
       .map((s) => ORDER_SOURCE_LABELS[s])
       .filter(Boolean);
-    return {
+    const base: PaymentMethodListRow = {
       ...entry,
       enabled,
       isDefault,
@@ -68,11 +74,13 @@ function buildRows(settings: VenuePaymentSettings): PaymentMethodListRow[] {
       channelLabel: GROUP_LABELS[entry.group],
       supportLabel: sources.length ? sources.slice(0, 3).join(", ") : entry.hint
     };
+    return applyServerMethodCapability(base, byKey.get(entry.key));
   });
 }
 
 export function PaymentsMethodsTab({
   settings,
+  methodCapabilities = null,
   canEdit,
   selectedKeys,
   onSelectionChange,
@@ -103,7 +111,7 @@ export function PaymentsMethodsTab({
   const selectAllRef = useRef<HTMLInputElement>(null);
   const lastManageRequestRef = useRef(manageRequestId);
 
-  const rows = useMemo(() => buildRows(settings), [settings]);
+  const rows = useMemo(() => buildRows(settings, methodCapabilities), [settings, methodCapabilities]);
   const filtered = useMemo(() => {
     const searched = rows.filter((r) => matchesPaymentMethodSearch(r, searchQuery));
     return applyPaymentMethodSort(applyPaymentMethodFilters(searched, activeFilters), activeSort);
@@ -161,6 +169,12 @@ export function PaymentsMethodsTab({
   };
 
   const runToggle = async (key: string, enabled: boolean) => {
+    const row = rows.find((r) => r.key === key);
+    if (enabled && row && row.canEnable === false) {
+      onToast(row.setupReason || "This method is not ready to enable yet.", "error");
+      setConfirm(null);
+      return;
+    }
     const config = { ...getMethodConfig(settings, key), enabled };
     setBusy(true);
     try {

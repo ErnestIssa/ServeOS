@@ -64,7 +64,7 @@ export function DeleteAvailabilityModal({
       <ProfileModalFooter
         onCancel={onClose}
         onConfirm={() => void confirm()}
-        confirmLabel={busy ? "Deleting…" : "Delete window"}
+        confirmLabel="Delete window"
         busy={busy}
         confirmDisabled={!windowKey || !menuId}
         danger

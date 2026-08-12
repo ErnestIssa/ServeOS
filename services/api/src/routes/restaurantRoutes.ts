@@ -3,11 +3,11 @@ import jwt from "jsonwebtoken";
 import type { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 import { z } from "zod";
-import { fetchMenuTree } from "../lib/menu.js";
+import { fetchMenuTree } from "../lib/menu/menu.js";
 import { buildPublishedPublicMenu } from "../lib/menu/publicMenuService.js";
 import { assertMenuEntityPermission } from "../lib/menu/menuPermissions.js";
 import { requireMenuVenueMembership } from "../lib/menu/menuMembership.js";
-import { isCustomerBrowsableRestaurant } from "../lib/customerRestaurantDirectory.js";
+import { isCustomerBrowsableRestaurant } from "../lib/customer/customerRestaurantDirectory.js";
 import {
   duplicateCategoryEntity,
   duplicateItemEntity,

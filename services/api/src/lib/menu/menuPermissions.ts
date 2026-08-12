@@ -1,5 +1,5 @@
-import type { ActiveVenueMembership } from "../venueAccessGuard.js";
-import { isAdminMembershipRole, VENUE_PERMISSION } from "../venuePermissions.js";
+import type { ActiveVenueMembership } from "../venue/venueAccessGuard.js";
+import { isAdminMembershipRole, VENUE_PERMISSION } from "../venue/venuePermissions.js";
 
 export type MenuPermissionAction = "view" | "create" | "edit" | "publish" | "delete" | "archive";
 

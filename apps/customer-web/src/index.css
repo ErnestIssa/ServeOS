@@ -18572,15 +18572,18 @@ html[data-admin-theme="dark"] .admin-payments-source-status {
   padding: 0.12rem;
 }
 
-.admin-payments-method-tone.is-active {
+.admin-payments-method-tone.is-active,
+.admin-payments-method-tone.is-ready {
   color: #059669 !important;
 }
 
-.admin-payments-method-tone.is-pending {
+.admin-payments-method-tone.is-pending,
+.admin-payments-method-tone.is-setup {
   color: #d97706 !important;
 }
 
-.admin-payments-method-tone.is-issue {
+.admin-payments-method-tone.is-issue,
+.admin-payments-method-tone.is-disconnected {
   color: #dc2626 !important;
 }
 
@@ -18589,17 +18592,23 @@ html[data-admin-theme="dark"] .admin-payments-source-status {
 }
 
 .admin-shell[data-theme="dark"] .admin-payments-method-tone.is-active,
-.admin-shell.admin-theme-dark .admin-payments-method-tone.is-active {
+.admin-shell.admin-theme-dark .admin-payments-method-tone.is-active,
+.admin-shell[data-theme="dark"] .admin-payments-method-tone.is-ready,
+.admin-shell.admin-theme-dark .admin-payments-method-tone.is-ready {
   color: #34d399 !important;
 }
 
 .admin-shell[data-theme="dark"] .admin-payments-method-tone.is-pending,
-.admin-shell.admin-theme-dark .admin-payments-method-tone.is-pending {
+.admin-shell.admin-theme-dark .admin-payments-method-tone.is-pending,
+.admin-shell[data-theme="dark"] .admin-payments-method-tone.is-setup,
+.admin-shell.admin-theme-dark .admin-payments-method-tone.is-setup {
   color: #fbbf24 !important;
 }
 
 .admin-shell[data-theme="dark"] .admin-payments-method-tone.is-issue,
-.admin-shell.admin-theme-dark .admin-payments-method-tone.is-issue {
+.admin-shell.admin-theme-dark .admin-payments-method-tone.is-issue,
+.admin-shell[data-theme="dark"] .admin-payments-method-tone.is-disconnected,
+.admin-shell.admin-theme-dark .admin-payments-method-tone.is-disconnected {
   color: #f87171 !important;
 }
 
@@ -20179,6 +20188,16 @@ html[data-admin-theme="dark"] .admin-payments-source-status {
 .admin-payments-details-reveal.is-ready {
   opacity: 1;
   transform: translateY(0);
+}
+
+.admin-config-busy-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-width: 1.25rem;
+  min-height: 1.25rem;
+  line-height: 0;
 }
 
 .admin-payments-today-total-wrap {

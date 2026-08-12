@@ -29,8 +29,8 @@ import { registerRestaurantChatRealtime } from "./routes/restaurantChatRealtime.
 import { registerNotificationRoutes } from "./routes/notificationRoutes.js";
 import { registerNotificationRealtime } from "./routes/notificationRealtime.js";
 import { initNotificationSystem } from "./notifications/initNotifications.js";
-import { ensureChatMessageImageEnum } from "./lib/chatImageEnum.js";
-import { isAuthTokenRevoked } from "./lib/authTokenRevocation.js";
+import { ensureChatMessageImageEnum } from "./lib/chat/chatImageEnum.js";
+import { isAuthTokenRevoked } from "./lib/auth/authTokenRevocation.js";
 import { isSessionRevoked } from "./lib/account/sessionService.js";
 import { assertBearerUserStillActive } from "./lib/auth/authAccessGuard.js";
 import { registerMeRoutes } from "./routes/meRoutes.js";
@@ -41,7 +41,7 @@ import { captureApiError, captureException, flushSentry } from "./lib/integratio
 import { isCloudflareCdnConfigured } from "./lib/integrations/cloudflareCdn.js";
 import { isObjectStorageConfigured } from "./lib/integrations/objectStorage.js";
 import { isSmsProviderConfigured } from "./lib/integrations/smsProvider.js";
-import { apiErrorMessage, apiFail, enrichApiPayload } from "./lib/apiErrors.js";
+import { apiErrorMessage, apiFail, enrichApiPayload } from "./lib/http/apiErrors.js";
 import { registerConfigRoutes } from "./routes/configRoutes.js";
 import { registerCommunicationRoutes } from "./routes/communicationRoutes.js";
 import { registerWorkspaceEnrollmentRoutes } from "./routes/workspaceEnrollmentRoutes.js";

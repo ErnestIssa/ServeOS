@@ -6,8 +6,8 @@ import {
   isCartHttpError,
   type CartHttpError,
   type SerializedCartLine
-} from "../customerCartService.js";
-import { priceMenuItemLineInput, resolveQuickAddModifierOptionIds } from "../menuItemLinePricing.js";
+} from "../customer/customerCartService.js";
+import { priceMenuItemLineInput, resolveQuickAddModifierOptionIds } from "../money/menuItemLinePricing.js";
 import { getOrderingSession, touchOrderingSession } from "../ordering/orderingSessionService.js";
 
 export { isCartHttpError, cartRemoveConfirmationRequired };

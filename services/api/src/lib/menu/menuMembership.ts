@@ -1,8 +1,8 @@
 import jwt from "jsonwebtoken";
 import type { PrismaClient } from "@prisma/client";
-import type { ActiveVenueMembership } from "../venueAccessGuard.js";
-import { isVenueMembershipRole } from "../membershipAccess.js";
-import { resolveMembershipPermissions } from "../venuePermissions.js";
+import type { ActiveVenueMembership } from "../venue/venueAccessGuard.js";
+import { isVenueMembershipRole } from "../auth/membershipAccess.js";
+import { resolveMembershipPermissions } from "../venue/venuePermissions.js";
 
 export async function requireMenuVenueMembership(
   prisma: PrismaClient,

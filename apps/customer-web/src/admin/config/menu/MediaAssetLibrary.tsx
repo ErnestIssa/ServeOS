@@ -7,6 +7,7 @@ import {
 } from "../../../api";
 import { AdminBubbleDropdown } from "../../AdminBubbleDropdown";
 import { useAdminToast } from "../../AdminToast";
+import { ConfigSectionSpinner } from "../configLoadingUi";
 import {
   MenuPageModalShell,
   ProfileModalFooter,
@@ -98,7 +99,7 @@ export function MediaAssetLibrary({ token, restaurantId, menus, items, canUpload
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
       {loading && assets.length === 0 ? (
-        <p className="text-sm admin-config-text-muted">Loading assets…</p>
+        <ConfigSectionSpinner label="Loading assets" />
       ) : assets.length === 0 ? (
         <p className="text-sm admin-config-text-muted">No assets yet. Upload images or videos to build the library.</p>
       ) : (
@@ -178,7 +179,7 @@ export function MediaAssetLibrary({ token, restaurantId, menus, items, canUpload
         <ProfileModalFooter
           onCancel={() => setDupAsset(null)}
           onConfirm={() => void runDuplicate()}
-          confirmLabel={busy ? "Attaching…" : "Create reference"}
+          confirmLabel="Create reference"
           busy={busy}
           confirmDisabled={!targetId || busy}
         />

@@ -19,9 +19,10 @@ export function buildPaymentMethodCardActions(
   const actions: EntityMenuAction[] = [{ id: "manage", label: "Manage" }];
 
   if (caps.canEdit) {
+    const enableBlocked = !row.enabled && row.canEnable === false;
     actions.push({
       id: row.enabled ? "disable" : "enable",
-      label: row.enabled ? "Disable" : "Enable",
+      label: row.enabled ? "Disable" : enableBlocked ? "Set up required" : "Enable",
       danger: row.enabled
     });
     if (row.enabled && !row.isDefault) {

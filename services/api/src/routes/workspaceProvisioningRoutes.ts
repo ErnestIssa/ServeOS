@@ -9,7 +9,7 @@ import { enrichUserWithExperience, publicUserFromDbRow } from "../lib/auth/authR
 import {
   businessProvisionSchema,
   provisionBusinessWorkspaceForUser
-} from "../lib/businessProvisioningService.js";
+} from "../lib/workspace/businessProvisioningService.js";
 
 const provisionBodySchema = z.object({
   registrationProfile: z.record(z.string(), z.any()).optional()

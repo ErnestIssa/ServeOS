@@ -1,5 +1,5 @@
 import type { EventEmitter } from "node:events";
-import type { ChatWsPayload } from "../../lib/chatRealtime.js";
+import type { ChatWsPayload } from "../../lib/chat/chatRealtime.js";
 import { publishDomainEvent } from "../eventBus.js";
 import { createDomainEvent } from "../notificationProcessor.js";
 

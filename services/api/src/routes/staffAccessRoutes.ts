@@ -2,13 +2,13 @@ import type { EventEmitter } from "node:events";
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient, Role } from "@prisma/client";
 import { z } from "zod";
-import { requireMobileAuth } from "../lib/mobileAuthContext.js";
-import { PERMISSION_GROUPS, INVITABLE_OPERATIONAL_ROLES } from "../lib/venuePermissions.js";
+import { requireMobileAuth } from "../lib/auth/mobileAuthContext.js";
+import { PERMISSION_GROUPS, INVITABLE_OPERATIONAL_ROLES } from "../lib/venue/venuePermissions.js";
 import {
   createStaffInvitation,
   cancelStaffInvitation,
   previewInvitation
-} from "../lib/staffInvitationService.js";
+} from "../lib/staff/staffInvitationService.js";
 import { notifyStaffInvited } from "../notifications/integrations/staff.js";
 import { sendStaffInvitationEmail } from "../lib/integrations/transactionalEmails.js";
 import { isSmsProviderConfigured } from "../lib/integrations/smsProvider.js";
@@ -23,14 +23,14 @@ import {
   updateMembershipPermissions,
   updateRestaurantAccessPolicy,
   getMembershipDetail
-} from "../lib/staffMembershipService.js";
+} from "../lib/staff/staffMembershipService.js";
 import {
   adminRequestStaffPasswordReset,
   adminRevokeStaffSessions
-} from "../lib/staffAdminSecurityService.js";
-import { publishStaffRealtimeEvent } from "../lib/staffRealtime.js";
-import { loadRestaurantPolicy } from "../lib/venueAccessGuard.js";
-import { resolveInviterAtRestaurant } from "../lib/userDisplayName.js";
+} from "../lib/staff/staffAdminSecurityService.js";
+import { publishStaffRealtimeEvent } from "../lib/staff/staffRealtime.js";
+import { loadRestaurantPolicy } from "../lib/venue/venueAccessGuard.js";
+import { resolveInviterAtRestaurant } from "../lib/util/userDisplayName.js";
 
 const inviteSchema = z.object({
   fullName: z.string().min(2),
