@@ -18642,6 +18642,87 @@ html[data-admin-theme="dark"] .admin-payments-source-status {
   color: var(--admin-config-muted, var(--admin-text-muted));
 }
 
+.admin-payments-setup-step-btn {
+  display: grid;
+  gap: 0.1rem;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+}
+
+.admin-payments-setup-step-btn:disabled {
+  cursor: default;
+}
+
+.admin-payments-setup-step.is-editable:not(.is-locked):hover {
+  border-color: color-mix(in srgb, var(--admin-text, #0f172a) 45%, var(--admin-border, #e2e8f0));
+}
+
+.admin-payments-danger-unavailable {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.admin-payments-danger-unavailable li {
+  display: grid;
+  gap: 0.1rem;
+  font-size: 0.75rem;
+  color: var(--admin-config-muted, var(--admin-text-muted));
+}
+
+.admin-payments-danger-unavailable strong {
+  color: var(--admin-text, #0f172a);
+}
+
+.admin-payments-danger-confirm {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.admin-payments-danger-consequences {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.admin-payments-danger-phrase-block {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.admin-payments-danger-phrase {
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+  border-radius: 0.65rem;
+  border: 1px dashed color-mix(in srgb, #b91c1c 35%, var(--admin-border, #e2e8f0));
+  background: color-mix(in srgb, #b91c1c 6%, white);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.admin-payments-danger-phrase-input {
+  user-select: text;
+}
+
+.admin-payments-method-setup-actions {
+  display: grid;
+  gap: 0.5rem;
+}
+
 .admin-payments-setup-fields {
   display: grid;
   gap: 0.75rem;

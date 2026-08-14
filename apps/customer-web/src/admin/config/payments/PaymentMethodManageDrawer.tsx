@@ -33,12 +33,15 @@ import {
 } from "./serveosCurrencies";
 import { GROUP_LABELS, ORDER_SOURCE_LABELS, getMethodConfig, methodLabel } from "./paymentsUiHelpers";
 import { MenuPageModalShell, ProfileModalFooter, ProfileModalNote } from "../menu/menuPageModalShell";
+import { PaymentMethodDangerZoneSection } from "./PaymentMethodDangerZoneSection";
 
 type Props = {
   open: boolean;
   methodKey: string | null;
   settings: VenuePaymentSettings | null;
   canEdit: boolean;
+  token?: string;
+  restaurantId?: string;
   focusAudit?: boolean;
   /** Increment to request close/leave; drawer confirms if dirty then calls onLeaveAllowed. */
   leaveRequestId?: number;
@@ -46,6 +49,12 @@ type Props = {
   onLeaveCancelled?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
   onClose: () => void;
+  onEditSetup?: (methodKey: string) => void;
+  onToast?: (message: string, tone?: "success" | "error") => void;
+  onSettingsRefresh?: (payload: {
+    settings?: VenuePaymentSettings;
+    methodCapabilities?: import("../../../api").PaymentMethodCapabilitiesPayload;
+  }) => void;
   onSave: (
     methodKey: string,
     config: PaymentMethodConfig,
@@ -456,12 +465,17 @@ export function PaymentMethodManageDrawer({
   methodKey,
   settings,
   canEdit,
+  token,
+  restaurantId,
   focusAudit = false,
   leaveRequestId = 0,
   onLeaveAllowed,
   onLeaveCancelled,
   onDirtyChange,
   onClose,
+  onEditSetup,
+  onToast,
+  onSettingsRefresh,
   onSave
 }: Props) {
   const activeKey = useCachedDetailsEntity(open, methodKey);
@@ -1313,6 +1327,25 @@ export function PaymentMethodManageDrawer({
               </div>
             </DetailsSection>
 
+            <DetailsSection title="Setup" helpTip="Re-open the backend-driven setup wizard to change credentials, contexts, or verification.">
+              <div className="admin-payments-method-setup-actions">
+                <button
+                  type="button"
+                  className="admin-menu-manage-action"
+                  disabled={!canEdit || confirmBusy || !activeKey}
+                  onClick={() => {
+                    if (!activeKey || !onEditSetup) return;
+                    attemptClose(() => onEditSetup(activeKey));
+                  }}
+                >
+                  <span className="admin-menu-manage-action-label">Edit setup</span>
+                  <span className="admin-menu-manage-action-desc">
+                    Return to the provider setup flow to update credentials, channels, or verification.
+                  </span>
+                </button>
+              </div>
+            </DetailsSection>
+
             <DetailsSection title="Audit history" helpTip={SECTION_HELP.audit}>
               <div id="payment-method-audit">
                 {auditRows.length === 0 ? (
@@ -1330,6 +1363,25 @@ export function PaymentMethodManageDrawer({
                 )}
               </div>
             </DetailsSection>
+
+            {token && restaurantId && onToast && onSettingsRefresh ? (
+              <PaymentMethodDangerZoneSection
+                open={open}
+                token={token}
+                restaurantId={restaurantId}
+                methodKey={activeKey}
+                canEdit={canEdit}
+                onToast={onToast}
+                onCompleted={(payload) => {
+                  onSettingsRefresh(payload);
+                  if (payload.settings && activeKey) {
+                    const next = getMethodConfig(payload.settings, activeKey);
+                    setDraft(next);
+                    setTextBaseline(textBaselineFromConfig(next));
+                  }
+                }}
+              />
+            ) : null}
           </>
         ) : null}
       </PaymentsDetailsReveal>

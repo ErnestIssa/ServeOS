@@ -319,7 +319,8 @@ export function PaymentsMethodsTab({
   const handleAction = (row: PaymentMethodListRow, actionId: string) => {
     const id = actionId as PaymentMethodCardActionId;
     setOpenMenuId(null);
-    if (id === "setup") {
+    if (id === "setup" || id === "edit_setup") {
+      setManageKey(null);
       setSetupKey(row.key);
       return;
     }
@@ -612,6 +613,8 @@ export function PaymentsMethodsTab({
         methodKey={manageKey}
         settings={settings}
         canEdit={canEdit}
+        token={token}
+        restaurantId={restaurantId}
         focusAudit={focusAudit}
         leaveRequestId={leaveRequestId}
         onLeaveAllowed={onLeaveAllowed}
@@ -621,6 +624,12 @@ export function PaymentsMethodsTab({
           setManageKey(null);
           setFocusAudit(false);
         }}
+        onEditSetup={(key) => {
+          setManageKey(null);
+          setSetupKey(key);
+        }}
+        onToast={onToast}
+        onSettingsRefresh={onSettingsRefresh}
         onSave={async (key, config, extras) => {
           try {
             return Boolean(await onSaveMethod(key, config, extras));

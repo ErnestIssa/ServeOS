@@ -23,6 +23,8 @@ export * from "./setup/paymentSetupOrchestrator.js";
 export * from "./setup/paymentVerification.js";
 export * from "./setup/paymentSetupSessionService.js";
 
+export * from "./venue/paymentMethodDangerZoneService.js";
+
 export * from "./features/paymentFeatureGates.js";
 
 export * from "./health/paymentHealthService.js";

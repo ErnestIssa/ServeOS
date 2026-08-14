@@ -41,6 +41,9 @@ import {
   getStoredSetupSession,
   verifyAndPersistMethodAdapter,
   verifyAndPersistProviderConnection,
+  buildPaymentMethodDangerZone,
+  createPaymentMethodDangerChallenge,
+  executePaymentMethodDangerAction,
   type VenuePaymentSettings
 } from "../lib/payments/index.js";
 
@@ -241,6 +244,121 @@ export function registerVenuePaymentRoutes(app: FastifyInstance, prisma: PrismaC
     }
     return { ok: true, verification: verified.verification };
   });
+
+  app.get("/restaurants/:restaurantId/payment-methods/:methodKey/danger-zone", async (req, reply) => {
+    const { restaurantId, methodKey } = z
+      .object({ restaurantId: z.string().min(1), methodKey: z.string().min(1) })
+      .parse(req.params);
+    await requireMenuVenueMembership(prisma, req, restaurantId);
+    const result = await getVenuePaymentSettings(prisma, restaurantId);
+    if (!result.ok) return reply.status(404).send({ ok: false, error: result.error });
+    const zone = buildPaymentMethodDangerZone(result.settings, methodKey);
+    if (!zone) return reply.status(404).send({ ok: false, error: "method_not_found" });
+    return { ok: true, dangerZone: zone };
+  });
+
+  app.post(
+    "/restaurants/:restaurantId/payment-methods/:methodKey/danger-zone/challenge",
+    async (req, reply) => {
+      const { restaurantId, methodKey } = z
+        .object({ restaurantId: z.string().min(1), methodKey: z.string().min(1) })
+        .parse(req.params);
+      const body = z
+        .object({
+          actionId: z.enum([
+            "DISABLE",
+            "CLEAR_DEFAULT",
+            "RESET_CONFIGURATION",
+            "CLEAR_SETUP_SESSION",
+            "DISCONNECT_ADAPTER"
+          ])
+        })
+        .parse(req.body ?? {});
+      const { membership, userId } = await requireMenuVenueMembership(prisma, req, restaurantId);
+      if (!canEditPaymentSettings(membership.role, membership.permissions)) {
+        return reply.status(403).send({ ok: false, error: "permission_denied" });
+      }
+      const created = await createPaymentMethodDangerChallenge(
+        prisma,
+        restaurantId,
+        methodKey,
+        body.actionId,
+        { actorUserId: userId, actorRole: membership.role }
+      );
+      if (!created.ok) {
+        const status =
+          created.error === "method_not_found" || created.error === "action_not_found"
+            ? 404
+            : 400;
+        return reply.status(status).send({
+          ok: false,
+          error: created.error,
+          message: "message" in created ? created.message : undefined
+        });
+      }
+      return {
+        ok: true,
+        challenge: created.challenge,
+        action: created.action,
+        dangerZone: created.zone
+      };
+    }
+  );
+
+  app.post(
+    "/restaurants/:restaurantId/payment-methods/:methodKey/danger-zone/execute",
+    async (req, reply) => {
+      const { restaurantId, methodKey } = z
+        .object({ restaurantId: z.string().min(1), methodKey: z.string().min(1) })
+        .parse(req.params);
+      const body = z
+        .object({
+          actionId: z.enum([
+            "DISABLE",
+            "CLEAR_DEFAULT",
+            "RESET_CONFIGURATION",
+            "CLEAR_SETUP_SESSION",
+            "DISCONNECT_ADAPTER"
+          ]),
+          challengeId: z.string().min(1),
+          typedPhrase: z.string().min(1).max(120)
+        })
+        .parse(req.body ?? {});
+      const { membership, userId } = await requireMenuVenueMembership(prisma, req, restaurantId);
+      if (!canEditPaymentSettings(membership.role, membership.permissions)) {
+        return reply.status(403).send({ ok: false, error: "permission_denied" });
+      }
+      const executed = await executePaymentMethodDangerAction(
+        prisma,
+        restaurantId,
+        methodKey,
+        body,
+        { actorUserId: userId, actorRole: membership.role }
+      );
+      if (!executed.ok) {
+        const status =
+          executed.error === "method_not_found" || executed.error === "action_not_found"
+            ? 404
+            : executed.error === "phrase_mismatch" || executed.error === "challenge_expired"
+              ? 409
+              : 400;
+        return reply.status(status).send({
+          ok: false,
+          error: executed.error,
+          message: "message" in executed ? executed.message : undefined
+        });
+      }
+      return {
+        ok: true,
+        message: executed.message,
+        actionId: executed.actionId,
+        settings: toPublicVenuePaymentSettings(executed.settings),
+        methodCapabilities: getVenuePaymentMethodsPayload(executed.settings),
+        featureGates: evaluatePaymentFeatureGates(executed.settings, getPaymentProviderEnvReady()),
+        dangerZone: buildPaymentMethodDangerZone(executed.settings, methodKey)
+      };
+    }
+  );
 
   app.get("/restaurants/:restaurantId/payments/features", async (req, reply) => {
     const { restaurantId } = z.object({ restaurantId: z.string().min(1) }).parse(req.params);

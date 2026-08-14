@@ -1273,7 +1273,8 @@ export type PaymentSetupSession = {
   restaurantId: string;
   methodKey: string;
   provider: string;
-  status: "IN_PROGRESS" | "READY_TO_ENABLE" | "ENABLED" | "FAILED" | "EXPIRED";
+  status: "IN_PROGRESS" | "READY_TO_ENABLE" | "ENABLED" | "FAILED" | "EXPIRED" | "EDITING";
+  mode?: "setup" | "edit";
   currentStep: string;
   steps: PaymentSetupSessionStep[];
   version: number;
@@ -1286,6 +1287,42 @@ export type PaymentSetupSession = {
   requiredAction?: string | null;
   retryAllowed?: boolean;
   checklist: Array<{ id: string; label: string; done: boolean }>;
+};
+
+export type PaymentMethodDangerActionId =
+  | "DISABLE"
+  | "CLEAR_DEFAULT"
+  | "RESET_CONFIGURATION"
+  | "CLEAR_SETUP_SESSION"
+  | "DISCONNECT_ADAPTER";
+
+export type PaymentMethodDangerAction = {
+  id: PaymentMethodDangerActionId;
+  label: string;
+  description: string;
+  severity: "warning" | "critical";
+  consequences: string[];
+  confirmLabel: string;
+  available: boolean;
+  unavailableReason?: string;
+};
+
+export type PaymentMethodDangerZone = {
+  methodKey: string;
+  methodLabel: string;
+  readinessStatus: string;
+  enabled: boolean;
+  isDefault: boolean;
+  actions: PaymentMethodDangerAction[];
+};
+
+export type PaymentDangerChallenge = {
+  id: string;
+  methodKey: string;
+  actionId: PaymentMethodDangerActionId;
+  phrase: string;
+  expiresAt: string;
+  createdAt: string;
 };
 
 export type PaymentOrderSource =
@@ -1738,6 +1775,74 @@ export async function submitVenuePaymentMethodSetupStep(
       method: "POST",
       headers: authJsonHeaders(token),
       body: JSON.stringify(body ?? {})
+    }
+  );
+}
+
+export async function getVenuePaymentMethodDangerZone(
+  token: string,
+  restaurantId: string,
+  methodKey: string
+) {
+  return apiFetch<{
+    ok: boolean;
+    dangerZone?: PaymentMethodDangerZone;
+    error?: string;
+    message?: string;
+  }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/payment-methods/${encodeURIComponent(methodKey)}/danger-zone`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
+export async function createVenuePaymentMethodDangerChallenge(
+  token: string,
+  restaurantId: string,
+  methodKey: string,
+  actionId: PaymentMethodDangerActionId
+) {
+  return apiFetch<{
+    ok: boolean;
+    challenge?: PaymentDangerChallenge;
+    action?: PaymentMethodDangerAction;
+    dangerZone?: PaymentMethodDangerZone;
+    error?: string;
+    message?: string;
+  }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/payment-methods/${encodeURIComponent(methodKey)}/danger-zone/challenge`,
+    {
+      method: "POST",
+      headers: authJsonHeaders(token),
+      body: JSON.stringify({ actionId })
+    }
+  );
+}
+
+export async function executeVenuePaymentMethodDangerAction(
+  token: string,
+  restaurantId: string,
+  methodKey: string,
+  body: {
+    actionId: PaymentMethodDangerActionId;
+    challengeId: string;
+    typedPhrase: string;
+  }
+) {
+  return apiFetch<{
+    ok: boolean;
+    message?: string;
+    actionId?: PaymentMethodDangerActionId;
+    settings?: VenuePaymentSettings;
+    methodCapabilities?: PaymentMethodCapabilitiesPayload;
+    featureGates?: PaymentFeatureGates;
+    dangerZone?: PaymentMethodDangerZone;
+    error?: string;
+  }>(
+    `/restaurants/${encodeURIComponent(restaurantId)}/payment-methods/${encodeURIComponent(methodKey)}/danger-zone/execute`,
+    {
+      method: "POST",
+      headers: authJsonHeaders(token),
+      body: JSON.stringify(body)
     }
   );
 }

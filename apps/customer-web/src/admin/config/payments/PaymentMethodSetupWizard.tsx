@@ -179,22 +179,34 @@ export function PaymentMethodSetupWizard({
       onClose();
       return;
     }
+    if (session.mode === "edit" || session.status === "EDITING") {
+      onToast("Setup changes saved.", "success");
+      return;
+    }
     onToast("Setup progress saved.", "success");
   };
 
   const primaryLabel =
     session?.status === "READY_TO_ENABLE"
       ? `Enable ${methodLabel}`
-      : currentStep?.id === "PROVIDE_CREDENTIALS" || currentStep?.id === "CONNECT_ADAPTER"
-        ? "Save and verify"
-        : "Continue";
+      : session?.mode === "edit" || session?.status === "EDITING"
+        ? currentStep?.id === "PROVIDE_CREDENTIALS" || currentStep?.id === "CONNECT_ADAPTER"
+          ? "Save and verify"
+          : "Save changes"
+        : currentStep?.id === "PROVIDE_CREDENTIALS" || currentStep?.id === "CONNECT_ADAPTER"
+          ? "Save and verify"
+          : "Continue";
 
   return (
     <MenuPageModalShell
       open={open}
       onClose={onClose}
-      title={`Set up ${methodLabel}`}
-      description="ServeOS connects directly to the payment network for this method. Complete each backend-required step before enabling it for guests."
+      title={session?.mode === "edit" || session?.status === "EDITING" ? `Edit ${methodLabel} setup` : `Set up ${methodLabel}`}
+      description={
+        session?.mode === "edit" || session?.status === "EDITING"
+          ? "Update credentials, payment contexts, or verification. The backend remains the source of truth for readiness."
+          : "ServeOS connects directly to the payment network for this method. Complete each backend-required step before enabling it for guests."
+      }
       titleId="payment-method-setup-wizard"
       maxWidthClass="max-w-2xl"
       busy={busy}
@@ -219,10 +231,27 @@ export function PaymentMethodSetupWizard({
                   key={step.id}
                   className={`admin-payments-setup-step is-${step.status.toLowerCase()}${
                     step.id === currentStep?.id ? " is-current" : ""
-                  }`}
+                  }${session.mode === "edit" || session.status === "EDITING" ? " is-editable" : ""}`}
                 >
-                  <strong>{step.label}</strong>
-                  <span>{step.description}</span>
+                  <button
+                    type="button"
+                    className="admin-payments-setup-step-btn"
+                    disabled={
+                      busy ||
+                      (!(session.mode === "edit" || session.status === "EDITING") &&
+                        step.status === "LOCKED")
+                    }
+                    onClick={() => {
+                      if (!(session.mode === "edit" || session.status === "EDITING")) return;
+                      if (step.status === "LOCKED") return;
+                      setSession({ ...session, currentStep: step.id });
+                      setValues({});
+                      setError(null);
+                    }}
+                  >
+                    <strong>{step.label}</strong>
+                    <span>{step.description}</span>
+                  </button>
                 </li>
               ))}
             </ol>

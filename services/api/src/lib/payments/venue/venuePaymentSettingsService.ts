@@ -251,6 +251,11 @@ export type VenuePaymentSettings = {
   >;
   /** Persistent provider-driven setup sessions keyed by method. */
   setupSessions?: Record<string, import("../setup/paymentSetupSessionService.js").PaymentSetupSession>;
+  /** Short-lived danger-zone confirmation challenges (phrase type-in). */
+  dangerChallenges?: Record<
+    string,
+    import("./paymentMethodDangerZoneService.js").PaymentDangerChallenge
+  >;
   auditLog: VenuePaymentAuditEntry[];
 };
 
@@ -625,6 +630,7 @@ const DEFAULT_SETTINGS: VenuePaymentSettings = {
   providerConnections: {},
   preferencePolicies: {},
   setupSessions: {},
+  dangerChallenges: {},
   auditLog: []
 };
 
@@ -771,6 +777,10 @@ export function mergeSettings(raw: unknown): VenuePaymentSettings {
       ...(DEFAULT_SETTINGS.setupSessions ?? {}),
       ...((s.setupSessions as VenuePaymentSettings["setupSessions"]) ?? {})
     },
+    dangerChallenges: {
+      ...(DEFAULT_SETTINGS.dangerChallenges ?? {}),
+      ...((s.dangerChallenges as VenuePaymentSettings["dangerChallenges"]) ?? {})
+    },
     auditLog: Array.isArray(s.auditLog) ? s.auditLog.slice(0, 100) : []
   };
 }
@@ -810,7 +820,8 @@ export function toPublicVenuePaymentSettings(settings: VenuePaymentSettings): Ve
       hasWebhookSecret: record.hasWebhookSecret
     };
   }
-  return { ...settings, providerConnections: publicConnections };
+  // Never return active confirmation phrases in ordinary settings payloads.
+  return { ...settings, providerConnections: publicConnections, dangerChallenges: {} };
 }
 
 /** Public connection projection for connect responses (secrets masked as labels). */
@@ -999,10 +1010,14 @@ export async function updateVenuePaymentSettings(
       ...(current.settings.preferencePolicies ?? {}),
       ...(patch.preferencePolicies ?? {})
     },
-    setupSessions: {
-      ...(current.settings.setupSessions ?? {}),
-      ...(patch.setupSessions ?? {})
-    },
+    setupSessions:
+      patch.setupSessions !== undefined
+        ? patch.setupSessions
+        : (current.settings.setupSessions ?? {}),
+    dangerChallenges:
+      patch.dangerChallenges !== undefined
+        ? patch.dangerChallenges
+        : (current.settings.dangerChallenges ?? {}),
     auditLog: current.settings.auditLog
   });
 

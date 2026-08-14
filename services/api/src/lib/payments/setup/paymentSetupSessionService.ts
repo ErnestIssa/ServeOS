@@ -44,7 +44,8 @@ export type PaymentSetupSession = {
   restaurantId: string;
   methodKey: string;
   provider: ProviderConnectionId | "native";
-  status: "IN_PROGRESS" | "READY_TO_ENABLE" | "ENABLED" | "FAILED" | "EXPIRED";
+  status: "IN_PROGRESS" | "READY_TO_ENABLE" | "ENABLED" | "FAILED" | "EXPIRED" | "EDITING";
+  mode: "setup" | "edit";
   currentStep: string;
   steps: PaymentSetupSessionStep[];
   version: number;
@@ -297,22 +298,64 @@ export function materializeSetupSession(
   const current = steps.find((s) => s.status === "CURRENT") ?? steps.find((s) => s.status === "REQUIRED");
   const envReady = getPaymentProviderEnvReady();
   const readiness = evaluatePaymentMethodReadiness(settings, envReady, methodKey);
+  const configured =
+    readiness.status === "ENABLED" ||
+    readiness.status === "READY" ||
+    readiness.status === "DEGRADED" ||
+    readiness.status === "PENDING_VERIFICATION" ||
+    readiness.status === "CONFIGURING" ||
+    Boolean(settings.methodConfig?.[methodKey as keyof typeof settings.methodConfig]?.enabled) ||
+    Boolean(resolveAdapterConnection(settings, envReady, entry.requiredAdapter).connected);
+  const mode: "setup" | "edit" = configured ? "edit" : "setup";
+  const editSteps =
+    mode === "edit"
+      ? steps.map((s) => {
+          if (
+            s.status === "LOCKED" &&
+            (s.id === "PROVIDE_CREDENTIALS" ||
+              s.id === "CONNECT_ADAPTER" ||
+              s.id === "CONFIGURE_CHANNELS" ||
+              s.id === "VERIFY_CONNECTION" ||
+              s.id === "BUSINESS_DETAILS" ||
+              s.id === "REVIEW")
+          ) {
+            return { ...s, status: "DONE" as const };
+          }
+          return s;
+        })
+      : steps;
+  const focusStep =
+    mode === "edit"
+      ? editSteps.find(
+          (s) =>
+            s.id === "PROVIDE_CREDENTIALS" ||
+            s.id === "CONNECT_ADAPTER" ||
+            s.id === "CONFIGURE_CHANNELS" ||
+            s.id === "BUSINESS_DETAILS"
+        )
+      : current;
+  const finalSteps = editSteps.map((s) =>
+    focusStep && s.id === focusStep.id ? { ...s, status: "CURRENT" as const } : s
+  );
 
   const session: PaymentSetupSession = {
     id: existing?.id ?? `pss_${randomUUID().replace(/-/g, "").slice(0, 16)}`,
     restaurantId,
     methodKey,
     provider,
+    mode,
     status:
-      readiness.status === "ENABLED"
-        ? "ENABLED"
-        : readiness.canEnable || readiness.status === "READY"
-          ? "READY_TO_ENABLE"
-          : existing?.status === "FAILED"
-            ? "FAILED"
-            : "IN_PROGRESS",
-    currentStep: current?.id ?? "REVIEW",
-    steps,
+      mode === "edit"
+        ? "EDITING"
+        : readiness.status === "ENABLED"
+          ? "ENABLED"
+          : readiness.canEnable || readiness.status === "READY"
+            ? "READY_TO_ENABLE"
+            : existing?.status === "FAILED"
+              ? "FAILED"
+              : "IN_PROGRESS",
+    currentStep: focusStep?.id ?? current?.id ?? "REVIEW",
+    steps: finalSteps,
     version: (existing?.version ?? 0) + 1,
     createdBy: existing?.createdBy ?? actorUserId,
     updatedBy: actorUserId,

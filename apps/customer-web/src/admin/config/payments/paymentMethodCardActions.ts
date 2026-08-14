@@ -4,6 +4,7 @@ import type { PaymentMethodListRow } from "./paymentMethodsListQuery";
 export type PaymentMethodCardActionId =
   | "manage"
   | "setup"
+  | "edit_setup"
   | "enable"
   | "disable"
   | "set_default"
@@ -40,6 +41,9 @@ export function buildPaymentMethodCardActions(
     actions.push({ id: "setup", label: needsSetup ? "Set up" : "Continue setup" });
   } else {
     actions.push({ id: "manage", label: "Manage" });
+    if (caps.canEdit) {
+      actions.push({ id: "edit_setup", label: "Edit setup" });
+    }
   }
 
   if (caps.canEdit) {
