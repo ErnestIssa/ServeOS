@@ -102,6 +102,7 @@ function createDirectAdapter(id: ProviderConnectionId): PaymentProviderAdapter {
           publicAccountId: input.accountId?.trim() || ctx.connection.publicAccountId,
           publicMerchantId: input.merchantId?.trim() || ctx.connection.publicMerchantId,
           environment: id === "swish" ? (ctx.envReady.swish ? "production" : "sandbox") : ctx.envReady.stripe ? "production" : "sandbox",
+          connectionMode: "BRING_YOUR_OWN_PROVIDER",
           verificationStatus: "pending" as ProviderVerificationStatus,
           nextRequiredAction: "VERIFY_CONNECTION",
           revokedAt: null

@@ -25,6 +25,10 @@ export * from "./setup/paymentSetupSessionService.js";
 
 export * from "./venue/paymentMethodDangerZoneService.js";
 
+export * from "./account/venuePaymentAccountTypes.js";
+export * from "./account/venuePaymentAccountService.js";
+export * from "./account/stripeConnectAdapter.js";
+
 export * from "./features/paymentFeatureGates.js";
 
 export * from "./health/paymentHealthService.js";

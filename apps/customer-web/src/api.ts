@@ -1187,7 +1187,7 @@ export type VenuePaymentMethodCapability = {
   channels: string[];
   lifecycleVersion: number;
   supportedByServeOS: true;
-  integrationMode: "direct";
+  integrationMode: "serveos_managed" | "direct" | "native";
   enabled: boolean;
   isDefault: boolean;
   readiness: PaymentMethodReadiness;
@@ -1273,6 +1273,7 @@ export type PaymentSetupSession = {
   restaurantId: string;
   methodKey: string;
   provider: string;
+  connectionSurface?: "managed" | "direct" | "native";
   status: "IN_PROGRESS" | "READY_TO_ENABLE" | "ENABLED" | "FAILED" | "EXPIRED" | "EDITING";
   mode?: "setup" | "edit";
   currentStep: string;
@@ -1323,6 +1324,88 @@ export type PaymentDangerChallenge = {
   phrase: string;
   expiresAt: string;
   createdAt: string;
+};
+
+export type PaymentConnectionMode =
+  | "SERVEOS_MANAGED"
+  | "BRING_YOUR_OWN_PROVIDER"
+  | "MANUAL_EXTERNAL";
+
+export type VenuePaymentAccountOnboardingState =
+  | "NOT_STARTED"
+  | "IN_PROGRESS"
+  | "ACTION_REQUIRED"
+  | "UNDER_REVIEW"
+  | "CONNECTED"
+  | "ACTIVE"
+  | "RESTRICTED"
+  | "DISABLED"
+  | "REJECTED"
+  | "DISCONNECTED";
+
+export type VenuePaymentCapability = {
+  id: string;
+  label: string;
+  providerStatus: string;
+  normalizedStatus: string;
+  unlocksMethods: string[];
+  enabledByVenue: boolean;
+  lastVerifiedAt: string | null;
+  limitations?: string[];
+};
+
+export type VenuePaymentAccount = {
+  id: string;
+  restaurantId: string;
+  mode: PaymentConnectionMode;
+  provider: string;
+  providerAccountId?: string | null;
+  displayName?: string;
+  country: string;
+  currency: string;
+  onboardingState: VenuePaymentAccountOnboardingState;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  detailsSubmitted: boolean;
+  environment: "sandbox" | "production";
+  capabilities: VenuePaymentCapability[];
+  reasonCode?: string | null;
+  requiredAction?: string | null;
+  actionUrl?: string | null;
+  lastProviderSyncAt?: string | null;
+  connectedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PaymentOnboardingSession = {
+  id: string;
+  restaurantId: string;
+  paymentAccountId: string;
+  provider: string;
+  mode: PaymentConnectionMode;
+  status: string;
+  providerAccountId?: string | null;
+  onboardingUrl?: string | null;
+  returnUrl: string;
+  refreshUrl: string;
+  reasonCode?: string | null;
+  requiredAction?: string | null;
+  expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type VenuePaymentPlatformSnapshot = {
+  primaryAccount: VenuePaymentAccount | null;
+  accounts: VenuePaymentAccount[];
+  activeOnboarding: PaymentOnboardingSession | null;
+  recommendedMode: PaymentConnectionMode;
+  nextAction: {
+    type: "CONNECT_PAYMENTS" | "CONTINUE_ONBOARDING" | "REFRESH_ACCOUNT" | "ENABLE_METHODS" | "NONE";
+    label: string;
+    reason?: string;
+  };
 };
 
 export type PaymentOrderSource =
@@ -1703,10 +1786,86 @@ export async function getVenuePaymentSettings(token: string, restaurantId: strin
     catalogVersion?: number;
     methodCapabilities?: PaymentMethodCapabilitiesPayload;
     featureGates?: PaymentFeatureGates;
+    paymentPlatform?: VenuePaymentPlatformSnapshot;
     error?: string;
     message?: string;
   }>(`/restaurants/${encodeURIComponent(restaurantId)}/payment-settings`, {
     headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export async function getVenuePaymentPlatform(token: string, restaurantId: string) {
+  return apiFetch<{
+    ok: boolean;
+    paymentPlatform?: VenuePaymentPlatformSnapshot;
+    envReady?: PaymentProviderEnvReady;
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/payments/platform`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export async function startVenuePaymentOnboarding(
+  token: string,
+  restaurantId: string,
+  body: { returnUrl: string; refreshUrl: string; country?: string; email?: string }
+) {
+  return apiFetch<{
+    ok: boolean;
+    onboardingUrl?: string;
+    session?: PaymentOnboardingSession;
+    account?: VenuePaymentAccount;
+    paymentPlatform?: VenuePaymentPlatformSnapshot;
+    sandbox?: boolean;
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/payments/onboarding/start`, {
+    method: "POST",
+    headers: authJsonHeaders(token),
+    body: JSON.stringify(body)
+  });
+}
+
+export async function refreshVenuePaymentOnboarding(
+  token: string,
+  restaurantId: string,
+  body: { returnUrl: string; refreshUrl: string }
+) {
+  return apiFetch<{
+    ok: boolean;
+    onboardingUrl?: string;
+    session?: PaymentOnboardingSession;
+    paymentPlatform?: VenuePaymentPlatformSnapshot;
+    sandbox?: boolean;
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/payments/onboarding/refresh`, {
+    method: "POST",
+    headers: authJsonHeaders(token),
+    body: JSON.stringify(body)
+  });
+}
+
+export async function syncVenuePaymentOnboarding(
+  token: string,
+  restaurantId: string,
+  body?: { paymentAccountId?: string }
+) {
+  return apiFetch<{
+    ok: boolean;
+    account?: VenuePaymentAccount;
+    paymentPlatform?: VenuePaymentPlatformSnapshot;
+    settings?: VenuePaymentSettings;
+    methodCapabilities?: PaymentMethodCapabilitiesPayload;
+    featureGates?: PaymentFeatureGates;
+    envReady?: PaymentProviderEnvReady;
+    error?: string;
+    message?: string;
+  }>(`/restaurants/${encodeURIComponent(restaurantId)}/payments/onboarding/sync`, {
+    method: "POST",
+    headers: authJsonHeaders(token),
+    body: JSON.stringify(body ?? {})
   });
 }
 

@@ -27,25 +27,77 @@ export type VenuePaymentMethodView = {
   channels: string[];
   lifecycleVersion: number;
   supportedByServeOS: true;
-  integrationMode: "direct";
+  /** How the venue connects acquiring for this method. */
+  integrationMode: "serveos_managed" | "direct" | "native";
+  availableFromProvider: boolean;
   config: PaymentMethodConfig | null;
   enabled: boolean;
   isDefault: boolean;
   readiness: PaymentMethodReadiness;
 };
 
+export type VenuePaymentMethodsPayloadOptions = {
+  /** Methods unlocked by the connected VenuePaymentAccount capabilities. */
+  unlockedMethodKeys?: Set<string>;
+  hasManagedAccount?: boolean;
+};
+
 function resolveConfig(settings: VenuePaymentSettings, key: PaymentMethodKey): PaymentMethodConfig | null {
   return settings.methodConfig?.[key] ?? null;
 }
 
-export function buildVenuePaymentMethodViews(settings: VenuePaymentSettings): VenuePaymentMethodView[] {
+export function buildVenuePaymentMethodViews(
+  settings: VenuePaymentSettings,
+  options?: VenuePaymentMethodsPayloadOptions
+): VenuePaymentMethodView[] {
   const envReady = getPaymentProviderEnvReady();
   return SERVEOS_PAYMENT_CATALOG.map((entry) => {
     const config = resolveConfig(settings, entry.key);
     const enabled = Boolean(config?.enabled ?? settings.methods[entry.key]);
     const isDefault =
       settings.defaultPaymentMethodKey === entry.key || Boolean(config?.isDefault);
-    const readiness = evaluatePaymentMethodReadiness(settings, envReady, entry.key);
+    let readiness = evaluatePaymentMethodReadiness(settings, envReady, entry.key);
+
+    const isNative = entry.requiredAdapter === "native";
+    const unlocked =
+      isNative ||
+      !options?.unlockedMethodKeys ||
+      options.unlockedMethodKeys.size === 0 ||
+      options.unlockedMethodKeys.has(entry.key);
+
+    // Platform account is connected but this capability is not provisioned for the venue.
+    if (!isNative && options?.hasManagedAccount && options.unlockedMethodKeys && !unlocked) {
+      readiness = {
+        ...readiness,
+        availableForVenue: false,
+        canEnable: false,
+        status: enabled ? readiness.status : "NOT_CONFIGURED",
+        nextAction: "CONNECT_ADAPTER",
+        reason:
+          "ServeOS supports this method, but it is not available on this venue’s connected payment account yet.",
+        missingRequirements: [...readiness.missingRequirements, "ADAPTER_CONNECTION"],
+        missingRequirementLabels: [
+          ...readiness.missingRequirementLabels,
+          "Payment capability not provisioned for this account"
+        ]
+      };
+      const ui = {
+        health: readiness.uiHealth,
+        statusLabel: "Unavailable for account"
+      };
+      readiness = {
+        ...readiness,
+        uiHealth: "setup",
+        statusLabel: ui.statusLabel
+      };
+    }
+
+    const integrationMode: VenuePaymentMethodView["integrationMode"] = isNative
+      ? "native"
+      : options?.hasManagedAccount
+        ? "serveos_managed"
+        : "direct";
+
     return {
       key: entry.key,
       label: entry.label,
@@ -57,7 +109,8 @@ export function buildVenuePaymentMethodViews(settings: VenuePaymentSettings): Ve
       channels: entry.channels,
       lifecycleVersion: entry.lifecycleVersion,
       supportedByServeOS: true,
-      integrationMode: "direct",
+      integrationMode,
+      availableFromProvider: unlocked,
       config,
       enabled,
       isDefault,
@@ -66,8 +119,11 @@ export function buildVenuePaymentMethodViews(settings: VenuePaymentSettings): Ve
   });
 }
 
-export function getVenuePaymentMethodsPayload(settings: VenuePaymentSettings) {
-  const methods = buildVenuePaymentMethodViews(settings);
+export function getVenuePaymentMethodsPayload(
+  settings: VenuePaymentSettings,
+  options?: VenuePaymentMethodsPayloadOptions
+) {
+  const methods = buildVenuePaymentMethodViews(settings, options);
   return {
     catalogVersion: SERVEOS_PAYMENT_CATALOG_VERSION,
     methods,
@@ -83,10 +139,11 @@ export function getVenuePaymentMethodsPayload(settings: VenuePaymentSettings) {
 
 export function getSingleVenuePaymentMethod(
   settings: VenuePaymentSettings,
-  methodKey: string
+  methodKey: string,
+  options?: VenuePaymentMethodsPayloadOptions
 ): VenuePaymentMethodView | null {
   if (!getCatalogEntry(methodKey)) return null;
-  return buildVenuePaymentMethodViews(settings).find((m) => m.key === methodKey) ?? null;
+  return buildVenuePaymentMethodViews(settings, options).find((m) => m.key === methodKey) ?? null;
 }
 
-export { CATALOG_METHOD_KEYS };
+export { CATALOG_METHOD_KEYS, getMethodCapabilities };

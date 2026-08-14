@@ -44,6 +44,11 @@ import {
   buildPaymentMethodDangerZone,
   createPaymentMethodDangerChallenge,
   executePaymentMethodDangerAction,
+  getVenuePaymentPlatformSnapshot,
+  startServeosManagedOnboarding,
+  syncVenuePaymentAccountFromProvider,
+  refreshServeosManagedOnboardingLink,
+  methodsUnlockedByActiveCapabilities,
   type VenuePaymentSettings
 } from "../lib/payments/index.js";
 
@@ -57,7 +62,12 @@ export function registerVenuePaymentRoutes(app: FastifyInstance, prisma: PrismaC
 
     const envReady = getPaymentProviderEnvReady();
     const stats = await getVenuePaymentStats(prisma, restaurantId);
-    const methodCapabilities = getVenuePaymentMethodsPayload(result.settings);
+    const platform = await getVenuePaymentPlatformSnapshot(prisma, restaurantId);
+    const unlocked = methodsUnlockedByActiveCapabilities(platform.primaryAccount);
+    const methodCapabilities = getVenuePaymentMethodsPayload(result.settings, {
+      unlockedMethodKeys: unlocked.size ? unlocked : undefined,
+      hasManagedAccount: Boolean(platform.primaryAccount)
+    });
     const featureGates = evaluatePaymentFeatureGates(result.settings, envReady);
 
     return {
@@ -68,6 +78,7 @@ export function registerVenuePaymentRoutes(app: FastifyInstance, prisma: PrismaC
       catalogVersion: SERVEOS_PAYMENT_CATALOG_VERSION,
       methodCapabilities,
       featureGates,
+      paymentPlatform: platform,
       disablePolicy: METHOD_DISABLE_POLICY
     };
   });
@@ -119,6 +130,121 @@ export function registerVenuePaymentRoutes(app: FastifyInstance, prisma: PrismaC
       methodCapabilities: getVenuePaymentMethodsPayload(result.settings),
       featureGates: evaluatePaymentFeatureGates(result.settings, getPaymentProviderEnvReady()),
       disablePolicy: METHOD_DISABLE_POLICY
+    };
+  });
+
+  app.get("/restaurants/:restaurantId/payments/platform", async (req, reply) => {
+    const { restaurantId } = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
+    await requireMenuVenueMembership(prisma, req, restaurantId);
+    const platform = await getVenuePaymentPlatformSnapshot(prisma, restaurantId);
+    return { ok: true, paymentPlatform: platform, envReady: getPaymentProviderEnvReady() };
+  });
+
+  app.post("/restaurants/:restaurantId/payments/onboarding/start", async (req, reply) => {
+    const { restaurantId } = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
+    const body = z
+      .object({
+        returnUrl: z.string().url(),
+        refreshUrl: z.string().url(),
+        country: z.string().length(2).optional(),
+        email: z.string().email().optional()
+      })
+      .parse(req.body ?? {});
+    const { membership, userId } = await requireMenuVenueMembership(prisma, req, restaurantId);
+    if (!canEditPaymentSettings(membership.role, membership.permissions)) {
+      return reply.status(403).send({ ok: false, error: "permission_denied" });
+    }
+    const started = await startServeosManagedOnboarding(prisma, restaurantId, body, {
+      actorUserId: userId,
+      actorRole: membership.role
+    });
+    if (!started.ok) {
+      return reply
+        .status(started.error === "restaurant_not_found" ? 404 : 400)
+        .send({ ok: false, error: started.error, message: "message" in started ? started.message : undefined });
+    }
+    return {
+      ok: true,
+      onboardingUrl: started.onboardingUrl,
+      session: started.session,
+      account: started.account,
+      paymentPlatform: started.platform,
+      sandbox: started.sandbox
+    };
+  });
+
+  app.post("/restaurants/:restaurantId/payments/onboarding/refresh", async (req, reply) => {
+    const { restaurantId } = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
+    const body = z
+      .object({
+        returnUrl: z.string().url(),
+        refreshUrl: z.string().url()
+      })
+      .parse(req.body ?? {});
+    const { membership, userId } = await requireMenuVenueMembership(prisma, req, restaurantId);
+    if (!canEditPaymentSettings(membership.role, membership.permissions)) {
+      return reply.status(403).send({ ok: false, error: "permission_denied" });
+    }
+    const refreshed = await refreshServeosManagedOnboardingLink(prisma, restaurantId, body, {
+      actorUserId: userId,
+      actorRole: membership.role
+    });
+    if (!refreshed.ok) {
+      return reply.status(400).send({
+        ok: false,
+        error: refreshed.error,
+        message: "message" in refreshed ? refreshed.message : undefined
+      });
+    }
+    return {
+      ok: true,
+      onboardingUrl: refreshed.onboardingUrl,
+      session: refreshed.session,
+      paymentPlatform: refreshed.platform,
+      sandbox: refreshed.sandbox
+    };
+  });
+
+  app.post("/restaurants/:restaurantId/payments/onboarding/sync", async (req, reply) => {
+    const { restaurantId } = z.object({ restaurantId: z.string().min(1) }).parse(req.params);
+    const body = z.object({ paymentAccountId: z.string().optional() }).parse(req.body ?? {});
+    const { membership, userId } = await requireMenuVenueMembership(prisma, req, restaurantId);
+    if (!canEditPaymentSettings(membership.role, membership.permissions)) {
+      return reply.status(403).send({ ok: false, error: "permission_denied" });
+    }
+    const synced = await syncVenuePaymentAccountFromProvider(
+      prisma,
+      restaurantId,
+      body.paymentAccountId,
+      { actorUserId: userId, actorRole: membership.role }
+    );
+    if (!synced.ok) {
+      return reply.status(synced.error === "account_not_found" ? 404 : 400).send({
+        ok: false,
+        error: synced.error,
+        message: "message" in synced ? synced.message : undefined
+      });
+    }
+    const settingsRes = await getVenuePaymentSettings(prisma, restaurantId);
+    if (!settingsRes.ok) {
+      return {
+        ok: true,
+        account: synced.account,
+        paymentPlatform: synced.platform,
+        envReady: synced.envReady
+      };
+    }
+    return {
+      ok: true,
+      account: synced.account,
+      paymentPlatform: synced.platform,
+      settings: toPublicVenuePaymentSettings(settingsRes.settings),
+      methodCapabilities: getVenuePaymentMethodsPayload(settingsRes.settings, {
+        unlockedMethodKeys: methodsUnlockedByActiveCapabilities(synced.account),
+        hasManagedAccount: true
+      }),
+      featureGates: evaluatePaymentFeatureGates(settingsRes.settings, synced.envReady),
+      envReady: synced.envReady
     };
   });
 

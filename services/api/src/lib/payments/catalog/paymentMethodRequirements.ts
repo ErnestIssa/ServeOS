@@ -20,20 +20,30 @@ export type PaymentSetupStep = {
 const NATIVE_STEPS: PaymentSetupStep[] = [
   {
     id: "CONFIGURE_CHANNELS",
-    label: "Configure channels",
-    description: "Choose which order sources can use this method.",
+    label: "Choose where it appears",
+    description: "Select the order sources that can offer this method.",
     required: true
   },
   {
-    id: "CONFIGURE_PAYMENT_RULES",
-    label: "Confirm payment rules",
-    description: "Ensure venue payment rules allow this method where needed.",
-    required: false
+    id: "ACTIVATE",
+    label: "Enable",
+    description: "Turn this method on for guests and staff.",
+    required: true
+  }
+];
+
+/** ServeOS-managed (Connect): account already verified — only business choices remain. */
+const MANAGED_ADAPTER_STEPS: PaymentSetupStep[] = [
+  {
+    id: "CONFIGURE_CHANNELS",
+    label: "Choose where it appears",
+    description: "Select the order sources that can offer this method.",
+    required: true
   },
   {
     id: "ACTIVATE",
-    label: "Activate",
-    description: "Enable this method for guests and staff.",
+    label: "Enable",
+    description: "Turn this method on once channels are set.",
     required: true
   }
 ];
@@ -41,56 +51,54 @@ const NATIVE_STEPS: PaymentSetupStep[] = [
 const DIRECT_ADAPTER_STEPS: PaymentSetupStep[] = [
   {
     id: "CONNECT_ADAPTER",
-    label: "Connect ServeOS adapter",
-    description: "Connect the ServeOS direct integration for this payment rail.",
+    label: "Connect provider",
+    description: "Link your own provider account for this payment method.",
     required: true
   },
   {
     id: "PROVIDE_CREDENTIALS",
-    label: "Provide merchant credentials",
-    description: "Store merchant identifiers required by the direct integration.",
+    label: "Enter credentials",
+    description: "Add the merchant ID and secrets required by your provider.",
     required: true
   },
   {
     id: "VERIFY_CONNECTION",
     label: "Verify connection",
-    description: "ServeOS verifies the adapter can reach the payment network.",
+    description: "Confirm ServeOS can reach the provider with these credentials.",
     required: true
   },
   {
     id: "CONFIGURE_CHANNELS",
-    label: "Configure channels",
-    description: "Choose online, pay-at-venue, or business sources for this method.",
+    label: "Choose where it appears",
+    description: "Select the order sources that can offer this method.",
     required: true
   },
   {
-    id: "CONFIGURE_PAYMENT_RULES",
-    label: "Confirm payment rules",
-    description: "Align QR and ordering rules with this method.",
-    required: false
-  },
-  {
-    id: "TEST_PAYMENT",
-    label: "Test payment",
-    description: "Run a sandbox or verification payment when available.",
-    required: false
-  },
-  {
     id: "ACTIVATE",
-    label: "Activate",
-    description: "Enable this method once readiness is READY.",
+    label: "Enable",
+    description: "Turn this method on once verification succeeds.",
     required: true
   }
 ];
 
-export function getSetupStepsForMethod(key: PaymentMethodKey | string): PaymentSetupStep[] {
+export type PaymentSetupConnectionSurface = "managed" | "direct" | "native";
+
+export function getSetupStepsForMethod(
+  key: PaymentMethodKey | string,
+  surface: PaymentSetupConnectionSurface = "direct"
+): PaymentSetupStep[] {
   const entry = getCatalogEntry(key);
-  if (!entry || entry.requiredAdapter === "native") return NATIVE_STEPS;
+  if (!entry || entry.requiredAdapter === "native" || surface === "native") return NATIVE_STEPS;
+  if (surface === "managed") return MANAGED_ADAPTER_STEPS;
   return DIRECT_ADAPTER_STEPS;
 }
 
-export function getSetupStepsForAdapter(adapter: PaymentAdapterId): PaymentSetupStep[] {
-  if (adapter === "native") return NATIVE_STEPS;
+export function getSetupStepsForAdapter(
+  adapter: PaymentAdapterId,
+  surface: PaymentSetupConnectionSurface = "direct"
+): PaymentSetupStep[] {
+  if (adapter === "native" || surface === "native") return NATIVE_STEPS;
+  if (surface === "managed") return MANAGED_ADAPTER_STEPS;
   return DIRECT_ADAPTER_STEPS;
 }
 
@@ -105,11 +113,11 @@ export type PaymentRequirementId =
 
 export function getRequirementLabels(): Record<PaymentRequirementId, string> {
   return {
-    ADAPTER_CONNECTION: "Connect the ServeOS payment adapter",
-    ADAPTER_CREDENTIALS: "Provide merchant credentials",
-    ADAPTER_VERIFICATION: "Verify the adapter connection",
-    WEBHOOK_CONFIGURATION: "Configure payment webhooks",
-    ORDER_SOURCES: "Select at least one order source",
+    ADAPTER_CONNECTION: "Connect payments for this venue",
+    ADAPTER_CREDENTIALS: "Enter provider credentials",
+    ADAPTER_VERIFICATION: "Finish provider verification",
+    WEBHOOK_CONFIGURATION: "Payment webhooks not ready on the platform",
+    ORDER_SOURCES: "Choose at least one place this method can be used",
     CURRENCY_SEK: "Enable SEK (or a supported currency)",
     PAYMENT_RULES: "Align payment rules with this method"
   };

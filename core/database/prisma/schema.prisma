@@ -608,6 +608,7 @@ model Restaurant {
   /// Per-venue order source rule overrides.
   orderSourcePolicy       Json?
   /// Stripe/Swish connect, accepted methods, rules, taxes, refunds.
+  /// Still holds methodConfig/rules; connected merchant identity lives in VenuePaymentAccount.
   paymentSettings         Json?
 
   createdAt    DateTime @default(now())
@@ -639,8 +640,77 @@ model Restaurant {
   dataTransferJobs              DataTransferJob[]
   dataTransferTemplates         DataTransferTemplate[]
   dataTransferMigrationRequests DataTransferMigrationRequest[]
+  venuePaymentAccounts          VenuePaymentAccount[]
+  paymentOnboardingSessions     PaymentOnboardingSession[]
 
   @@index([companyId])
+}
+
+/// Connected merchant / payment account for a venue (platform PSP model).
+/// Preferred path: SERVEOS_MANAGED via Stripe Connect hosted onboarding.
+model VenuePaymentAccount {
+  id                 String   @id @default(cuid())
+  restaurantId       String
+  /// SERVEOS_MANAGED | BRING_YOUR_OWN_PROVIDER | MANUAL_EXTERNAL
+  mode               String
+  /// stripe_connect | swedbank_pay | direct_stripe | direct_swish | native
+  provider           String
+  providerAccountId  String?
+  displayName        String?
+  country            String   @default("SE")
+  currency           String   @default("SEK")
+  /// NOT_STARTED | IN_PROGRESS | ACTION_REQUIRED | UNDER_REVIEW | CONNECTED | ACTIVE | …
+  onboardingState    String   @default("NOT_STARTED")
+  chargesEnabled     Boolean  @default(false)
+  payoutsEnabled     Boolean  @default(false)
+  detailsSubmitted   Boolean  @default(false)
+  environment        String   @default("sandbox")
+  /// Normalized capability rows from the provider (card_payments, apple_pay, swish, …).
+  capabilities       Json?
+  reasonCode         String?
+  requiredAction     String?
+  actionUrl          String?
+  legacySurface      String?
+  isPrimary          Boolean  @default(true)
+  lastProviderSyncAt DateTime?
+  connectedAt        DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  restaurant Restaurant                 @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  sessions   PaymentOnboardingSession[]
+
+  @@index([restaurantId, isPrimary])
+  @@index([provider, providerAccountId])
+  @@index([restaurantId, provider])
+}
+
+/// Hosted provider onboarding session (Stripe Account Link, etc.).
+model PaymentOnboardingSession {
+  id                String   @id @default(cuid())
+  restaurantId      String
+  paymentAccountId  String
+  provider          String
+  mode              String
+  /// CREATED | REDIRECTED | RETURNED | COMPLETED | EXPIRED | FAILED
+  status            String   @default("CREATED")
+  providerAccountId String?
+  onboardingUrl     String?
+  returnUrl         String
+  refreshUrl        String
+  reasonCode        String?
+  requiredAction    String?
+  expiresAt         DateTime
+  createdByUserId   String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  restaurant    Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  paymentAccount VenuePaymentAccount @relation(fields: [paymentAccountId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId, status])
+  @@index([paymentAccountId])
+  @@index([expiresAt])
 }
 
 /// Recent staff action velocity window for fraud detection (in-memory substitute persisted per actor).

@@ -35,9 +35,9 @@ export function PaymentProviderDetailModal({
 
   const title =
     provider === "stripe"
-      ? "Card / Stripe adapter"
+      ? "Own Stripe account"
       : provider === "swish"
-        ? "Swish adapter"
+        ? "Own Swish agreement"
         : provider === "terminals"
           ? "Card terminals"
           : "Provider";
@@ -93,7 +93,7 @@ export function PaymentProviderDetailModal({
       open={open}
       onClose={onClose}
       title={title}
-      description="Connection details from the ServeOS adapter — secrets are never shown after save."
+      description="Advanced connection details. Secrets are never shown after save."
       titleId="payment-provider-detail"
       maxWidthClass="max-w-lg"
     >

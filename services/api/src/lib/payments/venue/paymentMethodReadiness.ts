@@ -90,7 +90,12 @@ export function evaluatePaymentMethodReadiness(
       missing.push("ADAPTER_CREDENTIALS");
     }
     if (adapter.connected && !adapter.verified) missing.push("ADAPTER_VERIFICATION");
-    if (caps.requiresWebhook && !envReady.webhook && adapter.connected) {
+    const connMode =
+      entry.requiredAdapter === "swish"
+        ? settings.providerConnections?.swish?.connectionMode
+        : settings.providerConnections?.stripe?.connectionMode;
+    const managed = connMode === "SERVEOS_MANAGED" || (adapter.connected && !settings.providerConnections?.stripe?.hasApiSecret && entry.requiredAdapter !== "swish");
+    if (caps.requiresWebhook && !envReady.webhook && adapter.connected && !managed) {
       missing.push("WEBHOOK_CONFIGURATION");
     }
   }
@@ -144,28 +149,28 @@ export function evaluatePaymentMethodReadiness(
     if (missing.includes("ORDER_SOURCES")) {
       status = "SETUP_REQUIRED";
       nextAction = "CONFIGURE_CHANNELS";
-      reason = "ServeOS supports this native method. Configure order sources, then activate.";
+      reason = "Choose where this method can be used, then enable it.";
     } else {
       status = "READY";
       nextAction = "ACTIVATE";
-      reason = "Ready to enable. No external adapter is required.";
+      reason = "Ready to enable.";
     }
   } else if (!adapter.connected) {
     status = "SETUP_REQUIRED";
     nextAction = "CONNECT_ADAPTER";
-    reason = `ServeOS supports ${entry.label}, but this venue has not connected the required adapter yet.`;
+    reason = `Connect payments first, then you can enable ${entry.label}.`;
   } else if (!adapter.verified || missing.includes("ADAPTER_VERIFICATION")) {
     status = "PENDING_VERIFICATION";
     nextAction = "VERIFY_CONNECTION";
-    reason = "Adapter connected — verification is still required before activation.";
+    reason = "Payments are linked — finish verification before enabling.";
   } else if (missing.includes("ORDER_SOURCES") || missing.includes("CURRENCY_SEK")) {
     status = "CONFIGURING";
     nextAction = "CONFIGURE_CHANNELS";
-    reason = "Adapter is ready. Finish channel and currency configuration to activate.";
+    reason = "Choose where this method can be used, then enable it.";
   } else {
     status = "READY";
     nextAction = "ACTIVATE";
-    reason = "All required checks passed. You can enable this method.";
+    reason = "Ready to enable for guests.";
   }
 
   const ui = mapLifecycleToUiHealth(status, isDefault && status === "ENABLED");

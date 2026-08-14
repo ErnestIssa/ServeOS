@@ -14,6 +14,9 @@ import {
   listVenuePaymentRefunds,
   listVenuePaymentTransactions,
   patchVenuePaymentSettings,
+  refreshVenuePaymentOnboarding,
+  startVenuePaymentOnboarding,
+  syncVenuePaymentOnboarding,
   verifyVenuePaymentProvider,
   type PaymentFeatureGates,
   type PaymentLogRow,
@@ -27,6 +30,7 @@ import {
   type PaymentTransactionRow,
   type PaymentWebhookHealth,
   type TodaysPaymentsDrillFilter,
+  type VenuePaymentPlatformSnapshot,
   type VenuePaymentSettings
 } from "../../../api";
 import {
@@ -97,6 +101,8 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
   const [envReady, setEnvReady] = useState<PaymentProviderEnvReady | null>(null);
   const [methodCapabilities, setMethodCapabilities] = useState<PaymentMethodCapabilitiesPayload | null>(null);
   const [featureGates, setFeatureGates] = useState<PaymentFeatureGates | null>(null);
+  const [paymentPlatform, setPaymentPlatform] = useState<VenuePaymentPlatformSnapshot | null>(null);
+  const [managedConnecting, setManagedConnecting] = useState(false);
   const [, setOverview] = useState<PaymentOverview | null>(null);
   const [transactions, setTransactions] = useState<PaymentTransactionRow[]>([]);
   const [txnSource, setTxnSource] = useState<"live" | "demo">("live");
@@ -214,6 +220,7 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
         setEnvReady(paymentRes.envReady ?? null);
         setMethodCapabilities(paymentRes.methodCapabilities ?? null);
         setFeatureGates(paymentRes.featureGates ?? null);
+        setPaymentPlatform(paymentRes.paymentPlatform ?? null);
       }
       if (overviewRes.ok && overviewRes.overview) setOverview(overviewRes.overview);
       if (overviewRes.ok && overviewRes.featureGates) setFeatureGates(overviewRes.featureGates);
@@ -466,7 +473,7 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
         ? ` ${res.verification.message}`
         : "";
     pushToast(
-      `${connectOpen === "stripe" ? "Card adapter" : "Swish"} connected${res.needsEnv ? " (sandbox — add env keys for live)" : ""}.${verifyNote} Methods using this adapter can continue setup.`,
+      `${connectOpen === "stripe" ? "Stripe" : "Swish"} connected.${verifyNote} You can continue method setup.`,
       res.verification?.ok === false ? "error" : "success"
     );
     void loadPaymentsContext("refresh");
@@ -498,6 +505,86 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
     pushToast("Provider verification refreshed from backend.", "success");
     void loadPaymentsContext("refresh");
   };
+
+  const buildOnboardingUrls = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("payments_connect", "return");
+    const returnUrl = url.toString();
+    url.searchParams.set("payments_connect", "refresh");
+    const refreshUrl = url.toString();
+    return { returnUrl, refreshUrl };
+  };
+
+  const handleConnectPayments = async () => {
+    if (!token || !restaurantId) return;
+    setManagedConnecting(true);
+    const { returnUrl, refreshUrl } = buildOnboardingUrls();
+    const res = await startVenuePaymentOnboarding(token, restaurantId, { returnUrl, refreshUrl, country: "SE" });
+    setManagedConnecting(false);
+    if (!res.ok || !res.onboardingUrl) {
+      pushToast(res.message ?? res.error ?? "Could not start payment onboarding.", "error");
+      return;
+    }
+    if (res.paymentPlatform) setPaymentPlatform(res.paymentPlatform);
+    if (res.sandbox) {
+      pushToast("Sandbox onboarding started — finishing simulated verification…", "success");
+      window.location.assign(res.onboardingUrl);
+      return;
+    }
+    window.location.assign(res.onboardingUrl);
+  };
+
+  const handleContinueOnboarding = async () => {
+    if (!token || !restaurantId) return;
+    setManagedConnecting(true);
+    const { returnUrl, refreshUrl } = buildOnboardingUrls();
+    const res = await refreshVenuePaymentOnboarding(token, restaurantId, { returnUrl, refreshUrl });
+    setManagedConnecting(false);
+    if (!res.ok || !res.onboardingUrl) {
+      pushToast(res.message ?? res.error ?? "Could not continue onboarding.", "error");
+      return;
+    }
+    if (res.paymentPlatform) setPaymentPlatform(res.paymentPlatform);
+    window.location.assign(res.onboardingUrl);
+  };
+
+  const handleSyncManagedAccount = async () => {
+    if (!token || !restaurantId) return;
+    setManagedConnecting(true);
+    const res = await syncVenuePaymentOnboarding(token, restaurantId);
+    setManagedConnecting(false);
+    if (!res.ok) {
+      pushToast(res.message ?? res.error ?? "Could not refresh payment account.", "error");
+      return;
+    }
+    if (res.paymentPlatform) setPaymentPlatform(res.paymentPlatform);
+    if (res.settings) setSettings(res.settings);
+    if (res.methodCapabilities) setMethodCapabilities(res.methodCapabilities);
+    if (res.featureGates) setFeatureGates(res.featureGates);
+    if (res.envReady) setEnvReady(res.envReady);
+    pushToast(
+      res.account?.onboardingState === "ACTIVE" || res.account?.onboardingState === "CONNECTED"
+        ? "Payment account connected. Choose which methods to enable."
+        : `Account status: ${res.account?.onboardingState ?? "updated"}.`,
+      "success"
+    );
+    void loadPaymentsContext("soft");
+  };
+
+  useEffect(() => {
+    if (!token || !restaurantId || !ready) return;
+    const params = new URLSearchParams(window.location.search);
+    const flag = params.get("payments_connect");
+    if (flag !== "return" && flag !== "refresh" && params.get("connect") !== "simulated") return;
+    void handleSyncManagedAccount().then(() => {
+      params.delete("payments_connect");
+      params.delete("connect");
+      params.delete("account");
+      const next = `${window.location.pathname}${params.toString() ? `?${params}` : ""}${window.location.hash}`;
+      window.history.replaceState({}, "", next);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot return from provider hosted onboarding
+  }, [token, restaurantId, ready]);
 
   const openTransaction = async (row: PaymentTransactionRow) => {
     if (!token || !restaurantId) return;
@@ -563,8 +650,8 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
         <ProfileModalShell
           open={Boolean(connectOpen)}
           onClose={resetConnectForm}
-          title={connectOpen === "stripe" ? "Connect card adapter" : "Connect Swish"}
-          description="ServeOS stores credentials encrypted. Secrets are never returned after save."
+          title={connectOpen === "stripe" ? "Own Stripe account" : "Own Swish agreement"}
+          description="Advanced only. Prefer Connect payments when possible. Secrets are encrypted and never shown again."
           titleId="payment-connect-modal"
           busy={saving}
         >
@@ -785,11 +872,17 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
               {tab === "providers" ? (
                 <PaymentsProvidersTab
                   settings={settings}
+                  paymentPlatform={paymentPlatform}
                   webhookHealth={webhookHealth}
                   envReady={envReady}
                   canEdit={canEdit}
+                  connectingManaged={managedConnecting}
                   onOpenProvider={setProviderDetail}
-                  onConnect={(p) => {
+                  onConnectPayments={() => void handleConnectPayments()}
+                  onContinueOnboarding={() => void handleContinueOnboarding()}
+                  onSyncAccount={() => void handleSyncManagedAccount()}
+                  onChooseMethods={() => selectTab("methods")}
+                  onConnectAdvanced={(p) => {
                     setConnectOpen(p);
                     setConnectId("");
                     setConnectSecret("");
@@ -936,8 +1029,8 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
       <ProfileModalShell
         open={Boolean(connectOpen)}
         onClose={resetConnectForm}
-        title={connectOpen === "stripe" ? "Connect card adapter" : "Connect Swish"}
-        description="ServeOS stores credentials encrypted. Secrets are never returned after save."
+        title={connectOpen === "stripe" ? "Own Stripe account" : "Own Swish agreement"}
+        description="Advanced only. Prefer Connect payments when possible. Secrets are encrypted and never shown again."
         titleId="payment-connect-modal"
         busy={saving}
       >

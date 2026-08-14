@@ -106,6 +106,23 @@ function FieldInput({
   );
 }
 
+function wizardDescription(session: PaymentSetupSession | null, editing: boolean): string {
+  if (!session) return "Loading setup…";
+  if (session.connectionSurface === "managed") {
+    return editing
+      ? "Update where this method appears for guests."
+      : "Payments are already connected. Choose where this method appears, then enable it.";
+  }
+  if (session.connectionSurface === "native") {
+    return editing
+      ? "Update where this method appears."
+      : "Choose where this method appears, then enable it.";
+  }
+  return editing
+    ? "Update credentials or where this method appears."
+    : "Enter your provider credentials, then choose where this method appears.";
+}
+
 export function PaymentMethodSetupWizard({
   open,
   token,
@@ -154,8 +171,18 @@ export function PaymentMethodSetupWizard({
     );
   }, [session]);
 
+  const editing = session?.mode === "edit" || session?.status === "EDITING";
+  const needsConnectFirst =
+    session?.requiredAction === "CONNECT_PAYMENTS" || currentStep?.id === "CONNECT_PAYMENTS";
+  const surface = session?.connectionSurface ?? "direct";
+  const showStepRail = surface === "direct" && (session?.steps.length ?? 0) > 2;
+
   const submitCurrent = async (asEnable = false) => {
     if (!session || !methodKey || !canEdit) return;
+    if (needsConnectFirst) {
+      onToast("Connect payments on the Providers tab first.", "error");
+      return;
+    }
     const stepId = asEnable ? "ACTIVATE" : currentStep?.id;
     if (!stepId) return;
     setBusy(true);
@@ -179,41 +206,40 @@ export function PaymentMethodSetupWizard({
       onClose();
       return;
     }
-    if (session.mode === "edit" || session.status === "EDITING") {
-      onToast("Setup changes saved.", "success");
+    if (editing) {
+      onToast("Saved.", "success");
       return;
     }
-    onToast("Setup progress saved.", "success");
+    onToast("Saved.", "success");
   };
 
-  const primaryLabel =
-    session?.status === "READY_TO_ENABLE"
+  const primaryLabel = needsConnectFirst
+    ? "Close"
+    : session?.status === "READY_TO_ENABLE"
       ? `Enable ${methodLabel}`
-      : session?.mode === "edit" || session?.status === "EDITING"
+      : editing
         ? currentStep?.id === "PROVIDE_CREDENTIALS" || currentStep?.id === "CONNECT_ADAPTER"
           ? "Save and verify"
-          : "Save changes"
+          : "Save"
         : currentStep?.id === "PROVIDE_CREDENTIALS" || currentStep?.id === "CONNECT_ADAPTER"
           ? "Save and verify"
-          : "Continue";
+          : currentStep?.id === "CONFIGURE_CHANNELS"
+            ? "Continue"
+            : "Continue";
 
   return (
     <MenuPageModalShell
       open={open}
       onClose={onClose}
-      title={session?.mode === "edit" || session?.status === "EDITING" ? `Edit ${methodLabel} setup` : `Set up ${methodLabel}`}
-      description={
-        session?.mode === "edit" || session?.status === "EDITING"
-          ? "Update credentials, payment contexts, or verification. The backend remains the source of truth for readiness."
-          : "ServeOS connects directly to the payment network for this method. Complete each backend-required step before enabling it for guests."
-      }
+      title={editing ? `Edit ${methodLabel}` : `Set up ${methodLabel}`}
+      description={wizardDescription(session, editing)}
       titleId="payment-method-setup-wizard"
       maxWidthClass="max-w-2xl"
       busy={busy}
     >
       <ConfigModalContentGate open={open}>
         <div className="admin-payments-setup-wizard">
-          {session ? (
+          {session?.checklist?.length ? (
             <ul className="admin-payments-setup-checklist">
               {session.checklist.map((item) => (
                 <li key={item.id} className={item.done ? "is-done" : ""}>
@@ -224,25 +250,21 @@ export function PaymentMethodSetupWizard({
             </ul>
           ) : null}
 
-          {session ? (
+          {showStepRail && session ? (
             <ol className="admin-payments-setup-steps">
               {session.steps.map((step) => (
                 <li
                   key={step.id}
                   className={`admin-payments-setup-step is-${step.status.toLowerCase()}${
                     step.id === currentStep?.id ? " is-current" : ""
-                  }${session.mode === "edit" || session.status === "EDITING" ? " is-editable" : ""}`}
+                  }${editing ? " is-editable" : ""}`}
                 >
                   <button
                     type="button"
                     className="admin-payments-setup-step-btn"
-                    disabled={
-                      busy ||
-                      (!(session.mode === "edit" || session.status === "EDITING") &&
-                        step.status === "LOCKED")
-                    }
+                    disabled={busy || (!editing && step.status === "LOCKED")}
                     onClick={() => {
-                      if (!(session.mode === "edit" || session.status === "EDITING")) return;
+                      if (!editing) return;
                       if (step.status === "LOCKED") return;
                       setSession({ ...session, currentStep: step.id });
                       setValues({});
@@ -259,9 +281,17 @@ export function PaymentMethodSetupWizard({
 
           {error ? <ProfileModalAlert tone="error">{error}</ProfileModalAlert> : null}
 
-          {currentStep?.fields?.length ? (
+          {needsConnectFirst ? (
+            <ProfileModalNote>
+              {currentStep?.description ||
+                "Open the Providers tab and choose Connect payments. When that is done, return here to enable this method."}
+            </ProfileModalNote>
+          ) : currentStep?.fields?.length ? (
             <div className="admin-payments-setup-fields">
               <p className="admin-payments-setup-fields-title">{currentStep.label}</p>
+              {currentStep.description ? (
+                <p className="admin-config-text-subtle text-sm mb-2">{currentStep.description}</p>
+              ) : null}
               {currentStep.fields.map((field) => (
                 <div key={field.key} className="admin-payments-setup-field">
                   <AdminLabel>
@@ -282,20 +312,24 @@ export function PaymentMethodSetupWizard({
           ) : currentStep ? (
             <ProfileModalNote>
               {currentStep.description}
-              {session?.status === "READY_TO_ENABLE" ? " You can enable this method when ready." : ""}
+              {session?.status === "READY_TO_ENABLE" ? " You can enable it now." : ""}
             </ProfileModalNote>
           ) : busy ? (
-            <ProfileModalNote>Loading setup session…</ProfileModalNote>
+            <ProfileModalNote>Loading…</ProfileModalNote>
           ) : null}
 
           <ProfileModalFooter
             cancelLabel="Close"
             confirmLabel={canEdit ? primaryLabel : "Done"}
             busy={busy}
-            confirmDisabled={!canEdit || (!currentStep && session?.status !== "READY_TO_ENABLE")}
+            confirmDisabled={
+              needsConnectFirst
+                ? false
+                : !canEdit || (!currentStep && session?.status !== "READY_TO_ENABLE")
+            }
             onCancel={onClose}
             onConfirm={() => {
-              if (!canEdit) {
+              if (!canEdit || needsConnectFirst) {
                 onClose();
                 return;
               }

@@ -16,11 +16,16 @@ export type ProviderHealthStatus = "unknown" | "healthy" | "degraded" | "unavail
  * Persisted connection record. Secrets are ciphertext only.
  * Public APIs must return masked projections — never decrypt into responses.
  */
+/** How this adapter was linked — managed Connect vs advanced BYO. */
+export type ProviderConnectionModeHint = "SERVEOS_MANAGED" | "BRING_YOUR_OWN_PROVIDER" | "MANUAL_EXTERNAL";
+
 export type PaymentProviderConnectionRecord = {
   provider: ProviderConnectionId;
   connected: boolean;
   displayName?: string;
   environment: "sandbox" | "production";
+  /** Present when mirrored from VenuePaymentAccount or set by BYO connect. */
+  connectionMode?: ProviderConnectionModeHint;
   publicMerchantId?: string;
   publicAccountId?: string;
   /** Encrypted API secret / cert material — never expose. */

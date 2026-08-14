@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { getCatalogEntry } from "../catalog/paymentMethodCatalog.js";
-import { getSetupStepsForMethod, type PaymentSetupStepId } from "../catalog/paymentMethodRequirements.js";
+import {
+  getSetupStepsForMethod,
+  type PaymentSetupConnectionSurface,
+  type PaymentSetupStepId
+} from "../catalog/paymentMethodRequirements.js";
 import { resolveAdapterConnection } from "../providers/providerCapabilityResolver.js";
 import { paymentProviderAdapters } from "../providers/providerAdapter.js";
 import { emptyConnection, type ProviderConnectionId } from "../providers/providerConnectionTypes.js";
@@ -32,7 +36,7 @@ export type PaymentSetupField = {
 export type PaymentSetupSessionStepStatus = "REQUIRED" | "CURRENT" | "DONE" | "LOCKED" | "FAILED" | "SKIPPED";
 
 export type PaymentSetupSessionStep = {
-  id: PaymentSetupStepId | "BUSINESS_DETAILS" | "PAYMENT_CONTEXTS" | "REVIEW";
+  id: PaymentSetupStepId | "BUSINESS_DETAILS" | "PAYMENT_CONTEXTS" | "REVIEW" | "CONNECT_PAYMENTS";
   label: string;
   description: string;
   status: PaymentSetupSessionStepStatus;
@@ -44,6 +48,8 @@ export type PaymentSetupSession = {
   restaurantId: string;
   methodKey: string;
   provider: ProviderConnectionId | "native";
+  /** How credentials / account were linked for this method setup. */
+  connectionSurface: PaymentSetupConnectionSurface;
   status: "IN_PROGRESS" | "READY_TO_ENABLE" | "ENABLED" | "FAILED" | "EXPIRED" | "EDITING";
   mode: "setup" | "edit";
   currentStep: string;
@@ -68,6 +74,50 @@ function adapterSurface(methodKey: string): ProviderConnectionId | "native" {
   return "stripe";
 }
 
+/** Prefer explicit connectionMode; fall back to “no venue API secret” = managed Connect mirror. */
+export function resolveConnectionSurface(
+  settings: VenuePaymentSettings,
+  provider: ProviderConnectionId | "native"
+): PaymentSetupConnectionSurface {
+  if (provider === "native") return "native";
+  const conn =
+    provider === "swish"
+      ? settings.providerConnections?.swish
+      : provider === "terminals"
+        ? settings.providerConnections?.terminals
+        : settings.providerConnections?.stripe;
+  if (conn?.connectionMode === "SERVEOS_MANAGED") return "managed";
+  if (conn?.connectionMode === "BRING_YOUR_OWN_PROVIDER") return "direct";
+  if (conn?.connected && !conn.hasApiSecret && !conn.hasCertificate && provider === "stripe") {
+    return "managed";
+  }
+  if (conn?.connected && (conn.hasApiSecret || conn.hasCertificate)) return "direct";
+  // Default path for card rails before anything is connected: managed Connect.
+  if (provider === "stripe" || provider === "terminals") return "managed";
+  return "direct";
+}
+
+function channelFields(): PaymentSetupField[] {
+  return [
+    {
+      key: "supportedOrderSources",
+      label: "Where guests can use this",
+      required: true,
+      secret: false,
+      type: "multiselect",
+      options: [
+        { value: "qr_orders", label: "QR orders" },
+        { value: "in_app", label: "In-app" },
+        { value: "walk_ins", label: "Walk-ins" },
+        { value: "staff_created", label: "Staff-created" },
+        { value: "delivery", label: "Delivery" },
+        { value: "catering", label: "Catering" },
+        { value: "b2b", label: "B2B" }
+      ]
+    }
+  ];
+}
+
 function fieldsForProvider(provider: ProviderConnectionId | "native", settings: VenuePaymentSettings): PaymentSetupField[] {
   if (provider === "native") return [];
   const conn =
@@ -81,7 +131,7 @@ function fieldsForProvider(provider: ProviderConnectionId | "native", settings: 
       {
         key: "merchantId",
         label: "Swish merchant / payee alias",
-        help: "From your Swish business agreement / Merchant Portal.",
+        help: "From your Swish Merchant Portal.",
         required: true,
         secret: false,
         type: "text",
@@ -91,7 +141,7 @@ function fieldsForProvider(provider: ProviderConnectionId | "native", settings: 
       {
         key: "certificatePem",
         label: "Client certificate (PEM)",
-        help: "Upload or paste the certificate issued for your Swish Commerce agreement.",
+        help: "Paste the certificate for your Swish Commerce agreement.",
         required: true,
         secret: true,
         type: "file",
@@ -100,7 +150,7 @@ function fieldsForProvider(provider: ProviderConnectionId | "native", settings: 
       {
         key: "apiSecret",
         label: "Certificate / key password",
-        help: "Never shown again after save. Encrypted at rest.",
+        help: "Never shown again after save.",
         required: true,
         secret: true,
         type: "secret",
@@ -137,7 +187,7 @@ function fieldsForProvider(provider: ProviderConnectionId | "native", settings: 
     },
     {
       key: "webhookSecret",
-      label: "Webhook signing secret",
+      label: "Webhook signing secret (optional)",
       required: false,
       secret: true,
       type: "secret",
@@ -149,7 +199,8 @@ function fieldsForProvider(provider: ProviderConnectionId | "native", settings: 
 function buildSteps(
   methodKey: string,
   settings: VenuePaymentSettings,
-  provider: ProviderConnectionId | "native"
+  provider: ProviderConnectionId | "native",
+  surface: PaymentSetupConnectionSurface
 ): PaymentSetupSessionStep[] {
   const entry = getCatalogEntry(methodKey);
   const envReady = getPaymentProviderEnvReady();
@@ -157,81 +208,48 @@ function buildSteps(
   const adapter = entry ? resolveAdapterConnection(settings, envReady, entry.requiredAdapter) : null;
   const config = settings.methodConfig?.[methodKey as keyof typeof settings.methodConfig];
   const hasSources = Boolean(config?.supportedOrderSources?.length);
-  const base = getSetupStepsForMethod(methodKey);
+  const base = getSetupStepsForMethod(methodKey, surface);
 
-  const enriched: PaymentSetupSessionStep[] = [
-    {
-      id: "BUSINESS_DETAILS",
-      label: "Business details",
-      description: "Confirm the legal entity and venue this payment method will serve.",
-      status: "DONE",
-      fields: [
-        {
-          key: "useExistingMerchant",
-          label: "Use this venue’s payment account",
-          required: true,
-          secret: false,
-          type: "checkbox"
-        }
-      ]
-    },
-    ...base.map((step): PaymentSetupSessionStep => {
-      let status: PaymentSetupSessionStepStatus = "LOCKED";
-      if (step.id === "CONNECT_ADAPTER" || step.id === "PROVIDE_CREDENTIALS") {
-        status = adapter?.connected ? "DONE" : "REQUIRED";
-      } else if (step.id === "VERIFY_CONNECTION") {
-        status = adapter?.verified ? "DONE" : adapter?.connected ? "REQUIRED" : "LOCKED";
-      } else if (step.id === "CONFIGURE_CHANNELS") {
-        status = hasSources ? "DONE" : adapter?.verified || provider === "native" ? "REQUIRED" : "LOCKED";
-      } else if (step.id === "CONFIGURE_PAYMENT_RULES") {
-        status = hasSources || provider === "native" ? "DONE" : "LOCKED";
-      } else if (step.id === "TEST_PAYMENT") {
-        status =
-          readiness.status === "READY" || readiness.status === "ENABLED"
-            ? "DONE"
-            : adapter?.verified || provider === "native"
-              ? "REQUIRED"
-              : "LOCKED";
-      } else if (step.id === "ACTIVATE") {
-        status = readiness.status === "ENABLED" ? "DONE" : readiness.canEnable ? "REQUIRED" : "LOCKED";
+  if (surface === "managed" && provider !== "native" && !adapter?.connected) {
+    return [
+      {
+        id: "CONNECT_PAYMENTS",
+        label: "Connect payments",
+        description: "Finish Connect payments on the Providers tab first. Then come back to enable this method.",
+        status: "CURRENT"
       }
-      return {
-        id: step.id,
-        label: step.label,
-        description: step.description,
-        status,
-        fields:
-          step.id === "PROVIDE_CREDENTIALS" || step.id === "CONNECT_ADAPTER"
-            ? fieldsForProvider(provider, settings)
-            : step.id === "CONFIGURE_CHANNELS"
-              ? [
-                  {
-                    key: "supportedOrderSources",
-                    label: "Order sources",
-                    required: true,
-                    secret: false,
-                    type: "multiselect",
-                    options: [
-                      { value: "qr_orders", label: "QR orders" },
-                      { value: "in_app", label: "In-app" },
-                      { value: "walk_ins", label: "Walk-ins" },
-                      { value: "staff_created", label: "Staff-created" },
-                      { value: "delivery", label: "Delivery" },
-                      { value: "catering", label: "Catering" },
-                      { value: "b2b", label: "B2B" }
-                    ]
-                  }
-                ]
-              : undefined
-      };
-    }),
-    {
-      id: "REVIEW",
-      label: "Review",
-      description: "Confirm readiness before enabling for checkout.",
-      status: readiness.canEnable || readiness.status === "ENABLED" ? "REQUIRED" : "LOCKED"
+    ];
+  }
+
+  const enriched: PaymentSetupSessionStep[] = base.map((step): PaymentSetupSessionStep => {
+    let status: PaymentSetupSessionStepStatus = "LOCKED";
+    if (step.id === "CONNECT_ADAPTER" || step.id === "PROVIDE_CREDENTIALS") {
+      status = adapter?.connected ? "DONE" : "REQUIRED";
+    } else if (step.id === "VERIFY_CONNECTION") {
+      status = adapter?.verified ? "DONE" : adapter?.connected ? "REQUIRED" : "LOCKED";
+    } else if (step.id === "CONFIGURE_CHANNELS") {
+      status =
+        hasSources
+          ? "DONE"
+          : surface === "managed" || surface === "native" || adapter?.verified || adapter?.connected
+            ? "REQUIRED"
+            : "LOCKED";
+    } else if (step.id === "ACTIVATE") {
+      status = readiness.status === "ENABLED" ? "DONE" : readiness.canEnable ? "REQUIRED" : "LOCKED";
     }
-  ];
+    return {
+      id: step.id,
+      label: step.label,
+      description: step.description,
+      status,
+      fields:
+        step.id === "PROVIDE_CREDENTIALS" || step.id === "CONNECT_ADAPTER"
+          ? fieldsForProvider(provider, settings)
+          : step.id === "CONFIGURE_CHANNELS"
+            ? channelFields()
+            : undefined
+    };
+  });
 
   const firstOpen = enriched.find((s) => s.status === "REQUIRED" || s.status === "FAILED");
   return enriched.map((s) =>
@@ -239,28 +257,65 @@ function buildSteps(
   );
 }
 
-function checklistFor(methodKey: string, settings: VenuePaymentSettings, provider: ProviderConnectionId | "native") {
+function checklistFor(
+  methodKey: string,
+  settings: VenuePaymentSettings,
+  provider: ProviderConnectionId | "native",
+  surface: PaymentSetupConnectionSurface
+) {
   const envReady = getPaymentProviderEnvReady();
   const readiness = evaluatePaymentMethodReadiness(settings, envReady, methodKey);
   const entry = getCatalogEntry(methodKey);
   const adapter = entry ? resolveAdapterConnection(settings, envReady, entry.requiredAdapter) : null;
   const config = settings.methodConfig?.[methodKey as keyof typeof settings.methodConfig];
+
+  if (surface === "native") {
+    return [
+      {
+        id: "channels",
+        label: "Where it appears",
+        done: Boolean(config?.supportedOrderSources?.length)
+      },
+      {
+        id: "ready",
+        label: "Ready to enable",
+        done: readiness.canEnable || readiness.status === "ENABLED" || readiness.status === "READY"
+      },
+      { id: "enabled", label: "Enabled", done: readiness.status === "ENABLED" }
+    ];
+  }
+
+  if (surface === "managed") {
+    return [
+      {
+        id: "account",
+        label: "Payments connected",
+        done: Boolean(adapter?.connected && adapter?.verified)
+      },
+      {
+        id: "channels",
+        label: "Where it appears",
+        done: Boolean(config?.supportedOrderSources?.length)
+      },
+      {
+        id: "ready",
+        label: "Ready to enable",
+        done: readiness.canEnable || readiness.status === "ENABLED" || readiness.status === "READY"
+      },
+      { id: "enabled", label: "Enabled", done: readiness.status === "ENABLED" }
+    ];
+  }
+
   return [
-    { id: "venue", label: "Venue selected", done: true },
     {
       id: "agreement",
-      label: provider === "swish" ? "Active Swish business agreement" : "Provider merchant account",
+      label: provider === "swish" ? "Swish credentials" : "Provider credentials",
       done: Boolean(adapter?.connected)
     },
-    {
-      id: "credentials",
-      label: "Merchant credentials / certificates",
-      done: Boolean(adapter?.connected && (provider === "native" || adapter?.accountOrMerchantId))
-    },
-    { id: "verified", label: "ServeOS connection verified", done: Boolean(adapter?.verified) },
+    { id: "verified", label: "Connection verified", done: Boolean(adapter?.verified) },
     {
       id: "channels",
-      label: "Payment contexts configured",
+      label: "Where it appears",
       done: Boolean(config?.supportedOrderSources?.length)
     },
     {
@@ -268,7 +323,7 @@ function checklistFor(methodKey: string, settings: VenuePaymentSettings, provide
       label: "Ready to enable",
       done: readiness.canEnable || readiness.status === "ENABLED" || readiness.status === "READY"
     },
-    { id: "enabled", label: "Method enabled", done: readiness.status === "ENABLED" }
+    { id: "enabled", label: "Enabled", done: readiness.status === "ENABLED" }
   ];
 }
 
@@ -291,10 +346,11 @@ export function materializeSetupSession(
   if (!entry) throw Object.assign(new Error("method_not_found"), { statusCode: 404 });
 
   const provider = adapterSurface(methodKey);
+  const surface = resolveConnectionSurface(settings, provider);
   const existing = getStoredSetupSession(settings, methodKey);
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
-  const steps = buildSteps(methodKey, settings, provider);
+  const steps = buildSteps(methodKey, settings, provider, surface);
   const current = steps.find((s) => s.status === "CURRENT") ?? steps.find((s) => s.status === "REQUIRED");
   const envReady = getPaymentProviderEnvReady();
   const readiness = evaluatePaymentMethodReadiness(settings, envReady, methodKey);
@@ -328,33 +384,39 @@ export function materializeSetupSession(
     mode === "edit"
       ? editSteps.find(
           (s) =>
-            s.id === "PROVIDE_CREDENTIALS" ||
-            s.id === "CONNECT_ADAPTER" ||
             s.id === "CONFIGURE_CHANNELS" ||
-            s.id === "BUSINESS_DETAILS"
+            s.id === "PROVIDE_CREDENTIALS" ||
+            s.id === "CONNECT_ADAPTER"
         )
       : current;
   const finalSteps = editSteps.map((s) =>
     focusStep && s.id === focusStep.id ? { ...s, status: "CURRENT" as const } : s
   );
 
+  const needsConnectFirst =
+    surface === "managed" &&
+    provider !== "native" &&
+    !resolveAdapterConnection(settings, envReady, entry.requiredAdapter).connected;
+
   const session: PaymentSetupSession = {
     id: existing?.id ?? `pss_${randomUUID().replace(/-/g, "").slice(0, 16)}`,
     restaurantId,
     methodKey,
     provider,
-    mode,
+    connectionSurface: surface,
     status:
-      mode === "edit"
-        ? "EDITING"
-        : readiness.status === "ENABLED"
-          ? "ENABLED"
-          : readiness.canEnable || readiness.status === "READY"
-            ? "READY_TO_ENABLE"
-            : existing?.status === "FAILED"
-              ? "FAILED"
-              : "IN_PROGRESS",
-    currentStep: focusStep?.id ?? current?.id ?? "REVIEW",
+      needsConnectFirst
+        ? "IN_PROGRESS"
+        : mode === "edit"
+          ? "EDITING"
+          : readiness.status === "ENABLED"
+            ? "ENABLED"
+            : readiness.canEnable || readiness.status === "READY"
+              ? "READY_TO_ENABLE"
+              : existing?.status === "FAILED"
+                ? "FAILED"
+                : "IN_PROGRESS",
+    currentStep: focusStep?.id ?? current?.id ?? "CONFIGURE_CHANNELS",
     steps: finalSteps,
     version: (existing?.version ?? 0) + 1,
     createdBy: existing?.createdBy ?? actorUserId,
@@ -362,10 +424,14 @@ export function materializeSetupSession(
     startedAt: existing?.startedAt ?? now.toISOString(),
     updatedAt: now.toISOString(),
     expiresAt: existing?.expiresAt ?? expiresAt,
-    reasonCode: readiness.status === "SETUP_REQUIRED" ? "ADAPTER_CONNECTION_REQUIRED" : null,
-    requiredAction: readiness.nextAction,
+    reasonCode: needsConnectFirst
+      ? "CONNECT_PAYMENTS_REQUIRED"
+      : readiness.status === "SETUP_REQUIRED"
+        ? "ADAPTER_CONNECTION_REQUIRED"
+        : null,
+    requiredAction: needsConnectFirst ? "CONNECT_PAYMENTS" : readiness.nextAction,
     retryAllowed: true,
-    checklist: checklistFor(methodKey, settings, provider)
+    checklist: checklistFor(methodKey, settings, provider, surface)
   };
   return session;
 }
@@ -433,10 +499,27 @@ export async function submitPaymentSetupSessionStep(
   const provider = session.provider;
   const values = input.values ?? {};
 
+  if (input.step === "CONNECT_PAYMENTS") {
+    return {
+      ok: false as const,
+      error: "connect_payments_required",
+      message: "Open the Providers tab and choose Connect payments first.",
+      session
+    };
+  }
+
   if (
     (input.step === "CONNECT_ADAPTER" || input.step === "PROVIDE_CREDENTIALS" || input.step === "CREDENTIALS") &&
     provider !== "native"
   ) {
+    if (session.connectionSurface === "managed") {
+      return {
+        ok: false as const,
+        error: "use_connect_payments",
+        message: "Use Connect payments on the Providers tab instead of pasting credentials.",
+        session
+      };
+    }
     const envReady = getPaymentProviderEnvReady();
     const adapter = paymentProviderAdapters[provider];
     const existing = settings.providerConnections?.[provider] ?? emptyConnection(provider);
