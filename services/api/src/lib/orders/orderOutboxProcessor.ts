@@ -2,6 +2,7 @@ import type { EventEmitter } from "node:events";
 import type { FastifyBaseLogger } from "fastify";
 import type { PrismaClient } from "@prisma/client";
 import { broadcastOrderEvent } from "./orderEventService.js";
+import { syncChatRoomLifecycleForOrder } from "../chat/chatRoomLifecycle.js";
 import { parseOrderEventEnvelopeAny, type NormalizedOrderEventEnvelope } from "./orderEventVersioning.js";
 import { logOrderEngineInfo, logOrderEngineWarning } from "./orderEngineLog.js";
 import type { OrderEventType } from "./orderTypes.js";
@@ -52,6 +53,7 @@ export async function publishOutboxRow(
 
   try {
     const envelope = parseOrderEventEnvelopeAny(row.payload);
+    await syncChatRoomLifecycleForOrder(prisma, envelope.orderId, envelope.payload.status);
     await publishOutboxEnvelope(envelope, buses);
     await prisma.orderEventOutbox.update({
       where: { id: row.id },

@@ -7,6 +7,7 @@ import {
   type ChatDocumentMime
 } from "./chatDocumentLimits.js";
 import { computeOutgoingDeliveryStatus, type OutgoingDeliveryStatus } from "./chatReadStatus.js";
+import { assertCustomerOwnsRoom } from "./chatAccess.js";
 import { resolveClientMediaUrl } from "../integrations/objectStorage.js";
 import { uploadChatImageBase64 } from "../media/chatImageStorage.js";
 import { uploadChatDocumentBase64 } from "../media/chatDocumentStorage.js";
@@ -23,7 +24,14 @@ export type SerializedChatMessage = {
   createdAt: string;
   deliveryStatus?: "sent" | "delivered" | "read";
   isMine?: boolean;
+  isSystem?: boolean;
 };
+
+export function isOperationalSystemContent(raw: string, type: ChatMessageType): boolean {
+  if (type === "SYSTEM") return true;
+  const marker = raw.split("|")[0] ?? "";
+  return /^status:[A-Z_]+$/.test(marker) || /^reservation:[A-Z_]+$/.test(marker);
+}
 
 function displayContent(raw: string, type: ChatMessageType): string {
   const marker = raw.split("|")[0] ?? "";
@@ -54,7 +62,7 @@ export async function serializeMessage(
   const isMine =
     viewer.role === "CUSTOMER"
       ? row.senderRole === "CUSTOMER"
-      : row.senderRole === "STAFF" || row.senderRole === "OWNER";
+      : row.senderRole !== "CUSTOMER" && row.senderRole !== "SYSTEM";
 
   let content = displayContent(row.content, row.type);
   if (row.type === "IMAGE") {
@@ -73,16 +81,23 @@ export async function serializeMessage(
     senderRole: row.senderRole,
     content,
     type: row.type,
-    createdAt: row.createdAt.toISOString()
+    createdAt: row.createdAt.toISOString(),
+    isSystem: isOperationalSystemContent(row.content, row.type)
   };
 
-  if (isMine && (row.type === "TEXT" || row.type === "IMAGE") && viewer.role === "CUSTOMER") {
+  if (isMine && (row.type === "TEXT" || row.type === "IMAGE")) {
     out.isMine = true;
-    out.deliveryStatus = computeOutgoingDeliveryStatus({
-      messageCreatedAt: row.createdAt,
-      deliveredToVenueAt: row.deliveredToVenueAt,
-      restaurantLastReadAt: room.restaurantLastReadAt
-    });
+    if (viewer.role === "CUSTOMER") {
+      out.deliveryStatus = computeOutgoingDeliveryStatus({
+        messageCreatedAt: row.createdAt,
+        deliveredToVenueAt: row.deliveredToVenueAt,
+        restaurantLastReadAt: room.restaurantLastReadAt
+      });
+    } else if (room.customerLastReadAt && room.customerLastReadAt >= row.createdAt) {
+      out.deliveryStatus = "read";
+    } else {
+      out.deliveryStatus = "sent";
+    }
   }
 
   return out;
@@ -107,38 +122,68 @@ export async function serializeMessages(
 
 export async function createChatTextMessage(
   prisma: PrismaClient,
-  input: { chatRoomId: string; senderUserId: string; senderRole: string; content: string }
+  input: {
+    chatRoomId: string;
+    senderUserId: string;
+    senderRole: string;
+    content: string;
+    clientMessageId?: string | null;
+  }
 ) {
+  const room = await prisma.chatRoom.findUnique({
+    where: { id: input.chatRoomId },
+    select: { lifecycle: true }
+  });
+  if (!room) throw Object.assign(new Error("room_not_found"), { statusCode: 404 });
+  if (room.lifecycle === "ARCHIVED") throw Object.assign(new Error("room_archived"), { statusCode: 409 });
+
   const trimmed = input.content.trim();
   if (!trimmed.length) throw Object.assign(new Error("empty_message"), { statusCode: 400 });
   if (trimmed.length > 2000) throw Object.assign(new Error("message_too_long"), { statusCode: 400 });
 
+  if (input.clientMessageId) {
+    const existing = await prisma.chatMessage.findFirst({
+      where: { chatRoomId: input.chatRoomId, clientMessageId: input.clientMessageId }
+    });
+    if (existing) return existing;
+  }
+
   const preview = trimmed.length > 120 ? `${trimmed.slice(0, 117)}…` : trimmed;
   const now = new Date();
 
-  const row = await prisma.$transaction(async (tx) => {
-    const msg = await tx.chatMessage.create({
-      data: {
-        chatRoomId: input.chatRoomId,
-        senderUserId: input.senderUserId,
-        senderRole: input.senderRole,
-        content: trimmed,
-        type: "TEXT"
-      }
+  try {
+    const row = await prisma.$transaction(async (tx) => {
+      const msg = await tx.chatMessage.create({
+        data: {
+          chatRoomId: input.chatRoomId,
+          senderUserId: input.senderUserId,
+          senderRole: input.senderRole,
+          content: trimmed,
+          type: "TEXT",
+          clientMessageId: input.clientMessageId ?? null
+        }
+      });
+      await tx.chatRoom.update({
+        where: { id: input.chatRoomId },
+        data: {
+          lastMessageAt: now,
+          lastMessagePreview: preview,
+          lastMessageSenderRole: input.senderRole,
+          updatedAt: now
+        }
+      });
+      return msg;
     });
-    await tx.chatRoom.update({
-      where: { id: input.chatRoomId },
-      data: {
-        lastMessageAt: now,
-        lastMessagePreview: preview,
-        lastMessageSenderRole: input.senderRole,
-        updatedAt: now
-      }
-    });
-    return msg;
-  });
-
-  return row;
+    return row;
+  } catch (e) {
+    if (input.clientMessageId) {
+      const existing = await prisma.chatMessage.findFirst({
+        where: { chatRoomId: input.chatRoomId, clientMessageId: input.clientMessageId }
+      });
+      if (existing) return existing;
+    }
+    throw e;
+  }
 }
 
 export async function createChatImageMessages(
@@ -278,23 +323,13 @@ export async function createChatDocumentMessage(
   });
 }
 
-async function assertCustomerRoomAccess(
+export async function markCustomerRead(
   prisma: PrismaClient,
   chatRoomId: string,
-  customerUserId: string
+  customerUserId: string,
+  sourceSessionId?: string | null
 ) {
-  const room = await prisma.chatRoom.findFirst({
-    where: {
-      id: chatRoomId,
-      OR: [{ customerUserId }, { order: { customerUserId } }]
-    }
-  });
-  if (!room) throw Object.assign(new Error("room_not_found"), { statusCode: 404 });
-  return room;
-}
-
-export async function markCustomerRead(prisma: PrismaClient, chatRoomId: string, customerUserId: string) {
-  await assertCustomerRoomAccess(prisma, chatRoomId, customerUserId);
+  await assertCustomerOwnsRoom(prisma, chatRoomId, { customerUserId, sourceSessionId });
   const readAt = new Date();
   await prisma.chatRoom.update({
     where: { id: chatRoomId },
@@ -306,21 +341,41 @@ export async function markCustomerRead(prisma: PrismaClient, chatRoomId: string,
 export async function listRoomMessages(
   prisma: PrismaClient,
   chatRoomId: string,
-  viewer: { userId: string; role: "CUSTOMER" }
+  viewer: { userId: string; role: "CUSTOMER"; sourceSessionId?: string | null },
+  page?: { before?: string; limit?: number }
 ) {
-  const room = await prisma.chatRoom.findFirst({
-    where: {
-      id: chatRoomId,
-      OR: [{ customerUserId: viewer.userId }, { order: { customerUserId: viewer.userId } }]
-    }
-  });
+  try {
+    await assertCustomerOwnsRoom(prisma, chatRoomId, {
+      customerUserId: viewer.userId,
+      sourceSessionId: viewer.sourceSessionId
+    });
+  } catch {
+    return [];
+  }
+
+  const room = await prisma.chatRoom.findUnique({ where: { id: chatRoomId } });
   if (!room) return [];
 
+  const limit = Math.min(100, Math.max(1, page?.limit ?? 80));
+  let createdAtFilter: { lt?: Date } | undefined;
+  if (page?.before) {
+    const cursor = await prisma.chatMessage.findFirst({
+      where: { id: page.before, chatRoomId },
+      select: { createdAt: true }
+    });
+    if (cursor) createdAtFilter = { lt: cursor.createdAt };
+  }
+
   const rows = await prisma.chatMessage.findMany({
-    where: { chatRoomId, NOT: { type: "SYSTEM" } },
-    orderBy: { createdAt: "asc" },
-    take: 100
+    where: {
+      chatRoomId,
+      NOT: { type: "SYSTEM" },
+      ...(createdAtFilter ? { createdAt: createdAtFilter } : {})
+    },
+    orderBy: { createdAt: "desc" },
+    take: limit
   });
+  rows.reverse();
 
   const messages: SerializedChatMessage[] = [];
   for (const m of rows) {

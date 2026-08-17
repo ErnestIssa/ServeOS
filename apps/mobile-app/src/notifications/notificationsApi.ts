@@ -7,12 +7,41 @@ export type PlatformNotification = {
   title: string;
   body: string;
   payload: unknown;
+  target?: NotificationDestination;
   priority: string;
   channels: unknown;
   readAt: string | null;
   createdAt: string;
   restaurantId: string | null;
 };
+
+/** Semantic destination — never require Admin `#ws-comms/...` URLs on mobile. */
+export type NotificationDestination = {
+  entityType: string;
+  entityId: string | null;
+  chatRoomId?: string;
+  restaurantId?: string | null;
+  href?: string;
+};
+
+export function destinationFromNotification(row: {
+  payload?: unknown;
+  target?: NotificationDestination;
+  restaurantId?: string | null;
+}): NotificationDestination | null {
+  if (row.target?.entityType) return row.target;
+  if (!row.payload || typeof row.payload !== "object") return null;
+  const p = row.payload as Record<string, unknown>;
+  const entityType = typeof p.entityType === "string" ? p.entityType : "";
+  if (!entityType) return null;
+  return {
+    entityType,
+    entityId: typeof p.entityId === "string" ? p.entityId : null,
+    chatRoomId: typeof p.chatRoomId === "string" ? p.chatRoomId : undefined,
+    restaurantId:
+      (typeof p.restaurantId === "string" ? p.restaurantId : null) ?? row.restaurantId ?? null
+  };
+}
 
 export type NotificationWsPayload = {
   type: "notification" | "connected";

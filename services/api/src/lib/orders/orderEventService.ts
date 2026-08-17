@@ -1,6 +1,7 @@
 import type { EventEmitter } from "node:events";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { notifyOrderCreated, notifyOrderUpdated } from "../../notifications/integrations/orders.js";
+import { syncChatRoomLifecycleForOrder } from "../chat/chatRoomLifecycle.js";
 import { persistOrderDomainEvent } from "./orderAuditService.js";
 import type { OrderEventType } from "./orderTypes.js";
 import { formatDisplayNumber } from "./orderTypes.js";

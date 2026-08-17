@@ -1,176 +1,186 @@
-import { type ReactNode } from "react";
-import { AdminBtnSecondary } from "../AdminUi";
-import { isAdminNotificationPageHash } from "../adminTopHashes";
+import { useEffect, useState } from "react";
+import { AdminBtnSecondary, AdminEmptyState, AdminPanel, AdminSectionHeader } from "../AdminUi";
+import { ADMIN_NOTIFICATION_HASHES } from "../adminTopHashes";
 import {
+  ADMIN_NOTIFICATION_CATEGORIES,
+  isNotificationCategoryHash,
   resolveNotificationCategory,
-  type NotificationCategory,
-  type NotificationLayout
+  type NotificationCategory
 } from "./notificationRouting";
+import {
+  adminHrefFromTarget,
+  fetchAdminNotifications,
+  fetchCommsAudit,
+  markAllNotificationsRead,
+  markNotificationRead,
+  notificationsWebSocketUrl,
+  type AdminNotificationRow,
+  type CommsThread
+} from "../comms/commsApi";
 
-function NotifyHero({ category }: { category: NotificationCategory }) {
-  return (
-    <header className={`admin-notify-hero admin-notify-hero--${category.accent}`}>
-      <div className="admin-notify-hero-glow" aria-hidden />
-      <div className="admin-notify-hero-inner">
-        <p className="admin-notify-hero-eyebrow">{category.layout} channel</p>
-        <h1 className="admin-notify-hero-title">{category.label}</h1>
-        <p className="admin-notify-hero-desc">{category.description}</p>
-      </div>
-    </header>
-  );
+function formatWhen(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-function RadarLayout() {
+function NotifyFilters({ activeHref }: { activeHref: string }) {
   return (
-    <div className="admin-notify-radar">
-      <div className="admin-notify-radar-core" aria-hidden>
-        <span className="admin-notify-radar-ring admin-notify-radar-ring--1" />
-        <span className="admin-notify-radar-ring admin-notify-radar-ring--2" />
-        <span className="admin-notify-radar-ring admin-notify-radar-ring--3" />
-        <span className="admin-notify-radar-dot" />
-      </div>
-      <div className="admin-notify-radar-feed">
-        <p className="admin-notify-empty-title">No customer alerts right now</p>
-        <p className="admin-notify-empty-desc">Guest-facing signals will pulse here when something needs your attention.</p>
-      </div>
+    <div className="admin-notify-filters" role="tablist" aria-label="Notification filters">
+      {ADMIN_NOTIFICATION_CATEGORIES.map((c) => (
+        <a
+          key={c.id}
+          href={c.href}
+          role="tab"
+          aria-selected={c.href === activeHref}
+          className={`admin-payments-methods-family-chip${c.href === activeHref ? " is-active" : ""}`}
+        >
+          {c.label}
+        </a>
+      ))}
     </div>
   );
 }
 
-function ThreadsLayout() {
+function NotificationList({
+  token,
+  filter
+}: {
+  token: string;
+  filter: Exclude<NotificationCategory["filter"], "logs">;
+}) {
+  const [rows, setRows] = useState<AdminNotificationRow[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    const res = await fetchAdminNotifications(token, filter);
+    if (res.ok && res.notifications) setRows(res.notifications);
+  };
+
+  useEffect(() => {
+    void load();
+    const url = notificationsWebSocketUrl(token);
+    const ws = new WebSocket(url);
+    ws.onmessage = () => {
+      void load();
+    };
+    return () => ws.close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, filter]);
+
+  const open = async (row: AdminNotificationRow) => {
+    if (!row.readAt) await markNotificationRead(token, row.id);
+    const href = adminHrefFromTarget(row.payload as Record<string, unknown>);
+    if (href) {
+      window.location.hash = href.startsWith("#") ? href : `#${href}`;
+    } else {
+      void load();
+    }
+  };
+
   return (
-    <div className="admin-notify-threads">
-      {[1, 2, 3].map((i) => (
-        <div key={i} className={`admin-notify-thread admin-notify-thread--${i % 2 === 0 ? "right" : "left"}`}>
-          <div className="admin-notify-thread-bubble admin-notify-thread-bubble--ghost" />
+    <>
+      {rows.length === 0 ? (
+        <AdminEmptyState>No notifications in this filter.</AdminEmptyState>
+      ) : (
+        <div className="admin-notify-list">
+          {rows.map((row) => (
+            <button
+              key={row.id}
+              type="button"
+              className={`admin-notify-row${row.readAt ? "" : " is-unread"}`}
+              onClick={() => void open(row)}
+            >
+              <span className="admin-notify-row-title">{row.title}</span>
+              <span className="admin-notify-row-body">{row.body}</span>
+              <span className="admin-notify-row-meta">
+                {row.category} · {row.priority} · {formatWhen(row.createdAt)}
+              </span>
+            </button>
+          ))}
         </div>
-      ))}
-      <p className="admin-notify-threads-caption">Staff messages will appear as live conversation threads.</p>
-    </div>
-  );
-}
-
-function LedgerLayout() {
-  return (
-    <div className="admin-notify-ledger">
-      <div className="admin-notify-ledger-head">
-        <span>Timestamp</span>
-        <span>Event</span>
-        <span>Amount</span>
-        <span>Status</span>
-      </div>
-      <div className="admin-notify-ledger-rows">
-        {["—", "—", "—"].map((_, i) => (
-          <div key={i} className="admin-notify-ledger-row admin-notify-ledger-row--ghost">
-            <span>00:00</span>
-            <span>Awaiting payment events</span>
-            <span>—</span>
-            <span className="admin-notify-ledger-pill">Idle</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function MeshLayout() {
-  const nodes = ["KDS", "POS", "Printer", "Network"];
-  return (
-    <div className="admin-notify-mesh">
-      <svg className="admin-notify-mesh-lines" viewBox="0 0 400 220" aria-hidden>
-        <line x1="200" y1="110" x2="80" y2="50" />
-        <line x1="200" y1="110" x2="320" y2="50" />
-        <line x1="200" y1="110" x2="80" y2="170" />
-        <line x1="200" y1="110" x2="320" y2="170" />
-      </svg>
-      <div className="admin-notify-mesh-hub">Venue</div>
-      {nodes.map((label, i) => (
-        <div key={label} className={`admin-notify-mesh-node admin-notify-mesh-node--${i + 1}`}>
-          <span className="admin-notify-mesh-node-dot" />
-          {label}
-        </div>
-      ))}
-      <p className="admin-notify-mesh-caption">Device health alerts map to each node when issues occur.</p>
-    </div>
-  );
-}
-
-function ConsoleLayout() {
-  const lines = [
-    "> serveos.audit — waiting for stream…",
-    "> venue.scope — all locations",
-    "> retention — 90 days",
-    "—",
-    "No log entries yet. Operational events will stream here."
-  ];
-  return (
-    <div className="admin-notify-console">
-      <div className="admin-notify-console-bar">
-        <span className="admin-notify-console-dot admin-notify-console-dot--red" />
-        <span className="admin-notify-console-dot admin-notify-console-dot--amber" />
-        <span className="admin-notify-console-dot admin-notify-console-dot--green" />
-        <span className="admin-notify-console-title">venue-logs — live tail</span>
-      </div>
-      <pre className="admin-notify-console-body">
-        {lines.map((line) => (
-          <code key={line}>{line}</code>
-        ))}
-      </pre>
-    </div>
-  );
-}
-
-function TimelineLayout() {
-  return (
-    <div className="admin-notify-timeline">
-      {["Platform", "Maintenance", "Policy"].map((tag, i) => (
-        <article key={tag} className="admin-notify-timeline-card">
-          <div className="admin-notify-timeline-rail">
-            <span className="admin-notify-timeline-node" />
-            {i < 2 ? <span className="admin-notify-timeline-line" /> : null}
-          </div>
-          <div className="admin-notify-timeline-body">
-            <span className="admin-notify-timeline-tag">{tag}</span>
-            <p className="admin-notify-timeline-title">No {tag.toLowerCase()} updates yet</p>
-            <p className="admin-notify-timeline-desc">Release notes and system notices will stack on this timeline.</p>
-          </div>
-        </article>
-      ))}
-    </div>
-  );
-}
-
-const LAYOUTS: Record<NotificationLayout, () => ReactNode> = {
-  radar: RadarLayout,
-  threads: ThreadsLayout,
-  ledger: LedgerLayout,
-  mesh: MeshLayout,
-  console: ConsoleLayout,
-  timeline: TimelineLayout
-};
-
-export function AdminNotificationCategoryPage({ hash }: { hash: string }) {
-  const category = resolveNotificationCategory(hash);
-  if (!category) return null;
-  const Layout = LAYOUTS[category.layout];
-  const pageId = hash.slice(1);
-
-  return (
-    <div id={pageId} className={`admin-notify-page admin-notify-page--${category.layout} admin-notify-page--${category.accent}`}>
-      <NotifyHero category={category} />
-      <div className="admin-notify-stage">
-        <Layout />
-      </div>
+      )}
       <footer className="admin-notify-footer">
-        <AdminBtnSecondary type="button" disabled>
-          Mark channel read
+        <AdminBtnSecondary
+          type="button"
+          disabled={busy || rows.every((r) => r.readAt)}
+          onClick={async () => {
+            setBusy(true);
+            await markAllNotificationsRead(token);
+            setBusy(false);
+            void load();
+          }}
+        >
+          Mark all read
         </AdminBtnSecondary>
       </footer>
+    </>
+  );
+}
+
+function AuditList({ token, restaurantId }: { token: string; restaurantId: string }) {
+  const [events, setEvents] = useState<CommsThread[]>([]);
+
+  useEffect(() => {
+    void fetchCommsAudit(token, restaurantId).then((res) => {
+      if (res.ok && res.events) setEvents(res.events);
+    });
+  }, [token, restaurantId]);
+
+  if (!events.length) {
+    return <AdminEmptyState>No audit events yet for this venue.</AdminEmptyState>;
+  }
+
+  return (
+    <div className="admin-notify-list">
+      {events.map((ev) => (
+        <a key={ev.id} href={ev.href} className="admin-notify-row">
+          <span className="admin-notify-row-title">{ev.name}</span>
+          <span className="admin-notify-row-body">{ev.preview}</span>
+          <span className="admin-notify-row-meta">{formatWhen(ev.lastMessageAt)}</span>
+        </a>
+      ))}
     </div>
   );
 }
 
-export function AdminNotificationPageRouter({ hash }: { hash: string }) {
-  if (!isAdminNotificationPageHash(hash)) return null;
-  return <AdminNotificationCategoryPage hash={hash} />;
+export function AdminNotificationPageRouter({
+  hash,
+  token,
+  restaurantId
+}: {
+  hash: string;
+  token?: string | null;
+  restaurantId?: string | null;
+}) {
+  const category =
+    resolveNotificationCategory(hash) ??
+    (hash === ADMIN_NOTIFICATION_HASHES.logs
+      ? ADMIN_NOTIFICATION_CATEGORIES.find((c) => c.id === "logs")
+      : null);
+  if (!category || !isNotificationCategoryHash(hash)) return null;
+
+  return (
+    <AdminPanel id={hash.slice(1)} className="admin-top-page admin-panel--edge">
+      <AdminSectionHeader
+        eyebrowText="Notifications"
+        title={category.label}
+        description={category.description}
+      />
+      <div className="mt-6">
+        <NotifyFilters activeHref={category.href} />
+        {!token ? (
+          <AdminEmptyState>Sign in to load notifications.</AdminEmptyState>
+        ) : category.filter === "logs" ? (
+          restaurantId ? (
+            <AuditList token={token} restaurantId={restaurantId} />
+          ) : (
+            <AdminEmptyState>Select a venue to view logs.</AdminEmptyState>
+          )
+        ) : (
+          <NotificationList token={token} filter={category.filter} />
+        )}
+      </div>
+    </AdminPanel>
+  );
 }

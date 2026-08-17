@@ -160,14 +160,18 @@ Not: “what did someone say in the abstract?”
 
 ## 13. MVP build order (recommended)
 
-**Phase 1 — Customer ↔ order chat only**
+**Chat core (customer)** — Phase 1, shipped: order-scoped rooms, system/status lines, customer WS.
 
-- Text messages in an order-scoped room  
-- System messages from order events  
-- Realtime sync  
-- Strong **order (or table) linkage**  
+**Admin Communication MVP** — this layer (see `docs/communicationEventLayer.md`):
 
-Ship this before generalizing internal or support UIs at scale.
+- Venue comms hub API (order / customer inbox / staff channels / system timeline)
+- Desktop 3-pane operations console
+- Notifications as category filters with deep links into the hub
+- Logs as audit, not a sixth notification product
+
+Ship admin visibility on the same rooms before generalizing SUPPORT UIs or in-thread domain actions.
+
+**Later:** in-thread Delay/Refund/Mark ready (via order domain), SUPPORT rooms, `ChatParticipant`, KDS as an event consumer.
 
 ---
 
@@ -188,4 +192,5 @@ BUT a real-time operations console with a chat layer on top
 - **Backend SOT:** `GET /customer/chat/hub`, `POST /customer/chat/messages`, shared `createChatTextMessage`, scene logic in `customerChatHub.ts`.
 - **Realtime:** Fastify WebSocket `GET /customer/chat/events?token=` (same transport pattern as `/orders/events`, not Socket.IO). Events: `new_message`, `user_typing`, `messages_read`.
 - **UI:** Thread layout with operational header (order # · status · ETA), system lines + WhatsApp-style grouped bubbles, delivery labels (sent / delivered / read), typing dots, quick-action chips, bottom composer.
-- **Still Phase 2:** staff/support channels, in-thread action buttons, web admin 3-pane, push notifications.
+**Admin Communication MVP + hardening** — venue comms hub, 3-pane console, notification center, table rooms, guest session auth, stable event ids, delivery retries, catch-up, and semantic `CommunicationTarget`. Spec: `docs/communicationEventLayer.md`.
+- **Still later:** in-thread action buttons that mutate order/payment state, SUPPORT channels, push adapters.

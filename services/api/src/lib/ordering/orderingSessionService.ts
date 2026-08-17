@@ -1,4 +1,5 @@
 import type { OrderingPaymentMode, OrderingSessionStatus, OrderingSessionType, PrismaClient } from "@prisma/client";
+import { resolveTableRoomsForSession } from "../chat/chatRoomLifecycle.js";
 
 const DEFAULT_SESSION_HOURS = 4;
 
@@ -109,6 +110,7 @@ export async function getOrderingSession(prisma: PrismaClient, sessionId: string
   if (row.status !== "ACTIVE") return { ok: false as const, error: "session_inactive" };
   if (row.expiresAt.getTime() < Date.now()) {
     await prisma.orderingSession.update({ where: { id: row.id }, data: { status: "EXPIRED" } });
+    await resolveTableRoomsForSession(prisma, row.id);
     return { ok: false as const, error: "session_expired" };
   }
   return { ok: true as const, session: serializeSession(row) };

@@ -48,6 +48,7 @@ export default defineConfig({
     preserveSymlinks: false,
     dedupe: ["react", "react-dom"],
     alias: {
+      "@": path.join(appDir, "src"),
       "@serveos/agents": path.join(agentsSrc, "index.ts"),
       "@serveos/core-shared/signup-wizard": path.join(coreSharedSrc, "signupWizard.ts"),
       "@serveos/core-shared/currency": path.join(coreSharedSrc, "currency.ts"),

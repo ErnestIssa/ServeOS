@@ -30,6 +30,7 @@ import { AdminRestaurantSelector, AdminTypingSearch } from "./adminTopChrome";
 import { useAdminHash } from "./useAdminHash";
 import { useAdminPopoverMount } from "./useAdminPopoverMount";
 import { useModalScrollLock } from "../lib/modalScrollLock";
+import { useNotificationUnreadCount } from "./notifications/useNotificationUnreadCount";
 
 export function useAdminTheme() {
   const [theme, setTheme] = useState<AdminTheme>(readAdminTheme);
@@ -703,7 +704,8 @@ function AdminTopNav({
   onSignOut,
   onOpenMobileNav,
   onOpenSearch,
-  venueSwitching
+  venueSwitching,
+  token
 }: {
   restaurants: Restaurant[];
   selectedRestaurantId: string;
@@ -719,6 +721,7 @@ function AdminTopNav({
   onOpenMobileNav?: () => void;
   onOpenSearch: () => void;
   venueSwitching?: boolean;
+  token?: string | null;
 }) {
   const quickMenu = useHoverMenu();
   const notificationsMenu = useHoverMenu();
@@ -727,6 +730,7 @@ function AdminTopNav({
   const profileMenu = useHoverMenu();
 
   const hash = useAdminHash();
+  const unreadCount = useNotificationUnreadCount(token);
   const profileDisplayName =
     userDisplayName?.trim() ||
     readUserDisplayName({
@@ -851,14 +855,14 @@ function AdminTopNav({
                 type="button"
                 aria-expanded={notificationsMenu.open}
                 aria-haspopup="menu"
-                aria-label="Notifications"
+                aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : "Notifications"}
                 aria-current={isNotificationsNavActive(hash) ? "page" : undefined}
                 className={`admin-top-tool-btn relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition ${
                   isNotificationsNavActive(hash) ? "admin-top-tool-btn--active" : ""
                 }`}
               >
                 <AdminTopToolIcon src={ADMIN_TOP_ICONS.notifications} />
-                <span className="admin-top-tool-badge" />
+                {unreadCount > 0 ? <span className="admin-top-tool-badge" /> : null}
               </button>
             </AdminHoverBubble>
             {canManageBilling ? (
@@ -1003,7 +1007,8 @@ export function AdminWorkspaceShell({
   onToggleTheme,
   onLogoPress,
   onSignOut,
-  venueSwitching
+  venueSwitching,
+  token
 }: {
   children: ReactNode;
   restaurants: Restaurant[];
@@ -1018,6 +1023,7 @@ export function AdminWorkspaceShell({
   onLogoPress: () => void;
   onSignOut: () => void;
   venueSwitching?: boolean;
+  token?: string | null;
 }) {
   const { pinned, setPinned } = useAdminSidebarPinned();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -1050,6 +1056,7 @@ export function AdminWorkspaceShell({
         onOpenMobileNav={() => setMobileNavOpen(true)}
         onOpenSearch={() => setSearchOpen(true)}
         venueSwitching={venueSwitching}
+        token={token}
       />
 
       <AdminGlobalSearchModal

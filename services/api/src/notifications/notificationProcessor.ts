@@ -6,25 +6,36 @@ import { runChannelDelivery, type ChannelContext } from "./channels/adapters.js"
 import { filterChannelsByPreferences, loadUserNotificationPrefs } from "./preferences.js";
 import { resolveRecipients } from "./recipientResolver.js";
 import { ROUTING_RULES } from "./routingRules.js";
-import type { DomainEvent, InAppUserPayload, NotificationTarget } from "./types.js";
+import type { DomainEvent, InAppUserPayload, NotificationTarget, CommunicationEntityType } from "./types.js";
+import { mergeNotificationDeepLink } from "./deepLinks.js";
+import { inferEntityFromPayload } from "../lib/chat/processedDomainEvent.js";
+import { shouldCreateNotification } from "../lib/chat/communicationProjections.js";
 
 export type NotificationRuntime = ChannelContext;
 
 export async function processDomainEvent(runtime: NotificationRuntime, event: DomainEvent): Promise<void> {
+  if (!shouldCreateNotification(event.type)) {
+    return;
+  }
   const rule = ROUTING_RULES[event.type];
   if (!rule) {
     runtime.log.warn({ type: event.type }, "notification_no_route");
     return;
   }
 
-  const targets = await resolveRecipients(runtime.prisma, rule.recipients, event);
+  const linked: DomainEvent = {
+    ...event,
+    payload: mergeNotificationDeepLink(event.type, event.restaurantId, event.payload)
+  };
+
+  const targets = await resolveRecipients(runtime.prisma, rule.recipients, linked);
   if (!targets.length) return;
 
-  const title = rule.title(event.payload);
-  const body = rule.body(event.payload);
+  const title = rule.title(linked.payload);
+  const body = rule.body(linked.payload);
 
   for (const target of targets) {
-    await deliverToTarget(runtime, event, target, {
+    await deliverToTarget(runtime, linked, target, {
       category: rule.category,
       eventKey: event.type,
       title,
@@ -76,19 +87,35 @@ async function deliverToTarget(
     const prefs = await loadUserNotificationPrefs(runtime.prisma, target.userId);
     channels = filterChannelsByPreferences(channels, meta.priority, meta.category, prefs);
 
-    const row = await runtime.prisma.notification.create({
-      data: {
-        userId: target.userId,
-        restaurantId: meta.restaurantId,
-        category: meta.category,
-        eventKey: meta.eventKey,
-        title: meta.title,
-        body: meta.body,
-        payload: event.payload as Prisma.InputJsonValue,
-        priority: meta.priority,
-        channels: channels as Prisma.InputJsonValue
-      }
-    });
+    let row = await runtime.prisma.notification
+      .create({
+        data: {
+          userId: target.userId,
+          restaurantId: meta.restaurantId,
+          category: meta.category,
+          eventKey: meta.eventKey,
+          title: meta.title,
+          body: meta.body,
+          payload: event.payload as Prisma.InputJsonValue,
+          priority: meta.priority,
+          channels: channels as Prisma.InputJsonValue,
+          eventId: event.id,
+          idempotencyKey: event.idempotencyKey ?? null
+        }
+      })
+      .catch(() => null);
+    if (!row) {
+      row = await runtime.prisma.notification.findFirst({
+        where: {
+          userId: target.userId,
+          OR: [
+            { eventId: event.id },
+            ...(event.idempotencyKey ? [{ idempotencyKey: event.idempotencyKey }] : [])
+          ]
+        }
+      });
+    }
+    if (!row) return;
     notificationId = row.id;
     inAppPayload = {
       notificationId: row.id,
@@ -102,21 +129,39 @@ async function deliverToTarget(
     };
   }
 
+  const existingDeliveries =
+    notificationId && target.kind === "user"
+      ? await runtime.prisma.notificationDelivery.findMany({ where: { notificationId } })
+      : [];
+
   for (const channel of meta.channels) {
     const allowed = channels.includes(channel);
+    const prior = existingDeliveries.find((d) => d.channel === channel);
+    if (prior?.status === "SENT" || prior?.status === "SKIPPED") continue;
+    if (prior && prior.status === "FAILED" && prior.attempts >= 5) continue;
+
     const deliveryRow =
       notificationId && target.kind === "user"
-        ? await runtime.prisma.notificationDelivery.create({
+        ? prior ??
+          (await runtime.prisma.notificationDelivery.create({
             data: {
               notificationId,
               channel,
               status: allowed ? "PENDING" : "SKIPPED",
               lastError: allowed ? null : "filtered_by_preferences"
             }
-          })
+          }))
         : null;
 
-    if (!allowed) continue;
+    if (!allowed) {
+      if (deliveryRow && deliveryRow.status !== "SKIPPED") {
+        await runtime.prisma.notificationDelivery.update({
+          where: { id: deliveryRow.id },
+          data: { status: "SKIPPED", lastError: "filtered_by_preferences" }
+        });
+      }
+      continue;
+    }
 
     const result = await runChannelDelivery(channel, runtime, event, target, inAppPayload);
 
@@ -145,14 +190,45 @@ export function startNotificationProcessor(runtime: NotificationRuntime, bus: Ev
 export function createDomainEvent(
   type: DomainEvent["type"],
   payload: Record<string, unknown>,
-  opts?: { restaurantId?: string | null; actorUserId?: string | null }
+  opts?: {
+    restaurantId?: string | null;
+    actorUserId?: string | null;
+    entityType?: CommunicationEntityType;
+    entityId?: string | null;
+    /** Aggregate/entity version. Not the event schema version. */
+    version?: number;
+    aggregateVersion?: number | null;
+    schemaVersion?: number;
+    id?: string;
+    idempotencyKey?: string | null;
+    correlationId?: string | null;
+    causationId?: string | null;
+  }
 ): DomainEvent {
+  const inferred = inferEntityFromPayload(type, payload);
+  const entityType = opts?.entityType ?? inferred.entityType;
+  const entityId = opts?.entityId ?? inferred.entityId;
+  const aggregateVersion = opts?.aggregateVersion ?? opts?.version ?? null;
+  const id = opts?.id ?? randomUUID();
+  const messageId = typeof payload.messageId === "string" ? payload.messageId : "";
+  const idempotencyKey =
+    opts?.idempotencyKey ??
+    (type === "chat.message_sent" && messageId ? `chat.message_sent:${messageId}` : null);
+  const correlationId = opts?.correlationId ?? id;
   return {
-    id: randomUUID(),
+    id,
     type,
     occurredAt: new Date().toISOString(),
     restaurantId: opts?.restaurantId ?? null,
     actorUserId: opts?.actorUserId ?? null,
+    entityType,
+    entityId,
+    schemaVersion: opts?.schemaVersion ?? 1,
+    aggregateVersion,
+    version: aggregateVersion ?? 1,
+    idempotencyKey,
+    correlationId,
+    causationId: opts?.causationId ?? null,
     payload
   };
 }

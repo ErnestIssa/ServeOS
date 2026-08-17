@@ -42,13 +42,19 @@ export async function markCustomerMessagesDeliveredInRoom(
 
   const customerId = await roomCustomerUserId(prisma, room);
   for (const { id } of pending) {
-    emitChatEvent(chatBus, chatRoomId, customerId, {
-      type: "message_delivery",
+    emitChatEvent(
+      chatBus,
       chatRoomId,
-      messageId: id,
-      status: "delivered",
-      deliveredAt: deliveredAt.toISOString()
-    });
+      customerId,
+      {
+        type: "message_delivery",
+        chatRoomId,
+        messageId: id,
+        status: "delivered",
+        deliveredAt: deliveredAt.toISOString()
+      },
+      room.restaurantId
+    );
   }
   return pending.map((p) => p.id);
 }
@@ -81,13 +87,19 @@ export async function markMessageDelivered(
   });
 
   const customerId = await roomCustomerUserId(prisma, msg.chatRoom);
-  emitChatEvent(chatBus, msg.chatRoomId, customerId, {
-    type: "message_delivery",
-    chatRoomId: msg.chatRoomId,
-    messageId,
-    status: "delivered",
-    deliveredAt: deliveredAt.toISOString()
-  });
+  emitChatEvent(
+    chatBus,
+    msg.chatRoomId,
+    customerId,
+    {
+      type: "message_delivery",
+      chatRoomId: msg.chatRoomId,
+      messageId,
+      status: "delivered",
+      deliveredAt: deliveredAt.toISOString()
+    },
+    msg.chatRoom.restaurantId
+  );
   return messageId;
 }
 
@@ -106,11 +118,17 @@ export async function markRestaurantReadInRoom(
   });
 
   const customerId = await roomCustomerUserId(prisma, room);
-  emitChatEvent(chatBus, chatRoomId, customerId, {
-    type: "messages_read",
+  emitChatEvent(
+    chatBus,
     chatRoomId,
-    readerRole: "RESTAURANT",
-    readAt: readAt.toISOString()
-  });
+    customerId,
+    {
+      type: "messages_read",
+      chatRoomId,
+      readerRole: "RESTAURANT",
+      readAt: readAt.toISOString()
+    },
+    room.restaurantId
+  );
   return readAt;
 }

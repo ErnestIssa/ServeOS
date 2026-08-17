@@ -60,6 +60,17 @@ function inQuietHours(prefs: UserPrefs, now = new Date()): boolean {
   return cur >= q.start || cur < q.end;
 }
 
+/**
+ * Single channel policy. Handlers must not invent their own quiet-hours / pref logic.
+ *
+ *   Priority   In-app   Push          Email
+ *   LOW        always   prefs         prefs
+ *   MEDIUM     always   prefs*        prefs
+ *   HIGH       always   always        prefs
+ *   CRITICAL   always   always        always
+ *
+ *   * Operational categories (CHAT/ORDER/PAYMENT/RESERVATION) keep PUSH during quiet hours.
+ */
 export function filterChannelsByPreferences(
   channels: DeliveryChannel[],
   priority: NotificationPriority,
@@ -68,28 +79,23 @@ export function filterChannelsByPreferences(
 ): DeliveryChannel[] {
   if (priority === "CRITICAL") return channels;
 
-  if (prefs.categoryFlags[category] === false) {
-    return channels.filter((c) => c === "IN_APP");
-  }
-
-  if (inQuietHours(prefs)) {
-    return channels.filter((c) => c === "IN_APP" || c === "EMAIL");
-  }
+  const operational =
+    category === "CHAT" || category === "ORDER" || category === "PAYMENT" || category === "RESERVATION";
 
   return channels.filter((ch) => {
-    switch (ch) {
-      case "PUSH":
-        return prefs.pushEnabled;
-      case "EMAIL":
-        return prefs.emailEnabled;
-      case "SMS":
-        return prefs.smsEnabled;
-      case "WHATSAPP":
-        return prefs.whatsappEnabled;
-      case "IN_APP":
-        return true;
-      default:
-        return false;
+    if (ch === "IN_APP") return true;
+    if (prefs.categoryFlags[category] === false) return false;
+
+    if (ch === "PUSH") {
+      if (priority === "HIGH") return true;
+      if (inQuietHours(prefs) && operational) return true;
+      if (inQuietHours(prefs)) return false;
+      return prefs.pushEnabled;
     }
+
+    if (ch === "EMAIL") return prefs.emailEnabled;
+    if (ch === "SMS") return prefs.smsEnabled;
+    if (ch === "WHATSAPP") return prefs.whatsappEnabled;
+    return false;
   });
 }

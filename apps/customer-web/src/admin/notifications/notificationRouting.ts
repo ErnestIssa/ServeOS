@@ -1,6 +1,6 @@
-import { ADMIN_NOTIFICATION_HASHES } from "../adminTopHashes";
+import { ADMIN_NOTIFICATION_HASHES, ADMIN_TOP_HASHES } from "../adminTopHashes";
 
-export type NotificationLayout = "radar" | "threads" | "ledger" | "mesh" | "console" | "timeline";
+export type NotificationLayout = "list" | "audit";
 
 export type NotificationCategory = {
   id: string;
@@ -8,61 +8,77 @@ export type NotificationCategory = {
   href: string;
   description: string;
   layout: NotificationLayout;
-  accent: "rose" | "violet" | "emerald" | "sky" | "amber" | "slate";
+  accent: "rose" | "violet" | "emerald" | "sky" | "amber" | "slate" | "purple";
+  filter: "all" | "customer" | "staff" | "payments" | "devices" | "system" | "logs";
 };
 
 export const ADMIN_NOTIFICATION_CATEGORIES: NotificationCategory[] = [
   {
+    id: "all",
+    label: "All",
+    href: ADMIN_TOP_HASHES.notifications,
+    description: "Everything you need to know, across the venue",
+    layout: "list",
+    accent: "purple",
+    filter: "all"
+  },
+  {
     id: "customer-alerts",
-    label: "Customer Alerts",
+    label: "Customer",
     href: ADMIN_NOTIFICATION_HASHES.customerAlerts,
-    description: "Guest requests, complaints, and service signals",
-    layout: "radar",
-    accent: "rose"
+    description: "Guest orders, chats, and reservations",
+    layout: "list",
+    accent: "rose",
+    filter: "customer"
   },
   {
     id: "staff-messages",
-    label: "Staff Messages",
+    label: "Staff",
     href: ADMIN_NOTIFICATION_HASHES.staffMessages,
-    description: "Internal pings, shift notes, and team updates",
-    layout: "threads",
-    accent: "violet"
+    description: "Invites, approvals, and team updates",
+    layout: "list",
+    accent: "violet",
+    filter: "staff"
   },
   {
     id: "payments",
     label: "Payments",
     href: ADMIN_NOTIFICATION_HASHES.payments,
-    description: "Charges, refunds, disputes, and payout events",
-    layout: "ledger",
-    accent: "emerald"
+    description: "Charges, refunds, and payout events",
+    layout: "list",
+    accent: "emerald",
+    filter: "payments"
   },
   {
     id: "devices",
     label: "Devices",
     href: ADMIN_NOTIFICATION_HASHES.devices,
-    description: "Hardware offline, printer faults, and KDS drops",
-    layout: "mesh",
-    accent: "sky"
+    description: "Hardware offline and integration faults",
+    layout: "list",
+    accent: "sky",
+    filter: "devices"
   },
   {
     id: "logs",
     label: "Logs",
     href: ADMIN_NOTIFICATION_HASHES.logs,
-    description: "Audit trail, API events, and operational records",
-    layout: "console",
-    accent: "amber"
+    description: "What happened — audit trail, not an inbox",
+    layout: "audit",
+    accent: "amber",
+    filter: "logs"
   },
   {
     id: "system-updates",
-    label: "System updates",
+    label: "System",
     href: ADMIN_NOTIFICATION_HASHES.systemUpdates,
-    description: "Platform releases, maintenance, and policy notices",
-    layout: "timeline",
-    accent: "slate"
+    description: "Platform and system notices",
+    layout: "list",
+    accent: "slate",
+    filter: "system"
   }
 ];
 
-export function isNotificationCategoryHash(hash: string): boolean {
+export function isNotificationCategoryHash(hash: string) {
   return ADMIN_NOTIFICATION_CATEGORIES.some((c) => c.href === hash);
 }
 
@@ -70,6 +86,6 @@ export function resolveNotificationCategory(hash: string): NotificationCategory 
   return ADMIN_NOTIFICATION_CATEGORIES.find((c) => c.href === hash) ?? null;
 }
 
-export function isNotificationsNavActive(hash: string): boolean {
+export function isNotificationsNavActive(hash: string) {
   return isNotificationCategoryHash(hash);
 }

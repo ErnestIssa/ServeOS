@@ -61,13 +61,6 @@ export function isAdminHelpPageHash(hash: string): hash is AdminHelpHash {
 }
 
 export function isAdminFullPageHash(hash: string): boolean {
-  if (
-    hash === ADMIN_TOP_HASHES.notifications ||
-    hash === ADMIN_TOP_HASHES.billing ||
-    hash === ADMIN_TOP_HASHES.platformHelp
-  ) {
-    return false;
-  }
   return (
     isAdminTopPageHash(hash) ||
     isAdminNotificationPageHash(hash) ||

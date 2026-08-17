@@ -1,4 +1,5 @@
 import type { ChatMessageType, OrderStatus, PrismaClient } from "@prisma/client";
+import { ensureTableChatRoom } from "../chat/chatRoomLifecycle.js";
 
 const ACTIVE_STATUSES: OrderStatus[] = ["PENDING", "CONFIRMED", "PREPARING", "READY"];
 
@@ -189,19 +190,48 @@ export function quickActionsForScene(scene: CustomerChatScene): Array<{ id: Cust
 
 export async function ensureCustomerChatRoom(
   prisma: PrismaClient,
-  input: { scene: CustomerChatScene; restaurantId: string; customerUserId: string; orderId?: string }
+  input: {
+    scene: CustomerChatScene;
+    restaurantId: string;
+    customerUserId: string;
+    orderId?: string;
+    sourceSessionId?: string | null;
+    tableId?: string | null;
+    tableLabel?: string | null;
+  }
 ): Promise<string> {
   if (input.scene === "active_order" && input.orderId) {
     const existing = await prisma.chatRoom.findUnique({ where: { orderId: input.orderId } });
-    if (existing) return existing.id;
+    if (existing) {
+      if (input.sourceSessionId && !existing.sourceSessionId) {
+        await prisma.chatRoom.update({
+          where: { id: existing.id },
+          data: { sourceSessionId: input.sourceSessionId }
+        });
+      }
+      return existing.id;
+    }
     const created = await prisma.chatRoom.create({
       data: {
         type: "ORDER",
         restaurantId: input.restaurantId,
-        orderId: input.orderId
+        orderId: input.orderId,
+        customerUserId: input.customerUserId,
+        sourceSessionId: input.sourceSessionId ?? null
       }
     });
     return created.id;
+  }
+
+  if (input.tableId) {
+    const tableRoom = await ensureTableChatRoom(prisma, {
+      restaurantId: input.restaurantId,
+      tableId: input.tableId,
+      tableLabel: input.tableLabel,
+      sourceSessionId: input.sourceSessionId,
+      customerUserId: input.customerUserId
+    });
+    return tableRoom.id;
   }
 
   const existingVenue = await prisma.chatRoom.findFirst({
@@ -217,7 +247,8 @@ export async function ensureCustomerChatRoom(
     data: {
       type: "VENUE",
       restaurantId: input.restaurantId,
-      customerUserId: input.customerUserId
+      customerUserId: input.customerUserId,
+      sourceSessionId: input.sourceSessionId ?? null
     }
   });
   return created.id;
@@ -229,7 +260,16 @@ export async function syncOrderRoomSystemMessage(
   chatRoomId: string,
   status: OrderStatus,
   restaurantName: string
-): Promise<{ id: string; content: string; createdAt: Date } | null> {
+): Promise<{
+  id: string;
+  chatRoomId: string;
+  senderUserId: string | null;
+  senderRole: string;
+  content: string;
+  type: ChatMessageType;
+  createdAt: Date;
+  deliveredToVenueAt: Date | null;
+} | null> {
   const timeline = buildOrderTimeline(status, restaurantName);
   const primary = timeline[0]?.content ?? "Order update";
   const marker = `status:${status}`;

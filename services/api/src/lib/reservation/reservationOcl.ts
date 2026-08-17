@@ -1,4 +1,4 @@
-import type { CustomerReservationStatus, PrismaClient } from "@prisma/client";
+import type { ChatMessageType, CustomerReservationStatus, PrismaClient } from "@prisma/client";
 import type { MobileAuthContext } from "../auth/mobileAuthContext.js";
 import { assertPermission, requireVenueMembership } from "../auth/mobileAuthContext.js";
 import { userHasPermission } from "../mobile/mobileExperience.js";
@@ -13,6 +13,7 @@ import { splitRoomMessagesForOcl, type OclAction, type OclTimelineEvent } from "
 import { markRestaurantReadInRoom } from "../chat/chatReceipts.js";
 import { notifyChatMessage } from "../../notifications/integrations/chat.js";
 import { notifyOclUpdated } from "../../notifications/integrations/ocl.js";
+import { syncChatRoomLifecycleForReservation } from "../chat/chatRoomLifecycle.js";
 import type { EventEmitter } from "node:events";
 
 const STATUS_LABEL: Record<CustomerReservationStatus, string> = {
@@ -88,7 +89,16 @@ async function publishReservationChatMessage(
     restaurantId: string;
     customerUserId: string;
     actorUserId: string;
-    message: { id: string; chatRoomId: string; senderUserId: string | null; senderRole: string; content: string; type: "TEXT"; createdAt: Date; deliveredToVenueAt: Date | null };
+    message: {
+      id: string;
+      chatRoomId: string;
+      senderUserId: string | null;
+      senderRole: string;
+      content: string;
+      type: ChatMessageType;
+      createdAt: Date;
+      deliveredToVenueAt: Date | null;
+    };
   }
 ) {
   if (!domainEventBus) return;
@@ -237,6 +247,7 @@ export async function performReservationOclStatusAction(
     where: { id: reservationId },
     data: { status: nextStatus }
   });
+  await syncChatRoomLifecycleForReservation(prisma, reservationId, nextStatus);
 
   let chatRoomId = before.chatRoom?.id ?? null;
   if (!chatRoomId) {

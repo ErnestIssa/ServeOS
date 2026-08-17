@@ -30,7 +30,7 @@ const GROUP_DEFS: Array<{ id: string; label: string; icon: string; workspaceId: 
   { id: "devices-hardware", label: "DEVICES", icon: "/icons/responsive.png", workspaceId: "devices" },
   {
     id: "communication-hub",
-    label: "Communication hub",
+    label: "Communication",
     icon: "/icons/notification-bell-on-svgrepo-com.svg",
     workspaceId: "comms"
   },

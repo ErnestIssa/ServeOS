@@ -29,6 +29,7 @@ import {
 } from "../lib/chat/chatMessageService.js";
 import type { ChatWsPayload } from "../lib/chat/chatRealtime.js";
 import { notifyChatMessage } from "../notifications/integrations/chat.js";
+import { limitChatMessages } from "../lib/chat/chatRateLimit.js";
 import { splitRoomMessagesForOcl, buildCustomerHubTimeline } from "../lib/orders/orderOcl.js";
 import {
   buildThreadFeed,
@@ -47,6 +48,7 @@ import { isRestaurantStaffOnline } from "../lib/venue/restaurantPresence.js";
 import { countCustomerChatImagesInRoom, ensureChatMessageImageEnum } from "../lib/chat/chatImageEnum.js";
 import { countCustomerChatUnread, countRoomUnreadForCustomer } from "../lib/chat/chatUnread.js";
 import { buildCustomerChatOverview } from "../lib/customer/customerChatOverview.js";
+import { getOrderingSession } from "../lib/ordering/orderingSessionService.js";
 import { resolveVenueCallLine } from "../lib/venue/venueCallLineService.js";
 
 function bearerToken(headers: { authorization?: string }): string | null {
@@ -56,7 +58,8 @@ function bearerToken(headers: { authorization?: string }): string | null {
 }
 
 const hubQuerySchema = z.object({
-  restaurantId: z.string().min(1).optional()
+  restaurantId: z.string().min(1).optional(),
+  sessionId: z.string().min(1).optional()
 });
 
 const venueCallLineQuerySchema = z.object({
@@ -66,7 +69,9 @@ const venueCallLineQuerySchema = z.object({
 const postMessageSchema = z.object({
   restaurantId: z.string().min(1),
   content: z.string().min(1).max(2000),
-  orderId: z.string().min(1).optional()
+  orderId: z.string().min(1).optional(),
+  clientMessageId: z.string().uuid().optional(),
+  sessionId: z.string().min(1).optional()
 });
 
 const postImagesSchema = z.object({
@@ -214,6 +219,22 @@ export function registerCustomerChatRoutes(
 
     let restaurantId =
       parsed.data.restaurantId?.trim() || readPreferredRestaurantIdFromProfile(user.signupProfile) || "";
+    const sessionId = parsed.data.sessionId?.trim() || "";
+    let sessionTableId: string | null = null;
+    let sessionTableLabel: string | null = null;
+    let sourceSessionId: string | null = null;
+    if (sessionId) {
+      const session = await getOrderingSession(prisma, sessionId);
+      if (session.ok) {
+        sourceSessionId = session.session.id;
+        sessionTableId = session.session.tableId;
+        sessionTableLabel = session.session.tableLabel;
+        if (!restaurantId) restaurantId = session.session.restaurantId;
+        if (restaurantId && session.session.restaurantId !== restaurantId) {
+          return reply.status(400).send({ ok: false, error: "session_restaurant_mismatch" });
+        }
+      }
+    }
 
     await autoTerminateStaleActiveOrdersForCustomer(prisma, pl.sub, new Date());
 
@@ -324,7 +345,10 @@ export function registerCustomerChatRoutes(
       scene,
       restaurantId,
       customerUserId: pl.sub,
-      orderId: activeOrder?.id
+      orderId: activeOrder?.id,
+      sourceSessionId,
+      tableId: activeOrder ? null : sessionTableId,
+      tableLabel: sessionTableLabel
     });
 
     if (scene === "active_order" && activeOrder) {
@@ -473,17 +497,37 @@ export function registerCustomerChatRoutes(
       return reply.status(400).send({ ok: false, error: "validation_error" });
     }
 
-    const { restaurantId, content, orderId } = parsed.data;
+    const { restaurantId, content, orderId, clientMessageId, sessionId } = parsed.data;
+
+    const limited = await limitChatMessages(pl.sub);
+    if (!limited.ok) {
+      return reply.status(429).send({ ok: false, error: "rate_limited", retryAfterSec: limited.retryAfterSec });
+    }
 
     const restaurant = await prisma.restaurant.findUnique({ where: { id: restaurantId } });
     if (!restaurant) return reply.status(404).send({ ok: false, error: "restaurant_not_found" });
+
+    let sourceSessionId: string | null = null;
+    let sessionTableId: string | null = null;
+    let sessionTableLabel: string | null = null;
+    if (sessionId) {
+      const session = await getOrderingSession(prisma, sessionId);
+      if (!session.ok || session.session.restaurantId !== restaurantId) {
+        return reply.status(404).send({ ok: false, error: "session_not_found" });
+      }
+      sourceSessionId = session.session.id;
+      sessionTableId = session.session.tableId;
+      sessionTableLabel = session.session.tableLabel;
+    }
 
     let scene: CustomerChatScene = "new";
     let resolvedOrderId: string | undefined;
 
     if (orderId) {
       const order = await prisma.order.findUnique({ where: { id: orderId } });
-      if (!order || order.customerUserId !== pl.sub) {
+      const ownsUser = order?.customerUserId === pl.sub;
+      const ownsSession = Boolean(sourceSessionId && order?.sourceSessionId === sourceSessionId);
+      if (!order || (!ownsUser && !ownsSession)) {
         return reply.status(404).send({ ok: false, error: "order_not_found" });
       }
       if (order.restaurantId !== restaurantId) {
@@ -532,14 +576,18 @@ export function registerCustomerChatRoutes(
       scene,
       restaurantId,
       customerUserId: pl.sub,
-      orderId: resolvedOrderId
+      orderId: resolvedOrderId,
+      sourceSessionId,
+      tableId: resolvedOrderId ? null : sessionTableId,
+      tableLabel: sessionTableLabel
     });
 
     const row = await createChatTextMessage(prisma, {
       chatRoomId,
       senderUserId: pl.sub,
       senderRole: "CUSTOMER",
-      content
+      content,
+      clientMessageId
     });
 
     const room = await prisma.chatRoom.findUnique({ where: { id: chatRoomId } });

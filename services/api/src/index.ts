@@ -44,6 +44,8 @@ import { isSmsProviderConfigured } from "./lib/integrations/smsProvider.js";
 import { apiErrorMessage, apiFail, enrichApiPayload } from "./lib/http/apiErrors.js";
 import { registerConfigRoutes } from "./routes/configRoutes.js";
 import { registerCommunicationRoutes } from "./routes/communicationRoutes.js";
+import { registerVenueCommsRoutes } from "./routes/venueCommsRoutes.js";
+import { startChatTimelineProcessor } from "./lib/chat/chatTimelineProjection.js";
 import { registerWorkspaceEnrollmentRoutes } from "./routes/workspaceEnrollmentRoutes.js";
 import { registerWorkspaceProvisioningRoutes } from "./routes/workspaceProvisioningRoutes.js";
 import { registerTrustRoutes } from "./routes/trustRoutes.js";
@@ -220,9 +222,11 @@ async function main() {
     chatBus,
     notificationBus
   });
+  startChatTimelineProcessor(prisma, domainEventBus, app.log);
 
   registerConfigRoutes(app);
   registerCommunicationRoutes(app, prisma);
+  registerVenueCommsRoutes(app, prisma, chatBus, domainEventBus);
   registerWorkspaceEnrollmentRoutes(app, prisma, domainEventBus);
   registerWorkspaceProvisioningRoutes(app, prisma);
   registerAuthRoutes(app, prisma, domainEventBus);

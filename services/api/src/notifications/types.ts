@@ -30,12 +30,47 @@ export type DomainEventType =
   | "order.refunded"
   | "order.recovery.escalated";
 
+export type CommunicationEntityType =
+  | "ORDER"
+  | "CHAT_ROOM"
+  | "PAYMENT"
+  | "DEVICE"
+  | "STAFF"
+  | "RESERVATION"
+  | "TABLE"
+  | "SYSTEM";
+
+/** Semantic destination — clients map this to their own routes. `href` is admin-web convenience only. */
+export type CommunicationTarget = {
+  entityType: CommunicationEntityType;
+  entityId: string | null;
+  chatRoomId?: string;
+  restaurantId?: string | null;
+  href?: string;
+};
+
 export type DomainEvent = {
+  /** Unique occurrence id (UUID). Retries of the same publish reuse this id. */
   id: string;
   type: DomainEventType;
   occurredAt: string;
   restaurantId?: string | null;
   actorUserId?: string | null;
+  entityType?: CommunicationEntityType;
+  entityId?: string | null;
+  /**
+   * Event *schema* version (shape of this event type).
+   * Do not use this as the order/payment aggregate version.
+   */
+  schemaVersion: number;
+  /** Owning aggregate version when known (e.g. order revision). */
+  aggregateVersion: number | null;
+  /** @deprecated Use aggregateVersion. Kept so existing callers keep compiling. */
+  version: number;
+  /** Business retry key. Distinct from id — never encode "same resulting status". */
+  idempotencyKey?: string | null;
+  correlationId?: string | null;
+  causationId?: string | null;
   payload: Record<string, unknown>;
 };
 

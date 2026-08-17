@@ -1,4 +1,4 @@
-import { ADMIN_BILLING_HASHES, ADMIN_HELP_HASHES, ADMIN_NOTIFICATION_HASHES, ADMIN_TOP_HASHES, isAdminFullPageHash } from "./adminTopHashes";
+import { ADMIN_BILLING_HASHES, ADMIN_HELP_HASHES, ADMIN_TOP_HASHES, isAdminFullPageHash } from "./adminTopHashes";
 
 export type WorkspaceId =
   | "live-ops"
@@ -39,9 +39,6 @@ export function parseAdminHashQuery(hash = typeof window !== "undefined" ? windo
 
 export function parseAdminRoute(hash: string): AdminRoute {
   const normalized = (hash || DEFAULT_ADMIN_HASH).split("?")[0]!;
-  if (normalized === ADMIN_TOP_HASHES.notifications) {
-    return { kind: "full-page", hash: ADMIN_NOTIFICATION_HASHES.customerAlerts };
-  }
   if (normalized === ADMIN_TOP_HASHES.billing) {
     return { kind: "full-page", hash: ADMIN_BILLING_HASHES.subscription };
   }

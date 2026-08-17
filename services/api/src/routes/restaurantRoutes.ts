@@ -8,6 +8,7 @@ import { buildPublishedPublicMenu } from "../lib/menu/publicMenuService.js";
 import { assertMenuEntityPermission } from "../lib/menu/menuPermissions.js";
 import { requireMenuVenueMembership } from "../lib/menu/menuMembership.js";
 import { isCustomerBrowsableRestaurant } from "../lib/customer/customerRestaurantDirectory.js";
+import { ensureDefaultStaffChannels } from "../lib/chat/venueCommsHub.js";
 import {
   duplicateCategoryEntity,
   duplicateItemEntity,
@@ -160,6 +161,8 @@ export function registerRestaurantRoutes(app: FastifyInstance, prisma: PrismaCli
         role: "OWNER"
       }
     });
+
+    await ensureDefaultStaffChannels(prisma, restaurant.id);
 
     return { ok: true, restaurant };
   });

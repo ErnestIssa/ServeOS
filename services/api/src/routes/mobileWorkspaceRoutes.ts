@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   loadMobileAuthContext,
   requireMobileAuth,
+  requireVenueMembership,
   setActiveRestaurantForUser
 } from "../lib/auth/mobileAuthContext.js";
 import {
@@ -23,6 +24,7 @@ import {
   sendVenueStaffMessage
 } from "../lib/chat/staffVenueChat.js";
 import { markRestaurantReadInRoom } from "../lib/chat/chatReceipts.js";
+import { staffRoleForVenue } from "../lib/chat/chatAccess.js";
 import { loadOrderOclThread, performOclStatusAction, sendOclHumanMessage } from "../lib/orders/orderOcl.js";
 import {
   loadReservationOclThread,
@@ -302,8 +304,13 @@ export function registerMobileWorkspaceRoutes(
     if (ctx.venueAccessState !== "active") {
       return reply.status(403).send({ ok: false, error: "pending_approval" });
     }
+    await requireVenueMembership(prisma, ctx, restaurantId);
     try {
-      const messages = await listVenueRoomMessages(prisma, restaurantId, chatRoomId);
+      const role = staffRoleForVenue(ctx, restaurantId) ?? "STAFF";
+      const messages = await listVenueRoomMessages(prisma, restaurantId, chatRoomId, {
+        userId: ctx.userId,
+        role
+      });
       if (chatBus) {
         await markRestaurantReadInRoom(prisma, chatBus, chatRoomId);
       }
@@ -317,9 +324,19 @@ export function registerMobileWorkspaceRoutes(
   app.post("/restaurants/:restaurantId/chat/rooms/:chatRoomId/messages", async (req, reply) => {
     const ctx = await requireMobileAuth(req, app, prisma);
     const { restaurantId, chatRoomId } = req.params as { restaurantId: string; chatRoomId: string };
-    const body = z.object({ content: z.string().min(1).max(2000) }).parse(req.body);
+    const body = z
+      .object({ content: z.string().min(1).max(2000), clientMessageId: z.string().uuid().optional() })
+      .parse(req.body);
     try {
-      const message = await sendVenueStaffMessage(prisma, ctx, restaurantId, chatRoomId, body.content);
+      const message = await sendVenueStaffMessage(
+        prisma,
+        ctx,
+        restaurantId,
+        chatRoomId,
+        body.content,
+        domainEventBus,
+        body.clientMessageId
+      );
       return { ok: true, message };
     } catch (e) {
       const err = e as { statusCode?: number; message?: string };

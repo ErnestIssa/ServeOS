@@ -171,5 +171,69 @@ export const ROUTING_RULES: Record<DomainEventType, RouteRule> = {
     title: () => "Order needs attention",
     body: (p) =>
       `Order ${String(p.orderId ?? "").slice(0, 8)} — ${String(p.slaSignal ?? p.signal ?? "stuck")}`
+  },
+  "order.discount.applied": {
+    category: "ORDER",
+    priority: "LOW",
+    channels: ["IN_APP"],
+    recipients: "order_participants",
+    title: () => "Discount applied",
+    body: () => "A discount was applied to the order"
+  },
+  "order.refunded": {
+    category: "PAYMENT",
+    priority: "HIGH",
+    channels: ["IN_APP", "PUSH", "EMAIL"],
+    recipients: "order_participants",
+    title: () => "Refund processed",
+    body: () => "A refund was issued for this order"
+  },
+  "fraud.risk.detected": {
+    category: "SYSTEM",
+    priority: "HIGH",
+    channels: ["IN_APP", "PUSH"],
+    recipients: "restaurant_admins",
+    title: () => "Fraud risk detected",
+    body: (p) => String(p.message ?? "A transaction was flagged for review")
+  },
+  "fraud.action.blocked": {
+    category: "SYSTEM",
+    priority: "CRITICAL",
+    channels: ["IN_APP", "PUSH", "EMAIL"],
+    recipients: "restaurant_admins",
+    title: () => "Action blocked",
+    body: (p) => String(p.message ?? "A risky action was blocked")
+  },
+  "approval.request.created": {
+    category: "STAFF",
+    priority: "HIGH",
+    channels: ["IN_APP", "PUSH"],
+    recipients: "restaurant_admins",
+    title: () => "Approval needed",
+    body: (p) => String(p.message ?? "An approval request is waiting")
+  },
+  "approval.request.approved": {
+    category: "STAFF",
+    priority: "MEDIUM",
+    channels: ["IN_APP"],
+    recipients: "affected_user",
+    title: () => "Request approved",
+    body: () => "Your request was approved"
+  },
+  "approval.request.rejected": {
+    category: "STAFF",
+    priority: "MEDIUM",
+    channels: ["IN_APP"],
+    recipients: "affected_user",
+    title: () => "Request declined",
+    body: () => "Your request was declined"
+  },
+  "approval.request.expired": {
+    category: "STAFF",
+    priority: "LOW",
+    channels: ["IN_APP"],
+    recipients: "restaurant_admins",
+    title: () => "Approval expired",
+    body: () => "An approval request expired"
   }
 };

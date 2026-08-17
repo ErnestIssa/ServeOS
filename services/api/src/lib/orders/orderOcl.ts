@@ -15,6 +15,7 @@ import {
   syncOrderRoomSystemMessage
 } from "../customer/customerChatHub.js";
 import { markCustomerMessagesDeliveredForOrder, markRestaurantReadInRoom } from "../chat/chatReceipts.js";
+import { syncChatRoomLifecycleForOrder } from "../chat/chatRoomLifecycle.js";
 import { notifyChatMessage } from "../../notifications/integrations/chat.js";
 import { notifyOclUpdated } from "../../notifications/integrations/ocl.js";
 import type { EventEmitter } from "node:events";
@@ -318,6 +319,7 @@ export async function applyOrderStatusOcl(
     buses,
     log
   );
+  await syncChatRoomLifecycleForOrder(prisma, order.id, order.status);
 
   const fromCanon = normalizeOrderStatus(existing.status);
   const toCanon = normalizeOrderStatus(input.status);

@@ -5,9 +5,10 @@ import { z } from "zod";
 import { requireMobileAuth } from "../lib/auth/mobileAuthContext.js";
 import { registerUserDeviceToken, revokeUserDeviceToken } from "../lib/device/deviceTokenService.js";
 import { isPushProviderConfigured } from "../lib/integrations/pushProvider.js";
-import { randomUUID } from "node:crypto";
+import { createDomainEvent } from "../notifications/notificationProcessor.js";
 import { publishDomainEvent } from "../notifications/eventBus.js";
 import type { DomainEvent } from "../notifications/types.js";
+import { communicationTargetFromPayload, notificationFilterWhere } from "../notifications/deepLinks.js";
 
 const ingestSchema = z.object({
   type: z.string().min(1),
@@ -30,45 +31,64 @@ export function registerNotificationRoutes(
     }
 
     const body = ingestSchema.parse(req.body);
-    const event: DomainEvent = {
-      id: randomUUID(),
-      type: body.type as DomainEvent["type"],
-      occurredAt: new Date().toISOString(),
+    const event = createDomainEvent(body.type as DomainEvent["type"], body.payload, {
       restaurantId: body.restaurantId ?? null,
-      actorUserId: body.actorUserId ?? null,
-      payload: body.payload
-    };
+      actorUserId: body.actorUserId ?? null
+    });
     await publishDomainEvent(domainEventBus, event);
     return { ok: true, eventId: event.id, queued: true };
   });
 
   app.get("/notifications", async (req, reply) => {
     const ctx = await requireMobileAuth(req, app, prisma);
-    const q = req.query as { limit?: string; unreadOnly?: string };
+    const q = req.query as {
+      limit?: string;
+      unreadOnly?: string;
+      category?: string;
+      filter?: string;
+      cursor?: string;
+    };
     const limit = Math.min(50, Math.max(1, Number(q.limit) || 30));
+    const extra = notificationFilterWhere(q.filter ?? q.category);
+    let cursorAt: Date | undefined;
+    if (q.cursor) {
+      const cursorRow = await prisma.notification.findFirst({
+        where: { id: q.cursor, userId: ctx.userId },
+        select: { createdAt: true }
+      });
+      cursorAt = cursorRow?.createdAt;
+    }
     const rows = await prisma.notification.findMany({
       where: {
         userId: ctx.userId,
-        ...(q.unreadOnly === "true" ? { readAt: null } : {})
+        ...(q.unreadOnly === "true" ? { readAt: null } : {}),
+        ...(extra ?? {}),
+        ...(cursorAt ? { createdAt: { lt: cursorAt } } : {})
       },
       orderBy: { createdAt: "desc" },
-      take: limit
+      take: limit + 1
     });
+    const page = rows.slice(0, limit);
     return {
       ok: true,
-      notifications: rows.map((n) => ({
-        id: n.id,
-        category: n.category,
-        eventKey: n.eventKey,
-        title: n.title,
-        body: n.body,
-        payload: n.payload,
-        priority: n.priority,
-        channels: n.channels,
-        readAt: n.readAt?.toISOString() ?? null,
-        createdAt: n.createdAt.toISOString(),
-        restaurantId: n.restaurantId
-      }))
+      nextCursor: rows.length > limit ? page[page.length - 1]?.id ?? null : null,
+      notifications: page.map((n) => {
+        const payload = (n.payload ?? {}) as Record<string, unknown>;
+        return {
+          id: n.id,
+          category: n.category,
+          eventKey: n.eventKey,
+          title: n.title,
+          body: n.body,
+          payload: n.payload,
+          target: communicationTargetFromPayload(payload, n.restaurantId),
+          priority: n.priority,
+          channels: n.channels,
+          readAt: n.readAt?.toISOString() ?? null,
+          createdAt: n.createdAt.toISOString(),
+          restaurantId: n.restaurantId
+        };
+      })
     };
   });
 

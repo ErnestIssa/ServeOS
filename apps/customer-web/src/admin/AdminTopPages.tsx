@@ -1,34 +1,9 @@
-import { type ReactNode } from "react";
-import {
-  AdminEmptyState,
-  AdminPanel,
-  AdminSectionHeader,
-  subPanelCls
-} from "./AdminUi";
 import { ADMIN_TOP_HASHES, isAdminBillingPageHash, isAdminHelpPageHash, isAdminNotificationPageHash } from "./adminTopHashes";
 import { AdminProfilePage } from "./profile/AdminProfilePage";
 import { AdminStaffManagementPage } from "./AdminStaffManagementPage";
 import { AdminBillingPageRouter } from "./billing/AdminBillingPages";
 import { AdminHelpPageRouter } from "./help/AdminHelpPages";
 import { AdminNotificationPageRouter } from "./notifications/AdminNotificationPages";
-
-type PageShellProps = {
-  id: string;
-  eyebrow: string;
-  title: string;
-  description: string;
-  action?: ReactNode;
-  children: ReactNode;
-};
-
-function AdminPageShell({ id, eyebrow, title, description, action, children }: PageShellProps) {
-  return (
-    <AdminPanel id={id} className="admin-top-page admin-panel--edge">
-      <AdminSectionHeader eyebrowText={eyebrow} title={title} description={description} action={action} />
-      <div className="mt-8">{children}</div>
-    </AdminPanel>
-  );
-}
 
 export function AdminAddStaffPage({
   token,
@@ -83,8 +58,8 @@ export function AdminTopPageView({
       if (isAdminBillingPageHash(hash)) {
         return <AdminBillingPageRouter hash={hash} />;
       }
-      if (isAdminNotificationPageHash(hash)) {
-        return <AdminNotificationPageRouter hash={hash} />;
+      if (isAdminNotificationPageHash(hash) || hash === ADMIN_TOP_HASHES.notifications) {
+        return <AdminNotificationPageRouter hash={hash} token={token} restaurantId={restaurantId} />;
       }
       return null;
   }

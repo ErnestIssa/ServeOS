@@ -807,6 +807,7 @@ export function AdminDashboardPage({ onAfterLogout }: Props) {
           onLogoPress={requestSignOut}
           onSignOut={requestSignOut}
           venueSwitching={venueSwitching}
+          token={token}
         >
           <main id="top" className={adminWorkspaceMain}>
             {accessPending && pendingVenue ? (

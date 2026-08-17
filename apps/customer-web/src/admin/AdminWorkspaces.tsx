@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { AdminPanel, AdminEmptyState, AdminSectionHeader, subPanelCls } from "./AdminUi";
+import { AdminCommunicationHub } from "./comms/AdminCommunicationHub";
 import { AdminConfigurationPage } from "./config/AdminConfigurationPage";
 import { AdminOrdersManagementPage } from "./orders/AdminOrdersManagementPage";
 import { AdminWorkspaceInnerTransition } from "./AdminWorkspaceInnerTransition";
@@ -194,17 +195,6 @@ function DevicesBody({ workspaceId, activePresetId, onSelectTab }: WorkspaceBody
   );
 }
 
-function CommsBody({ workspaceId, activePresetId, onSelectTab }: WorkspaceBodyProps) {
-  const preset = resolveWorkspacePreset(workspaceId, activePresetId);
-  return (
-    <WorkspaceShell workspaceId={workspaceId} activePresetId={activePresetId} onSelectTab={onSelectTab}>
-      <PanelBlock title={`${preset.label} inbox`}>
-        <AdminEmptyState>No conversations yet.</AdminEmptyState>
-      </PanelBlock>
-    </WorkspaceShell>
-  );
-}
-
 function AutomationsBody({ workspaceId, activePresetId, onSelectTab }: WorkspaceBodyProps) {
   const preset = resolveWorkspacePreset(workspaceId, activePresetId);
   return (
@@ -292,7 +282,14 @@ function WorkspaceBody({
     case "devices":
       return <DevicesBody workspaceId={workspaceId} activePresetId={activePresetId} onSelectTab={onSelectTab} />;
     case "comms":
-      return <CommsBody workspaceId={workspaceId} activePresetId={activePresetId} onSelectTab={onSelectTab} />;
+      return (
+        <AdminCommunicationHub
+          workspaceId={workspaceId}
+          activePresetId={activePresetId}
+          token={token ?? null}
+          restaurantId={restaurantId ?? null}
+        />
+      );
     case "automations":
       return <AutomationsBody workspaceId={workspaceId} activePresetId={activePresetId} onSelectTab={onSelectTab} />;
     case "config":

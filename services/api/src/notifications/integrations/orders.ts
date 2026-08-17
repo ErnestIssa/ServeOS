@@ -11,6 +11,7 @@ export async function notifyOrderUpdated(
     totalCents: number;
     restaurantName?: string;
     customerUserId?: string | null;
+    version?: number;
   }
 ): Promise<void> {
   const type = input.status === "COMPLETED" ? "order.delivered" : "order.updated";
@@ -27,7 +28,12 @@ export async function notifyOrderUpdated(
         restaurantName: input.restaurantName,
         customerUserId: input.customerUserId
       },
-      { restaurantId: input.restaurantId }
+      {
+        restaurantId: input.restaurantId,
+        entityType: "ORDER",
+        entityId: input.orderId,
+        version: input.version ?? 1
+      }
     )
   );
 }
@@ -41,6 +47,7 @@ export async function notifyOrderCreated(
     totalCents: number;
     restaurantName?: string;
     customerUserId?: string | null;
+    version?: number;
   }
 ): Promise<void> {
   await publishDomainEvent(
@@ -55,7 +62,12 @@ export async function notifyOrderCreated(
         restaurantName: input.restaurantName,
         customerUserId: input.customerUserId
       },
-      { restaurantId: input.restaurantId }
+      {
+        restaurantId: input.restaurantId,
+        entityType: "ORDER",
+        entityId: input.orderId,
+        version: input.version ?? 1
+      }
     )
   );
 }

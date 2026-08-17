@@ -82,7 +82,10 @@ export async function deliverInApp(
         typeof event.payload.customerUserId === "string" ? event.payload.customerUserId : null;
       const wsPayload = event.payload.wsPayload as ChatWsPayload | undefined;
       if (chatRoomId && wsPayload) {
-        emitChatEvent(ctx.chatBus, chatRoomId, customerUserId, wsPayload);
+        emitChatEvent(ctx.chatBus, chatRoomId, customerUserId, wsPayload, event.restaurantId, {
+          roomType: typeof event.payload.roomType === "string" ? event.payload.roomType : null,
+          channelKey: typeof event.payload.channelKey === "string" ? event.payload.channelKey : null
+        });
       }
     }
 
