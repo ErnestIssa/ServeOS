@@ -8,7 +8,8 @@ export const PROFILE_MODAL_PANEL =
 type ShellProps = {
   open: boolean;
   onClose: () => void;
-  title: string;
+  /** When empty, only description is shown (no topic heading). */
+  title?: string;
   description?: string;
   titleId: string;
   children: ReactNode;
@@ -34,7 +35,7 @@ const PROFILE_MODAL_SHELL_CLASS = {
 export function ProfileModalShell({
   open,
   onClose,
-  title,
+  title = "",
   description,
   titleId,
   children,
@@ -48,6 +49,8 @@ export function ProfileModalShell({
   bodyScroll = true,
   backdropClassName
 }: ShellProps) {
+  const hasTitle = Boolean(title.trim());
+
   return (
     <SignupModalShell
       open={open}
@@ -59,11 +62,21 @@ export function ProfileModalShell({
       panelClassName={`${PROFILE_MODAL_PANEL} ${maxWidthClass} flex ${maxHeightClass} flex-col ${panelClassName}`.trim()}
     >
       <div className="shrink-0">
-        <h2 id={titleId} className="font-display text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">
-          {title}
-        </h2>
+        {hasTitle ? (
+          <h2 id={titleId} className="font-display text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">
+            {title}
+          </h2>
+        ) : (
+          <h2 id={titleId} className="sr-only">
+            {description?.trim() || "Confirm"}
+          </h2>
+        )}
         {description ? (
-          <p className="mt-2 text-sm leading-relaxed text-slate-600 sm:text-[0.9375rem]">{description}</p>
+          <p
+            className={`${hasTitle ? "mt-2" : ""} text-sm leading-relaxed text-slate-600 sm:text-[0.9375rem]`}
+          >
+            {description}
+          </p>
         ) : null}
       </div>
       <div

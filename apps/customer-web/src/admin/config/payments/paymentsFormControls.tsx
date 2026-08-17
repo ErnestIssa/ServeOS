@@ -1,17 +1,56 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { HoverPortalTip } from "../../HoverPortalTip";
+import { paymentMethodIconSrc } from "./paymentMethodIcons";
+
+export function PaymentInfoTip({ tipId, body }: { tipId: string; body: string }) {
+  return <HoverPortalTip tipId={tipId} body={body} variant="info" />;
+}
+
+export function PaymentHelpTip({ tipId, body, ariaLabel }: { tipId: string; body: string; ariaLabel?: string }) {
+  return <HoverPortalTip tipId={tipId} body={body} variant="help" ariaLabel={ariaLabel} />;
+}
+
+/** Same brand glyph used on the Payment methods list. */
+export function PaymentMethodGlyph({ methodKey }: { methodKey: string }) {
+  const src = paymentMethodIconSrc(methodKey);
+  if (!src) return null;
+  return (
+    <span className="admin-payments-method-icon" aria-hidden>
+      <img src={src} alt="" className="admin-payments-method-icon-img" loading="lazy" decoding="async" />
+    </span>
+  );
+}
 
 export type PaymentSelectOption = { value: string; label: string; hint?: string };
+
+/** Same chevron as the top-nav profile name dropdown. */
+export function PaymentSelectChevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      className={`admin-payments-expand-select-chevron${open ? " is-open" : ""}`}
+      viewBox="0 0 12 12"
+      fill="none"
+      aria-hidden
+    >
+      <path d="M2.5 4.5L6 8l3.5-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 /** Methods-style switch used across payments config surfaces. */
 export function PaymentSwitch({
   label,
   description,
+  tipId,
+  tipBody,
   checked,
   disabled,
   onRequestChange
 }: {
   label: string;
   description?: string;
+  tipId?: string;
+  tipBody?: string;
   checked: boolean;
   disabled?: boolean;
   onRequestChange: (next: boolean) => void;
@@ -19,24 +58,28 @@ export function PaymentSwitch({
   return (
     <div className={`admin-payments-method-toggle-row${disabled ? " is-disabled" : ""}`}>
       <span className="admin-payments-method-toggle-label">
-        <span className="admin-payments-method-toggle-title">{label}</span>
+        <span className="admin-payments-method-toggle-title">
+          {label}
+          {tipId && tipBody ? <PaymentInfoTip tipId={tipId} body={tipBody} /> : null}
+        </span>
         {description ? <span className="admin-payments-method-toggle-desc">{description}</span> : null}
       </span>
-      <label className={`admin-payments-switch${disabled ? " is-disabled" : ""}`}>
-        <input
-          type="checkbox"
-          checked={checked}
-          disabled={disabled}
-          onChange={(e) => {
-            e.preventDefault();
-            onRequestChange(e.target.checked);
-          }}
-          aria-label={label}
-        />
-        <span className="admin-payments-switch-track" aria-hidden>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        disabled={disabled}
+        className={`admin-payments-switch${disabled ? " is-disabled" : ""}`}
+        onClick={() => {
+          if (disabled) return;
+          onRequestChange(!checked);
+        }}
+      >
+        <span className={`admin-payments-switch-track${checked ? " is-on" : ""}`} aria-hidden>
           <span className="admin-payments-switch-thumb" />
         </span>
-      </label>
+      </button>
     </div>
   );
 }
@@ -93,9 +136,7 @@ export function PaymentExpandSelect({
           }}
         >
           <span className="admin-payments-expand-select-value">{selected?.label ?? value}</span>
-          <span className={`admin-payments-expand-select-chevron${open ? " is-open" : ""}`} aria-hidden>
-            ▾
-          </span>
+          <PaymentSelectChevron open={open} />
         </button>
         <div className="admin-payments-expand-select-panel" aria-hidden={!open}>
           <div className="admin-payments-expand-select-panel-inner" role="listbox" aria-label={label}>

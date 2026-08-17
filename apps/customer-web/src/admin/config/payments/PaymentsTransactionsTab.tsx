@@ -1,9 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { PaymentTransactionRow, PaymentTxnStatus, TodaysPaymentsDrillFilter } from "../../../api";
-import { MenuListSearchField } from "../menu/MenuPageUi";
+import { useAdminToast } from "../../AdminToast";
+import { MenuEntityActionsMenu } from "../menu/MenuEntityActionsMenu";
+import { MenuListSearchField, usePinnedViewportNode } from "../menu/MenuPageUi";
+import { MenuSurfacePagination } from "../menu/MenuSurfacePagination";
 import type { MenuListFilterGroup, MenuListToolOption } from "../menu/menuListQuery";
-import { PayChip } from "./paymentsShared";
-import { formatSekFromCents, formatWhen, methodLabel, txnStatusClass, txnStatusLabel } from "./paymentsUiHelpers";
+import { MENU_LIST_PAGE_SIZE, useMenuListPagination } from "../menu/useMenuListPagination";
+import { PaymentMethodGlyph } from "./paymentsFormControls";
+import { formatSekFromCents, formatWhen, methodLabel, txnStatusLabel } from "./paymentsUiHelpers";
+import { toTransactionRows } from "./transactionDemoData";
 
 type Props = {
   transactions: PaymentTransactionRow[];
@@ -13,21 +18,23 @@ type Props = {
   onOpen: (txn: PaymentTransactionRow) => void;
 };
 
-const STATUS_FILTERS: Array<PaymentTxnStatus | "all"> = [
-  "all",
+const TXN_STATUS_ORDER: PaymentTxnStatus[] = [
   "pending",
+  "authorized",
   "captured",
-  "failed",
   "partially_refunded",
   "refunded",
-  "disputed"
+  "disputed",
+  "failed",
+  "cancelled",
+  "charged_back"
 ];
 
 const FILTER_GROUPS: MenuListFilterGroup[] = [
   {
     id: "status",
     label: "Status",
-    options: STATUS_FILTERS.filter((s) => s !== "all").map((s) => ({
+    options: TXN_STATUS_ORDER.map((s) => ({
       id: `status:${s}`,
       label: txnStatusLabel(s)
     }))
@@ -89,6 +96,22 @@ function inDayWindow(iso: string, dayStart?: string, dayEnd?: string, day?: stri
   return true;
 }
 
+function txnStatusTone(status: PaymentTxnStatus): "active" | "pending" | "setup" | "issue" | "inactive" {
+  if (status === "captured" || status === "authorized") return "active";
+  if (status === "pending") return "pending";
+  if (status === "failed" || status === "cancelled" || status === "charged_back") return "issue";
+  if (status === "disputed" || status === "partially_refunded") return "setup";
+  return "inactive";
+}
+
+function groupTransactionsByStatus(rows: PaymentTransactionRow[]) {
+  return TXN_STATUS_ORDER.map((status) => ({
+    status,
+    label: txnStatusLabel(status),
+    rows: rows.filter((row) => row.status === status)
+  })).filter((section) => section.rows.length > 0);
+}
+
 export function PaymentsTransactionsTab({
   transactions,
   source,
@@ -96,10 +119,17 @@ export function PaymentsTransactionsTab({
   onClearDrill,
   onOpen
 }: Props) {
+  const { pushToast } = useAdminToast();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<PaymentTxnStatus | "all">("all");
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [activeSort, setActiveSort] = useState("newest");
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const { nodeRef, pin } = usePinnedViewportNode();
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const resultsMinHeightRef = useRef(0);
+
+  const rows = useMemo(() => toTransactionRows(transactions), [transactions]);
 
   useEffect(() => {
     if (!drillFilter) return;
@@ -109,7 +139,7 @@ export function PaymentsTransactionsTab({
     if (drillFilter.statuses?.length === 1) {
       const only = drillFilter.statuses[0];
       nextFilters.push(`status:${only}`);
-      if (STATUS_FILTERS.includes(only)) setStatus(only);
+      if (TXN_STATUS_ORDER.includes(only)) setStatus(only);
       else setStatus("all");
     } else {
       setStatus("all");
@@ -131,7 +161,7 @@ export function PaymentsTransactionsTab({
       .map((f) => f.slice("method:".length));
     const dayPreset = activeFilters.includes("day:preset");
 
-    let rows = transactions.filter((t) => {
+    let next = rows.filter((t) => {
       if (idSet && !idSet.has(t.id) && !dayPreset) return false;
       if (dayPreset && !inDayWindow(t.createdAt, drillFilter?.dayStart, drillFilter?.dayEnd, drillFilter?.day)) {
         return false;
@@ -142,7 +172,8 @@ export function PaymentsTransactionsTab({
         return false;
       }
       if (!q) return true;
-      const dayMatch = drillFilter?.day && (q === drillFilter.day.toLowerCase() || q.includes(drillFilter.day.toLowerCase()));
+      const dayMatch =
+        drillFilter?.day && (q === drillFilter.day.toLowerCase() || q.includes(drillFilter.day.toLowerCase()));
       if (dayMatch) return true;
       return (
         t.id.toLowerCase().includes(q) ||
@@ -156,49 +187,108 @@ export function PaymentsTransactionsTab({
       );
     });
 
-    rows = [...rows].sort((a, b) => {
+    next = [...next].sort((a, b) => {
       if (activeSort === "oldest") return a.createdAt.localeCompare(b.createdAt);
       if (activeSort === "amount_desc") return b.amountCents - a.amountCents;
       if (activeSort === "amount_asc") return a.amountCents - b.amountCents;
       return b.createdAt.localeCompare(a.createdAt);
     });
 
-    return rows;
-  }, [transactions, search, status, drillFilter, activeFilters, activeSort]);
+    return next;
+  }, [rows, search, status, drillFilter, activeFilters, activeSort]);
+
+  const pager = useMenuListPagination(filtered, {
+    pageSize: MENU_LIST_PAGE_SIZE,
+    resetKey: `${search}:${activeFilters.join(",")}:${activeSort}:${status}:${drillFilter?.day ?? ""}`
+  });
+  const paged = pager.pagedItems;
+  const sections = useMemo(() => groupTransactionsByStatus(paged), [paged]);
+  const listedSections = status === "all" ? sections : [{ status, label: "", rows: paged }];
+  const statusChipOptions = useMemo(() => {
+    const present = new Set(rows.map((r) => r.status));
+    return TXN_STATUS_ORDER.filter((s) => present.has(s));
+  }, [rows]);
+
+  useLayoutEffect(() => {
+    const el = resultsRef.current;
+    if (!el) return;
+    resultsMinHeightRef.current = Math.max(resultsMinHeightRef.current, el.getBoundingClientRect().height);
+    el.style.minHeight = `${resultsMinHeightRef.current}px`;
+  }, [filtered, paged, status]);
+
+  const copyText = async (value: string, ok: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      pushToast(ok, "success");
+    } catch {
+      pushToast("Could not copy to clipboard.", "error");
+    }
+  };
+
+  const handleAction = (row: PaymentTransactionRow, actionId: string) => {
+    setOpenMenuId(null);
+    if (actionId === "view") {
+      onOpen(row);
+      return;
+    }
+    if (actionId === "copy_id") {
+      void copyText(row.id, "Transaction ID copied.");
+      return;
+    }
+    if (actionId === "copy_order" && (row.orderDisplay || row.orderId)) {
+      void copyText(row.orderDisplay ?? row.orderId ?? "", "Order ID copied.");
+    }
+  };
 
   return (
-    <div className="admin-payments-tab-stack">
-      <div className="admin-payments-list-toolbar">
-        <MenuListSearchField
-          value={search}
-          onChange={setSearch}
-          placeholder="Search order, payment, customer, or day…"
-          aria-label="Search transactions"
-          filterGroups={FILTER_GROUPS}
-          sortOptions={SORT_OPTIONS}
-          activeFilters={activeFilters}
-          activeSort={activeSort}
-          defaultSort="newest"
-          resultCount={filtered.length}
-          totalCount={transactions.length}
-          onFiltersChange={setActiveFilters}
-          onSortChange={setActiveSort}
-          filterTitle="Filter payments"
-          filterSubtitle="Narrow by status, method, or the selected venue day."
-          sortTitle="Sort payments"
-          sortSubtitle="Order the transaction list instantly."
-        />
-        <div className="admin-payments-filter-chips" role="tablist" aria-label="Status filter">
-          {STATUS_FILTERS.map((s) => (
+    <div ref={nodeRef} className="admin-payments-methods-page admin-payments-methods-page--unified">
+      <MenuListSearchField
+        value={search}
+        onChange={setSearch}
+        placeholder="Search order, payment, customer, or day…"
+        aria-label="Search transactions"
+        filterGroups={FILTER_GROUPS}
+        sortOptions={SORT_OPTIONS}
+        activeFilters={activeFilters}
+        activeSort={activeSort}
+        defaultSort="newest"
+        resultCount={filtered.length}
+        totalCount={rows.length}
+        onFiltersChange={setActiveFilters}
+        onSortChange={setActiveSort}
+        filterTitle="Filter payments"
+        filterSubtitle="Narrow by status, method, or the selected venue day."
+        sortTitle="Sort payments"
+        sortSubtitle="Order the transaction list instantly."
+      />
+
+      <div className="admin-payments-methods-list-toolbar">
+        <div className="admin-payments-methods-family-chips" role="tablist" aria-label="Transaction status groups">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={status === "all"}
+            className={`admin-payments-methods-family-chip${status === "all" ? " is-active" : ""}`}
+            onClick={() => {
+              pin();
+              setStatus("all");
+            }}
+          >
+            All
+          </button>
+          {statusChipOptions.map((s) => (
             <button
               key={s}
               type="button"
               role="tab"
               aria-selected={status === s}
-              className={`admin-payments-filter-chip${status === s ? " is-active" : ""}`}
-              onClick={() => setStatus(s)}
+              className={`admin-payments-methods-family-chip${status === s ? " is-active" : ""}`}
+              onClick={() => {
+                pin();
+                setStatus(s);
+              }}
             >
-              {s === "all" ? "All" : txnStatusLabel(s)}
+              {txnStatusLabel(s)}
             </button>
           ))}
         </div>
@@ -227,63 +317,104 @@ export function PaymentsTransactionsTab({
         </div>
       ) : null}
 
-      {source === "demo" ? (
+      {source === "demo" || rows.some((r) => r.source === "demo") ? (
         <p className="admin-config-text-subtle text-xs">Showing sample activity from the payment ledger.</p>
       ) : null}
 
-      <div className="admin-payments-table-wrap">
-        <table className="admin-payments-table">
-          <thead>
-            <tr>
-              <th>When</th>
-              <th>Order</th>
-              <th>Customer</th>
-              <th>Method</th>
-              <th>Status</th>
-              <th className="text-right">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="admin-config-text-muted">
-                  No transactions match.
-                </td>
-              </tr>
-            ) : (
-              filtered.map((t) => (
-                <tr key={t.id} className="is-clickable" onClick={() => onOpen(t)}>
-                  <td>{formatWhen(t.createdAt)}</td>
-                  <td>{t.orderDisplay ?? t.orderId ?? "—"}</td>
-                  <td>{t.customerLabel}</td>
-                  <td>
-                    {methodLabel(t.method)}
-                    <span className="admin-config-text-subtle block text-[11px]">{t.provider}</span>
-                  </td>
-                  <td>
-                    <span className={`admin-payments-status-pill ${txnStatusClass(t.status)}`}>
-                      {txnStatusLabel(t.status)}
-                    </span>
-                  </td>
-                  <td className="text-right font-semibold">
-                    {formatSekFromCents(t.amountCents, t.currency)}
-                    {t.refundedCents > 0 ? (
-                      <span className="admin-config-text-subtle block text-[11px]">
-                        −{formatSekFromCents(t.refundedCents, t.currency)} refunded
-                      </span>
-                    ) : null}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <PayChip tone="muted">{filtered.length} shown</PayChip>
-        <PayChip tone="muted">{transactions.length} total</PayChip>
-      </div>
+      {filtered.length === 0 ? (
+        <div ref={resultsRef} className="admin-payments-list-results">
+          <p className="admin-config-text-muted py-2 text-sm">No transactions match your search or filters.</p>
+        </div>
+      ) : (
+        <div ref={resultsRef} className="admin-payments-list-results">
+          <div className={`admin-payments-methods-grouped-list ${pager.pageClassName}`}>
+            {listedSections.map((section) => (
+              <section key={section.status} className="admin-payments-methods-family-section">
+                {status === "all" && section.label ? (
+                  <h3 className="admin-payments-methods-family-heading">{section.label}</h3>
+                ) : null}
+                <ul className="admin-menu-surface-list admin-payments-methods-surface-list">
+                  {section.rows.map((row, index) => {
+                    const tone = txnStatusTone(row.status);
+                    return (
+                      <li
+                        key={row.id}
+                        className="admin-menu-surface-list-item"
+                        style={{ animationDelay: `${Math.min(index, 12) * 40}ms` }}
+                      >
+                        <div
+                          className={`admin-menu-surface-card admin-payments-method-card-row is-${tone}`}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => onOpen(row)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              onOpen(row);
+                            }
+                          }}
+                        >
+                          <span className={`admin-menu-surface-status admin-payments-method-tone is-${tone}`}>
+                            {txnStatusLabel(row.status)}
+                          </span>
+                          <PaymentMethodGlyph methodKey={row.method} />
+                          <div className="admin-menu-surface-main">
+                            <span className={`admin-menu-surface-name admin-payments-method-tone is-${tone}`}>
+                              {formatSekFromCents(row.amountCents, row.currency)}
+                            </span>
+                            <span className="admin-menu-surface-sep" aria-hidden>
+                              ·
+                            </span>
+                            <span className="admin-menu-surface-desc">{row.customerLabel}</span>
+                            <span className="admin-menu-surface-sep" aria-hidden>
+                              ·
+                            </span>
+                            <span className="admin-menu-surface-meta">
+                              {row.orderDisplay ?? row.orderId ?? "No order"} · {methodLabel(row.method)} ·{" "}
+                              {formatWhen(row.createdAt)}
+                            </span>
+                          </div>
+                          <div
+                            className="admin-menu-surface-actions"
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                          >
+                            <MenuEntityActionsMenu
+                              entityName={formatSekFromCents(row.amountCents, row.currency)}
+                              subtitle={row.customerLabel}
+                              hideHeader
+                              open={openMenuId === row.id}
+                              actions={[
+                                { id: "view", label: "View details" },
+                                { id: "copy_id", label: "Copy transaction ID" },
+                                ...(row.orderId || row.orderDisplay
+                                  ? [{ id: "copy_order", label: "Copy order ID" }]
+                                  : [])
+                              ]}
+                              onToggle={() => setOpenMenuId((cur) => (cur === row.id ? null : row.id))}
+                              onAction={(id) => handleAction(row, id)}
+                            />
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            ))}
+          </div>
+          {pager.showPagination ? (
+            <MenuSurfacePagination
+              page={pager.page}
+              totalPages={pager.totalPages}
+              totalItems={pager.totalItems}
+              pageSize={pager.pageSize}
+              onPageChange={pager.goToPage}
+              label="Transactions pagination"
+            />
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }

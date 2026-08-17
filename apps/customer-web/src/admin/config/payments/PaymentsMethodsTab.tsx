@@ -417,12 +417,9 @@ export function PaymentsMethodsTab({
   return (
     <div className="admin-payments-methods-page admin-payments-methods-page--unified">
       <div className="admin-payments-methods-board-head">
-        <div>
-          <p className="admin-payments-methods-board-title">Payment methods</p>
-          <p className="admin-payments-methods-board-desc">
-            Turn payment options on or off for your venue, then open any method to set how guests and staff can use it.
-          </p>
-        </div>
+        <p className="admin-payments-methods-board-desc">
+          Turn payment options on or off for your venue, then open any method to set how guests and staff can use it.
+        </p>
       </div>
 
       <MenuListSearchField

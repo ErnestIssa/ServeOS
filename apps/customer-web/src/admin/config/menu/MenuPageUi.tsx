@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { AdminBtnPrimary, AdminBtnSecondary } from "../../AdminUi";
 import { MenuListQueryModal } from "./MenuListQueryModal";
 import {
@@ -6,6 +6,68 @@ import {
   type MenuListFilterGroup,
   type MenuListToolOption
 } from "./menuListQuery";
+
+function findScrollParent(start: HTMLElement | null): HTMLElement | null {
+  let node: HTMLElement | null = start;
+  while (node && node !== document.documentElement) {
+    const style = window.getComputedStyle(node);
+    const overflowY = style.overflowY;
+    const canScroll =
+      (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") &&
+      node.scrollHeight > node.clientHeight + 1;
+    if (canScroll) return node;
+    node = node.parentElement;
+  }
+  return null;
+}
+
+/** Keep a node at the same viewport Y across list reflows (search/filter/sort). */
+export function usePinnedViewportNode() {
+  const nodeRef = useRef<HTMLDivElement>(null);
+  const pinRef = useRef<{
+    scroller: HTMLElement | null;
+    fieldTop: number;
+    scrollerTop: number;
+    winY: number;
+  } | null>(null);
+
+  const applyPin = useCallback(() => {
+    const snap = pinRef.current;
+    const node = nodeRef.current;
+    if (!snap || !node) return;
+    const delta = node.getBoundingClientRect().top - snap.fieldTop;
+    if (Math.abs(delta) < 1) return;
+    if (snap.scroller) snap.scroller.scrollTop += delta;
+    else window.scrollBy(0, delta);
+  }, []);
+
+  const pin = useCallback(() => {
+    const node = nodeRef.current;
+    const scroller = node ? findScrollParent(node) : null;
+    pinRef.current = {
+      scroller,
+      fieldTop: node?.getBoundingClientRect().top ?? 0,
+      scrollerTop: scroller?.scrollTop ?? 0,
+      winY: window.scrollY
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    applyPin();
+  });
+
+  useEffect(() => {
+    const snap = pinRef.current;
+    if (!snap) return;
+    const id = window.requestAnimationFrame(() => {
+      applyPin();
+      if (pinRef.current === snap) pinRef.current = null;
+    });
+    return () => window.cancelAnimationFrame(id);
+  });
+
+  return { nodeRef, pin };
+}
 
 export function MenuSection({
   title,
@@ -132,6 +194,7 @@ export function MenuListSearchField({
   sortTitle?: string;
   sortSubtitle?: string;
 }) {
+  const { nodeRef, pin } = usePinnedViewportNode();
   const [openTool, setOpenTool] = useState<"filter" | "sort" | null>(null);
   const showTools = Boolean(
     (filterGroups?.length && onFiltersChange) || (sortOptions?.length && onSortChange)
@@ -144,12 +207,15 @@ export function MenuListSearchField({
 
   return (
     <>
-      <div className={`admin-menu-surface-search-wrap${showTools ? " has-tools" : ""}`}>
+      <div ref={nodeRef} className={`admin-menu-surface-search-wrap${showTools ? " has-tools" : ""}`}>
         <input
           type="search"
           className="admin-menu-surface-search"
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            pin();
+            onChange(e.target.value);
+          }}
           placeholder={placeholder}
           aria-label={ariaLabel}
         />
@@ -200,8 +266,14 @@ export function MenuListSearchField({
           resultCount={resolvedResults}
           totalCount={resolvedTotal}
           onClose={() => setOpenTool(null)}
-          onToggle={(id) => onFiltersChange(toggleMenuListFilter(activeFilters, id))}
-          onClear={() => onFiltersChange([])}
+          onToggle={(id) => {
+            pin();
+            onFiltersChange(toggleMenuListFilter(activeFilters, id));
+          }}
+          onClear={() => {
+            pin();
+            onFiltersChange([]);
+          }}
         />
       ) : null}
 
@@ -217,8 +289,14 @@ export function MenuListSearchField({
           resultCount={resolvedResults}
           totalCount={resolvedTotal}
           onClose={() => setOpenTool(null)}
-          onSelect={(id) => onSortChange(id)}
-          onReset={() => onSortChange(resolvedDefaultSort)}
+          onSelect={(id) => {
+            pin();
+            onSortChange(id);
+          }}
+          onReset={() => {
+            pin();
+            onSortChange(resolvedDefaultSort);
+          }}
         />
       ) : null}
     </>

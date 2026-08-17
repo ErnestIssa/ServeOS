@@ -22,6 +22,41 @@ export function formatSekFromCents(cents: number, currency = "SEK") {
   }
 }
 
+export function centsToKronor(cents: number) {
+  return Math.max(0, Math.round((cents ?? 0) / 100));
+}
+
+export function kronorToCents(kronor: number) {
+  return Math.max(0, Math.round(kronor) * 100);
+}
+
+/** Whole kronor with Swedish grouping, e.g. `5 000`. */
+export function formatKronorLabel(kronor: number) {
+  return new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 0 }).format(Math.max(0, Math.round(kronor)));
+}
+
+export function formatKronorWithUnit(kronor: number) {
+  return `${formatKronorLabel(kronor)} kr`;
+}
+
+export function parseKronorInput(raw: string): number | null {
+  const cleaned = raw
+    .trim()
+    .replace(/kr/gi, "")
+    .replace(/[\s\u00A0\u202F]/g, "")
+    .replace(",", ".");
+  if (!cleaned) return null;
+  const n = Number(cleaned);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n);
+}
+
+export function kronorDraftToCents(raw: string): number | null {
+  const kronor = parseKronorInput(raw);
+  if (kronor == null) return null;
+  return kronorToCents(kronor);
+}
+
 export function formatWhen(iso: string | null | undefined) {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -32,6 +67,13 @@ export function formatWhen(iso: string | null | undefined) {
     hour: "2-digit",
     minute: "2-digit"
   });
+}
+
+export function formatClock(iso: string | null | undefined) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
 export function maskAccountId(id?: string | null) {
@@ -228,8 +270,24 @@ export function getMethodConfig(settings: VenuePaymentSettings | null, key: stri
 }
 
 export const PAY_AT_VENUE_TIMING_OPTIONS = [
-  { value: "before_served", label: "Before food is served" },
-  { value: "when_ready", label: "When order is ready" },
-  { value: "when_bill_requested", label: "When bill is requested" },
-  { value: "after_completed", label: "After dining is completed" }
+  {
+    value: "when_bill_requested",
+    label: "When bill is requested",
+    hint: "Customer or staff asks to settle the bill."
+  },
+  {
+    value: "after_completed",
+    label: "After the order is completed",
+    hint: "Request payment once the visit or order is finished."
+  },
+  {
+    value: "when_ready",
+    label: "When staff initiates payment",
+    hint: "Staff starts settlement when the order is ready."
+  },
+  {
+    value: "before_served",
+    label: "Before food is served",
+    hint: "Collect payment before food leaves the pass."
+  }
 ] as const;

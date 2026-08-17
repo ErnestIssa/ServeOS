@@ -1,7 +1,7 @@
-import type { PaymentTransactionDetail } from "../../../api";
-import { ConfigDetailsReveal, ConfigDrawerSpinner } from "../configLoadingUi";
-import { PayChip } from "./paymentsShared";
-import { formatSekFromCents, formatWhen, methodLabel, txnStatusClass, txnStatusLabel } from "./paymentsUiHelpers";
+import type { PaymentTransactionDetail, PaymentTxnStatus } from "../../../api";
+import { DetailsDrawerShell, DetailsRow, DetailsSection } from "../menu/detailsDrawerUi";
+import { PaymentMethodGlyph } from "./paymentsFormControls";
+import { formatSekFromCents, formatWhen, methodLabel, txnStatusLabel } from "./paymentsUiHelpers";
 
 type Props = {
   open: boolean;
@@ -9,68 +9,68 @@ type Props = {
   onClose: () => void;
 };
 
+function txnStatusTone(status: PaymentTxnStatus): "active" | "pending" | "setup" | "issue" | "inactive" {
+  if (status === "captured" || status === "authorized") return "active";
+  if (status === "pending") return "pending";
+  if (status === "failed" || status === "cancelled" || status === "charged_back") return "issue";
+  if (status === "disputed" || status === "partially_refunded") return "setup";
+  return "inactive";
+}
+
 export function PaymentTransactionDrawer({ open, transaction, onClose }: Props) {
-  if (!open) return null;
+  const tone = transaction ? txnStatusTone(transaction.status) : "inactive";
 
   return (
-    <div className="admin-payments-drawer-root" role="dialog" aria-modal="true" aria-labelledby="payment-txn-drawer-title">
-      <button type="button" className="admin-payments-drawer-backdrop" aria-label="Close" onClick={onClose} />
-      <aside className="admin-payments-drawer-panel">
-        <header className="admin-payments-drawer-head">
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.14em] admin-config-text-muted">Transaction</p>
-            <h3 id="payment-txn-drawer-title" className="mt-1 text-lg font-bold admin-config-text">
-              {transaction ? formatSekFromCents(transaction.amountCents, transaction.currency) : "—"}
-            </h3>
-          </div>
-          <button type="button" className="admin-payments-drawer-close" onClick={onClose}>
+    <DetailsDrawerShell
+      open={open}
+      entityKey={transaction?.id ?? "txn-detail"}
+      kicker="Transactions"
+      title={transaction ? formatSekFromCents(transaction.amountCents, transaction.currency) : "Transaction"}
+      subtitle={
+        transaction
+          ? `${transaction.customerLabel} · ${methodLabel(transaction.method)}`
+          : "Payment ledger entry for this venue."
+      }
+      closeLabel="Close transaction details"
+      onClose={onClose}
+      badge={
+        transaction ? (
+          <span className={`admin-menu-surface-status admin-payments-method-tone is-${tone}`}>
+            {txnStatusLabel(transaction.status)}
+          </span>
+        ) : null
+      }
+      footer={
+        <div className="admin-payments-rule-footer">
+          <button type="button" className="admin-profile-modal-btn admin-profile-modal-btn--ghost" onClick={onClose}>
             Close
           </button>
-        </header>
-        {!transaction ? <ConfigDrawerSpinner label="Loading transaction" /> : null}
-        <ConfigDetailsReveal ready={Boolean(transaction)}>
-          {transaction ? (
-            <div className="admin-payments-drawer-body">
-              <div className="grid gap-2">
-                <div className="admin-payments-kv">
-                  <span>Status</span>
-                  <span className={`admin-payments-status-pill ${txnStatusClass(transaction.status)}`}>
-                    {txnStatusLabel(transaction.status)}
-                  </span>
-                </div>
-                <div className="admin-payments-kv">
-                  <span>Order</span>
-                  <strong>{transaction.orderDisplay ?? transaction.orderId ?? "—"}</strong>
-                </div>
-                <div className="admin-payments-kv">
-                  <span>Customer</span>
-                  <strong>{transaction.customerLabel}</strong>
-                </div>
-                <div className="admin-payments-kv">
-                  <span>Method</span>
-                  <strong>{methodLabel(transaction.method)}</strong>
-                </div>
-                <div className="admin-payments-kv">
-                  <span>Provider</span>
-                  <strong>{transaction.provider}</strong>
-                </div>
-                <div className="admin-payments-kv">
-                  <span>Tip</span>
-                  <strong>{formatSekFromCents(transaction.tipCents, transaction.currency)}</strong>
-                </div>
-                <div className="admin-payments-kv">
-                  <span>Fee</span>
-                  <strong>{formatSekFromCents(transaction.feeCents, transaction.currency)}</strong>
-                </div>
-                <div className="admin-payments-kv">
-                  <span>Net</span>
-                  <strong>{formatSekFromCents(transaction.netCents, transaction.currency)}</strong>
-                </div>
-                {transaction.source === "demo" ? <PayChip tone="muted">Demo ledger</PayChip> : null}
-              </div>
+        </div>
+      }
+    >
+      {transaction ? (
+        <div className="admin-payments-provider-detail">
+          <div className="admin-payments-refund-detail-method">
+            <PaymentMethodGlyph methodKey={transaction.method} />
+            <span>{methodLabel(transaction.method)}</span>
+          </div>
+          <DetailsRow label="Status" value={txnStatusLabel(transaction.status)} />
+          <DetailsRow label="Order" value={transaction.orderDisplay ?? transaction.orderId ?? "—"} />
+          <DetailsRow label="Customer" value={transaction.customerLabel} />
+          <DetailsRow label="Provider" value={transaction.provider} />
+          <DetailsRow label="Amount" value={formatSekFromCents(transaction.amountCents, transaction.currency)} />
+          <DetailsRow label="Tip" value={formatSekFromCents(transaction.tipCents, transaction.currency)} />
+          <DetailsRow label="Fee" value={formatSekFromCents(transaction.feeCents, transaction.currency)} />
+          <DetailsRow label="Net" value={formatSekFromCents(transaction.netCents, transaction.currency)} />
+          <DetailsRow label="Refunded" value={formatSekFromCents(transaction.refundedCents, transaction.currency)} />
+          <DetailsRow label="Created" value={formatWhen(transaction.createdAt)} />
+          <DetailsRow label="Updated" value={formatWhen(transaction.updatedAt)} />
+          <DetailsRow label="Transaction ID" value={transaction.id} />
+          {transaction.source === "demo" ? <DetailsRow label="Source" value="Sample ledger" /> : null}
 
-              <div className="admin-payments-timeline mt-6">
-                <p className="text-xs font-bold uppercase tracking-wide admin-config-text-muted mb-3">Payment timeline</p>
+          {transaction.timeline.length > 0 ? (
+            <DetailsSection title="Payment timeline" hint="Events from create through capture, refund, or dispute.">
+              <div className="admin-payments-timeline">
                 <ol>
                   {transaction.timeline.map((ev, i) => (
                     <li key={`${ev.type}-${i}`}>
@@ -80,10 +80,12 @@ export function PaymentTransactionDrawer({ open, transaction, onClose }: Props) 
                   ))}
                 </ol>
               </div>
-            </div>
+            </DetailsSection>
           ) : null}
-        </ConfigDetailsReveal>
-      </aside>
-    </div>
+        </div>
+      ) : (
+        <p className="admin-config-text-muted text-sm">Loading transaction…</p>
+      )}
+    </DetailsDrawerShell>
   );
 }

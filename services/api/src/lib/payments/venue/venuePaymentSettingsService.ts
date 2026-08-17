@@ -177,6 +177,14 @@ export type VenuePaymentSettings = {
       swish: boolean;
       other: boolean;
     };
+    cardTerminal?: {
+      mode: "connected" | "external_manual";
+      terminalId?: string | null;
+    };
+    other?: {
+      label: string;
+      requireStaffConfirmation: boolean;
+    };
   };
   qrPolicy: {
     defaultPaymentMode: OrderingPaymentMode;
@@ -571,6 +579,14 @@ const DEFAULT_SETTINGS: VenuePaymentSettings = {
       cardTerminal: true,
       swish: true,
       other: false
+    },
+    cardTerminal: {
+      mode: "external_manual",
+      terminalId: null
+    },
+    other: {
+      label: "",
+      requireStaffConfirmation: true
     }
   },
   qrPolicy: {
@@ -743,6 +759,14 @@ export function mergeSettings(raw: unknown): VenuePaymentSettings {
       settlementMethods: {
         ...DEFAULT_SETTINGS.payAtVenue.settlementMethods,
         ...(s.payAtVenue?.settlementMethods ?? {})
+      },
+      cardTerminal: {
+        ...DEFAULT_SETTINGS.payAtVenue.cardTerminal!,
+        ...(s.payAtVenue?.cardTerminal ?? {})
+      },
+      other: {
+        ...DEFAULT_SETTINGS.payAtVenue.other!,
+        ...(s.payAtVenue?.other ?? {})
       }
     },
     qrPolicy: { ...DEFAULT_SETTINGS.qrPolicy, ...(s.qrPolicy ?? {}) },
@@ -757,7 +781,11 @@ export function mergeSettings(raw: unknown): VenuePaymentSettings {
     },
     failedPayment: { ...DEFAULT_SETTINGS.failedPayment, ...(s.failedPayment ?? {}) },
     refunds: { ...DEFAULT_SETTINGS.refunds, ...(s.refunds ?? {}) },
-    refundLimits: { ...DEFAULT_SETTINGS.refundLimits, ...(s.refundLimits ?? {}) },
+    refundLimits: {
+      ...DEFAULT_SETTINGS.refundLimits,
+      ...(s.refundLimits ?? {}),
+      ownerUnlimited: true
+    },
     taxes: {
       ...DEFAULT_SETTINGS.taxes,
       ...(s.taxes ?? {}),
@@ -987,6 +1015,16 @@ export async function updateVenuePaymentSettings(
       settlementMethods: {
         ...current.settings.payAtVenue.settlementMethods,
         ...(patch.payAtVenue?.settlementMethods ?? {})
+      },
+      cardTerminal: {
+        ...DEFAULT_SETTINGS.payAtVenue.cardTerminal!,
+        ...(current.settings.payAtVenue.cardTerminal ?? {}),
+        ...(patch.payAtVenue?.cardTerminal ?? {})
+      },
+      other: {
+        ...DEFAULT_SETTINGS.payAtVenue.other!,
+        ...(current.settings.payAtVenue.other ?? {}),
+        ...(patch.payAtVenue?.other ?? {})
       }
     },
     qrPolicy: { ...current.settings.qrPolicy, ...(patch.qrPolicy ?? {}) },
@@ -994,7 +1032,7 @@ export async function updateVenuePaymentSettings(
     tips: { ...current.settings.tips, ...(patch.tips ?? {}) },
     failedPayment: { ...current.settings.failedPayment, ...(patch.failedPayment ?? {}) },
     refunds: { ...current.settings.refunds, ...(patch.refunds ?? {}) },
-    refundLimits: { ...current.settings.refundLimits, ...(patch.refundLimits ?? {}) },
+    refundLimits: { ...current.settings.refundLimits, ...(patch.refundLimits ?? {}), ownerUnlimited: true },
     taxes: {
       ...current.settings.taxes,
       ...(patch.taxes ?? {}),
@@ -1292,14 +1330,15 @@ export function canEditPaymentSettings(role: string, permissions: string[]): boo
   return permissions.includes("admin.payment_settings");
 }
 
+/** Owners always have unlimited refunds — a fixed ServeOS business rule. */
 export function authorizeRefundAmount(
   settings: VenuePaymentSettings,
   role: string,
   amountCents: number
 ): { ok: true } | { ok: false; error: "refund_limit_exceeded" } {
   const r = role.trim().toUpperCase();
-  if (r === "OWNER" && settings.refundLimits.ownerUnlimited) return { ok: true };
-  if (r === "OWNER" || r === "MANAGER") {
+  if (r === "OWNER") return { ok: true };
+  if (r === "MANAGER") {
     if (amountCents <= settings.refundLimits.managerMaxCents) return { ok: true };
     return { ok: false, error: "refund_limit_exceeded" };
   }

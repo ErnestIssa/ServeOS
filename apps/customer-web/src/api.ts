@@ -1533,6 +1533,14 @@ export type VenuePaymentSettings = {
       swish: boolean;
       other: boolean;
     };
+    cardTerminal?: {
+      mode: "connected" | "external_manual";
+      terminalId?: string | null;
+    };
+    other?: {
+      label: string;
+      requireStaffConfirmation: boolean;
+    };
   };
   qrPolicy?: {
     defaultPaymentMode: "PAY_AT_VENUE" | "PREPAY" | "HYBRID";

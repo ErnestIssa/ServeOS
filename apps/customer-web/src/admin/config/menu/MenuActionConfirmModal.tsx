@@ -1,8 +1,8 @@
-import { MenuPageModalShell, ProfileModalFooter } from "./menuPageModalShell";
+import { ProfileModalFooter, ProfileModalShell } from "../../profile/ProfileModalShell";
 
 type Props = {
   open: boolean;
-  title: string;
+  title?: string;
   description: string;
   confirmLabel?: string;
   busy?: boolean;
@@ -12,10 +12,13 @@ type Props = {
   onConfirm: () => void;
 };
 
-/** Shared confirm step before ⋯ row actions that change state or open a follow-up flow. */
+/**
+ * Confirm step before actions that change state.
+ * Description-only (no topic heading).
+ */
 export function MenuActionConfirmModal({
   open,
-  title,
+  title: _title,
   description,
   confirmLabel = "Confirm",
   busy = false,
@@ -25,14 +28,17 @@ export function MenuActionConfirmModal({
   onConfirm
 }: Props) {
   return (
-    <MenuPageModalShell
+    <ProfileModalShell
       open={open}
       onClose={busy ? () => undefined : onClose}
-      title={title}
+      title=""
       description={description}
       titleId={titleId}
       stackLevel="overlay"
       maxWidthClass="max-w-lg"
+      maxHeightClass="max-h-none"
+      bodyScroll={false}
+      backdropClassName="admin-menu-page-modal-backdrop"
     >
       <ProfileModalFooter
         onCancel={onClose}
@@ -41,6 +47,6 @@ export function MenuActionConfirmModal({
         busy={busy}
         danger={danger}
       />
-    </MenuPageModalShell>
+    </ProfileModalShell>
   );
 }

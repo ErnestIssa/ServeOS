@@ -45,7 +45,7 @@ import {
 } from "../../AdminUi";
 import { AdminStaleContent } from "../../AdminSkeleton";
 import { useAdminToast } from "../../AdminToast";
-import { ADMIN_NAV_SYNC_EVENT, parseAdminHashQuery } from "../../adminWorkspaceRouting";
+import { ADMIN_NAV_SYNC_EVENT, buildNavHref, parseAdminHashQuery, syncAdminNavHash } from "../../adminWorkspaceRouting";
 import { usePageRecoverySync, useSilentRevalidate } from "../../sync/adminPageSync";
 import { ProfileModalFooter, ProfileModalShell } from "../../profile/ProfileModalShell";
 import { canEditPayments, paymentsEditReason } from "../paymentsAccess";
@@ -57,9 +57,8 @@ import {
   normalizePaymentsTab,
   type PaymentsSectionTab
 } from "../configRouting";
-import { PaymentProviderDetailModal } from "./PaymentProviderDetailModal";
+import { PaymentProviderDetailModal, type PaymentProviderDetailKey } from "./PaymentProviderDetailModal";
 import { PaymentTransactionDrawer } from "./PaymentTransactionDrawer";
-import { PaymentsAdvancedSettingsPage } from "./PaymentsAdvancedSettingsPage";
 import { PaymentsLogsTab } from "./PaymentsLogsTab";
 import { PaymentsMethodsTab } from "./PaymentsMethodsTab";
 import { PaymentsOverviewTab } from "./PaymentsOverviewTab";
@@ -70,7 +69,9 @@ import { PaymentsRefundsTab } from "./PaymentsRefundsTab";
 import { PaymentsRulesTab } from "./PaymentsRulesTab";
 import { PaymentsTransactionsTab } from "./PaymentsTransactionsTab";
 import { RefundDetailModal } from "./RefundDetailModal";
+import { demoTransactionTimeline } from "./transactionDemoData";
 import { getMethodConfig, methodLabel } from "./paymentsUiHelpers";
+import { PaymentHelpTip } from "./paymentsFormControls";
 
 type Props = {
   token: string | null;
@@ -78,13 +79,14 @@ type Props = {
 };
 
 const TAB_TRANSITION = { duration: 0.34, ease: [0.22, 1, 0.36, 1] as const };
+const ADVANCED_CONNECT_COPY =
+  "ServeOS-managed payments are recommended for the simplest setup. Secrets are encrypted and never shown again.";
 
-function setPaymentsTabHash(next: PaymentsSectionTab, advanced = false) {
+function setPaymentsTabHash(next: PaymentsSectionTab) {
   const base = window.location.hash.split("?")[0] || "#/admin/config/payments";
   const q = parseAdminHashQuery();
   q.set("tab", next);
-  if (advanced) q.set("view", "advanced");
-  else q.delete("view");
+  q.delete("view");
   const qs = q.toString();
   window.location.hash = qs ? `${base}?${qs}` : base;
 }
@@ -120,15 +122,14 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
   const [webhookHealth, setWebhookHealth] = useState<PaymentWebhookHealth | null>(null);
   const [activityRefreshKey, setActivityRefreshKey] = useState(0);
 
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [providerDetail, setProviderDetail] = useState<"stripe" | "swish" | "terminals" | null>(null);
+  const [providerDetail, setProviderDetail] = useState<PaymentProviderDetailKey | null>(null);
   const [selectedMethodKeys, setSelectedMethodKeys] = useState<string[]>([]);
   const [methodsManageRequestId, setMethodsManageRequestId] = useState(0);
+  const [refundsPolicyRequestId, setRefundsPolicyRequestId] = useState(0);
   const [methodsLeaveRequestId, setMethodsLeaveRequestId] = useState(0);
   const [methodsManageDirty, setMethodsManageDirty] = useState(false);
   const [methodsManageOpen, setMethodsManageOpen] = useState(false);
   const pendingLeaveTabRef = useRef<PaymentsSectionTab | null>(null);
-  const pendingAdvancedRef = useRef(false);
   const methodsGateRef = useRef({ dirty: false, open: false, tab: "overview" as PaymentsSectionTab });
   const [connectOpen, setConnectOpen] = useState<"stripe" | "swish" | null>(null);
   const [connectId, setConnectId] = useState("");
@@ -165,15 +166,11 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
   const paymentsTitle = (
     <span className="admin-payments-title-inline">
       Payments
-      <span className="admin-payments-help-wrap">
-        <span className="admin-payments-help" tabIndex={0} aria-describedby="admin-payments-help-tip">
-          ?
-        </span>
-        <span id="admin-payments-help-tip" className="admin-payments-help-tip" role="tooltip">
-          ServeOS subscription billing is managed under Billing — this workspace is guest payment infrastructure
-          only.
-        </span>
-      </span>
+      <PaymentHelpTip
+        tipId="admin-payments-help-tip"
+        ariaLabel="About guest payments"
+        body="ServeOS subscription billing is managed under Billing — this workspace is guest payment infrastructure only."
+      />
     </span>
   );
 
@@ -255,18 +252,16 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
     const applyHash = () => {
       const q = parseAdminHashQuery();
       const next = normalizePaymentsTab(q.get("tab"));
-      const wantAdvanced = q.get("view") === "advanced";
       const gate = methodsGateRef.current;
       if (next && next !== gate.tab) {
         if (gate.tab === "methods" && (gate.dirty || gate.open)) {
           pendingLeaveTabRef.current = next;
           setMethodsLeaveRequestId((n) => n + 1);
-          setPaymentsTabHash(gate.tab, advancedOpen);
+          setPaymentsTabHash(gate.tab);
           return;
         }
         setTab(next);
       }
-      setAdvancedOpen(wantAdvanced);
     };
     applyHash();
     window.addEventListener("hashchange", applyHash);
@@ -275,7 +270,7 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
       window.removeEventListener("hashchange", applyHash);
       window.removeEventListener(ADMIN_NAV_SYNC_EVENT, applyHash as EventListener);
     };
-  }, [advancedOpen]);
+  }, []);
 
   useEffect(() => {
     if (tab !== "methods") {
@@ -288,8 +283,7 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
 
   const applyTab = (next: PaymentsSectionTab) => {
     setTab(next);
-    setAdvancedOpen(false);
-    setPaymentsTabHash(next, false);
+    setPaymentsTabHash(next);
     if (next !== "transactions") setTxnDrillFilter(null);
     if (next !== "methods") {
       setSelectedMethodKeys([]);
@@ -311,23 +305,15 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
 
   const onMethodsLeaveAllowed = () => {
     const next = pendingLeaveTabRef.current;
-    const openAdvancedAfter = pendingAdvancedRef.current;
     pendingLeaveTabRef.current = null;
-    pendingAdvancedRef.current = false;
     setMethodsManageDirty(false);
     setMethodsManageOpen(false);
-    if (openAdvancedAfter) {
-      setAdvancedOpen(true);
-      setPaymentsTabHash(tab, true);
-      return;
-    }
     if (next) applyTab(next);
   };
 
   const onMethodsLeaveCancelled = () => {
     pendingLeaveTabRef.current = null;
-    pendingAdvancedRef.current = false;
-    setPaymentsTabHash(tab, advancedOpen);
+    setPaymentsTabHash(tab);
   };
 
   const openTodaysTransactions = (filter: TodaysPaymentsDrillFilter) => {
@@ -340,22 +326,6 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
         setTxnSource(res.source ?? "live");
       }
     });
-  };
-
-  const openAdvanced = () => {
-    if (tab === "methods" && (methodsManageDirty || methodsManageOpen)) {
-      pendingAdvancedRef.current = true;
-      pendingLeaveTabRef.current = null;
-      setMethodsLeaveRequestId((n) => n + 1);
-      return;
-    }
-    setAdvancedOpen(true);
-    setPaymentsTabHash(tab, true);
-  };
-
-  const closeAdvanced = () => {
-    setAdvancedOpen(false);
-    setPaymentsTabHash(tab, false);
   };
 
   const patchLocal = (patch: Partial<VenuePaymentSettings>) => {
@@ -379,6 +349,18 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
               settlementMethods: {
                 ...current.payAtVenue.settlementMethods,
                 ...(patch.payAtVenue?.settlementMethods ?? {})
+              },
+              cardTerminal: {
+                mode: "external_manual" as const,
+                terminalId: null,
+                ...(current.payAtVenue.cardTerminal ?? {}),
+                ...(patch.payAtVenue?.cardTerminal ?? {})
+              },
+              other: {
+                label: "",
+                requireStaffConfirmation: true,
+                ...(current.payAtVenue.other ?? {}),
+                ...(patch.payAtVenue?.other ?? {})
               }
             }
           : patch.payAtVenue,
@@ -587,12 +569,14 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
   }, [token, restaurantId, ready]);
 
   const openTransaction = async (row: PaymentTransactionRow) => {
-    if (!token || !restaurantId) return;
+    setSelectedTxn({
+      ...row,
+      timeline: row.source === "demo" ? demoTransactionTimeline(row) : []
+    });
     setTxnDrawerOpen(true);
-    setSelectedTxn(null);
+    if (row.source === "demo" || !token || !restaurantId) return;
     const res = await getVenuePaymentTransaction(token, restaurantId, row.id);
     if (res.ok && res.transaction) setSelectedTxn(res.transaction);
-    else setSelectedTxn({ ...row, timeline: [] });
   };
 
   const { recover, recovering } = usePageRecoverySync([() => loadPaymentsContext("refresh")]);
@@ -613,103 +597,6 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
         <div className={`${subPanelCls} admin-config-section mt-8 p-6`}>
           <AdminEmptyState>Sign in and select a venue to manage payment settings.</AdminEmptyState>
         </div>
-      </AdminPanel>
-    );
-  }
-
-  if (advancedOpen && settings) {
-    return (
-      <AdminPanel
-        id="ws-config"
-        className="admin-top-page admin-panel--edge admin-config-page admin-payments-page admin-payments-page--advanced"
-      >
-        <AdminStaleContent refreshing={refreshing}>
-          <AnimatePresence mode="wait">
-            <motion.div
-              key="advanced"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={TAB_TRANSITION}
-            >
-              <PaymentsAdvancedSettingsPage
-                settings={settings}
-                envReady={envReady}
-                canEdit={canEdit}
-                saving={saving}
-                onBack={closeAdvanced}
-                onPatch={patchLocal}
-                onSave={() => {
-                  void saveSettings();
-                }}
-              />
-            </motion.div>
-          </AnimatePresence>
-        </AdminStaleContent>
-
-        <ProfileModalShell
-          open={Boolean(connectOpen)}
-          onClose={resetConnectForm}
-          title={connectOpen === "stripe" ? "Own Stripe account" : "Own Swish agreement"}
-          description="Advanced only. Prefer Connect payments when possible. Secrets are encrypted and never shown again."
-          titleId="payment-connect-modal"
-          busy={saving}
-        >
-          <ConfigModalContentGate open={Boolean(connectOpen)}>
-            <div className="grid gap-3">
-              <label className="grid gap-1">
-                <AdminLabel>{connectOpen === "stripe" ? "Stripe account ID" : "Swish merchant ID"} *</AdminLabel>
-                <AdminInput
-                  value={connectId}
-                  onChange={(e) => setConnectId(e.target.value)}
-                  placeholder={connectOpen === "stripe" ? "acct_…" : "123xxxxxxx"}
-                  autoComplete="off"
-                />
-              </label>
-              <label className="grid gap-1">
-                <AdminLabel>
-                  {connectOpen === "stripe" ? "API secret / restricted key" : "Certificate / key password"}
-                </AdminLabel>
-                <AdminInput
-                  type="password"
-                  value={connectSecret}
-                  onChange={(e) => setConnectSecret(e.target.value)}
-                  placeholder="Optional in sandbox · required for production verify"
-                  autoComplete="new-password"
-                />
-              </label>
-              {connectOpen === "swish" ? (
-                <label className="grid gap-1">
-                  <AdminLabel>Client certificate (PEM)</AdminLabel>
-                  <textarea
-                    className="admin-payments-select"
-                    rows={4}
-                    value={connectCert}
-                    onChange={(e) => setConnectCert(e.target.value)}
-                    placeholder="Paste PEM contents from Swish Merchant Portal"
-                  />
-                </label>
-              ) : null}
-              <label className="grid gap-1">
-                <AdminLabel>Webhook signing secret</AdminLabel>
-                <AdminInput
-                  type="password"
-                  value={connectWebhookSecret}
-                  onChange={(e) => setConnectWebhookSecret(e.target.value)}
-                  placeholder="Optional"
-                  autoComplete="new-password"
-                />
-              </label>
-            </div>
-            <ProfileModalFooter
-              cancelLabel="Cancel"
-              confirmLabel="Connect and verify"
-              busy={saving}
-              onCancel={resetConnectForm}
-              onConfirm={() => void handleConnect()}
-            />
-          </ConfigModalContentGate>
-        </ProfileModalShell>
       </AdminPanel>
     );
   }
@@ -769,10 +656,21 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
                 {selectedMethodManageLabel}
               </motion.button>
             ) : null}
+            {tab === "refunds" ? (
+              <motion.button
+                key="refunds-policies"
+                type="button"
+                className="admin-payments-manage-btn"
+                initial={{ opacity: 0, x: 10, scale: 0.96 }}
+                animate={{ opacity: 1, x: 0, scale: 1 }}
+                exit={{ opacity: 0, x: 10, scale: 0.96 }}
+                transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                onClick={() => setRefundsPolicyRequestId((n) => n + 1)}
+              >
+                Refund policies
+              </motion.button>
+            ) : null}
           </AnimatePresence>
-          <button type="button" className="admin-payments-advanced-btn" onClick={openAdvanced}>
-            Advanced Settings
-          </button>
         </div>
       </div>
 
@@ -881,7 +779,10 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
                   onConnectPayments={() => void handleConnectPayments()}
                   onContinueOnboarding={() => void handleContinueOnboarding()}
                   onSyncAccount={() => void handleSyncManagedAccount()}
-                  onChooseMethods={() => selectTab("methods")}
+                  logs={logs}
+                  logSource={logSource}
+                  onDisconnectAdvanced={(p) => void handleDisconnect(p)}
+                  onManageTerminals={() => syncAdminNavHash(buildNavHref("devices", "hardware"))}
                   onConnectAdvanced={(p) => {
                     setConnectOpen(p);
                     setConnectId("");
@@ -900,6 +801,7 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
                     settings={settings}
                     canEdit={canEdit}
                     source={refundSource}
+                    policyRequestId={refundsPolicyRequestId}
                     onOpen={setSelectedRefund}
                     onPatchSettings={patchLocal}
                   />
@@ -913,7 +815,7 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
                     {featureGates?.reconciliation?.availability === "partial" ? (
                       <p className="admin-payments-billing-note mb-3">{featureGates.reconciliation.reason}</p>
                     ) : null}
-                    <PaymentsReconciliationTab reconciliation={reconciliation} />
+                    <PaymentsReconciliationTab reconciliation={reconciliation} canEdit={canEdit} />
                   </>
                 )
               ) : null}
@@ -922,22 +824,13 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
                   <AdminEmptyState>{featureGates.payouts.reason}</AdminEmptyState>
                 ) : (
                   <>
-                    {featureGates?.payouts?.availability === "partial" ? (
-                      <p className="admin-payments-billing-note mb-3">{featureGates.payouts.reason}</p>
-                    ) : null}
                     <PaymentsPayoutsTab
                       payouts={payouts}
                       summary={payoutSummary}
                       settings={settings}
                       canEdit={canEdit}
-                      onLinkBank={() =>
-                        patchLocal({
-                          bankAccount: {
-                            linked: true,
-                            lastFour: "4821",
-                            holderName: settings.bankAccount.holderName ?? ""
-                          }
-                        })
+                      sandboxNote={
+                        featureGates?.payouts?.availability === "partial" ? featureGates.payouts.reason : null
                       }
                       onPatchBank={(bankAccount) => patchLocal({ bankAccount })}
                     />
@@ -970,12 +863,13 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
                 featureGates?.logs && !featureGates.logs.available ? (
                   <AdminEmptyState>{featureGates.logs.reason}</AdminEmptyState>
                 ) : (
-                  <>
-                    {featureGates?.logs?.availability === "partial" ? (
-                      <p className="admin-payments-billing-note mb-3">{featureGates.logs.reason}</p>
-                    ) : null}
-                    <PaymentsLogsTab logs={logs} source={logSource} />
-                  </>
+                  <PaymentsLogsTab
+                    logs={logs}
+                    source={logSource}
+                    sandboxNote={
+                      featureGates?.logs?.availability === "partial" ? featureGates.logs.reason : null
+                    }
+                  />
                 )
               ) : null}
             </motion.div>
@@ -987,8 +881,14 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
         open={Boolean(providerDetail)}
         provider={providerDetail}
         settings={settings}
+        account={paymentPlatform?.primaryAccount ?? null}
         webhookHealth={webhookHealth}
         canEdit={canEdit}
+        connecting={managedConnecting}
+        showContinueOnboarding={
+          paymentPlatform?.nextAction?.type === "CONTINUE_ONBOARDING" ||
+          paymentPlatform?.nextAction?.type === "REFRESH_ACCOUNT"
+        }
         onClose={() => setProviderDetail(null)}
         onConnect={() => {
           if (providerDetail === "stripe" || providerDetail === "swish") {
@@ -1007,8 +907,13 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
           }
         }}
         onVerify={() => {
-          if (providerDetail) void handleVerifyProvider(providerDetail);
+          if (providerDetail === "managed") void handleSyncManagedAccount();
+          else if (providerDetail === "stripe" || providerDetail === "swish" || providerDetail === "terminals") {
+            void handleVerifyProvider(providerDetail);
+          }
         }}
+        onContinueOnboarding={() => void handleContinueOnboarding()}
+        onManageTerminals={() => syncAdminNavHash(buildNavHref("devices", "hardware"))}
       />
 
       <PaymentTransactionDrawer
@@ -1030,7 +935,7 @@ export function AdminConfigPaymentsPage({ token, restaurantId }: Props) {
         open={Boolean(connectOpen)}
         onClose={resetConnectForm}
         title={connectOpen === "stripe" ? "Own Stripe account" : "Own Swish agreement"}
-        description="Advanced only. Prefer Connect payments when possible. Secrets are encrypted and never shown again."
+        description={ADVANCED_CONNECT_COPY}
         titleId="payment-connect-modal"
         busy={saving}
       >

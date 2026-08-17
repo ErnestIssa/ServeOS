@@ -44,7 +44,13 @@ const METHOD_ICON_FILE: Record<string, string> = {
   bankTransfer: FILES.bank,
   bankgiro: FILES.bankgiro,
   plusgiro: FILES.plusgiro,
-  payAtVenue: FILES.cash
+  payAtVenue: FILES.cash,
+  card_payments: FILES.card,
+  apple_pay: FILES.applePay,
+  google_pay: FILES.googlePay,
+  transfers: FILES.bank,
+  klarna: FILES.klarna,
+  terminal: FILES.card
 };
 
 export function paymentMethodIconSrc(methodKey: string): string | null {

@@ -180,7 +180,7 @@ export function PaymentMethodSetupWizard({
   const submitCurrent = async (asEnable = false) => {
     if (!session || !methodKey || !canEdit) return;
     if (needsConnectFirst) {
-      onToast("Connect payments on the Providers tab first.", "error");
+      onToast("Connect Stripe on the Providers tab first.", "error");
       return;
     }
     const stepId = asEnable ? "ACTIVATE" : currentStep?.id;
@@ -284,7 +284,7 @@ export function PaymentMethodSetupWizard({
           {needsConnectFirst ? (
             <ProfileModalNote>
               {currentStep?.description ||
-                "Open the Providers tab and choose Connect payments. When that is done, return here to enable this method."}
+                "Open the Providers tab and choose Connect Stripe. When that is done, return here to enable this method."}
             </ProfileModalNote>
           ) : currentStep?.fields?.length ? (
             <div className="admin-payments-setup-fields">

@@ -23,7 +23,7 @@ export function PaySection({
   className = "",
   borderless = false
 }: {
-  title: string;
+  title?: string;
   description?: string;
   action?: ReactNode;
   children: ReactNode;
@@ -31,17 +31,25 @@ export function PaySection({
   /** Removes card border/shadow and section body dividers. */
   borderless?: boolean;
 }) {
+  const showHead = Boolean(title || description || action);
+
   return (
     <section
       className={`${borderless ? "admin-payments-section admin-payments-section--borderless" : `${subPanelCls} admin-config-section admin-payments-section overflow-hidden p-0`} ${className}`.trim()}
     >
-      <div className="admin-payments-section-head">
-        <div className="min-w-0">
-          <p className="text-xs font-bold uppercase tracking-wide admin-config-text-muted">{title}</p>
-          {description ? <p className="admin-config-text-subtle mt-1 text-sm">{description}</p> : null}
+      {showHead ? (
+        <div className="admin-payments-section-head">
+          <div className="min-w-0">
+            {title ? (
+              <p className="text-xs font-bold uppercase tracking-wide admin-config-text-muted">{title}</p>
+            ) : null}
+            {description ? (
+              <p className={`admin-config-text-subtle text-sm${title ? " mt-1" : ""}`}>{description}</p>
+            ) : null}
+          </div>
+          {action ? <div className="shrink-0">{action}</div> : null}
         </div>
-        {action ? <div className="shrink-0">{action}</div> : null}
-      </div>
+      ) : null}
       <div className="admin-payments-section-body">{children}</div>
     </section>
   );
@@ -84,6 +92,28 @@ export function MoneyTile({ label, value, hint }: { label: string; value: string
       <p className="admin-payments-money-tile-value">{value}</p>
       {hint ? <p className="admin-payments-money-tile-hint">{hint}</p> : null}
     </div>
+  );
+}
+
+export const PAYMENT_PLAY_NOTE_MS = 3800;
+
+export function PaymentPlayNote({ open, text }: { open: boolean; text: string }) {
+  return (
+    <div className={`admin-payments-payout-note${open ? " is-open" : ""}`} aria-hidden={!open}>
+      <div className="admin-payments-payout-note-clip">
+        <p className="admin-payments-billing-note">{text}</p>
+      </div>
+    </div>
+  );
+}
+
+export function PaymentPlayNoteHint({ onReplay, label }: { onReplay: () => void; label: string }) {
+  return (
+    <span className="admin-payments-help-wrap">
+      <button type="button" className="admin-payments-help" aria-label={label} onClick={onReplay}>
+        ?
+      </button>
+    </span>
   );
 }
 

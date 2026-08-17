@@ -4,20 +4,17 @@ import {
   Alert,
   Animated,
   FlatList,
-  type ViewToken,
   Keyboard,
-  KeyboardAvoidingView,
   Linking,
   Platform,
   Pressable,
+  StatusBar,
   StyleSheet,
   Text,
-  TextInput,
   View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { FLOAT_MARGIN_SIDE } from "../shell/navBottomMetrics";
-import { R } from "../theme";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   mergeThreadFeed,
   readChatSnapshot,
@@ -35,28 +32,28 @@ import {
   type ThreadFeedItem
 } from "./customerChatApi";
 import { ChatVenueCallModal } from "./chat/ChatVenueCallModal";
-import { MessageComposer } from "./chat/composer/MessageComposer";
-import { ChatMessage, DateSeparator } from "./chat/messages/ChatMessage";
-import { buildListRows, sameMessageGroup } from "./chat/messages/mapFeedItem";
-import { isChatMessage, isDateSeparator, type ChatMessageViewModel, type ListRow } from "./chat/messages/types";
-import { TypingIndicator } from "./chat/messages/TypingIndicator";
-import { MessageActionMenu } from "./chat/menu/MessageActionMenu";
 import { ChatVenueInfoModal } from "./chat/ChatVenueInfoModal";
-import { ChatThreadNavBar, chatThreadListTopInset } from "./chat/ChatThreadNavBar";
-import { NavTopScrim } from "../shell/NavTopScrim";
-import { AttachmentMenu, ATTACH_MENU_DISMISS_MS, type AttachmentChoice } from "./chat/composer/AttachmentMenu";
-import { playCartAddCue } from "./cartCueSound";
+import { TypingIndicator } from "./chat/messages/TypingIndicator";
 import { ChatCameraCapture } from "./chat/ChatCameraCapture";
 import { pickChatImagesFromLibrary, prepareChatImageFromUri, type PreparedChatImage } from "./chat/chatImageAttach";
 import { pickChatDocument, type PreparedChatDocument } from "./chat/chatDocumentAttach";
 import { OclTimelineStrip } from "./chat/OclTimelineStrip";
-import { isIncomingMessage, isMessageUnread } from "./chat/chatUnreadHelpers";
+import { isMessageUnread } from "./chat/chatUnreadHelpers";
 import { joinChatRoom, sendChatRead, sendChatTyping, subscribeChatRelay } from "./chat/customerChatSocket";
 import { ChatVenueTypeRotator } from "./chat/ChatVenueTypeRotator";
 import { ScreenErrorState } from "../errors";
 import { SkeletonChatThread, SkeletonSyncDot } from "../components/skeleton/SkeletonUi";
-import { loadProfileAvatarUri } from "./profile/profileAvatarStorage";
 import { noMenuAtVenueMessage } from "./venueContentHelpers";
+import { playCartAddCue } from "./cartCueSound";
+import {
+  CHAT_BACKGROUND,
+  feedToUnityMessages,
+  UnityChatScreen,
+  type UnityAttachChoice
+} from "./chat/unity";
+import { GlassChip } from "./chat/unity/GlassChip";
+import { colors as unityColors, spacing as unitySpacing } from "./chat/unity/theme";
+import { hapticSelection } from "./chat/unity/haptics";
 
 const TYPING_EMIT_MS = 400;
 const TYPING_IDLE_MS = 2800;
@@ -173,11 +170,6 @@ export function CustomerChatScreen(props: Props) {
   const {
     token,
     restaurantId,
-    money,
-    scrollY,
-    onScroll,
-    onScrollEndDrag,
-    onMomentumScrollEnd,
     userId,
     chatFocused,
     onUnreadCountChange,
@@ -204,12 +196,8 @@ export function CustomerChatScreen(props: Props) {
   const [venueInfoPanel, setVenueInfoPanel] = React.useState<"menu" | "opening_hours">("menu");
   const [venueCallOpen, setVenueCallOpen] = React.useState(false);
   const [callingVenue, setCallingVenue] = React.useState(false);
-  const [attachOpen, setAttachOpen] = React.useState(false);
   const [cameraOpen, setCameraOpen] = React.useState(false);
-  const pendingAttachRef = React.useRef<AttachmentChoice | null>(null);
-  const [menuMessage, setMenuMessage] = React.useState<ChatMessageViewModel | null>(null);
-  const inputRef = React.useRef<TextInput>(null);
-  const listRef = React.useRef<FlatList<ListRow>>(null);
+  const listRef = React.useRef<FlatList<unknown>>(null);
   const typingStopRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingClearRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingEmitRef = React.useRef(0);
@@ -217,31 +205,18 @@ export function CustomerChatScreen(props: Props) {
   const customerLastReadAtRef = React.useRef<string | null>(null);
   const dismissedNewRef = React.useRef<Set<string>>(new Set());
   const newDismissTimersRef = React.useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-  const [newDismissTick, setNewDismissTick] = React.useState(0);
-  const [customerAvatarUri, setCustomerAvatarUri] = React.useState<string | null>(null);
   const insets = useSafeAreaInsets();
   const loadGenRef = React.useRef(0);
 
   const hasVenueSelected = Boolean(restaurantId.trim());
 
-  const venueInitial = React.useMemo(() => {
-    const name = hub?.restaurant?.name?.trim() || venueDisplayName.trim() || "R";
-    return name.charAt(0).toUpperCase();
-  }, [hub?.restaurant?.name, venueDisplayName]);
-
-  const customerInitial = React.useMemo(() => "U", []);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    void loadProfileAvatarUri().then((uri) => {
-      if (!cancelled) setCustomerAvatarUri(uri);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const listRows = React.useMemo(() => buildListRows(feed), [feed]);
+  const listRows = React.useMemo(
+    () =>
+      feedToUnityMessages(feed, {
+        venueName: hub?.restaurant?.name?.trim() || venueDisplayName.trim() || "Venue"
+      }),
+    [feed, hub?.restaurant?.name, venueDisplayName]
+  );
 
   const feedMessagesOnly = React.useCallback((items: ThreadFeedItem[]) => {
     return items.filter((x) => x.kind === "message");
@@ -256,8 +231,15 @@ export function CustomerChatScreen(props: Props) {
 
   const dismissKeyboard = React.useCallback(() => {
     Keyboard.dismiss();
-    inputRef.current?.blur();
   }, []);
+
+  // Keep prop surface for App shell; immersive UNITY chat owns scroll internally.
+  void props.money;
+  void props.scrollY;
+  void props.onScroll;
+  void props.onScrollEndDrag;
+  void props.onMomentumScrollEnd;
+  void dismissKeyboard;
 
   const applyHubResponse = React.useCallback(
     (res: CustomerChatHubResponse, nextFeed: ThreadFeedItem[], resetNewLabels: boolean) => {
@@ -409,7 +391,6 @@ export function CustomerChatScreen(props: Props) {
       const t = setTimeout(() => {
         dismissedNewRef.current.add(messageId);
         newDismissTimersRef.current.delete(messageId);
-        setNewDismissTick((n) => n + 1);
         tryMarkThreadRead();
       }, NEW_LABEL_DISMISS_MS);
       newDismissTimersRef.current.set(messageId, t);
@@ -417,22 +398,15 @@ export function CustomerChatScreen(props: Props) {
     [tryMarkThreadRead]
   );
 
-  const onViewableItemsChanged = React.useCallback(
-    ({ viewableItems }: { viewableItems: Array<ViewToken> }) => {
-      if (!chatFocused) return;
-      const readAt = customerLastReadAtRef.current;
-      for (const v of viewableItems) {
-        const row = v.item as ListRow | undefined;
-        if (!row || !isChatMessage(row)) continue;
-        const item = row.raw;
-        if (!isMessageUnread(item, readAt)) continue;
-        scheduleNewDismiss(item.id);
-      }
-    },
-    [chatFocused, scheduleNewDismiss]
-  );
-
-  const viewabilityConfig = React.useRef({ itemVisiblePercentThreshold: 55 }).current;
+  React.useEffect(() => {
+    if (!chatFocused) return;
+    const readAt = customerLastReadAtRef.current;
+    for (const m of feed) {
+      if (m.kind !== "message") continue;
+      if (!isMessageUnread(m, readAt)) continue;
+      scheduleNewDismiss(m.id);
+    }
+  }, [chatFocused, feed, scheduleNewDismiss]);
 
   React.useEffect(() => {
     if (!hasVenueSelected) {
@@ -556,7 +530,6 @@ export function CustomerChatScreen(props: Props) {
 
   function focusComposer(hint?: string) {
     if (hint) setDraft((d) => (d.trim().length ? d : hint));
-    setTimeout(() => inputRef.current?.focus(), 80);
   }
 
   function runQuickAction(id: CustomerChatQuickActionId) {
@@ -746,38 +719,31 @@ export function CustomerChatScreen(props: Props) {
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
   }
 
-  function handleAttachChoice(choice: AttachmentChoice) {
-    pendingAttachRef.current = choice;
-  }
-
-  React.useEffect(() => {
-    if (attachOpen) return;
-    const choice = pendingAttachRef.current;
-    if (!choice) return;
-    pendingAttachRef.current = null;
+  function handleAttachChoice(choice: UnityAttachChoice) {
     const timer = setTimeout(() => {
       if (choice === "camera") {
         setCameraOpen(true);
         return;
       }
-      if (choice === "photos") {
+      if (choice === "photos" || choice === "video") {
         pickAndSendImages();
         return;
       }
-      if (choice === "document") {
+      if (choice === "file") {
         pickAndSendDocument();
       }
-    }, ATTACH_MENU_DISMISS_MS);
-    return () => clearTimeout(timer);
-  }, [attachOpen]);
+    }, 280);
+    // Fire-and-forget delay so the UNITY attach modal can finish dismissing.
+    void timer;
+  }
 
   function handleCallVenue() {
     setVenueCallOpen(true);
   }
 
-  async function sendMessage() {
+  async function sendMessage(contentOverride?: string) {
     const rid = hub?.restaurant?.id ?? restaurantId.trim();
-    const content = draft.trim();
+    const content = (contentOverride ?? draft).trim();
     if (!rid || !content) return;
     const roomId = roomIdRef.current;
     if (roomId) sendChatTyping(roomId, false);
@@ -791,7 +757,6 @@ export function CustomerChatScreen(props: Props) {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setTimeout(() => {
       listRef.current?.scrollToEnd({ animated: true });
-      inputRef.current?.focus();
     }, 40);
 
     const res = await postCustomerChatMessage(token, {
@@ -822,59 +787,45 @@ export function CustomerChatScreen(props: Props) {
 
   const listFooter = venueTyping ? <TypingIndicator /> : null;
 
-  /** Immersive chat — sticky thread nav below safe area. */
-  const listTopInset = chatThreadListTopInset(insets.top);
-  const chatScrollBottom = Math.max(insets.bottom, 8) + 16;
-  const composerBottomPad = Math.max(2, insets.bottom);
   const showVenueCall = Boolean(hub?.ok && !needsVenue);
-  const showVenueStatus = showVenueCall;
   const threadVenueName = hub?.restaurant?.name?.trim() || venueDisplayName.trim() || "Venue";
+  const subtitle = showVenueCall
+    ? hub?.restaurantOnline
+      ? "Online · Venue chat"
+      : "Offline · Venue chat"
+    : undefined;
 
-  return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={0}
-    >
-      <NavTopScrim topInset={insets.top} chatThread />
-      <ChatThreadNavBar
-        safeAreaTop={insets.top}
-        venueName={threadVenueName}
-        showStatus={showVenueStatus}
-        restaurantOnline={hub?.restaurantOnline ?? false}
-        onBack={() => {
-          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          onBack();
-        }}
-        onCallPress={
-          showVenueCall
-            ? () => {
-                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                handleCallVenue();
-              }
-            : undefined
-        }
-      />
+  const shellHeader = (title: string, sub?: string) => (
+    <View style={[styles.shellHeader, { top: insets.top + unitySpacing.xs }]} pointerEvents="box-none">
+      <GlassChip style={styles.shellChip}>
+        <Pressable
+          style={styles.shellChipBtn}
+          onPress={() => {
+            hapticSelection();
+            onBack();
+          }}
+          hitSlop={8}
+          accessibilityLabel="Go back"
+        >
+          <Ionicons name="chevron-back" size={22} color={unityColors.brand} />
+        </Pressable>
+      </GlassChip>
+      <GlassChip style={styles.shellTitleChip}>
+        <Text style={styles.shellTitle} numberOfLines={1}>
+          {title}
+        </Text>
+        {sub ? (
+          <Text style={styles.shellSubtitle} numberOfLines={1}>
+            {sub}
+          </Text>
+        ) : null}
+      </GlassChip>
+      <View style={styles.shellChipPlaceholder} />
+    </View>
+  );
 
-      <MessageActionMenu
-        visible={!!menuMessage}
-        message={menuMessage}
-        onClose={() => setMenuMessage(null)}
-        onCopy={
-          menuMessage?.content
-            ? () => Alert.alert("Copied", "Message copied to clipboard.")
-            : undefined
-        }
-        onReply={() => Alert.alert("Reply", "Reply threading is coming soon.")}
-        onDelete={() => Alert.alert("Delete", "Delete is not available yet.")}
-      />
-
-      <AttachmentMenu
-        visible={attachOpen}
-        onClose={() => setAttachOpen(false)}
-        onChoose={handleAttachChoice}
-      />
-
+  const sharedModals = (
+    <>
       <ChatCameraCapture
         visible={cameraOpen}
         onClose={() => setCameraOpen(false)}
@@ -883,7 +834,6 @@ export function CustomerChatScreen(props: Props) {
           sendCapturedImage(uri);
         }}
       />
-
       <ChatVenueCallModal
         visible={venueCallOpen}
         venueName={threadVenueName}
@@ -894,7 +844,6 @@ export function CustomerChatScreen(props: Props) {
         }}
         onCall={() => void confirmVenueCall()}
       />
-
       <ChatVenueInfoModal
         visible={venueInfoOpen}
         onClose={() => setVenueInfoOpen(false)}
@@ -903,31 +852,73 @@ export function CustomerChatScreen(props: Props) {
         onAddItems={() => runQuickAction("view_menu")}
         initialPanel={venueInfoPanel}
       />
+    </>
+  );
+
+  if (!needsVenue && !needsMenu && !loading && hub?.ok && !loadErr) {
+    return (
+      <View style={styles.unityRoot}>
+        <UnityChatScreen
+          title={threadVenueName}
+          subtitle={subtitle}
+          messages={listRows}
+          onSend={(text) => void sendMessage(text)}
+          onBack={onBack}
+          isGroupChat={false}
+          listHeader={oclTimeline}
+          listFooter={listFooter}
+          emptyText="No messages yet — ask about your order, ingredients, or pickup."
+          disabledComposer={pickingImage}
+          onAttachChoice={handleAttachChoice}
+          onComposerDraftChange={onDraftChange}
+          rightActions={
+            showVenueCall
+              ? [
+                  {
+                    icon: "call-outline",
+                    accessibilityLabel: `Call ${threadVenueName}`,
+                    onPress: handleCallVenue
+                  },
+                  {
+                    icon: "information-circle-outline",
+                    accessibilityLabel: "Venue info",
+                    onPress: () => {
+                      setVenueInfoPanel("menu");
+                      setVenueInfoOpen(true);
+                    }
+                  }
+                ]
+              : []
+          }
+          overlay={
+            <>
+              {revalidating ? (
+                <View style={[styles.syncDotRow, { top: insets.top + 56 }]} pointerEvents="none">
+                  <SkeletonSyncDot size={7} />
+                </View>
+              ) : null}
+              {sharedModals}
+            </>
+          }
+        />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.unityRoot}>
+      <StatusBar barStyle="dark-content" backgroundColor={CHAT_BACKGROUND} />
+      {shellHeader(threadVenueName, subtitle)}
 
       {loading && !hub?.ok && !needsVenue && !needsMenu ? (
-        <View style={[styles.threadColumn, { paddingTop: listTopInset }]}>
+        <View style={[styles.threadColumn, { paddingTop: insets.top + 60 }]}>
           <SkeletonChatThread count={7} style={{ flex: 1 }} />
-          <View style={[styles.composerDock, { paddingBottom: composerBottomPad, opacity: 0.55 }]}>
-            <MessageComposer
-              value=""
-              onChange={() => {}}
-              onSend={() => {}}
-              onOpenAttach={() => {}}
-              pickingImage={false}
-              inputRef={inputRef}
-            />
-          </View>
-        </View>
-      ) : null}
-      {revalidating && hub?.ok ? (
-        <View style={[styles.syncDotRow, { top: listTopInset - 28 }]} pointerEvents="none">
-          <SkeletonSyncDot size={7} />
         </View>
       ) : null}
 
       {loadErr && !loading && hasVenueSelected && !needsVenue && !needsMenu ? (
         <ScreenErrorState
-          style={{ flex: 1, marginTop: listTopInset }}
+          style={{ flex: 1, marginTop: insets.top + 60 }}
           title="Could not connect"
           message={loadErr}
           onRetry={() => void loadHub({ force: true })}
@@ -935,7 +926,12 @@ export function CustomerChatScreen(props: Props) {
       ) : null}
 
       {needsVenue && !loadErr && !needsMenu ? (
-        <View style={[styles.noVenueColumn, { paddingTop: listTopInset, paddingBottom: chatScrollBottom }]}>
+        <View
+          style={[
+            styles.noVenueColumn,
+            { paddingTop: insets.top + 60, paddingBottom: Math.max(insets.bottom, 8) }
+          ]}
+        >
           <View style={styles.noVenueCenter}>
             <ChatVenueTypeRotator />
             <Text style={styles.noVenueSub}>Choose a venue to proceed</Text>
@@ -944,7 +940,12 @@ export function CustomerChatScreen(props: Props) {
       ) : null}
 
       {needsMenu && !loadErr ? (
-        <View style={[styles.noVenueColumn, { paddingTop: listTopInset, paddingBottom: chatScrollBottom }]}>
+        <View
+          style={[
+            styles.noVenueColumn,
+            { paddingTop: insets.top + 60, paddingBottom: Math.max(insets.bottom, 8) }
+          ]}
+        >
           <View style={styles.noVenueCenter}>
             <Text style={styles.noMenuHeadline}>{noMenuAtVenueMessage(venueDisplayName)}</Text>
             <Text style={styles.noVenueSub}>
@@ -967,103 +968,55 @@ export function CustomerChatScreen(props: Props) {
         </View>
       ) : null}
 
-      {!needsVenue && !needsMenu && !loading && hub?.ok && !loadErr ? (
-        <View style={styles.threadColumn}>
-          <Animated.FlatList
-            ref={listRef as React.RefObject<FlatList<ListRow>>}
-            data={listRows}
-            keyExtractor={(item) => item.id}
-            style={styles.list}
-            contentContainerStyle={[styles.listContent, { paddingTop: listTopInset }]}
-            onScroll={onScroll}
-            scrollEventThrottle={16}
-            keyboardShouldPersistTaps="never"
-            keyboardDismissMode="on-drag"
-            ListHeaderComponent={oclTimeline}
-            ListFooterComponent={listFooter}
-            onScrollBeginDrag={dismissKeyboard}
-            onScrollEndDrag={onScrollEndDrag}
-            onMomentumScrollEnd={onMomentumScrollEnd}
-            onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
-            onViewableItemsChanged={onViewableItemsChanged}
-            viewabilityConfig={viewabilityConfig}
-            initialNumToRender={14}
-            maxToRenderPerBatch={12}
-            windowSize={9}
-            removeClippedSubviews={Platform.OS === "android"}
-            renderItem={({ item, index }) => {
-              if (isDateSeparator(item)) {
-                return <DateSeparator label={item.label} />;
-              }
-              const prev = listRows[index - 1];
-              const next = listRows[index + 1];
-              void newDismissTick;
-              const readAt = customerLastReadAtRef.current;
-              const raw = item.raw;
-              const itemUnread =
-                raw.kind === "message" && isMessageUnread(raw, readAt) && !dismissedNewRef.current.has(item.id);
-              const prevUnreadIncoming =
-                prev &&
-                isChatMessage(prev) &&
-                isIncomingMessage(prev.raw) &&
-                isMessageUnread(prev.raw, readAt) &&
-                !dismissedNewRef.current.has(prev.id);
-              const incomingUnread = itemUnread && isIncomingMessage(raw);
-              const showNew = incomingUnread && !prevUnreadIncoming;
-              const groupWithPrev = sameMessageGroup(item, prev);
-              const groupWithNext = sameMessageGroup(item, next);
-              return (
-                <ChatMessage
-                  message={item}
-                  groupWithPrev={groupWithPrev}
-                  groupWithNext={groupWithNext}
-                  showAvatar={!groupWithNext}
-                  showNewLabel={showNew}
-                  timeUnread={incomingUnread}
-                  authorAvatarUri={item.mine ? customerAvatarUri : null}
-                  authorInitial={item.mine ? customerInitial : venueInitial}
-                  onLongPress={setMenuMessage}
-                />
-              );
-            }}
-            ListEmptyComponent={
-              <Pressable style={styles.emptyHint} onPress={dismissKeyboard}>
-                <Text style={styles.emptyText}>
-                  No messages yet — ask about your order, ingredients, or pickup.
-                </Text>
-              </Pressable>
-            }
-          />
-
-          <View style={[styles.composerDock, { paddingBottom: composerBottomPad }]}>
-            <MessageComposer
-              value={draft}
-              onChange={onDraftChange}
-              onSend={() => void sendMessage()}
-              onOpenAttach={() => setAttachOpen(true)}
-              pickingImage={pickingImage}
-              inputRef={inputRef}
-            />
-          </View>
-        </View>
-      ) : null}
-    </KeyboardAvoidingView>
+      {sharedModals}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, zIndex: 1, backgroundColor: "transparent" },
+  unityRoot: { flex: 1, backgroundColor: CHAT_BACKGROUND },
   threadColumn: { flex: 1, minHeight: 0 },
-  composerDock: {
-    paddingTop: 6,
-    paddingHorizontal: FLOAT_MARGIN_SIDE,
-    backgroundColor: "transparent"
+  syncDotRow: { position: "absolute", right: 16, zIndex: 40 },
+  shellHeader: {
+    position: "absolute",
+    left: unitySpacing.sm,
+    right: unitySpacing.sm,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    zIndex: 30,
+    gap: unitySpacing.xs
   },
-  list: { flex: 1 },
-  listContent: { paddingBottom: 8, flexGrow: 1 },
-  loadingRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 24 },
-  syncDotRow: { position: "absolute", right: 16, zIndex: 14 },
-  loadingText: { fontSize: R.type.label, color: R.textSecondary, fontWeight: "600" },
+  shellChip: { borderRadius: 999 },
+  shellChipBtn: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  shellTitleChip: {
+    flex: 1,
+    borderRadius: 18,
+    paddingHorizontal: unitySpacing.md,
+    paddingVertical: 6,
+    alignItems: "center",
+    maxWidth: "70%"
+  },
+  shellTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#111B21",
+    letterSpacing: -0.2,
+    textAlign: "center"
+  },
+  shellSubtitle: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#667781",
+    marginTop: 1,
+    textAlign: "center"
+  },
+  shellChipPlaceholder: { width: 36, height: 36 },
   noVenueColumn: { flex: 1, minHeight: 0 },
   noVenueCenter: {
     flex: 1,
@@ -1078,14 +1031,14 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     fontWeight: "600",
-    color: R.textMuted
+    color: "#667781"
   },
   noMenuHeadline: {
     textAlign: "center",
     fontSize: 20,
     lineHeight: 28,
     fontWeight: "900",
-    color: R.textSecondary,
+    color: "#142B2C",
     letterSpacing: 0.2
   },
   switchVenueBtn: {
@@ -1093,20 +1046,15 @@ const styles = StyleSheet.create({
     minWidth: 228,
     paddingVertical: 15,
     paddingHorizontal: 28,
-    borderRadius: R.radius.pill,
-    backgroundColor: R.accentPurple,
+    borderRadius: 999,
+    backgroundColor: unityColors.brand,
     alignItems: "center"
   },
   switchVenueBtnText: {
     color: "#FFFFFF",
-    fontSize: R.type.body,
+    fontSize: 16,
     fontWeight: "800",
     letterSpacing: 0.2
   },
-  footerPad: { paddingHorizontal: 8, paddingTop: 8 },
-  typingRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8, paddingLeft: 8 },
-  typingLabel: { fontSize: 13, fontWeight: "700", color: R.accentPurple },
-  emptyHint: { padding: 24, alignItems: "center" },
-  emptyText: { textAlign: "center", fontSize: 15, lineHeight: 22, color: R.textSecondary, fontWeight: "600" },
   pressed: { opacity: 0.88 }
 });

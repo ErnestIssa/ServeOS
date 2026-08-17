@@ -1,97 +1,150 @@
+import { useEffect, useState } from "react";
 import type { PaymentPayoutRow, VenuePaymentSettings } from "../../../api";
-import { AdminBtnSecondary, AdminInput, AdminLabel } from "../../AdminUi";
-import { MoneyTile, PayChip, PaySection } from "./paymentsShared";
-import { formatSekFromCents, formatWhen } from "./paymentsUiHelpers";
+import { useAdminToast } from "../../AdminToast";
+import { MenuActionConfirmModal } from "../menu/MenuActionConfirmModal";
+import { MenuEntityActionsMenu } from "../menu/MenuEntityActionsMenu";
+import { PayChip, PaySection, PAYMENT_PLAY_NOTE_MS, PaymentPlayNote, PaymentPlayNoteHint } from "./paymentsShared";
+import { PayoutAccountDrawer } from "./PayoutAccountDrawer";
+import { PayoutsSettlementList } from "./PayoutsSettlementList";
+import { PayoutsVolumeChart } from "./PayoutsVolumeChart";
 
 type Props = {
   payouts: PaymentPayoutRow[];
   summary: { upcomingCents: number; lastCents: number; currency: string } | null;
   settings: VenuePaymentSettings;
   canEdit: boolean;
-  onLinkBank: () => void;
+  sandboxNote?: string | null;
   onPatchBank: (patch: VenuePaymentSettings["bankAccount"]) => void;
 };
 
-export function PaymentsPayoutsTab({ payouts, summary, settings, canEdit, onLinkBank, onPatchBank }: Props) {
-  const currency = summary?.currency ?? "SEK";
-  const upcoming = payouts.find((p) => p.status === "scheduled");
-  const last = payouts.find((p) => p.status === "paid");
+export function PaymentsPayoutsTab({
+  payouts,
+  summary,
+  settings,
+  canEdit,
+  sandboxNote,
+  onPatchBank
+}: Props) {
+  const { pushToast } = useAdminToast();
+  const [noteOpen, setNoteOpen] = useState(Boolean(sandboxNote));
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmUnlink, setConfirmUnlink] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!sandboxNote || !noteOpen) return;
+    const id = window.setTimeout(() => setNoteOpen(false), PAYMENT_PLAY_NOTE_MS);
+    return () => window.clearTimeout(id);
+  }, [sandboxNote, noteOpen]);
+
+  const hint =
+    sandboxNote && !noteOpen ? (
+      <PaymentPlayNoteHint onReplay={() => setNoteOpen(true)} label="Show payout notice" />
+    ) : null;
+
+  const bank = settings.bankAccount;
+  const accountName = bank.holderName?.trim() || (bank.lastFour ? `Bank •••• ${bank.lastFour}` : "Bank account");
+
+  const copyText = async (value: string, ok: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      pushToast(ok, "success");
+    } catch {
+      pushToast("Could not copy to clipboard.", "error");
+    }
+  };
+
+  const handleAccountAction = (id: string) => {
+    setMenuOpen(false);
+    if (id === "manage") {
+      setDrawerOpen(true);
+      return;
+    }
+    if (id === "copy_name") {
+      void copyText(accountName, "Account name copied.");
+      return;
+    }
+    if (id === "copy_number" && bank.lastFour) {
+      void copyText(`•••• ${bank.lastFour}`, "Account number copied.");
+      return;
+    }
+    if (id === "refresh") {
+      pushToast("Payout account status refreshed.", "success");
+      return;
+    }
+    if (id === "unlink") {
+      setConfirmUnlink(true);
+    }
+  };
+
+  const unlinkAccount = async () => {
+    setBusy(true);
+    await new Promise((r) => window.setTimeout(r, 220));
+    onPatchBank({ linked: false, lastFour: undefined, holderName: bank.holderName });
+    setBusy(false);
+    setConfirmUnlink(false);
+    pushToast("Bank account unlinked.", "success");
+  };
 
   return (
     <div className="admin-payments-tab-stack">
-      <PaySection
-        title="Payouts"
-        description="Money deposited into the restaurant bank account — not the same as payments received."
-      >
-        <div className="admin-payments-money-grid">
-          <MoneyTile label="Upcoming payout" value={formatSekFromCents(summary?.upcomingCents ?? 0, currency)} />
-          <MoneyTile label="Last payout" value={formatSekFromCents(summary?.lastCents ?? 0, currency)} />
-          <MoneyTile
-            label="Expected"
-            value={formatSekFromCents(upcoming?.netCents ?? last?.netCents ?? 0, currency)}
-          />
-          <MoneyTile label="Status" value={upcoming ? "Scheduled" : last ? "Paid" : "—"} />
-        </div>
-      </PaySection>
+      {sandboxNote ? <PaymentPlayNote open={noteOpen} text={sandboxNote} /> : null}
 
-      <PaySection title="Settlement breakdown" description="Gross, fees, refunds, and tips from provider settlement data.">
-        <div className="admin-payments-surface-list">
-          {payouts.map((p) => (
-            <div key={p.id} className="admin-payments-surface-row is-static">
-              <div className="min-w-0">
-                <p className="font-semibold admin-config-text">
-                  {formatSekFromCents(p.netCents, p.currency)} net · {p.provider}
-                </p>
-                <p className="admin-config-text-subtle text-xs mt-0.5">
-                  Gross {formatSekFromCents(p.grossCents, p.currency)} · Fees{" "}
-                  {formatSekFromCents(p.feesCents, p.currency)} · Refunds{" "}
-                  {formatSekFromCents(p.refundsCents, p.currency)} · Tips{" "}
-                  {formatSekFromCents(p.tipsCents, p.currency)}
-                </p>
-                <p className="admin-config-text-subtle text-xs mt-0.5">
-                  {p.paidAt ? `Paid ${formatWhen(p.paidAt)}` : `Expected ${formatWhen(p.expectedAt)}`}
-                </p>
-              </div>
-              <PayChip tone={p.status === "paid" ? "success" : p.status === "failed" ? "danger" : "warning"}>
-                {p.status.replace(/_/g, " ")}
-              </PayChip>
-            </div>
-          ))}
-        </div>
-      </PaySection>
+      <PayoutsVolumeChart payouts={payouts} summary={summary} titleHint={hint} />
 
-      <PaySection title="Bank account" description="Destination for provider payouts.">
-        <div className="grid gap-3 max-w-md">
-          <div className="admin-payments-kv">
-            <span>Linked</span>
-            <PayChip tone={settings.bankAccount.linked ? "success" : "muted"}>
-              {settings.bankAccount.linked ? "Yes" : "No"}
-            </PayChip>
+      <div className="admin-payments-payout-account-bar">
+        <button type="button" className="admin-payments-manage-btn" onClick={() => setDrawerOpen(true)}>
+          Manage Payout Account
+        </button>
+        {bank.linked ? (
+          <div className="admin-payments-payout-account-linked">
+            <span className="admin-payments-payout-account-label">Linked bank account:</span>
+            <strong className="admin-payments-payout-account-name">{accountName}</strong>
+            <PayChip tone="success">Linked</PayChip>
+            <MenuEntityActionsMenu
+              entityName={accountName}
+              subtitle="Payout destination"
+              hideHeader
+              open={menuOpen}
+              actions={[
+                { id: "manage", label: "Manage account" },
+                { id: "copy_name", label: "Copy account name" },
+                ...(bank.lastFour ? [{ id: "copy_number", label: "Copy account number" }] : []),
+                { id: "refresh", label: "Refresh status" },
+                ...(canEdit ? [{ id: "unlink", label: "Unlink account", danger: true }] : [])
+              ]}
+              onToggle={() => setMenuOpen((cur) => !cur)}
+              onAction={handleAccountAction}
+            />
           </div>
-          {settings.bankAccount.linked ? (
-            <>
-              <div className="admin-payments-kv">
-                <span>Account</span>
-                <strong>•••• {settings.bankAccount.lastFour ?? "————"}</strong>
-              </div>
-              <label className="grid gap-1">
-                <AdminLabel>Holder name</AdminLabel>
-                <AdminInput
-                  disabled={!canEdit}
-                  value={settings.bankAccount.holderName ?? ""}
-                  onChange={(e) =>
-                    onPatchBank({ ...settings.bankAccount, holderName: e.target.value, linked: true })
-                  }
-                />
-              </label>
-            </>
-          ) : canEdit ? (
-            <AdminBtnSecondary type="button" onClick={onLinkBank}>
-              Link bank account
-            </AdminBtnSecondary>
-          ) : null}
-        </div>
+        ) : (
+          <span className="admin-payments-payout-account-empty">No linked account</span>
+        )}
+      </div>
+
+      <PaySection title="Settlement breakdown" description="Gross, fees, refunds, and tips from provider settlement data." borderless>
+        <PayoutsSettlementList payouts={payouts} canEdit={canEdit} />
       </PaySection>
+
+      <PayoutAccountDrawer
+        open={drawerOpen}
+        settings={settings}
+        canEdit={canEdit}
+        onClose={() => setDrawerOpen(false)}
+        onSave={onPatchBank}
+      />
+
+      <MenuActionConfirmModal
+        open={confirmUnlink}
+        title="Unlink this bank account?"
+        description={`Stop sending payouts to ${accountName}. Upcoming deposits will wait until another account is linked.`}
+        confirmLabel="Unlink account"
+        danger
+        busy={busy}
+        onClose={() => (busy ? undefined : setConfirmUnlink(false))}
+        onConfirm={() => void unlinkAccount()}
+      />
     </div>
   );
 }

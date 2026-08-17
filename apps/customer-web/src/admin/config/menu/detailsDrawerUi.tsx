@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useModalScrollLock } from "../../../lib/modalScrollLock";
+import { HoverPortalTip } from "../../HoverPortalTip";
 import {
   MENU_PAGE_DRAWER_BACKDROP_CLASS,
   MENU_PAGE_DRAWER_SHELL_CLASS
@@ -176,18 +177,12 @@ export function DetailsSection({
         <h4 className="admin-staff-drawer-section-title admin-payments-section-title-row">
           <span>{title}</span>
           {helpTip ? (
-            <span className="admin-payments-section-help-wrap">
-              <span
-                className="admin-payments-section-help"
-                tabIndex={0}
-                aria-label={`About ${title}`}
-              >
-                ?
-              </span>
-              <span className="admin-payments-section-help-tip" role="tooltip">
-                {helpTip}
-              </span>
-            </span>
+            <HoverPortalTip
+              tipId={`section-help-${title.replace(/\s+/g, "-").toLowerCase()}`}
+              body={helpTip}
+              variant="section-help"
+              ariaLabel={`About ${title}`}
+            />
           ) : null}
         </h4>
       ) : null}
@@ -270,12 +265,14 @@ type ShellProps = {
   entityKey: string | null;
   title: string;
   subtitle?: string;
+  kicker?: string;
   badge?: ReactNode;
   closeLabel: string;
   onClose: () => void;
   children: ReactNode;
   /** Optional overlay centered over the side panel (e.g. mini confirm). */
   overlay?: ReactNode;
+  footer?: ReactNode;
 };
 
 export function DetailsDrawerShell({
@@ -283,11 +280,13 @@ export function DetailsDrawerShell({
   entityKey,
   title,
   subtitle,
+  kicker = "Details · read only",
   badge,
   closeLabel,
   onClose,
   children,
-  overlay
+  overlay,
+  footer
 }: ShellProps) {
   const { mounted, visible } = useDetailsDrawerMount(open, entityKey);
 
@@ -324,7 +323,7 @@ export function DetailsDrawerShell({
       >
         <header className="admin-staff-profile-header">
           <div className="min-w-0 flex-1">
-            <p className="admin-menu-details-kicker">Details · read only</p>
+            <p className="admin-menu-details-kicker">{kicker}</p>
             <h3 className="admin-staff-profile-title">{title}</h3>
             {subtitle ? <p className="admin-staff-profile-sub">{subtitle}</p> : null}
             {badge ? <div className="mt-2 flex flex-wrap items-center gap-2">{badge}</div> : null}
@@ -338,6 +337,7 @@ export function DetailsDrawerShell({
         <div className="admin-staff-profile-body admin-menu-item-profile-body admin-menu-details-body">
           {children}
         </div>
+        {footer ? <div className="admin-staff-profile-footer">{footer}</div> : null}
         {overlay}
       </div>
     </div>,
