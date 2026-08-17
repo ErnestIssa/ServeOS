@@ -6,7 +6,7 @@ import { providerLabel } from "./reconciliationMismatches";
 export type PayoutStatus = PaymentPayoutRow["status"];
 export type PayoutStatusFilter = "all" | "scheduled" | "in_transit" | "paid" | "failed";
 
-export const PAYOUT_STATUS_ORDER: PayoutStatusFilter[] = ["scheduled", "in_transit", "paid", "failed"];
+export const PAYOUT_STATUS_ORDER: Array<Exclude<PayoutStatusFilter, "all">> = ["scheduled", "in_transit", "paid", "failed"];
 
 export type PayoutActionId =
   | "view"

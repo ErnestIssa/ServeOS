@@ -208,7 +208,8 @@ export function PaymentsReconciliationTab({ reconciliation, canEdit = false }: P
       mismatched === 0
         ? "ServeOS and the payment provider agree on the current ledger."
         : `ServeOS and the provider disagree on ${mismatched} payment${mismatched === 1 ? "" : "s"}.`;
-    const matchTone = mismatched === 0 || matchRate >= 99.9 ? "ahead" : matchRate >= 97 ? "on_track" : "behind";
+    const matchTone: keyof typeof MATCH_TONE_COLOR =
+      mismatched === 0 || matchRate >= 99.9 ? "ahead" : matchRate >= 97 ? "on_track" : "behind";
     const matchToneLabel = matchTone === "ahead" ? "Clean match" : matchTone === "on_track" ? "Mostly matched" : "Needs attention";
     const newest = rows[0]?.createdAt ?? new Date().toISOString();
     return {

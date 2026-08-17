@@ -15,7 +15,7 @@ export type RefundListRow = PaymentRefundRow & {
   guestName: string;
 };
 
-export const REFUND_STATUS_ORDER: RefundStatusFilter[] = [
+export const REFUND_STATUS_ORDER: Array<Exclude<RefundStatusFilter, "all">> = [
   "pending_approval",
   "processing",
   "completed",

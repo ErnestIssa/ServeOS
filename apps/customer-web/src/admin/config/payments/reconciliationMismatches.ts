@@ -5,7 +5,7 @@ import type { PaymentReconciliation } from "../../../api";
 export type MismatchStatus = "open" | "investigating" | "resolved";
 export type MismatchStatusFilter = "all" | "open" | "investigating";
 
-export const MISMATCH_STATUS_ORDER: MismatchStatusFilter[] = ["open", "investigating"];
+export const MISMATCH_STATUS_ORDER: Array<Exclude<MismatchStatusFilter, "all">> = ["open", "investigating"];
 
 export const MISMATCHES_LIST_QUERY: MenuListQueryPreset = {
   defaultSort: "newest",
