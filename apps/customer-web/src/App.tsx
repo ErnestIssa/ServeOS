@@ -24,6 +24,7 @@ import { pathForLegalSlug } from "./legal/legalRoutes";
 import { ADMIN_WORKSPACE_FAB } from "./marketing/fabTone";
 import { SupportPopup } from "./marketing/SupportPopup";
 import { useSupportPopup } from "./marketing/useSupportPopup";
+import { usePlatformSupport } from "./admin/platformSupport/usePlatformSupport";
 import { scrollToId } from "./marketing/ui";
 import { GuestOrderingPage } from "./guest/GuestOrderingPage";
 import { GuestQrResolvePage } from "./guest/GuestQrResolvePage";
@@ -35,7 +36,8 @@ export function App() {
   const [view, setView] = useState<AppView>(() => resolveAppViewForSession(window.location.pathname));
   const [legalSlug, setLegalSlug] = useState<LegalSlug>(() => legalSlugFromPath(window.location.pathname));
   const [adminSession, setAdminSession] = useState(() => hasActiveAdminSession());
-  const { isVisible: isSupportVisible, onOpen: onSupportOpen, onClose: onSupportClose } = useSupportPopup();
+  const marketingSupport = useSupportPopup();
+  const platformSupport = usePlatformSupport(adminSession);
 
   useEffect(() => {
     const path = window.location.pathname.replace(/\/+$/, "") || "/";
@@ -182,9 +184,11 @@ export function App() {
       ) : null}
 
       <SupportPopup
-        isVisible={isSupportVisible}
-        onOpen={onSupportOpen}
-        onClose={onSupportClose}
+        isVisible={adminSession ? platformSupport.isVisible : marketingSupport.isVisible}
+        onOpen={adminSession ? platformSupport.onFabOpen : marketingSupport.onOpen}
+        onClose={adminSession ? platformSupport.onClose : marketingSupport.onClose}
+        fabVisible={adminSession ? platformSupport.fabVisible : true}
+        onSupportInteraction={adminSession ? platformSupport.onSupportInteraction : undefined}
         workspaceLocked={adminSession}
         adminWorkspaceChrome={view === "admin"}
         marketingScrollTone={view !== "admin"}

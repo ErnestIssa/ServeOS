@@ -10,88 +10,307 @@ function minutesAgo(mins: number) {
   return new Date(Date.now() - mins * 60_000).toISOString();
 }
 
-function thread(
-  partial: Omit<CommsThread, "href"> & { href?: string }
-): CommsThread {
+function thread(partial: Omit<CommsThread, "href"> & { href?: string }): CommsThread {
   return {
     ...partial,
     href: partial.href ?? `#ws-comms/order-chats?roomId=${encodeURIComponent(partial.id)}`
   };
 }
 
-const ORDER_THREADS: CommsThread[] = [
-  thread({
-    id: `${DEMO_PREFIX}order-1042`,
-    kind: "room",
-    type: "ORDER",
-    name: "Order #1042",
+type OrderThreadDef = {
+  slug: string;
+  kind: "ORDER" | "RESERVATION" | "TABLE";
+  label: string;
+  preview: string;
+  mins: number;
+  unread: boolean;
+  status: string;
+  customer: string;
+  table?: string | null;
+  paymentStatus?: string;
+  note?: string | null;
+  items?: Array<{ name: string; qty: number; cents: number }>;
+};
+
+const ORDER_THREAD_DEFS: OrderThreadDef[] = [
+  {
+    slug: "order-1042",
+    kind: "ORDER",
+    label: "Order #1042",
     preview: "Can you skip the onions on the burger?",
-    lastMessageAt: minutesAgo(2),
+    mins: 2,
     unread: true,
-    orderId: `${DEMO_PREFIX}ord-1042`,
-    reservationId: null,
-    orderStatus: "PREPARING",
-    customerLabel: "Anna Berg",
-    channelKey: null
-  }),
-  thread({
-    id: `${DEMO_PREFIX}order-1048`,
-    kind: "room",
-    type: "ORDER",
-    name: "Order #1048",
+    status: "PREPARING",
+    customer: "Anna Berg",
+    table: "Table 12",
+    note: "No onions. Extra spicy.",
+    items: [
+      { name: "Smash burger", qty: 1, cents: 16500 },
+      { name: "Fries", qty: 1, cents: 4500 },
+      { name: "Sparkling water", qty: 1, cents: 3800 }
+    ]
+  },
+  {
+    slug: "order-1048",
+    kind: "ORDER",
+    label: "Order #1048",
     preview: "Table 4 asked for extra ketchup.",
-    lastMessageAt: minutesAgo(8),
+    mins: 8,
     unread: true,
-    orderId: `${DEMO_PREFIX}ord-1048`,
-    reservationId: null,
-    orderStatus: "ACCEPTED",
-    customerLabel: "Oscar Lind",
-    channelKey: null
-  }),
-  thread({
-    id: `${DEMO_PREFIX}res-8821`,
-    kind: "room",
-    type: "RESERVATION",
-    name: "Reservation RSV-8821",
+    status: "ACCEPTED",
+    customer: "Oscar Lind",
+    table: "Table 4",
+    items: [
+      { name: "Caesar salad", qty: 1, cents: 12900 },
+      { name: "Cola", qty: 1, cents: 6000 }
+    ]
+  },
+  {
+    slug: "res-8821",
+    kind: "RESERVATION",
+    label: "Reservation RSV-8821",
     preview: "We are running 10 minutes late — still hold the table?",
-    lastMessageAt: minutesAgo(14),
+    mins: 14,
     unread: false,
-    orderId: null,
-    reservationId: `${DEMO_PREFIX}res-8821`,
-    orderStatus: "CONFIRMED",
-    customerLabel: "Fatima Ali",
-    channelKey: null,
-    href: `#ws-comms/order-chats?roomId=${encodeURIComponent(`${DEMO_PREFIX}res-8821`)}`
-  }),
-  thread({
-    id: `${DEMO_PREFIX}order-1038`,
-    kind: "room",
-    type: "ORDER",
-    name: "Order #1038",
+    status: "CONFIRMED",
+    customer: "Fatima Ali"
+  },
+  {
+    slug: "order-1038",
+    kind: "ORDER",
+    label: "Order #1038",
     preview: "Food is on the way to table 12.",
-    lastMessageAt: minutesAgo(28),
+    mins: 28,
     unread: false,
-    orderId: `${DEMO_PREFIX}ord-1038`,
-    reservationId: null,
-    orderStatus: "READY",
-    customerLabel: "Hugo Ek",
-    channelKey: null
-  }),
-  thread({
-    id: `${DEMO_PREFIX}order-1031`,
-    kind: "room",
-    type: "ORDER",
-    name: "Order #1031",
+    status: "READY",
+    customer: "Hugo Ek",
+    table: "Table 12",
+    items: [
+      { name: "Pasta carbonara", qty: 2, cents: 27800 },
+      { name: "Espresso", qty: 1, cents: 3400 }
+    ]
+  },
+  {
+    slug: "order-1031",
+    kind: "ORDER",
+    label: "Order #1031",
     preview: "Thanks — order completed.",
-    lastMessageAt: minutesAgo(95),
+    mins: 95,
     unread: false,
-    orderId: `${DEMO_PREFIX}ord-1031`,
-    reservationId: null,
-    orderStatus: "COMPLETED",
-    customerLabel: "Nora Holm",
-    channelKey: null
-  })
+    status: "COMPLETED",
+    customer: "Nora Holm",
+    table: "Takeaway",
+    items: [{ name: "Chicken wrap", qty: 2, cents: 15600 }]
+  },
+  {
+    slug: "order-1055",
+    kind: "ORDER",
+    label: "Order #1055",
+    preview: "Payment failed — can I try Swish again?",
+    mins: 5,
+    unread: true,
+    status: "PAYMENT_FAILED",
+    customer: "Erik Johansson",
+    table: "Table 8",
+    paymentStatus: "FAILED",
+    items: [{ name: "Fish & chips", qty: 1, cents: 18900 }]
+  },
+  {
+    slug: "table-7",
+    kind: "TABLE",
+    label: "Table 7 · QR chat",
+    preview: "Do you have any vegan mains tonight?",
+    mins: 11,
+    unread: true,
+    status: "OPEN",
+    customer: "Guest at Table 7",
+    table: "Table 7"
+  },
+  {
+    slug: "order-1051",
+    kind: "ORDER",
+    label: "Order #1051",
+    preview: "Kitchen delay — is it still coming?",
+    mins: 18,
+    unread: true,
+    status: "DELAYED",
+    customer: "Sara Nilsson",
+    table: "Table 2",
+    items: [{ name: "Ribeye steak", qty: 1, cents: 32900 }]
+  },
+  {
+    slug: "order-1044",
+    kind: "ORDER",
+    label: "Order #1044",
+    preview: "I'd like a refund for the soup — it was cold.",
+    mins: 22,
+    unread: false,
+    status: "REFUND_REQUESTED",
+    customer: "Jonas Wik",
+    table: "Table 15",
+    items: [{ name: "Tomato soup", qty: 1, cents: 8900 }]
+  },
+  {
+    slug: "order-1058",
+    kind: "ORDER",
+    label: "Order #1058",
+    preview: "I was charged twice on my card.",
+    mins: 31,
+    unread: true,
+    status: "DISPUTED",
+    customer: "Maria Santos",
+    table: "Bar 3",
+    paymentStatus: "DISPUTED",
+    items: [{ name: "Negroni", qty: 2, cents: 24000 }]
+  },
+  {
+    slug: "res-9012",
+    kind: "RESERVATION",
+    label: "Reservation RSV-9012",
+    preview: "Can we move from 18:00 to 19:00?",
+    mins: 35,
+    unread: true,
+    status: "PENDING",
+    customer: "Lina Forsberg"
+  },
+  {
+    slug: "order-1062",
+    kind: "ORDER",
+    label: "Order #1062",
+    preview: "Waiting at the bar — order accepted?",
+    mins: 42,
+    unread: false,
+    status: "PENDING",
+    customer: "Peter Alm",
+    table: "Bar 1",
+    paymentStatus: "PENDING",
+    items: [{ name: "Margherita pizza", qty: 1, cents: 14500 }]
+  },
+  {
+    slug: "order-1035",
+    kind: "ORDER",
+    label: "Order #1035",
+    preview: "Pickup in 5 min — bag it separately please.",
+    mins: 48,
+    unread: false,
+    status: "PREPARING",
+    customer: "Klara Holm",
+    table: "Takeaway",
+    items: [
+      { name: "Buddha bowl", qty: 1, cents: 13900 },
+      { name: "Iced tea", qty: 1, cents: 4500 }
+    ]
+  },
+  {
+    slug: "order-1040",
+    kind: "ORDER",
+    label: "Order #1040",
+    preview: "Driver is at the door — buzzer 4B.",
+    mins: 52,
+    unread: false,
+    status: "OUT_FOR_DELIVERY",
+    customer: "Daniel Cho",
+    table: "Delivery",
+    items: [{ name: "Sushi combo", qty: 1, cents: 28900 }]
+  },
+  {
+    slug: "table-3",
+    kind: "TABLE",
+    label: "Table 3 · QR chat",
+    preview: "What's the soup of the day?",
+    mins: 58,
+    unread: false,
+    status: "OPEN",
+    customer: "Guest at Table 3",
+    table: "Table 3"
+  },
+  {
+    slug: "order-1068",
+    kind: "ORDER",
+    label: "Order #1068",
+    preview: "Party of 8 — can starters come out first?",
+    mins: 63,
+    unread: true,
+    status: "ACCEPTED",
+    customer: "Henrik & co.",
+    table: "Table 20",
+    note: "Birthday — 8 guests.",
+    items: [
+      { name: "Sharing platter", qty: 2, cents: 45800 },
+      { name: "Prosecco", qty: 2, cents: 32000 }
+    ]
+  },
+  {
+    slug: "order-1070",
+    kind: "ORDER",
+    label: "Order #1070",
+    preview: "Can we split the bill three ways?",
+    mins: 71,
+    unread: false,
+    status: "PREPARING",
+    customer: "Emma Lund",
+    table: "Table 9",
+    items: [{ name: "Tasting menu", qty: 3, cents: 89700 }]
+  },
+  {
+    slug: "order-1072",
+    kind: "ORDER",
+    label: "Order #1072",
+    preview: "Wrong dish — we ordered salmon, got chicken.",
+    mins: 76,
+    unread: true,
+    status: "PREPARING",
+    customer: "Ahmed Hassan",
+    table: "Table 6",
+    items: [{ name: "Grilled salmon", qty: 2, cents: 37800 }]
+  },
+  {
+    slug: "order-1075",
+    kind: "ORDER",
+    label: "Order #1075",
+    preview: "It's my partner's birthday — any dessert surprise?",
+    mins: 84,
+    unread: false,
+    status: "ACCEPTED",
+    customer: "Sofia Bergman",
+    table: "Table 11",
+    note: "Birthday dessert surprise requested.",
+    items: [{ name: "Dinner for two", qty: 1, cents: 54900 }]
+  },
+  {
+    slug: "order-1078",
+    kind: "ORDER",
+    label: "Order #1078",
+    preview: "Gluten-free pasta — is the kitchen aware?",
+    mins: 91,
+    unread: true,
+    status: "PREPARING",
+    customer: "Ingrid Larsson",
+    table: "Table 5",
+    note: "Celiac — strict gluten free.",
+    items: [{ name: "GF pasta arrabbiata", qty: 1, cents: 16900 }]
+  }
 ];
+
+const ORDER_THREADS: CommsThread[] = ORDER_THREAD_DEFS.map((def) => {
+  const id = `${DEMO_PREFIX}${def.slug}`;
+  const orderNum = def.label.match(/#(\d+)/)?.[1] ?? def.slug;
+  return thread({
+    id,
+    kind: "room",
+    type: def.kind,
+    name: def.label,
+    preview: def.preview,
+    lastMessageAt: minutesAgo(def.mins),
+    unread: def.unread,
+    orderId: def.kind === "ORDER" ? `${DEMO_PREFIX}ord-${orderNum}` : null,
+    reservationId: def.kind === "RESERVATION" ? id : null,
+    orderStatus: def.status,
+    customerLabel: def.customer,
+    channelKey: null,
+    tableLabel: def.table ?? null
+  });
+});
 
 const STAFF_THREADS: CommsThread[] = [
   thread({
@@ -237,136 +456,136 @@ function msg(
   };
 }
 
-const MESSAGES: Record<string, CommsMessage[]> = {
-  [`${DEMO_PREFIX}order-1042`]: [
-    msg("demo:order-1042", "1042-1", "SYSTEM", "Order #1042 placed · Table 12", 22, true),
-    msg("demo:order-1042", "1042-2", "CUSTOMER", "Extra spicy, no onions on the burger please.", 20),
-    msg("demo:order-1042", "1042-3", "STAFF", "Noted — kitchen has the allergy flag on the ticket.", 16),
-    msg("demo:order-1042", "1042-4", "SYSTEM", "Status · PREPARING", 9, true),
-    msg("demo:order-1042", "1042-5", "CUSTOMER", "Can you skip the onions on the burger?", 2)
-  ],
-  [`${DEMO_PREFIX}order-1048`]: [
-    msg("demo:order-1048", "1048-1", "SYSTEM", "Order #1048 placed · Table 4", 16, true),
-    msg("demo:order-1048", "1048-2", "STAFF", "Order accepted. About 12 minutes.", 12),
-    msg("demo:order-1048", "1048-3", "CUSTOMER", "Table 4 asked for extra ketchup.", 8)
-  ],
-  [`${DEMO_PREFIX}res-8821`]: [
-    msg("demo:res-8821", "8821-1", "SYSTEM", "Reservation RSV-8821 confirmed · 19:30 · 4 guests", 80, true),
-    msg("demo:res-8821", "8821-2", "CUSTOMER", "We are running 10 minutes late — still hold the table?", 14),
-    msg("demo:res-8821", "8821-3", "STAFF", "Yes, we will hold it until 19:45.", 12)
-  ],
-  [`${DEMO_PREFIX}order-1038`]: [
-    msg("demo:order-1038", "1038-1", "SYSTEM", "Order #1038 paid", 40, true),
-    msg("demo:order-1038", "1038-2", "CUSTOMER", "Where should we pick this up?", 32),
-    msg("demo:order-1038", "1038-3", "STAFF", "Food is on the way to table 12.", 28)
-  ],
-  [`${DEMO_PREFIX}order-1031`]: [
-    msg("demo:order-1031", "1031-1", "SYSTEM", "Order #1031 completed", 100, true),
-    msg("demo:order-1031", "1031-2", "CUSTOMER", "Thanks — everything was great.", 96),
-    msg("demo:order-1031", "1031-3", "STAFF", "Glad to hear it. See you next time.", 95)
-  ],
-  [`${DEMO_PREFIX}staff-kitchen`]: [
-    msg("demo:staff-kitchen", "k-1", "STAFF", "Expo: 86 the mushroom soup for 20 minutes.", 40),
-    msg("demo:staff-kitchen", "k-2", "STAFF", "Hold #1042 — allergy note on the ticket.", 4)
-  ],
-  [`${DEMO_PREFIX}staff-foh`]: [
-    msg("demo:staff-foh", "f-1", "STAFF", "Walk-in of 3 waiting at the door.", 25),
-    msg("demo:staff-foh", "f-2", "STAFF", "Table 12 needs water and extra napkins.", 11)
-  ],
-  [`${DEMO_PREFIX}staff-managers`]: [
-    msg("demo:staff-managers", "m-1", "STAFF", "Shift coverage looks thin after 21:00.", 90),
-    msg("demo:staff-managers", "m-2", "STAFF", "Receipt printer on floor 1 is offline.", 36)
-  ]
-};
-
-const CONTEXTS: Record<string, CommsContext> = {
-  [`${DEMO_PREFIX}order-1042`]: {
-    roomId: `${DEMO_PREFIX}order-1042`,
-    type: "ORDER",
-    order: {
-      id: `${DEMO_PREFIX}ord-1042`,
-      displayNumber: "#1042",
-      status: "PREPARING",
-      paymentStatus: "PAID",
-      customerName: "Anna Berg",
-      tableLabel: "Table 12",
-      totalCents: 24800,
-      note: "No onions. Extra spicy.",
-      items: [
-        { id: "i1", name: "Smash burger", quantity: 1, lineTotalCents: 16500 },
-        { id: "i2", name: "Fries", quantity: 1, lineTotalCents: 4500 },
-        { id: "i3", name: "Sparkling water", quantity: 1, lineTotalCents: 3800 }
-      ]
-    },
-    reservation: null
-  },
-  [`${DEMO_PREFIX}order-1048`]: {
-    roomId: `${DEMO_PREFIX}order-1048`,
-    type: "ORDER",
-    order: {
-      id: `${DEMO_PREFIX}ord-1048`,
-      displayNumber: "#1048",
-      status: "ACCEPTED",
-      paymentStatus: "PAID",
-      customerName: "Oscar Lind",
-      tableLabel: "Table 4",
-      totalCents: 18900,
-      note: null,
-      items: [
-        { id: "i4", name: "Caesar salad", quantity: 1, lineTotalCents: 12900 },
-        { id: "i5", name: "Ketchup", quantity: 1, lineTotalCents: 0 },
-        { id: "i6", name: "Cola", quantity: 1, lineTotalCents: 6000 }
-      ]
-    },
-    reservation: null
-  },
-  [`${DEMO_PREFIX}order-1038`]: {
-    roomId: `${DEMO_PREFIX}order-1038`,
-    type: "ORDER",
-    order: {
-      id: `${DEMO_PREFIX}ord-1038`,
-      displayNumber: "#1038",
-      status: "READY",
-      paymentStatus: "PAID",
-      customerName: "Hugo Ek",
-      tableLabel: "Table 12",
-      totalCents: 31200,
-      note: null,
-      items: [
-        { id: "i7", name: "Pasta carbonara", quantity: 2, lineTotalCents: 27800 },
-        { id: "i8", name: "Espresso", quantity: 1, lineTotalCents: 3400 }
-      ]
-    },
-    reservation: null
-  },
-  [`${DEMO_PREFIX}order-1031`]: {
-    roomId: `${DEMO_PREFIX}order-1031`,
-    type: "ORDER",
-    order: {
-      id: `${DEMO_PREFIX}ord-1031`,
-      displayNumber: "#1031",
-      status: "COMPLETED",
-      paymentStatus: "PAID",
-      customerName: "Nora Holm",
-      tableLabel: "Takeaway",
-      totalCents: 15600,
-      note: null,
-      items: [{ id: "i9", name: "Chicken wrap", quantity: 2, lineTotalCents: 15600 }]
-    },
-    reservation: null
-  },
-  [`${DEMO_PREFIX}res-8821`]: {
-    roomId: `${DEMO_PREFIX}res-8821`,
-    type: "RESERVATION",
-    order: null,
-    reservation: {
-      id: `${DEMO_PREFIX}res-8821`,
-      confirmationCode: "RSV-8821",
-      status: "CONFIRMED",
-      startsAt: minutesAgo(-18)
-    }
+function messagesForDef(def: OrderThreadDef): CommsMessage[] {
+  const roomId = `${DEMO_PREFIX}${def.slug}`;
+  const base = def.mins + 12;
+  if (def.kind === "TABLE") {
+    return [
+      msg(roomId, `${def.slug}-1`, "SYSTEM", `${def.table ?? "Table"} · QR session started`, base, true),
+      msg(roomId, `${def.slug}-2`, "CUSTOMER", def.preview, def.mins)
+    ];
   }
-};
+  if (def.kind === "RESERVATION") {
+    const code = def.label.replace("Reservation ", "");
+    return [
+      msg(roomId, `${def.slug}-1`, "SYSTEM", `${code} confirmed`, base + 20, true),
+      msg(roomId, `${def.slug}-2`, "CUSTOMER", def.preview, def.mins + 2),
+      msg(roomId, `${def.slug}-3`, "STAFF", "Noted — we will update the booking.", def.mins)
+    ];
+  }
+  const orderLabel = def.label;
+  const lines: CommsMessage[] = [
+    msg(roomId, `${def.slug}-1`, "SYSTEM", `${orderLabel} placed · ${def.table ?? "Pickup"}`, base, true),
+    msg(roomId, `${def.slug}-2`, "CUSTOMER", def.preview, def.mins + 4),
+    msg(roomId, `${def.slug}-3`, "STAFF", "On it — kitchen has the ticket.", def.mins + 2)
+  ];
+  if (def.status === "PREPARING" || def.status === "READY" || def.status === "DELAYED") {
+    lines.push(msg(roomId, `${def.slug}-4`, "SYSTEM", `Status · ${def.status}`, def.mins + 1, true));
+  }
+  lines.push(msg(roomId, `${def.slug}-5`, "CUSTOMER", def.preview, def.mins));
+  return lines;
+}
+
+function contextForDef(def: OrderThreadDef): CommsContext {
+  const roomId = `${DEMO_PREFIX}${def.slug}`;
+  if (def.kind === "TABLE") {
+    return {
+      roomId,
+      type: "TABLE",
+      table: {
+        tableId: `${DEMO_PREFIX}tbl-${def.slug}`,
+        tableLabel: def.table?.replace("Table ", "") ?? null,
+        sourceSessionId: `${DEMO_PREFIX}sess-${def.slug}`
+      },
+      order: null,
+      reservation: null
+    };
+  }
+  if (def.kind === "RESERVATION") {
+    const code = def.label.replace("Reservation ", "");
+    return {
+      roomId,
+      type: "RESERVATION",
+      order: null,
+      reservation: {
+        id: roomId,
+        confirmationCode: code,
+        status: def.status,
+        startsAt: minutesAgo(-def.mins)
+      }
+    };
+  }
+  const orderNum = def.label.match(/#(\d+)/)?.[1] ?? def.slug;
+  const items = (def.items ?? [{ name: "House special", qty: 1, cents: 12000 }]).map((item, i) => ({
+    id: `${def.slug}-i${i}`,
+    name: item.name,
+    quantity: item.qty,
+    lineTotalCents: item.cents
+  }));
+  const totalCents = items.reduce((sum, item) => sum + item.lineTotalCents, 0);
+  return {
+    roomId,
+    type: "ORDER",
+    order: {
+      id: `${DEMO_PREFIX}ord-${orderNum}`,
+      displayNumber: `#${orderNum}`,
+      status: def.status,
+      paymentStatus: def.paymentStatus ?? (def.status === "PAYMENT_FAILED" ? "FAILED" : "PAID"),
+      customerName: def.customer,
+      tableLabel: def.table ?? null,
+      totalCents,
+      note: def.note ?? null,
+      items
+    },
+    reservation: null
+  };
+}
+
+const MESSAGES: Record<string, CommsMessage[]> = Object.fromEntries(
+  ORDER_THREAD_DEFS.map((def) => [`${DEMO_PREFIX}${def.slug}`, messagesForDef(def)])
+);
+
+MESSAGES[`${DEMO_PREFIX}staff-kitchen`] = [
+  msg("demo:staff-kitchen", "k-1", "STAFF", "Expo: 86 the mushroom soup for 20 minutes.", 40),
+  msg("demo:staff-kitchen", "k-2", "STAFF", "Hold #1042 — allergy note on the ticket.", 4)
+];
+MESSAGES[`${DEMO_PREFIX}staff-foh`] = [
+  msg("demo:staff-foh", "f-1", "STAFF", "Walk-in of 3 waiting at the door.", 25),
+  msg("demo:staff-foh", "f-2", "STAFF", "Table 12 needs water and extra napkins.", 11)
+];
+MESSAGES[`${DEMO_PREFIX}staff-managers`] = [
+  msg("demo:staff-managers", "m-1", "STAFF", "Shift coverage looks thin after 21:00.", 90),
+  msg("demo:staff-managers", "m-2", "STAFF", "Receipt printer on floor 1 is offline.", 36)
+];
+
+const CONTEXTS: Record<string, CommsContext> = Object.fromEntries(
+  ORDER_THREAD_DEFS.map((def) => [`${DEMO_PREFIX}${def.slug}`, contextForDef(def)])
+);
+
+export function filterDemoThreads(threads: CommsThread[], query: string): CommsThread[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return threads;
+  return threads.filter(
+    (t) =>
+      t.name.toLowerCase().includes(q) ||
+      t.preview.toLowerCase().includes(q) ||
+      (t.customerLabel?.toLowerCase().includes(q) ?? false) ||
+      (t.orderStatus?.toLowerCase().includes(q) ?? false) ||
+      (t.tableLabel?.toLowerCase().includes(q) ?? false)
+  );
+}
+
+export function demoOrderStats(threads: CommsThread[]) {
+  const unread = threads.filter((t) => t.unread).length;
+  const active = threads.filter((t) => t.orderStatus && !["COMPLETED", "CANCELLED"].includes(t.orderStatus)).length;
+  const preparing = threads.filter((t) => t.orderStatus === "PREPARING").length;
+  const needsAttention = threads.filter((t) =>
+    ["DELAYED", "PAYMENT_FAILED", "DISPUTED", "REFUND_REQUESTED"].includes(t.orderStatus ?? "")
+  ).length;
+  const reservations = threads.filter((t) => t.type === "RESERVATION").length;
+  const tableChats = threads.filter((t) => t.type === "TABLE").length;
+  return { total: threads.length, unread, active, preparing, needsAttention, reservations, tableChats };
+}
 
 export function demoThreadsForView(view: CommsView): CommsThread[] {
   if (view === "staff") return STAFF_THREADS;

@@ -21,6 +21,15 @@ import {
 import { listSecurityActivity, logSecurityActivity } from "../lib/account/securityActivity.js";
 import { buildPermissionsOverview } from "../lib/account/permissionsOverview.js";
 import { getAppPreferences, patchAppPreferences } from "../lib/account/preferencesService.js";
+import {
+  closePlatformSupport,
+  getPlatformSupportState,
+  openPlatformSupport,
+  pinPlatformSupportFab,
+  recordPlatformSupportActivity,
+  recordPlatformSupportInteraction,
+  type PlatformSupportOpenSource
+} from "../lib/platformSupport/platformSupportService.js";
 import { requestAccountClosure, requestOwnershipTransfer } from "../lib/account/dangerZoneService.js";
 import { createProfileImageUploadSession } from "../lib/integrations/objectStorage.js";
 import { loadUserNotificationPrefs } from "../notifications/preferences.js";
@@ -334,5 +343,51 @@ export function registerMeRoutes(app: FastifyInstance, prisma: PrismaClient) {
     });
     if (!result.ok) return reply.status(400).send(result);
     return result;
+  });
+
+  app.get("/me/platform-support", async (req, reply) => {
+    const { userId } = bearerAuth(req, app);
+    const state = await getPlatformSupportState(prisma, userId);
+    return { ok: true, ...state };
+  });
+
+  app.post("/me/platform-support/platform-activity", async (req, reply) => {
+    const { userId } = bearerAuth(req, app);
+    const state = await recordPlatformSupportActivity(prisma, userId);
+    return { ok: true, ...state };
+  });
+
+  app.post("/me/platform-support/open", async (req, reply) => {
+    const { userId } = bearerAuth(req, app);
+    const body = z
+      .object({
+        source: z.enum(["FAB", "PLATFORM_HELP"])
+      })
+      .parse(req.body);
+    const state = await openPlatformSupport(prisma, userId, body.source as PlatformSupportOpenSource);
+    return { ok: true, ...state };
+  });
+
+  app.post("/me/platform-support/pin-fab", async (req, reply) => {
+    const { userId } = bearerAuth(req, app);
+    const state = await pinPlatformSupportFab(prisma, userId);
+    return { ok: true, ...state };
+  });
+
+  app.post("/me/platform-support/interaction", async (req, reply) => {
+    const { userId } = bearerAuth(req, app);
+    const body = z
+      .object({
+        hasActiveThread: z.boolean()
+      })
+      .parse(req.body);
+    const state = await recordPlatformSupportInteraction(prisma, userId, body);
+    return { ok: true, ...state };
+  });
+
+  app.post("/me/platform-support/close", async (req, reply) => {
+    const { userId } = bearerAuth(req, app);
+    const state = await closePlatformSupport(prisma, userId);
+    return { ok: true, ...state };
   });
 }

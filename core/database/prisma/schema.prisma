@@ -66,6 +66,7 @@ model User {
   staffAuditsAsActor   StaffAuditLog[] @relation("StaffAuditActor")
   staffAuditsAsTarget  StaffAuditLog[] @relation("StaffAuditTarget")
   communicationSubscriber CommunicationSubscriber?
+  platformSupportSession PlatformSupportSession?
 }
 
 /// Owner/staff personal profile — SSOT for admin profile page (distinct from signupProfile snapshot).
@@ -92,6 +93,21 @@ model UserAppPreferences {
   theme      String   @default("system")
   updatedAt  DateTime @updatedAt
   createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Admin platform support widget — FAB visibility, modal lifecycle, idle timeouts (server-driven).
+model PlatformSupportSession {
+  userId                 String   @id
+  fabPinned              Boolean  @default(false)
+  modalOpen              Boolean  @default(false)
+  hasActiveThread        Boolean  @default(false)
+  openedVia              String?
+  lastSupportActivityAt  DateTime @default(now())
+  lastPlatformActivityAt DateTime @default(now())
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

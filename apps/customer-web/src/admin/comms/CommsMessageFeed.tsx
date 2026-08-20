@@ -1,3 +1,4 @@
+import { AnimatePresence, motion } from "framer-motion";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Bubble, BubbleContent, BubbleGroup } from "@/components/ui/bubble";
 import { Marker, MarkerContent } from "@/components/ui/marker";
@@ -9,6 +10,8 @@ import {
   MessageScrollerViewport
 } from "@/components/ui/message-scroller";
 import type { CommsMessage } from "./commsApi";
+import { CommsColumnLoader } from "./CommsColumnLoader";
+import { COMMS_PANE_MOTION } from "./commsPaneMotion";
 
 function formatWhen(iso: string) {
   const d = new Date(iso);
@@ -54,71 +57,74 @@ function initials(role: string) {
 export function CommsMessageFeed({
   messages,
   empty,
-  loading
+  loading,
+  threadKey = "thread"
 }: {
   messages: CommsMessage[];
   empty: boolean;
   loading: boolean;
+  threadKey?: string;
 }) {
   if (loading) {
-    return <p className="admin-comms-empty">Loading thread…</p>;
+    return <CommsColumnLoader className="admin-comms-pane-loading--feed" />;
   }
-  if (empty) {
-    return (
-      <MessageScroller>
-        <MessageScrollerViewport>
-          <MessageScrollerContent className="admin-comms-feed-inner">
-            <Marker>
-              <MarkerContent>No messages yet. Operational updates will appear here.</MarkerContent>
-            </Marker>
-          </MessageScrollerContent>
-        </MessageScrollerViewport>
-      </MessageScroller>
-    );
-  }
-
-  const blocks = blocksFor(messages);
 
   return (
-    <MessageScroller>
-      <MessageScrollerViewport>
-        <MessageScrollerContent className="admin-comms-feed-inner">
-          {blocks.map((block) => {
-            if (block.kind === "system") {
-              return (
-                <Marker key={block.message.id}>
-                  <MarkerContent>
-                    <span className="ui-marker-kicker">System</span>
-                    {block.message.content}
-                    <span className="ui-marker-time">{formatWhen(block.message.createdAt)}</span>
-                  </MarkerContent>
+    <AnimatePresence mode="wait" initial={false}>
+      <motion.div key={threadKey} className="admin-comms-feed-motion" {...COMMS_PANE_MOTION}>
+        {empty ? (
+          <MessageScroller>
+            <MessageScrollerViewport>
+              <MessageScrollerContent className="admin-comms-feed-inner">
+                <Marker>
+                  <MarkerContent>No messages yet. Operational updates will appear here.</MarkerContent>
                 </Marker>
-              );
-            }
-            const last = block.messages[block.messages.length - 1]!;
-            const footer = block.align === "end" ? deliveryLabel(last.deliveryStatus) : null;
-            const bubbles = block.messages.map((m) => (
-              <Bubble key={m.id} variant={block.align === "start" ? "muted" : "default"}>
-                <BubbleContent>{m.content}</BubbleContent>
-              </Bubble>
-            ));
-            return (
-              <Message key={last.id} align={block.align}>
-                <MessageAvatar>
-                  <Avatar>
-                    <AvatarFallback>{initials(block.role)}</AvatarFallback>
-                  </Avatar>
-                </MessageAvatar>
-                <MessageContent>
-                  {block.messages.length > 1 ? <BubbleGroup>{bubbles}</BubbleGroup> : bubbles}
-                  {footer ? <MessageFooter>{footer}</MessageFooter> : null}
-                </MessageContent>
-              </Message>
-            );
-          })}
-        </MessageScrollerContent>
-      </MessageScrollerViewport>
-      <MessageScrollerButton />
-    </MessageScroller>
+              </MessageScrollerContent>
+            </MessageScrollerViewport>
+          </MessageScroller>
+        ) : (
+          <MessageScroller>
+            <MessageScrollerViewport>
+              <MessageScrollerContent className="admin-comms-feed-inner">
+                {blocksFor(messages).map((block) => {
+                  if (block.kind === "system") {
+                    return (
+                      <Marker key={block.message.id}>
+                        <MarkerContent>
+                          <span className="ui-marker-kicker">System</span>
+                          {block.message.content}
+                          <span className="ui-marker-time">{formatWhen(block.message.createdAt)}</span>
+                        </MarkerContent>
+                      </Marker>
+                    );
+                  }
+                  const last = block.messages[block.messages.length - 1]!;
+                  const footer = block.align === "end" ? deliveryLabel(last.deliveryStatus) : null;
+                  const bubbles = block.messages.map((m) => (
+                    <Bubble key={m.id} variant={block.align === "start" ? "muted" : "default"}>
+                      <BubbleContent>{m.content}</BubbleContent>
+                    </Bubble>
+                  ));
+                  return (
+                    <Message key={last.id} align={block.align}>
+                      <MessageAvatar>
+                        <Avatar>
+                          <AvatarFallback>{initials(block.role)}</AvatarFallback>
+                        </Avatar>
+                      </MessageAvatar>
+                      <MessageContent>
+                        {block.messages.length > 1 ? <BubbleGroup>{bubbles}</BubbleGroup> : bubbles}
+                        {footer ? <MessageFooter>{footer}</MessageFooter> : null}
+                      </MessageContent>
+                    </Message>
+                  );
+                })}
+              </MessageScrollerContent>
+            </MessageScrollerViewport>
+            <MessageScrollerButton />
+          </MessageScroller>
+        )}
+      </motion.div>
+    </AnimatePresence>
   );
 }

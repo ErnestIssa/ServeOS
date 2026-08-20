@@ -26,6 +26,10 @@ type Props = {
   workspaceLocked?: boolean;
   /** Admin dashboard chrome — uses theme-aware FAB colors (independent of session lock). */
   adminWorkspaceChrome?: boolean;
+  /** When false, the floating support FAB is hidden (admin platform-support policy). */
+  fabVisible?: boolean;
+  /** Called when the user interacts inside support (resets server idle timers). */
+  onSupportInteraction?: (hasActiveThread: boolean) => void;
   /** Optional display name override for the compact home greeting. */
   loggedInUserName?: string | null;
   fabClassName?: string;
@@ -599,6 +603,8 @@ export function SupportPopup({
   marketingScrollTone = true,
   workspaceLocked = false,
   adminWorkspaceChrome = false,
+  fabVisible = true,
+  onSupportInteraction,
   fabClassName = "bottom-24 right-4 md:bottom-6 md:right-6",
   loggedInUserName,
   onHowItWorks,
@@ -736,6 +742,27 @@ export function SupportPopup({
       document.body.style.overflow = prev;
     };
   }, [isVisible]);
+
+  useEffect(() => {
+    onSupportInteraction?.(messagesThreadOpen);
+  }, [messagesThreadOpen, onSupportInteraction]);
+
+  useEffect(() => {
+    if (!isVisible || !onSupportInteraction) return;
+    const ping = () => onSupportInteraction(messagesThreadOpen);
+    ping();
+    const overlay = overlayRef.current;
+    if (!overlay) return;
+    const events: Array<keyof HTMLElementEventMap> = ["pointerdown", "keydown", "input"];
+    for (const ev of events) {
+      overlay.addEventListener(ev, ping);
+    }
+    return () => {
+      for (const ev of events) {
+        overlay.removeEventListener(ev, ping);
+      }
+    };
+  }, [isVisible, messagesThreadOpen, onSupportInteraction]);
 
   useEffect(() => {
     if (!isVisible) return;
@@ -953,6 +980,7 @@ export function SupportPopup({
       </div>
       ) : null}
 
+      {fabVisible ? (
       <button
         type="button"
         data-support-icon
@@ -983,6 +1011,7 @@ export function SupportPopup({
           <ChevronDownIcon className="h-6 w-6" />
         </span>
       </button>
+      ) : null}
     </>
   );
 }

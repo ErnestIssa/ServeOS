@@ -24,6 +24,7 @@ import {
   type AdminNavGroup,
   type AdminTheme
 } from "./adminNavContent";
+import { dispatchOpenPlatformSupport } from "./platformSupport/platformSupportEvents";
 import { ADMIN_NAV_SYNC_EVENT, buildNavHref, parseAdminRoute } from "./adminWorkspaceRouting";
 import { AdminGlobalSearchModal } from "./AdminGlobalSearchModal";
 import { AdminRestaurantSelector, AdminTypingSearch } from "./adminTopChrome";
@@ -798,6 +799,14 @@ function AdminTopNav({
                 <>
                   <AdminBubbleHeader title={ADMIN_TOP_TOOL_HINTS.help.title} />
                   <div className="admin-bubble-body admin-bubble-body--menu">
+                    <AdminBubbleMenuItem
+                      title="ServeOS Support"
+                      description="Live chat with platform support"
+                      onClick={() => {
+                        helpMenu.setOpen(false);
+                        dispatchOpenPlatformSupport("PLATFORM_HELP");
+                      }}
+                    />
                     {ADMIN_HELP_CATEGORIES.map((section) => (
                       <AdminBubbleMenuItem
                         key={section.id}
